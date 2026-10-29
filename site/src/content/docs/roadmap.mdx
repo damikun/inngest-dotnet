@@ -1,11 +1,26 @@
 ---
 title: Roadmap
-description: What the first preview of the Inngest .NET SDK added, and what comes next, from guides for the new features to checkpointing by default and middleware packages.
+description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from guides for the new features to checkpointing by default and middleware packages.
 ---
 
 The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
 control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
 under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest) as a preview.
+
+## New in 0.1.0-preview.2
+
+- **Typed events.** An event's data record implements `IInngestEventData` and carries the event's name, so sends,
+  triggers, waits and cancellations name the type instead of repeating a string.
+- **Attributes on function classes.** `[InngestFunction]`, `[EventTrigger<T>]`, `[CronTrigger]`, `[Concurrency]`,
+  `[CancelOn<T>]` and the other flow control attributes keep a function's id, triggers and limits on its class.
+  `AddFunction<T>()` reads them, and options written in code work as before.
+- **Typed results and invoke by class.** `InngestFunction<TEvent, TResult>` gives a function a result type, and
+  `InvokeAsync<TFunction, TResult>` invokes it by its class, with the compiler checking the result.
+- **Settings from `appsettings.json`.** `AddInngest(builder.Configuration.GetSection("Inngest"))` reads the
+  `Inngest` section, and `INNGEST_*` variables still win over it. Like the attributes and typed events, it works
+  under Native AOT.
+- **The test host by class.** `RunAsync<TFunction>` runs a function by its class, and
+  `StepMocks.Invoke<TFunction, TResult>` checks what a mocked invoke returns.
 
 ## New in 0.1.0-preview.1
 

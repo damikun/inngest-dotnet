@@ -178,7 +178,7 @@ Each package targets `net8.0` and `net10.0`.
 
    ```xml
    <ItemGroup>
-     <PackageReference Include="Inngest.AspNetCore" Version="0.1.0-preview.1" />
+     <PackageReference Include="Inngest.AspNetCore" Version="0.1.0-preview.2" />
    </ItemGroup>
    ```
 
