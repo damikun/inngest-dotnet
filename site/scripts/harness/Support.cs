@@ -8,11 +8,20 @@ public interface IEmailSender
     Task<string> SendAsync(string to, string subject, CancellationToken cancellationToken);
 }
 
-public sealed record UserSignedUp(string UserId, string Email);
+public sealed record UserSignedUp(string UserId, string Email) : Inngest.IInngestEventData
+{
+    public static string EventName => "user/signed-up";
+}
 
-public sealed record UserActivated(string UserId);
+public sealed record UserActivated(string UserId) : Inngest.IInngestEventData
+{
+    public static string EventName => "user/activated";
+}
 
-public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total);
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total) : Inngest.IInngestEventData
+{
+    public static string EventName => "shop/order.placed";
+}
 
 public interface IPaymentGateway
 {

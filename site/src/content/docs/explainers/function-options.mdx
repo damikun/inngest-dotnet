@@ -1,6 +1,6 @@
 ---
 title: Function options builder
-description: Build a FunctionOptions value in the browser and see the C# that registers it and the JSON the SDK sends to Inngest when the app syncs.
+description: Build a FunctionOptions value in the browser and see the C# that registers it and the JSON the SDK sends to Inngest when the app syncs, and which attribute sets each option.
 tableOfContents: false
 ---
 
@@ -28,6 +28,32 @@ out, so Inngest applies its defaults. A few details worth knowing:
 
 The checks are the ones `FunctionOptionsValidator` makes when the app starts. The SDK stops at the first problem;
 the builder lists all of them.
+
+## Attributes
+
+The builder writes the options in code. A function class can carry the same options as attributes instead, which
+`AddFunction<TFunction>()` reads into `FunctionOptions` when the app starts, so they sync to the same JSON and go
+through the same checks. Each attribute sets one member:
+
+| Attribute | Sets |
+|---|---|
+| `[InngestFunction("id", Name, Retries, Idempotency)]` | `Id`, `Name`, `Retries`, `Idempotency` |
+| `[EventTrigger("name", If)]`, `[EventTrigger<T>(If)]` | an `EventTrigger` in `Triggers` |
+| `[CronTrigger("schedule", Timezone, Jitter)]` | a `CronTrigger` in `Triggers` |
+| `[Concurrency(limit, Key, Scope)]` | a `ConcurrencyLimit` in `Concurrency` |
+| `[Throttle(limit, "period", Burst, Key)]` | `Throttle` |
+| `[RateLimit(limit, "period", Key)]` | `RateLimit` |
+| `[Debounce("period", Key, Timeout)]` | `Debounce` |
+| `[BatchEvents(maxSize, "timeout", Key, If)]` | `BatchEvents` |
+| `[Priority("run")]` | `Priority` |
+| `[Singleton(mode, Key)]` | `Singleton` |
+| `[CancelOn("name", If, Match, Timeout)]`, `[CancelOn<T>(If, Match, Timeout)]` | a `CancelOn` in `CancelOn` |
+| `[Timeouts(Start, Finish)]` | `Timeouts` |
+
+The trigger, concurrency and cancellation attributes can be repeated. Durations are time strings such as `"30s"`,
+`"5m"` or `"1h30m"`. `Middleware` and `Checkpointing` have no attributes; set them with
+`AddFunction<TFunction>(options => options with { ... })`, which starts from the attributes. Options passed as
+`AddFunction<TFunction>(new FunctionOptions { ... })` replace the attributes.
 
 The site's build checks this page against the SDK: the snippet check compiles the C# of every preset, registers
 it in a real app and compares the JSON the SDK sends with the JSON shown here.

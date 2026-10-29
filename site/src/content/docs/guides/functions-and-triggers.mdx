@@ -1,23 +1,30 @@
 ---
 title: Functions, event triggers and cron in C#
-description: Define Inngest functions as classes or delegates, type their event data, and start them from events, filtered events or cron schedules.
+description: Define Inngest functions as classes configured by attributes, or as delegates, type their events, and start them from events, filtered events or cron schedules.
 sidebar:
   label: Functions and triggers
 ---
 
 A function is code that Inngest runs for you, plus options that tell Inngest when and how to run it. The code is
-an ordinary .NET method; the options go in `FunctionOptions`. This page covers the code side and the triggers. Flow
-control, retries and the other options have pages of their own.
+an ordinary .NET method. The options are `FunctionOptions`, which you write as attributes on the function's class or
+in code. This page covers the code side and the triggers. Flow control, retries and the other options have pages of
+their own.
 
 ## Functions as classes
 
-Derive from `InngestFunction<TEventData>` and register the class with `AddFunction<TFunction>`:
+Derive from `InngestFunction<TEventData>`, describe the function with attributes, and register the class with
+`AddFunction<TFunction>()`:
 
 ```csharp title="ChargeOrder.cs"
 using Inngest;
 
-public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total);
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total) : IInngestEventData
+{
+    public static string EventName => "shop/order.placed";
+}
 
+[InngestFunction("charge-order", Name = "Charge an order")]
+[EventTrigger<OrderPlaced>]
 public sealed class ChargeOrder(IOrderStore orders, IPaymentGateway payments) : InngestFunction<OrderPlaced>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
@@ -49,24 +56,64 @@ public interface IPaymentGateway
 ```csharp title="Program.cs"
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<ChargeOrder>(new FunctionOptions
-    {
-        Id = "charge-order",
-        Name = "Charge an order",
-        Triggers = [Trigger.Event("shop/order.placed")],
-    });
+    .AddFunction<ChargeOrder>();
 ```
+
+`[InngestFunction]` gives the function its id, and optionally a name, retries and an idempotency key. The other
+attributes add triggers and flow control. `AddFunction` reads them once, when the app starts.
 
 The SDK resolves a new instance from a dependency injection scope for every call Inngest makes, and disposes the
 scope when the call ends. Scoped services such as an Entity Framework `DbContext` work as they do in a controller.
 You do not need to register the class yourself; `AddFunction` adds it as a transient service if it is not there.
 
 `ExecuteAsync` returns the function's output, which Inngest stores and shows with the run. Return `null` when there
-is nothing to return. The output is serialized to JSON, like everything a function hands to Inngest.
+is nothing to return. The output is serialized to JSON, like everything a function hands to Inngest. To give the
+output a type, derive from `InngestFunction<TEventData, TResult>` instead; a function that
+[invokes](/inngest-dotnet/guides/invoking-functions/) this one then receives a `TResult`.
+
+## Typed events
+
+`OrderPlaced` implements `IInngestEventData`, which puts the event's name on the record that carries its data. Code
+then names the type instead of repeating the string: `[EventTrigger<OrderPlaced>]` triggers on it,
+`SendAsync(new OrderPlaced(...))` [sends it](/inngest-dotnet/guides/sending-events/), and
+[waits](/inngest-dotnet/guides/sleep-and-wait-for-events/) and
+[cancellations](/inngest-dotnet/guides/flow-control/#cancel-on-events) can name it too. A mistyped name becomes a
+compile error, and nothing can send `UserDeleted` data under the name of `UserSignedUp`.
+
+`EventName` and the optional `EventVersion` are static members, which the SDK reads without reflection, so typed
+events work under Native AOT. Every method that takes a type also has a form that takes the name as a string.
+
+## Options in code
+
+Pass `FunctionOptions` to register a class with options written in code. They replace the class's attributes:
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddFunction<ChargeOrder>(new FunctionOptions
+{
+    Id = "charge-order",
+    Name = "Charge an order",
+    Triggers = [Trigger.Event<OrderPlaced>()],
+});
+```
+
+Each attribute sets the `FunctionOptions` member of the same name, so both forms say the same things;
+[function options](/inngest-dotnet/explainers/function-options/) maps one to the other. To start from the
+attributes and change some of the options in code, for example a limit read from configuration, pass a callback:
+
+{/* check: statements; WebApplicationBuilder builder; IInngestBuilder inngest */}
+```csharp
+var limit = builder.Configuration.GetValue("Billing:ChargeConcurrency", 10);
+
+inngest.AddFunction<ChargeOrder>(options => options with { Concurrency = [new ConcurrencyLimit(limit)] });
+```
+
+The callback is also where function middleware and checkpointing go, since they have no attributes.
 
 ## Functions as delegates
 
-Small functions can be lambdas. Without a type argument the event data is a `JsonElement`:
+Small functions can be lambdas, with their options in code. Without a type argument the event data is a
+`JsonElement`:
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp
@@ -82,7 +129,7 @@ With a type argument it is deserialized as it is for a class:
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp
-inngest.AddFunction<OrderPlaced>(new FunctionOptions { Id = "log-order", Triggers = [Trigger.Event("shop/order.placed")] },
+inngest.AddFunction<OrderPlaced>(new FunctionOptions { Id = "log-order", Triggers = [Trigger.Event<OrderPlaced>()] },
     async (context, cancellationToken) =>
     {
         context.Logger.LogInformation("Order {OrderId} for {Total}", context.Event.Data.OrderId, context.Event.Data.Total);
@@ -123,15 +170,30 @@ example to add converters, change `SerializerOptions` when you call `AddInngest`
 
 ## Event triggers
 
-`Trigger.Event` runs the function for every event with that name. The optional `@if` argument is an
-[expression](https://www.inngest.com/docs/guides/writing-expressions) that Inngest evaluates against the event
-before it starts a run:
+`[EventTrigger<T>]` runs the function for every event of type `T`, and `[EventTrigger("name")]` for every event with
+that name. The optional `If` is an [expression](https://www.inngest.com/docs/guides/writing-expressions) that Inngest
+evaluates against the event before it starts a run:
+
+```csharp
+using Inngest;
+
+[InngestFunction("review-order")]
+[EventTrigger<OrderPlaced>(If = "event.data.total >= 500")]
+[EventTrigger("shop/order.flagged")]
+public sealed class ReviewOrder : InngestFunction<OrderPlaced>
+{
+    public override Task<object?> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken) =>
+        Task.FromResult<object?>(null);
+}
+```
+
+In code, the same triggers are:
 
 {/* check: members FunctionOptions */}
 ```csharp
 Triggers =
 [
-    Trigger.Event("shop/order.placed", @if: "event.data.total >= 500"),
+    Trigger.Event<OrderPlaced>(@if: "event.data.total >= 500"),
     Trigger.Event("shop/order.flagged"),
 ],
 ```
@@ -144,43 +206,60 @@ page of the Inngest docs has more, including wildcard triggers.
 
 ## Cron triggers
 
-`Trigger.Cron` runs the function on a schedule. Schedules have five fields and run in UTC unless you give a time
+`[CronTrigger]` runs the function on a schedule. Schedules have five fields and run in UTC unless you give a time
 zone:
 
-{/* check: members FunctionOptions */}
 ```csharp
-Triggers =
-[
-    Trigger.Cron("0 6 * * 1-5", timezone: "Europe/Prague"),
-    Trigger.Cron("TZ=America/New_York 30 17 * * 5"),
-],
+using System.Text.Json;
+using Inngest;
+
+[InngestFunction("weekly-report")]
+[CronTrigger("0 6 * * 1-5", Timezone = "Europe/Prague")]
+[CronTrigger("TZ=America/New_York 30 17 * * 5", Jitter = "2m")]
+public sealed class WeeklyReport : InngestFunction<JsonElement>
+{
+    public override Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken) =>
+        Task.FromResult<object?>(null);
+}
 ```
 
-The SDK sends the time zone as a `TZ=` prefix, which is how Inngest reads it, so both forms above mean the same
-thing. A scheduled run has an event too, named `inngest/scheduled.timer`, so read its data as `JsonElement`. See
+The SDK sends the time zone as a `TZ=` prefix, which is how Inngest reads it, so both forms above work the same way.
+`Jitter` starts each scheduled run up to that much later, from `"1s"` to `"5m"`, so that functions on the same
+schedule do not all start at once. In code, the triggers are `Trigger.Cron("0 6 * * 1-5", timezone: "Europe/Prague")`
+and `Trigger.Cron("TZ=America/New_York 30 17 * * 5", TimeSpan.FromMinutes(2))`.
+
+A scheduled run has an event too, named `inngest/scheduled.timer`, so read its data as `JsonElement`. See
 [schedules and delayed starts](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/schedules-and-delayed-starts)
 in the Inngest docs for how schedules behave around time zone changes.
 
 ## Functions without triggers
 
-A function with an empty trigger list never starts on its own. Other functions run it with
-[`InvokeAsync`](/inngest-dotnet/guides/invoking-functions/):
+A class with `[InngestFunction]` and no trigger attribute, or options with an empty trigger list, never starts on
+its own. Other functions run it with [`InvokeAsync`](/inngest-dotnet/guides/invoking-functions/), by its class:
 
-{/* check: members FunctionOptions */}
 ```csharp
-Id = "score-account",
-Triggers = [],
+using System.Text.Json;
+using Inngest;
+
+[InngestFunction("score-account")]
+public sealed class ScoreAccount : InngestFunction<JsonElement, int>
+{
+    public override Task<int> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken) =>
+        Task.FromResult(context.Event.Data.GetProperty("accountId").GetString()!.Length * 10);
+}
 ```
 
 ## Ids and names
 
-`Id` is required and must be unique within the app. Inngest knows the function as `<app id>-<id>`, so changing the
-id, or the app id, makes a new function and leaves the old one without code. `Name` is only for display and
+The id is required and must be unique within the app. Inngest knows the function as `<app id>-<id>`, so changing the
+id, or the app id, makes a new function and leaves the old one without code. The name is only for display and
 defaults to the id.
 
-The SDK checks every function's options when the app starts and throws an `InvalidOperationException` that names the
-function if something is invalid, such as a duplicate id or an option out of range. It does not wait for Inngest to
-reject the sync.
+The SDK checks every function's options when the app starts, whether they come from attributes or code, and throws
+an `InvalidOperationException` that names the function if something is invalid, such as a duplicate id or an option
+out of range. It does not wait for Inngest to reject the sync. Attribute durations are time strings, such as
+`"30s"`, `"5m"` or `"1h30m"`, because attribute arguments must be constants; one that is not a time string fails
+when `AddFunction` reads it.
 
 To change a function while runs are in flight, keep its id and the ids of the steps those runs have already
 reached. Inngest's [versioning guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/versioning)

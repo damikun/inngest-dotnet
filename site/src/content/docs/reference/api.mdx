@@ -13,7 +13,10 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | Member | Purpose |
 |---|---|
 | `IServiceCollection.AddInngest(Action<InngestOptions>?)` | Registers the SDK and returns an `IInngestBuilder`. In `Microsoft.Extensions.DependencyInjection`. |
-| `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function, resolved from a scope for every call. |
+| `IServiceCollection.AddInngest(IConfiguration, Action<InngestOptions>?)` | The same, with settings read from a configuration section such as `Inngest` in `appsettings.json`. |
+| `IInngestBuilder.AddFunction<TFunction>()` | Registers a class function configured by its [attributes](#attributes), resolved from a scope for every call. |
+| `IInngestBuilder.AddFunction<TFunction>(Func<FunctionOptions, FunctionOptions>)` | Registers a class function with the options its attributes give, as the callback changes them. |
+| `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function with these options; attributes on the class are ignored. |
 | `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?)` | Registers a delegate function with typed event data. |
 | `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?)` | Registers a delegate function with `JsonElement` event data. |
 | `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |
@@ -59,14 +62,39 @@ The flow control records and their constructor arguments and properties:
 | `FunctionTimeouts` | | `Start`, `Finish` |
 | `Singleton` | `(SingletonMode Mode)` | `Key`; modes `Skip` and `Cancel` |
 
-**Triggers**: `Trigger.Event(string name, string? @if = null)` returns an `EventTrigger`, and
-`Trigger.Cron(string schedule, string? timezone = null)` a `CronTrigger`. Both derive from `FunctionTrigger`.
+**Triggers**: `Trigger.Event(string name, string? @if = null)` and `Trigger.Event<T>(string? @if = null)`, for a
+typed event `T`, return an `EventTrigger`, and `Trigger.Cron(string schedule, string? timezone = null)` a
+`CronTrigger`. Both derive from `FunctionTrigger`. `CancelOn.For<T>()` returns a `CancelOn` for a typed event.
+
+## Attributes
+
+Each sets the `FunctionOptions` member of the same name; durations are time strings such as `"30s"` or `"1h30m"`.
+`AddFunction<TFunction>()` reads them when the app starts.
+
+| Attribute | Constructor | Properties |
+|---|---|---|
+| `InngestFunctionAttribute` | `(string id)` | `Name`, `Retries`, `Idempotency` |
+| `EventTriggerAttribute`, `EventTriggerAttribute<T>` | `(string name)`, `()` | `If`; repeatable |
+| `CronTriggerAttribute` | `(string schedule)` | `Timezone`, `Jitter`; repeatable |
+| `ConcurrencyAttribute` | `(int limit)` | `Key`, `Scope`; repeatable |
+| `ThrottleAttribute` | `(int limit, string period)` | `Burst`, `Key` |
+| `RateLimitAttribute` | `(int limit, string period)` | `Key` |
+| `DebounceAttribute` | `(string period)` | `Key`, `Timeout` |
+| `BatchEventsAttribute` | `(int maxSize, string timeout)` | `Key`, `If` |
+| `PriorityAttribute` | `(string run)` | |
+| `SingletonAttribute` | `(SingletonMode mode)` | `Key` |
+| `CancelOnAttribute`, `CancelOnAttribute<T>` | `(string name)`, `()` | `If`, `Match`, `Timeout`; repeatable |
+| `TimeoutsAttribute` | | `Start`, `Finish` |
+
+The generic forms take the event's name from `T`, which implements `IInngestEventData`.
 
 ## Functions
 
 | Type | Purpose |
 |---|---|
-| `InngestFunction<TEventData>` | Base class of class functions. Override `ExecuteAsync(FunctionContext<TEventData>, CancellationToken)`. |
+| `InngestFunction<TEventData>` | Base class of class functions. Override `ExecuteAsync(FunctionContext<TEventData>, CancellationToken)`, which returns `Task<object?>`. |
+| `InngestFunction<TEventData, TResult>` | Base class of class functions with a result type: `ExecuteAsync` returns `Task<TResult>`. `InngestFunction<TEventData>` derives from it with `object?`. |
+| `IReturns<TResult>` | Implemented by `InngestFunction<TEventData, TResult>`, so that `InvokeAsync<TFunction, TResult>` can require the result type. |
 | `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`. |
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
@@ -85,10 +113,13 @@ The flow control records and their constructor arguments and properties:
 | `WaitForEventAsync<TData>(string id, WaitForEventOptions options)` | `Task<InngestEvent<TData>?>` |
 | `InvokeAsync<TResult>(string id, InvokeOptions options)` | `Task<TResult>` |
 | `SendEventAsync(string id, IReadOnlyList<InngestEvent> events)` | `Task<SendEventsResult>` |
+| `InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)` | `Task<TResult>`; runs the function registered as `TFunction`, which must return a `TResult` |
 
 `StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
 synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, and `SendEventAsync` for a single
-event.
+event. For a typed event `T` it adds `WaitForEventAsync<T>(string id, TimeSpan timeout, string? match = null,
+string? @if = null)` and `SendEventAsync<T>` for one `T` or several. Every method also takes a `StepOptions` in place
+of the id.
 
 | Record | Constructor | Properties |
 |---|---|---|
@@ -100,6 +131,8 @@ event.
 | Type | Purpose |
 |---|---|
 | `IInngestClient` | `SendAsync(InngestEvent, CancellationToken)` and `SendAsync(IEnumerable<InngestEvent>, CancellationToken)`; `AppId`. |
+| `IInngestEventData` | Implemented by an event's data record: `static abstract string EventName` and `static virtual string? EventVersion`. |
+| `InngestClientExtensions` | `SendAsync<T>(T, CancellationToken)` and `SendAsync<T>(IEnumerable<T>, CancellationToken)` for typed events. |
 | `InngestEvent` | An event to send: `(string Name, object? Data = null)` with `Id`, `User`, `Timestamp`, `Version`. |
 | `InngestEvent<TData>` | A received event: `Name`, `Data`, `Id`, `User`, `Timestamp`, `Version`. |
 | `SendEventsResult` | `Ids` of the sent events, in order. |

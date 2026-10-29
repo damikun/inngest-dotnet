@@ -1,6 +1,6 @@
 ---
 title: Invoking functions from other functions
-description: Run another Inngest function from a step with InvokeAsync, pass it data, get its result back, and handle failures and timeouts.
+description: Run another Inngest function from a step with InvokeAsync, by its class or its id, pass it data, get its typed result back, and handle failures and timeouts.
 sidebar:
   label: Invoking functions
 ---
@@ -10,17 +10,19 @@ own, with its own retries, flow control and history, and its output comes back a
 
 {/* check: body JsonElement */}
 ```csharp
-var score = await context.Step.InvokeAsync<AccountScore>("score-acme",
-    new InvokeOptions("score-account") { Data = new { accountId = "acme" }, Timeout = TimeSpan.FromMinutes(5) });
+var score = await context.Step.InvokeAsync<ScoreAccount, AccountScore>("score-acme",
+    new ScoreRequest("acme"), timeout: TimeSpan.FromMinutes(5));
 
 context.Logger.LogInformation("acme scored {Score}", score.Score);
 ```
 
-`"score-account"` is the id the function was registered with. The type argument is the type to read its output as.
+`ScoreAccount` is the class of the function to run. The step looks up the id the app registered it under, from its
+attributes or from options in code, and the compiler checks that `ScoreAccount` returns an `AccountScore`.
 
 ## The invoked function
 
-Any function can be invoked. One that should only ever be invoked has no triggers:
+Any function can be invoked. Give it a result type with `InngestFunction<TEventData, TResult>`, and one that should
+only ever be invoked has no trigger:
 
 ```csharp title="ScoreAccount.cs"
 using Inngest;
@@ -29,9 +31,10 @@ public sealed record ScoreRequest(string AccountId);
 
 public sealed record AccountScore(string AccountId, int Score);
 
-public sealed class ScoreAccount(IScoring scoring) : InngestFunction<ScoreRequest>
+[InngestFunction("score-account")]
+public sealed class ScoreAccount(IScoring scoring) : InngestFunction<ScoreRequest, AccountScore>
 {
-    public override async Task<object?> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken)
+    public override async Task<AccountScore> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken)
     {
         var accountId = context.Event.Data.AccountId;
         var score = await context.Step.RunAsync("compute-score", ct => scoring.ScoreAsync(accountId, ct));
@@ -45,24 +48,37 @@ public interface IScoring
 }
 ```
 
-{/* check: members FunctionOptions */}
+{/* check: statements; IInngestBuilder inngest */}
 ```csharp
-Id = "score-account",
-Triggers = [],
+inngest.AddFunction<ScoreAccount>();
 ```
 
-Inngest starts the invoked run with an `inngest/function.invoked` event whose `data` is the `Data` you passed, so
-the invoked function reads it as its event data. Its return value is what `InvokeAsync` returns.
+Inngest starts the invoked run with an `inngest/function.invoked` event whose `data` is the data you passed, so the
+invoked function reads it as its event data. Its return value is what `InvokeAsync` returns.
+
+A class that derives from `InngestFunction<TEventData>` returns `object?`, so a caller can only read its result as
+`object`. Give it a result type, or invoke it by its id.
+
+## By id
+
+To invoke a function of another app, a delegate, or a function whose class the caller cannot reference, name it by
+the id it was registered with. The type argument is then only the type to read its output as:
+
+{/* check: body JsonElement */}
+```csharp
+var score = await context.Step.InvokeAsync<AccountScore>("score-acme",
+    new InvokeOptions("score-account") { Data = new { accountId = "acme" }, Timeout = TimeSpan.FromMinutes(5) });
+```
 
 ## Options
 
 | Option | Meaning |
 |---|---|
-| `FunctionId` | The id of the function to run, as registered. |
-| `AppId` | The app the function belongs to. Defaults to the current app, so set it only to invoke a function of another app in the same Inngest environment. |
-| `Data` | The invoked run's event data. Serialized with the app's serializer options. |
-| `User` | Optional user data for the invoked run's event. |
-| `Timeout` | How long to wait for the invoked function. When it passes, the step fails; the invoked run keeps going. |
+| `data` | The invoked run's event data. Serialized with the app's serializer options. In `InvokeOptions`, `Data`. |
+| `timeout` | How long to wait for the invoked function. When it passes, the step fails; the invoked run keeps going. In `InvokeOptions`, `Timeout`. |
+| `FunctionId` | `InvokeOptions` only: the id of the function to run, as registered. |
+| `AppId` | `InvokeOptions` only: the app the function belongs to. Defaults to the current app, so set it only to invoke a function of another app in the same Inngest environment. |
+| `User` | `InvokeOptions` only: optional user data for the invoked run's event. |
 
 Without a timeout Inngest waits a long time; see
 [step.invoke](https://www.inngest.com/docs/durable-execution/primitives/step-invoke) in the Inngest docs for its
@@ -78,8 +94,8 @@ retries, and the invoked function's concurrency limit caps how many run at once:
 string[] accountIds = ["acme", "globex", "initech"];
 
 var scores = await Task.WhenAll(accountIds.Select(accountId =>
-    context.Step.InvokeAsync<AccountScore>($"score-{accountId}",
-        new InvokeOptions("score-account") { Data = new ScoreRequest(accountId), Timeout = TimeSpan.FromMinutes(5) })));
+    context.Step.InvokeAsync<ScoreAccount, AccountScore>($"score-{accountId}",
+        new ScoreRequest(accountId), timeout: TimeSpan.FromMinutes(5))));
 
 await context.Step.SendEventAsync("announce-scores",
     new InngestEvent("reports/scores.ready", new { total = scores.Sum(score => score.Score) }));
@@ -99,8 +115,8 @@ result:
 AccountScore? score;
 try
 {
-    score = await context.Step.InvokeAsync<AccountScore>("score-acme",
-        new InvokeOptions("score-account") { Data = new ScoreRequest("acme"), Timeout = TimeSpan.FromMinutes(5) });
+    score = await context.Step.InvokeAsync<ScoreAccount, AccountScore>("score-acme",
+        new ScoreRequest("acme"), timeout: TimeSpan.FromMinutes(5));
 }
 catch (StepFailedException exception)
 {

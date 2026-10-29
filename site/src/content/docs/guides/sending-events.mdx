@@ -9,6 +9,32 @@ Events start functions. An event has a name and JSON data, and every function wi
 There are two ways to send one: `IInngestClient` from ordinary application code, and `context.Step.SendEventAsync`
 from inside a function.
 
+## Typed events
+
+An event's data is usually a record. Implement `IInngestEventData` on it to give the record the event's name, and
+code can send the record itself:
+
+```csharp title="Events.cs"
+using Inngest;
+
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total) : IInngestEventData
+{
+    public static string EventName => "shop/order.placed";
+}
+
+public sealed record LabelRequested(string OrderId) : IInngestEventData
+{
+    public static string EventName => "shipping/label.requested";
+
+    // Optional: the version of the event's schema, sent as "v".
+    public static string? EventVersion => "2026-10-01";
+}
+```
+
+The functions that run on the event name the type as well, with `[EventTrigger<OrderPlaced>]`. The name can then
+no longer drift from the data it carries, and a typo is a compile error. Everything below also works with an
+`InngestEvent` that names the event as a string, for events without a record of their own.
+
 ## From application code
 
 `AddInngest` registers `IInngestClient` as a singleton. Inject it anywhere:
@@ -18,19 +44,12 @@ using Inngest;
 
 public sealed record Order(string Id, string CustomerId, decimal Total);
 
-public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total);
-
 public sealed class CheckoutService(IInngestClient inngest, ILogger<CheckoutService> logger)
 {
     public async Task PlaceOrderAsync(Order order, CancellationToken cancellationToken)
     {
         // Save the order first, then announce it.
-        var sent = await inngest.SendAsync(
-            new InngestEvent("shop/order.placed", new OrderPlaced(order.Id, order.CustomerId, order.Total))
-            {
-                Id = $"order-placed-{order.Id}",
-            },
-            cancellationToken);
+        var sent = await inngest.SendAsync(new OrderPlaced(order.Id, order.CustomerId, order.Total), cancellationToken);
 
         logger.LogInformation("Order {OrderId} placed as event {EventId}", order.Id, sent.Ids[0]);
     }
@@ -42,9 +61,18 @@ request, pass a list:
 
 {/* check: statements; IInngestClient inngest; IReadOnlyList<Order> orders; CancellationToken cancellationToken */}
 ```csharp
-await inngest.SendAsync(
-    orders.Select(order => new InngestEvent("shop/order.placed", new OrderPlaced(order.Id, order.CustomerId, order.Total))),
-    cancellationToken);
+await inngest.SendAsync(orders.Select(order => new OrderPlaced(order.Id, order.CustomerId, order.Total)), cancellationToken);
+```
+
+To set an id, a timestamp or user data, wrap the record in an `InngestEvent`, as the sections below do. Take its name
+from the type:
+
+{/* check: statements; IInngestClient inngest; Order order; CancellationToken cancellationToken */}
+```csharp
+await inngest.SendAsync(new InngestEvent(OrderPlaced.EventName, new OrderPlaced(order.Id, order.CustomerId, order.Total))
+{
+    Id = $"order-placed-{order.Id}",
+}, cancellationToken);
 ```
 
 ## From a function
@@ -56,16 +84,18 @@ the saved ids instead of sending the events again.
 ```csharp
 var order = context.Event.Data;
 
-await context.Step.SendEventAsync("request-shipping",
-    new InngestEvent("shipping/label.requested", new { order.OrderId }));
+await context.Step.SendEventAsync("request-shipping", new LabelRequested(order.OrderId));
 ```
+
+The step takes a list of records too, or `InngestEvent`s for events named by a string.
 
 Sending through `IInngestClient` inside a function would send again on every call that passes that line. Use the
 step tool there.
 
 ## What an event holds
 
-`InngestEvent` is a record with the name and the data, plus optional properties:
+`InngestEvent` is a record with the name and the data, plus optional properties. A typed send creates one with the
+type's name and version:
 
 | Property | Meaning |
 |---|---|
@@ -74,7 +104,7 @@ step tool there.
 | `Id` | A deduplication key. Inngest ignores a second event with the same id for 24 hours. |
 | `Timestamp` | When the event happened. Defaults to when Inngest receives it. A time in the future delays the runs it starts. |
 | `User` | Optional user data. |
-| `Version` | An optional version of the event's schema, sent as `v`. |
+| `Version` | An optional version of the event's schema, sent as `v`. A typed event takes it from `EventVersion`. |
 
 ### Deduplicating with an id
 

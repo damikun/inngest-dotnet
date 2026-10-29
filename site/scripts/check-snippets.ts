@@ -14,6 +14,7 @@
 //   {/* check: statements; WebApplicationBuilder builder */}  statements with the listed parameters
 //   {/* check: expression FunctionOptions */}            an expression of that type
 //   {/* check: members FunctionOptions */}               object initializer members of that type
+//   {/* check: attributes */}                            attributes of a function class, put on a class of their own
 //   {/* check: file isolated */}                         types in a namespace of their own
 //   {/* check: skip */}                                  not compiled
 //
@@ -47,7 +48,7 @@ if (out === repo || out.startsWith(repo + sep)) {
   process.exit(2);
 }
 
-type Kind = 'auto' | 'file' | 'program' | 'body' | 'statements' | 'expression' | 'members' | 'skip';
+type Kind = 'auto' | 'file' | 'program' | 'body' | 'statements' | 'expression' | 'members' | 'attributes' | 'skip';
 
 interface Directive {
   kind: Kind;
@@ -82,7 +83,7 @@ function walk(dir: string): string[] {
 function parseDirective(text: string): Directive {
   const [head = '', ...params] = text.split(';').map((part) => part.trim());
   const words = head.split(/\s+/).filter(Boolean);
-  const kinds: Kind[] = ['file', 'program', 'body', 'statements', 'expression', 'members', 'skip'];
+  const kinds: Kind[] = ['file', 'program', 'body', 'statements', 'expression', 'members', 'attributes', 'skip'];
   const kind = kinds.find((k) => k === words[0]?.replace(/[,:]$/, '')) ?? 'auto';
   const rest = words.slice(1).filter((word) => word !== 'isolated');
   return { kind, type: rest[0], params: params.filter(Boolean), isolated: words.includes('isolated') };
@@ -171,7 +172,7 @@ function namespaceOf(page: string): string {
 // Fragments are code that sits inside a reader's own file, which is assumed to have `using Inngest;`. Whole files and
 // programs must bring their own using directives. Every block is a file of its own, so that one block's usings never
 // help another; the blocks of a page share a namespace, so that their types do.
-const FRAGMENTS: Kind[] = ['body', 'statements', 'expression', 'members'];
+const FRAGMENTS: Kind[] = ['body', 'statements', 'expression', 'members', 'attributes'];
 
 function generateSnippet(snippet: Snippet): string | undefined {
   const { usings: own, rest } = splitUsings(snippet.lines);
@@ -251,6 +252,16 @@ function generateSnippet(snippet: Snippet): string | undefined {
       ].join('\n');
       break;
     }
+    case 'attributes':
+      code = [
+        block(rest, file),
+        `internal sealed class Snippet${index} : InngestFunction<JsonElement>`,
+        '{',
+        '    public override Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken) =>',
+        '        Task.FromResult<object?>(null);',
+        '}',
+      ].join('\n');
+      break;
     default:
       throw new Error(`Unknown kind ${kind}`);
   }

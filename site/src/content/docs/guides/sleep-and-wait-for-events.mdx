@@ -50,15 +50,15 @@ To delay the start of a whole function rather than part of it, send the triggeri
 
 ## Wait for an event
 
-`WaitForEventAsync` pauses until an event with the given name arrives, or until the timeout passes. It returns the
-event, or `null` on timeout:
+`WaitForEventAsync` pauses until a matching event arrives, or until the timeout passes. It returns the event, or
+`null` on timeout:
 
 {/* check: body UserSignedUp; IEmailSender email */}
 ```csharp
 var user = context.Event.Data;
 
 var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
-    new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+    TimeSpan.FromDays(3), match: "data.userId");
 
 if (activated is null)
 {
@@ -66,8 +66,17 @@ if (activated is null)
 }
 ```
 
-The type argument is the event's data type; leave it out to get a `JsonElement`. The timeout is required, so a run
-can never wait forever.
+`UserActivated` is a [typed event](/inngest-dotnet/guides/sending-events/#typed-events), so the wait takes the
+event's name from the type and reads its data into it. For an event without a record of its own, name it in
+`WaitForEventOptions`; the type argument is then only the data type, and leaving it out gives a `JsonElement`:
+
+{/* check: body UserSignedUp */}
+```csharp
+var reply = await context.Step.WaitForEventAsync("wait-for-reply",
+    new WaitForEventOptions("support/ticket.replied", TimeSpan.FromDays(3)) { Match = "data.userId" });
+```
+
+The timeout is required, so a run can never wait forever.
 
 ### Matching the right event
 
@@ -86,7 +95,8 @@ new WaitForEventOptions("billing/invoice.paid", TimeSpan.FromDays(14))
 }
 ```
 
-When both are set, `Match` wins and `If` is ignored.
+When both are set, both apply: the SDK joins them with `&&`. The typed form takes them as the `match` and `@if`
+arguments.
 
 ### Only events after the wait starts
 
