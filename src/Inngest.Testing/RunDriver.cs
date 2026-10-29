@@ -304,6 +304,17 @@ internal sealed class RunDriver
 
             case ReportedOp.InvokeFunction when mock is InvokeMock invoke:
                 step.Mocked = true;
+                if (invoke.Function is { } function)
+                {
+                    var invoked = ReportedOp.Text(op.Options, "function_id");
+                    var mocked = _host.CompositeIdOf(function);
+                    if (!string.Equals(invoked, mocked, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Step \"{step.Id}\" invokes \"{invoked}\", but its mock answers for {function.Name}, which is \"{mocked}\".");
+                    }
+                }
+
                 Enqueue(new Work(WorkKind.Complete, Step: step, Memo: invoke.ToMemo(_host.SerializerOptions), Error: invoke.Error), _clock.Now);
                 break;
         }

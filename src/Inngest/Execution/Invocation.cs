@@ -10,7 +10,9 @@ using Inngest.Errors;
 using Inngest.Functions;
 using Inngest.Internal;
 using Inngest.Middleware;
+using Inngest.Registration;
 using Inngest.Steps;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Execution;
@@ -127,6 +129,9 @@ internal sealed class Invocation
     }
 
     public JsonSerializerOptions SerializerOptions => _settings.SerializerOptions;
+
+    // The id the app registered the function class under, for invoking it by its class.
+    public string FunctionIdOf(Type functionType) => _services.GetRequiredService<IFunctionRegistry>().FunctionIdOf(functionType);
 
     // Null unless some middleware of the call rewrites payloads; steps read and write their JSON through it.
     public PayloadTransforms? Transforms { get; }

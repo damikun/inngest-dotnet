@@ -42,9 +42,10 @@ internal sealed class InvokeMock : StepMock
 {
     private readonly Action<Utf8JsonWriter, JsonSerializerOptions> _write;
 
-    private InvokeMock(Exception? error, Action<Utf8JsonWriter, JsonSerializerOptions> write)
+    private InvokeMock(Exception? error, Type? function, Action<Utf8JsonWriter, JsonSerializerOptions> write)
     {
         Error = error;
+        Function = function;
         _write = write;
     }
 
@@ -52,7 +53,10 @@ internal sealed class InvokeMock : StepMock
 
     public Exception? Error { get; }
 
-    public static InvokeMock Returning<T>(T result) => new(null, (writer, options) =>
+    // The function class the test says the step invokes, or null when it named none.
+    public Type? Function { get; }
+
+    public static InvokeMock Returning<T>(T result, Type? function = null) => new(null, function, (writer, options) =>
     {
         writer.WriteStartObject();
         writer.WritePropertyName("data");
@@ -60,7 +64,7 @@ internal sealed class InvokeMock : StepMock
         writer.WriteEndObject();
     });
 
-    public static InvokeMock Throwing(Exception error) => new(error, (writer, _) =>
+    public static InvokeMock Throwing(Exception error) => new(error, null, (writer, _) =>
     {
         writer.WriteStartObject();
         writer.WritePropertyName("error");

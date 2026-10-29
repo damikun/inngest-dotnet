@@ -11,7 +11,33 @@ namespace Inngest;
 
 public static class InngestBuilderExtensions
 {
-    // Registers a class-based function. A new instance is resolved from the invocation's scope every time.
+    // Registers a function class configured by its [InngestFunction], trigger and flow control attributes, which are
+    // read once, here.
+    public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
+        this IInngestBuilder builder)
+        where TFunction : InngestFunction
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder.AddFunction<TFunction>(FunctionAttributes.Read(typeof(TFunction)));
+    }
+
+    // Registers a function class with the options its attributes give, as changed by configure, for example to apply
+    // a limit read from configuration: options => options with { Concurrency = [new ConcurrencyLimit(limit)] }.
+    public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
+        this IInngestBuilder builder,
+        Func<FunctionOptions, FunctionOptions> configure)
+        where TFunction : InngestFunction
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = configure(FunctionAttributes.Read(typeof(TFunction)))
+            ?? throw new InvalidOperationException($"The configure callback for {typeof(TFunction).Name} returned null instead of the function's options.");
+
+        return builder.AddFunction<TFunction>(options);
+    }
+
+    // Registers a class-based function with these options; attributes on the class are ignored. A new instance is
+    // resolved from the invocation's scope every time.
     public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
         this IInngestBuilder builder,
         FunctionOptions options)
@@ -21,7 +47,10 @@ public static class InngestBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
         builder.Services.TryAddTransient<TFunction>();
         AddFunctionMiddleware(builder.Services, options);
-        builder.Services.AddSingleton(new FunctionDefinition(options, static services => services.GetRequiredService<TFunction>()));
+        builder.Services.AddSingleton(new FunctionDefinition(options, static services => services.GetRequiredService<TFunction>())
+        {
+            FunctionType = typeof(TFunction),
+        });
         if (typeof(IFailureHandler).IsAssignableFrom(typeof(TFunction)))
         {
             builder.Services.AddSingleton(new FunctionDefinition(

@@ -38,6 +38,10 @@ internal sealed class FakeFunctionRegistry : IFunctionRegistry
         return false;
     }
 
+    // The fake's functions are delegates, so none can be found by a class.
+    public string FunctionIdOf(Type functionType) =>
+        throw new InvalidOperationException($"No function is registered as {functionType.Name}.");
+
     public void WriteRegistration(PooledBufferWriter writer, Uri serveUrl, string framework, string? deployType = null)
     {
         Registrations.Add((serveUrl, framework));

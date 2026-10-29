@@ -134,6 +134,32 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         return StartAsync(functionId, [@event], mocks, stepId, cancellationToken);
     }
 
+    // The overloads above, for the function registered as TFunction, so a test of an attribute class does not repeat
+    // the id the attribute gives it.
+    public Task<TestRun> RunAsync<TFunction>(InngestEvent @event, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunAsync(FunctionIdOf(typeof(TFunction)), @event, cancellationToken);
+
+    public Task<TestRun> RunAsync<TFunction>(InngestEvent @event, StepMocks mocks, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunAsync(FunctionIdOf(typeof(TFunction)), @event, mocks, cancellationToken);
+
+    public Task<TestRun> RunAsync<TFunction>(IReadOnlyList<InngestEvent> events, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunAsync(FunctionIdOf(typeof(TFunction)), events, cancellationToken);
+
+    public Task<TestRun> RunAsync<TFunction>(IReadOnlyList<InngestEvent> events, StepMocks mocks, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunAsync(FunctionIdOf(typeof(TFunction)), events, mocks, cancellationToken);
+
+    public Task<TestRun> ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        ExecuteStepAsync(FunctionIdOf(typeof(TFunction)), stepId, @event, cancellationToken);
+
+    public Task<TestRun> ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        ExecuteStepAsync(FunctionIdOf(typeof(TFunction)), stepId, @event, mocks, cancellationToken);
+
     public void Dispose() => _provider.Dispose();
 
     public ValueTask DisposeAsync() => _provider.DisposeAsync();
@@ -204,6 +230,10 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         var registered = string.Join(", ", _registry.Functions.Select(static function => $"\"{function.Id}\""));
         throw new ArgumentException($"No function \"{functionId}\" is registered. Registered functions: {registered}.", nameof(functionId));
     }
+
+    internal string CompositeIdOf(Type functionType) => CompositeId(FunctionIdOf(functionType));
+
+    private string FunctionIdOf(Type functionType) => _registry.FunctionIdOf(functionType);
 
     private string CompositeId(string functionId) => $"{_settings.AppId}-{functionId}";
 

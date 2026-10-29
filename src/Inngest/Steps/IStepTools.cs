@@ -43,6 +43,11 @@ public interface IStepTools
     Task<TResponse> InferAsync<TResponse>(string id, InferOptions options) =>
         throw new NotSupportedException($"{GetType().Name} does not implement InferAsync.");
 
+    /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
+    Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
+        where TFunction : InngestFunction, IReturns<TResult> =>
+        throw new NotSupportedException($"{GetType().Name} does not implement InvokeAsync by function class.");
+
     // The StepOptions overloads give a step a display name or a parallel mode of its own. They fall back to the
     // members above with the id alone, so a fake that implements only those still works.
 
@@ -78,6 +83,11 @@ public interface IStepTools
 
     /// <summary>Has Inngest send the request to an AI provider and returns the provider's memoized response.</summary>
     Task<TResponse> InferAsync<TResponse>(StepOptions stepOptions, InferOptions options) => InferAsync<TResponse>(IdOf(stepOptions), options);
+
+    /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
+    Task<TResult> InvokeAsync<TFunction, TResult>(StepOptions stepOptions, object? data = null, TimeSpan? timeout = null)
+        where TFunction : InngestFunction, IReturns<TResult> =>
+        InvokeAsync<TFunction, TResult>(IdOf(stepOptions), data, timeout);
 
     /// <summary>Runs the callback with the parallel mode applied to every step it creates, such as the steps of a race.</summary>
     Task<T> ParallelAsync<T>(ParallelMode mode, Func<Task<T>> steps) => ParallelScope.Run(mode, steps);

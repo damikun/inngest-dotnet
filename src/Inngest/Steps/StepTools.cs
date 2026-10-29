@@ -58,6 +58,14 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
     public Task<TResponse> InferAsync<TResponse>(StepOptions stepOptions, InferOptions options) =>
         Infer<TResponse>(IdOf(stepOptions), stepOptions, options);
 
+    public Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
+        where TFunction : InngestFunction, IReturns<TResult> =>
+        Invoke<TResult>(id, null, InvokeOptionsFor<TFunction>(data, timeout));
+
+    public Task<TResult> InvokeAsync<TFunction, TResult>(StepOptions stepOptions, object? data = null, TimeSpan? timeout = null)
+        where TFunction : InngestFunction, IReturns<TResult> =>
+        Invoke<TResult>(IdOf(stepOptions), stepOptions, InvokeOptionsFor<TFunction>(data, timeout));
+
     private Task<T> Run<T>(string id, StepOptions? stepOptions, Func<CancellationToken, Task<T>> handler)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
@@ -172,6 +180,10 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         JsonPayload.EnsureObject(options.Body, invocation.SerializerOptions, "body", "infer step", id);
         return Register(new InferStep<TResponse>(id, options), stepOptions);
     }
+
+    // The registry knows the id of every class it registered, whether the class has attributes or not.
+    private InvokeOptions InvokeOptionsFor<TFunction>(object? data, TimeSpan? timeout) =>
+        new(invocation.FunctionIdOf(typeof(TFunction))) { Data = data, Timeout = timeout };
 
     // The options have to be on the step before it is registered, which may hand it to middleware right away.
     private Task<T> Register<T>(FoundStep<T> step, StepOptions? stepOptions)

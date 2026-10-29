@@ -13,6 +13,10 @@ internal interface IFunctionRegistry
     // Resolves the fnId query parameter, which is "<app id>-<function id>".
     bool TryGet(string compositeId, out FunctionDefinition function);
 
+    // The id of the function registered as the class functionType. Throws InvalidOperationException when no function
+    // or more than one is.
+    string FunctionIdOf(Type functionType);
+
     // Writes the sync body Inngest expects, with every function's step URL pointing at serveUrl.
     void WriteRegistration(PooledBufferWriter writer, Uri serveUrl, string framework, string? deployType = null);
 }

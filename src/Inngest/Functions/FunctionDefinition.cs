@@ -14,5 +14,8 @@ internal sealed class FunctionDefinition(FunctionOptions options, Func<IServiceP
     // app id, so the registry adds it when the app id is known.
     public string? FailureHandlerFor { get; init; }
 
+    // The class of a class-based function, by which other functions can invoke it. Null for a delegate.
+    public Type? FunctionType { get; init; }
+
     public InngestFunction Resolve(IServiceProvider services) => resolve(services);
 }

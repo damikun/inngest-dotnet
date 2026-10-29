@@ -64,6 +64,12 @@ public sealed class StepMocks
     // The invoked function returns result.
     public StepMocks Invoke<T>(string stepId, T result) => With(stepId, InvokeMock.Returning(result));
 
+    // The invoked function returns result, which the compiler checks is what TFunction returns. The run fails if the
+    // step invokes another function.
+    public StepMocks Invoke<TFunction, TResult>(string stepId, TResult result)
+        where TFunction : InngestFunction, IReturns<TResult> =>
+        With(stepId, InvokeMock.Returning(result, typeof(TFunction)));
+
     // The invoked function fails with exception, which the invoking function receives as a StepFailedException.
     public StepMocks InvokeThrows(string stepId, Exception exception)
     {
