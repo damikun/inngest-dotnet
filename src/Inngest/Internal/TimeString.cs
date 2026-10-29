@@ -52,7 +52,58 @@ internal static class TimeString
         return new string(buffer[..length]);
     }
 
+    // Reads what Format writes: whole numbers, each followed by w, d, h, m or s, such as "30s" or "1h30m".
+    public static bool TryParse(string? text, out TimeSpan duration)
+    {
+        duration = TimeSpan.Zero;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var total = 0L;
+        var position = 0;
+        while (position < text.Length)
+        {
+            var start = position;
+            while (position < text.Length && char.IsAsciiDigit(text[position]))
+            {
+                position++;
+            }
+
+            if (position == start || position == text.Length ||
+                !long.TryParse(text.AsSpan(start, position - start), NumberStyles.None, CultureInfo.InvariantCulture, out var count))
+            {
+                return false;
+            }
+
+            var unit = UnitTicks(text[position++]);
+            if (unit == 0 || count > (long.MaxValue - total) / unit)
+            {
+                return false;
+            }
+
+            total += count * unit;
+        }
+
+        duration = TimeSpan.FromTicks(total);
+        return true;
+    }
+
     // RFC 3339 in UTC with millisecond precision, the form Inngest accepts for absolute times.
     public static string Format(DateTimeOffset instant) =>
         instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+
+    private static long UnitTicks(char suffix)
+    {
+        foreach (var (unit, ticks) in Units)
+        {
+            if (unit == suffix)
+            {
+                return ticks;
+            }
+        }
+
+        return 0;
+    }
 }
