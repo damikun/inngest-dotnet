@@ -32,7 +32,9 @@ public static class InngestServiceCollectionExtensions
 
         // Fails the host at startup rather than on the first request or send.
         options
-            .Validate(static o => !string.IsNullOrWhiteSpace(o.AppId), "InngestOptions.AppId is required, for example AddInngest(options => options.AppId = \"my-app\").")
+            .Validate(
+                static o => !string.IsNullOrWhiteSpace(o.AppId) || (o.Configuration is { } section && InngestConfiguration.ReadAppId(section) is not null),
+                "InngestOptions.AppId is required, for example AddInngest(options => options.AppId = \"my-app\"), or as AppId in the configuration section passed to AddInngest.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
@@ -57,5 +59,17 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<InngestCommHandler>();
 
         return new InngestBuilder(services);
+    }
+
+    // Takes the settings from a section such as builder.Configuration.GetSection("Inngest"). It is the lowest layer,
+    // below options set in code and the INNGEST_* variables, so the order of the calls that configure the options
+    // never matters.
+    public static IInngestBuilder AddInngest(this IServiceCollection services, IConfiguration configuration, Action<InngestOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddOptions<InngestOptions>().Configure(options => options.Configuration = configuration);
+        return services.AddInngest(configure);
     }
 }

@@ -4,11 +4,12 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Microsoft.Extensions.Configuration;
 
 namespace Inngest;
 
 // Settings left null fall back to the INNGEST_* environment variables (INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY,
-// INNGEST_DEV, ...) and then to Inngest Cloud defaults.
+// INNGEST_DEV, ...), then to the configuration section given to AddInngest, and then to Inngest Cloud defaults.
 public sealed class InngestOptions
 {
     public string? AppId { get; set; }
@@ -61,6 +62,10 @@ public sealed class InngestOptions
     // Used for event data, step results and function output. Add source-generated contexts to its
     // TypeInfoResolverChain to run without reflection, for example under Native AOT.
     public JsonSerializerOptions SerializerOptions { get; set; } = CreateSerializerOptions();
+
+    // The section AddInngest(IConfiguration) was given. InngestSettings reads it below the options and the variables,
+    // so registering it needs no order against the callbacks that set the options.
+    internal IConfiguration? Configuration { get; set; }
 
     private static JsonSerializerOptions CreateSerializerOptions()
     {

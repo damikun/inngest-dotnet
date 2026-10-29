@@ -18,15 +18,16 @@ internal enum InngestMode
 internal sealed record InngestSettings
 {
     private const string DevVariableName = "INNGEST_DEV";
+    private const string EnvironmentVariableName = "INNGEST_ENV";
 
     private static readonly Uri DefaultApiBaseUrl = new("https://api.inngest.com/");
     private static readonly Uri DefaultEventApiBaseUrl = new("https://inn.gs/");
     private static readonly Uri DefaultDevServerUrl = new("http://localhost:8288/");
 
-    // The first one set wins, most specific first. The rest are what hosting platforms expose for the branch.
-    private static readonly string[] EnvironmentVariableNames =
+    // What hosting platforms expose for the branch, the first one set winning. They only guess the environment, so
+    // they come after every way of naming it.
+    private static readonly string[] BranchVariableNames =
     [
-        "INNGEST_ENV",
         "BRANCH_NAME",
         "VERCEL_GIT_COMMIT_REF",
         "BRANCH",
@@ -69,30 +70,37 @@ internal sealed record InngestSettings
     public bool IsDev => Mode == InngestMode.Dev;
 
     // Applies the INNGEST_* variables from getVariable (normally IConfiguration or the process environment) to
-    // whatever the options leave unset.
+    // whatever the options leave unset, and then the section in options.Configuration to what is still unset.
     public static InngestSettings Create(InngestOptions options, Func<string, string?> getVariable)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(getVariable);
 
-        if (string.IsNullOrWhiteSpace(options.AppId))
+        // What the configuration section holds, the lowest layer. Read in full, so that a typo fails whatever wins over it.
+        var section = options.Configuration is { } configuration ? InngestConfiguration.Read(configuration) : null;
+        var appId = string.IsNullOrWhiteSpace(options.AppId) ? section?.AppId : options.AppId;
+        if (appId is null)
         {
             throw new InvalidOperationException(
-                "InngestOptions.AppId is required. Set it when adding Inngest, for example AddInngest(options => options.AppId = \"my-app\").");
+                "InngestOptions.AppId is required. Set it when adding Inngest, for example AddInngest(options => options.AppId = \"my-app\"), or as AppId in the configuration section passed to AddInngest.");
         }
 
         var variables = new VariableSource(getVariable);
         var (devFlag, devUrlVariable) = ReadDevVariable(variables);
-        var isDev = options.IsDev ?? devFlag ?? (devUrlVariable is not null);
+        var isDev = options.IsDev ?? devFlag ?? (devUrlVariable is not null || section?.IsDev == true);
 
         // The dev server address only applies in dev mode, so IsDev = false keeps an INNGEST_DEV URL from
         // redirecting cloud traffic.
-        var devUrl = isDev ? RequireHttpUrl(options.DevServerUrl, nameof(InngestOptions.DevServerUrl)) ?? devUrlVariable : null;
+        var devUrl = isDev
+            ? RequireHttpUrl(options.DevServerUrl, nameof(InngestOptions.DevServerUrl)) ?? devUrlVariable ?? section?.DevServerUrl
+            : null;
 
         var apiBaseUrl = RequireHttpUrl(options.BaseUrl, nameof(InngestOptions.BaseUrl))
             ?? RequireHttpUrl(options.ApiBaseUrl, nameof(InngestOptions.ApiBaseUrl))
             ?? variables.GetUrl("INNGEST_API_BASE_URL")
             ?? variables.GetUrl("INNGEST_BASE_URL")
+            ?? section?.BaseUrl
+            ?? section?.ApiBaseUrl
             ?? devUrl
             ?? (isDev ? DefaultDevServerUrl : DefaultApiBaseUrl);
 
@@ -100,32 +108,49 @@ internal sealed record InngestSettings
             ?? RequireHttpUrl(options.EventApiBaseUrl, nameof(InngestOptions.EventApiBaseUrl))
             ?? variables.GetUrl("INNGEST_EVENT_API_BASE_URL")
             ?? variables.GetUrl("INNGEST_BASE_URL")
+            ?? section?.BaseUrl
+            ?? section?.EventApiBaseUrl
             ?? devUrl
             ?? (isDev ? DefaultDevServerUrl : DefaultEventApiBaseUrl);
 
         var serveOrigin = RequireHttpUrl(options.ServeOrigin, nameof(InngestOptions.ServeOrigin))
             ?? variables.GetUrl("INNGEST_SERVE_ORIGIN")
-            ?? variables.GetUrl("INNGEST_SERVE_HOST");
+            ?? variables.GetUrl("INNGEST_SERVE_HOST")
+            ?? section?.ServeOrigin;
 
         return new InngestSettings
         {
-            AppId = options.AppId,
-            AppVersion = NullIfBlank(options.AppVersion),
+            AppId = appId,
+            AppVersion = NullIfBlank(options.AppVersion) ?? section?.AppVersion,
             Mode = isDev ? InngestMode.Dev : InngestMode.Cloud,
-            EventKey = NullIfBlank(options.EventKey) ?? variables.Get("INNGEST_EVENT_KEY"),
-            SigningKey = SigningKey.Create(options.SigningKey) ?? SigningKey.Create(variables.Get("INNGEST_SIGNING_KEY")),
+            EventKey = NullIfBlank(options.EventKey) ?? variables.Get("INNGEST_EVENT_KEY") ?? section?.EventKey,
+            SigningKey = SigningKey.Create(options.SigningKey)
+                ?? SigningKey.Create(variables.Get("INNGEST_SIGNING_KEY"))
+                ?? SigningKey.Create(section?.SigningKey),
             SigningKeyFallback = SigningKey.Create(options.SigningKeyFallback)
-                ?? SigningKey.Create(variables.Get("INNGEST_SIGNING_KEY_FALLBACK")),
-            Environment = NullIfBlank(options.Environment) ?? variables.GetFirst(EnvironmentVariableNames),
+                ?? SigningKey.Create(variables.Get("INNGEST_SIGNING_KEY_FALLBACK"))
+                ?? SigningKey.Create(section?.SigningKeyFallback),
+
+            // A configured name wins over the branch variables of hosting platforms, which only guess.
+            Environment = NullIfBlank(options.Environment)
+                ?? variables.Get(EnvironmentVariableName)
+                ?? section?.Environment
+                ?? variables.GetFirst(BranchVariableNames),
             ApiBaseUrl = apiBaseUrl,
             EventApiBaseUrl = eventApiBaseUrl,
             ServeOrigin = serveOrigin,
-            ServePath = NormalizePath(NullIfBlank(options.ServePath) ?? variables.Get("INNGEST_SERVE_PATH")),
+            ServePath = NormalizePath(NullIfBlank(options.ServePath) ?? variables.Get("INNGEST_SERVE_PATH") ?? section?.ServePath),
 
             // The option defaults to true, so only false can be told apart from "not set" and win over the variable.
-            AllowInBandSync = options.AllowInBandSync ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ALLOW_IN_BAND_SYNC")) ?? true,
-            AllowUnsignedSync = options.AllowUnsignedSync ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ENABLE_UNAUTHED_SYNC")) ?? true,
-            Checkpointing = RequireValid(options.Checkpointing),
+            AllowInBandSync = options.AllowInBandSync
+                ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ALLOW_IN_BAND_SYNC"))
+                ?? section?.AllowInBandSync
+                ?? true,
+            AllowUnsignedSync = options.AllowUnsignedSync
+                ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ENABLE_UNAUTHED_SYNC"))
+                ?? section?.AllowUnsignedSync
+                ?? true,
+            Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
     }
