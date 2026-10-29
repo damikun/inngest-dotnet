@@ -6,10 +6,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
 
-// The function classes carry their id, triggers and limits as attributes. hello-world is a delegate with its options
-// in code, the other way to define a function.
+// The settings come from the Inngest section of appsettings.json, and INNGEST_* variables win over it. The function
+// classes carry their id, triggers and limits as attributes; hello-world is a delegate with its options in code, the
+// other way to define a function.
 builder.Services
-    .AddInngest(options => options.AppId = "inngest-dotnet-sample")
+    .AddInngest(builder.Configuration.GetSection("Inngest"))
     .AddFunction<OnboardUser>()
     .AddFunction<SummarizeAccounts>()
     .AddFunction<ScoreAccount>()
