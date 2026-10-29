@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Inngest.Benchmarks/Inngest.Benchmarks.csproj" />
+    <Project Path="benchmarks/Inngest.Soak/Inngest.Soak.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Inngest.AotSample/Inngest.AotSample.csproj" />
+    <Project Path="samples/Inngest.Sample/Inngest.Sample.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+    <Project Path="src/Inngest.Connect/Inngest.Connect.csproj" />
+    <Project Path="src/Inngest.OpenTelemetry/Inngest.OpenTelemetry.csproj" />
+    <Project Path="src/Inngest/Inngest.csproj" />
+    <Project Path="src/Inngest.Testing/Inngest.Testing.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj" />
+    <Project Path="tests/Inngest.Tests/Inngest.Tests.csproj" />
+  </Folder>
+</Solution>

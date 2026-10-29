@@ -1,0 +1,61 @@
+// Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
+// Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
+
+using Inngest;
+using Inngest.Client;
+using Inngest.DependencyInjection;
+using Inngest.Execution;
+using Inngest.Internal;
+using Inngest.Registration;
+using Inngest.Rest;
+using Inngest.Serving;
+using Inngest.Signing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+
+namespace Microsoft.Extensions.DependencyInjection;
+
+public static class InngestServiceCollectionExtensions
+{
+    internal const string HttpClientName = "Inngest";
+
+    public static IInngestBuilder AddInngest(this IServiceCollection services, Action<InngestOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        var options = services.AddOptions<InngestOptions>();
+        if (configure is not null)
+        {
+            options.Configure(configure);
+        }
+
+        // Fails the host at startup rather than on the first request or send.
+        options
+            .Validate(static o => !string.IsNullOrWhiteSpace(o.AppId), "InngestOptions.AppId is required, for example AddInngest(options => options.AppId = \"my-app\").")
+            .ValidateOnStart();
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton(static provider =>
+        {
+            var configuration = provider.GetService<IConfiguration>();
+            return InngestSettings.Create(
+                provider.GetRequiredService<IOptions<InngestOptions>>().Value,
+                configuration is null ? Environment.GetEnvironmentVariable : name => configuration[name]);
+        });
+
+        services.AddHttpClient(HttpClientName);
+        services.TryAddSingleton<RequestSigner>();
+        services.TryAddSingleton<IInngestApi, InngestApiClient>();
+        services.TryAddSingleton<ISignalApi, SignalApi>();
+        services.TryAddSingleton<ICheckpointApi, CheckpointApiClient>();
+        services.TryAddSingleton<InngestClient>();
+        services.TryAddSingleton<IInngestClient>(static provider => provider.GetRequiredService<InngestClient>());
+        services.TryAddSingleton<IInngestRunsClient, InngestRunsClient>();
+        services.TryAddSingleton<IFunctionRegistry, FunctionRegistry>();
+        services.TryAddSingleton<IExecutionEngine, ExecutionEngine>();
+        services.TryAddSingleton<InngestCommHandler>();
+
+        return new InngestBuilder(services);
+    }
+}

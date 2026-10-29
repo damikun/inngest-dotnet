@@ -1,0 +1,136 @@
+---
+title: Configuration and environment variables
+description: Every InngestOptions setting, the INNGEST_* environment variables they fall back to, dev and cloud mode, and settings for proxies, branch environments and self-hosted Inngest.
+sidebar:
+  label: Configuration
+---
+
+`AddInngest` takes a delegate that sets `InngestOptions`. Anything left unset is read from configuration, so the
+environment variables Inngest's other SDKs use work here too. Options set in code win.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+builder.Services.AddInngest(options =>
+{
+    options.AppId = "shop";
+    options.AppVersion = "2026.10.3";
+});
+```
+
+`AppId` is the only required setting. The SDK checks it when the host starts.
+
+## Settings
+
+| Option | Variable | Default |
+|---|---|---|
+| `AppId` | | required |
+| `AppVersion` | | none |
+| `IsDev`, `DevServerUrl` | `INNGEST_DEV` | cloud mode; the dev server at `http://localhost:8288` |
+| `EventKey` | `INNGEST_EVENT_KEY` | none; not needed in dev mode |
+| `SigningKey` | `INNGEST_SIGNING_KEY` | none; required in cloud mode |
+| `SigningKeyFallback` | `INNGEST_SIGNING_KEY_FALLBACK` | none |
+| `Environment` | `INNGEST_ENV` | the signing key's environment |
+| `BaseUrl` | `INNGEST_BASE_URL` | |
+| `ApiBaseUrl` | `INNGEST_API_BASE_URL` | `https://api.inngest.com` |
+| `EventApiBaseUrl` | `INNGEST_EVENT_API_BASE_URL` | `https://inn.gs` |
+| `ServeOrigin` | `INNGEST_SERVE_ORIGIN` | the origin the request arrived on |
+| `ServePath` | `INNGEST_SERVE_PATH` | the path the request arrived on |
+| `AllowInBandSync` | `INNGEST_ALLOW_IN_BAND_SYNC` | `true` |
+| `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
+| `SerializerOptions` | | `JsonSerializerDefaults.Web` |
+
+The SDK reads the variables through `IConfiguration` when the host has one, so they can also come from
+`appsettings.json`, user secrets, Azure App Configuration or any other configuration source, under the same names:
+
+```json title="appsettings.Development.json"
+{
+  "INNGEST_DEV": "1"
+}
+```
+
+Without `IConfiguration`, for example in a plain `ServiceCollection`, it reads the process environment.
+
+## Dev mode and cloud mode
+
+The SDK runs in one of two modes:
+
+- **Cloud mode** is the default. Requests from Inngest must be signed with the signing key, and the SDK signs its
+  answers. Events go to Inngest Cloud with the event key. Use it in every deployed environment.
+- **Dev mode** talks to a local [dev server](https://www.inngest.com/docs/local-development), checks no signatures
+  and needs no keys.
+
+`INNGEST_DEV` selects the mode: `1` or `true` for dev mode, `0` or `false` for cloud mode, or the dev server's URL,
+which also means dev mode. `IsDev` in code overrides it, and `DevServerUrl` sets the dev server's address. A value
+the SDK cannot read stops the app with an error rather than silently falling back to cloud mode.
+
+## Keys
+
+The event key lets the app send events; the signing key authenticates the traffic between Inngest and the app. Both
+come from the Inngest dashboard and belong in a secret store, not in source control. In cloud mode, an app without a
+signing key answers every request from Inngest with an error, and the [Connect](/inngest-dotnet/guides/connect/)
+worker refuses to start.
+
+To rotate the signing key without downtime, deploy the new key as `INNGEST_SIGNING_KEY` and the old one as
+`INNGEST_SIGNING_KEY_FALLBACK`, promote the new key in Inngest, then remove the fallback. The SDK accepts
+signatures from either key while both are set, and retries API calls with the fallback when the current key is
+refused. Inngest describes the procedure in
+[rotating keys](https://www.inngest.com/docs/platform-and-operations/rotate-event-and-signing-keys).
+
+## Branch environments
+
+`Environment` selects an Inngest [branch environment](https://www.inngest.com/docs/platform-and-operations/environments-and-branch-deploys),
+such as a preview deployment. When neither the option nor `INNGEST_ENV` is set, the SDK uses the branch name that
+common hosting platforms expose, from the first of `BRANCH_NAME`, `VERCEL_GIT_COMMIT_REF`, `BRANCH`,
+`CF_PAGES_BRANCH`, `RENDER_GIT_BRANCH` and `RAILWAY_GIT_BRANCH` that is set.
+
+## Behind a proxy
+
+When Inngest syncs the app, the SDK reports the URL Inngest should call, built from the request it received. Behind
+a reverse proxy, a load balancer or a container platform, that may be an internal address. Set the public origin,
+and the path if the proxy rewrites it:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.ServeOrigin = new Uri("https://shop.example.com");
+options.ServePath = "/api/inngest";
+```
+
+`INNGEST_SERVE_HOST`, the old name of `INNGEST_SERVE_ORIGIN`, is read too.
+
+## Syncs
+
+A sync tells Inngest which functions the app has. Inngest starts one by sending a `PUT` to the endpoint:
+
+- In an **in-band** sync, the request is signed and the SDK answers with its configuration directly. This is the
+  default when Inngest asks for it. `AllowInBandSync = false` forces the out-of-band kind.
+- In an **out-of-band** sync, the SDK posts its configuration to Inngest's API, authenticated with the signing key.
+  A deploy script can start one with an unsigned `PUT`, such as `curl -X PUT https://shop.example.com/api/inngest`.
+  Because the SDK only ever sends its configuration to the Inngest it is configured for, this is safe, but
+  `AllowUnsignedSync = false` turns unsigned syncs off in cloud mode.
+
+See [apps and syncs](https://www.inngest.com/docs/platform-and-operations/apps-and-syncs) in the Inngest docs.
+
+## Self-hosted Inngest
+
+`BaseUrl` points both the API and the event API at one address, such as a
+[self-hosted Inngest server](https://www.inngest.com/docs/platform-and-operations/self-host-inngest).
+`ApiBaseUrl` and `EventApiBaseUrl` set them separately. In dev mode they default to the dev server.
+
+## Serialization
+
+`SerializerOptions` is used for everything the SDK serializes on the app's behalf: event data, step results,
+invoke payloads and function output. It defaults to `JsonSerializerDefaults.Web`. Add converters or naming policies
+there:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+```
+
+The SDK takes a copy when it starts, so later changes have no effect. For trimmed or Native AOT apps, see
+[Native AOT and trimming](/inngest-dotnet/guides/native-aot/).
+
+## Connect settings
+
+The [Connect](/inngest-dotnet/guides/connect/) worker has settings of its own in `ConnectOptions`, with
+`INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` and `INNGEST_CONNECT_GATEWAY_URL` as fallbacks.

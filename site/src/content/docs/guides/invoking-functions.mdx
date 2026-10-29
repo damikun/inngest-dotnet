@@ -1,0 +1,119 @@
+---
+title: Invoking functions from other functions
+description: Run another Inngest function from a step with InvokeAsync, pass it data, get its result back, and handle failures and timeouts.
+sidebar:
+  label: Invoking functions
+---
+
+`InvokeAsync` runs another function and waits for its output, as a step. The other function runs as a run of its
+own, with its own retries, flow control and history, and its output comes back as the step's result.
+
+{/* check: body JsonElement */}
+```csharp
+var score = await context.Step.InvokeAsync<AccountScore>("score-acme",
+    new InvokeOptions("score-account") { Data = new { accountId = "acme" }, Timeout = TimeSpan.FromMinutes(5) });
+
+context.Logger.LogInformation("acme scored {Score}", score.Score);
+```
+
+`"score-account"` is the id the function was registered with. The type argument is the type to read its output as.
+
+## The invoked function
+
+Any function can be invoked. One that should only ever be invoked has no triggers:
+
+```csharp title="ScoreAccount.cs"
+using Inngest;
+
+public sealed record ScoreRequest(string AccountId);
+
+public sealed record AccountScore(string AccountId, int Score);
+
+public sealed class ScoreAccount(IScoring scoring) : InngestFunction<ScoreRequest>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken)
+    {
+        var accountId = context.Event.Data.AccountId;
+        var score = await context.Step.RunAsync("compute-score", ct => scoring.ScoreAsync(accountId, ct));
+        return new AccountScore(accountId, score);
+    }
+}
+
+public interface IScoring
+{
+    Task<int> ScoreAsync(string accountId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: members FunctionOptions */}
+```csharp
+Id = "score-account",
+Triggers = [],
+```
+
+Inngest starts the invoked run with an `inngest/function.invoked` event whose `data` is the `Data` you passed, so
+the invoked function reads it as its event data. Its return value is what `InvokeAsync` returns.
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| `FunctionId` | The id of the function to run, as registered. |
+| `AppId` | The app the function belongs to. Defaults to the current app, so set it only to invoke a function of another app in the same Inngest environment. |
+| `Data` | The invoked run's event data. Serialized with the app's serializer options. |
+| `User` | Optional user data for the invoked run's event. |
+| `Timeout` | How long to wait for the invoked function. When it passes, the step fails; the invoked run keeps going. |
+
+Without a timeout Inngest waits a long time; see
+[step.invoke](https://www.inngest.com/docs/durable-execution/primitives/step-invoke) in the Inngest docs for its
+default.
+
+## Fan-out with results
+
+Invoke one function per item and await them together. Each invocation is a separate run, so each item gets its own
+retries, and the invoked function's concurrency limit caps how many run at once:
+
+{/* check: body JsonElement */}
+```csharp
+string[] accountIds = ["acme", "globex", "initech"];
+
+var scores = await Task.WhenAll(accountIds.Select(accountId =>
+    context.Step.InvokeAsync<AccountScore>($"score-{accountId}",
+        new InvokeOptions("score-account") { Data = new ScoreRequest(accountId), Timeout = TimeSpan.FromMinutes(5) })));
+
+await context.Step.SendEventAsync("announce-scores",
+    new InngestEvent("reports/scores.ready", new { total = scores.Sum(score => score.Score) }));
+```
+
+The [fan-out example](/inngest-dotnet/examples/fan-out-with-invoke/) builds on this.
+
+## When the invoked function fails
+
+If the invoked function fails all its attempts, or the timeout passes first, the step fails at once without retries
+of its own, and `InvokeAsync` throws `StepFailedException`. Retrying the step would run the whole invoked function
+again, and in a chain of invocations the retries would multiply. Catch the exception to carry on without that
+result:
+
+{/* check: body JsonElement */}
+```csharp
+AccountScore? score;
+try
+{
+    score = await context.Step.InvokeAsync<AccountScore>("score-acme",
+        new InvokeOptions("score-account") { Data = new ScoreRequest("acme"), Timeout = TimeSpan.FromMinutes(5) });
+}
+catch (StepFailedException exception)
+{
+    context.Logger.LogWarning("Scoring failed: {Error}", exception.Error.Message);
+    score = null;
+}
+```
+
+Left uncaught, `StepFailedException` fails the run without retrying it. If the invoked function's rate limit skips
+the run, the step fails in the same way.
+
+## Invoke or send an event?
+
+Invoke when the caller needs the result or must know that the work finished. Send an event with
+[`SendEventAsync`](/inngest-dotnet/guides/sending-events/) when the caller should not wait, or when any number of
+functions may react to what happened.

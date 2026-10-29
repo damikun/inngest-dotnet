@@ -1,0 +1,142 @@
+---
+title: Sending events from .NET to Inngest
+description: Send events to Inngest from application code with IInngestClient and from functions with SendEventAsync, with ids for deduplication, delayed starts and retries.
+sidebar:
+  label: Sending events
+---
+
+Events start functions. An event has a name and JSON data, and every function with a matching trigger gets a run.
+There are two ways to send one: `IInngestClient` from ordinary application code, and `context.Step.SendEventAsync`
+from inside a function.
+
+## From application code
+
+`AddInngest` registers `IInngestClient` as a singleton. Inject it anywhere:
+
+```csharp title="CheckoutService.cs"
+using Inngest;
+
+public sealed record Order(string Id, string CustomerId, decimal Total);
+
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total);
+
+public sealed class CheckoutService(IInngestClient inngest, ILogger<CheckoutService> logger)
+{
+    public async Task PlaceOrderAsync(Order order, CancellationToken cancellationToken)
+    {
+        // Save the order first, then announce it.
+        var sent = await inngest.SendAsync(
+            new InngestEvent("shop/order.placed", new OrderPlaced(order.Id, order.CustomerId, order.Total))
+            {
+                Id = $"order-placed-{order.Id}",
+            },
+            cancellationToken);
+
+        logger.LogInformation("Order {OrderId} placed as event {EventId}", order.Id, sent.Ids[0]);
+    }
+}
+```
+
+`SendAsync` returns the ids Inngest gave the events, in the order they were sent. To send several events in one
+request, pass a list:
+
+{/* check: statements; IInngestClient inngest; IReadOnlyList<Order> orders; CancellationToken cancellationToken */}
+```csharp
+await inngest.SendAsync(
+    orders.Select(order => new InngestEvent("shop/order.placed", new OrderPlaced(order.Id, order.CustomerId, order.Total))),
+    cancellationToken);
+```
+
+## From a function
+
+Inside a function, send events with the step tool. The send is a step, so it happens once per run: a replay returns
+the saved ids instead of sending the events again.
+
+{/* check: body OrderPlaced */}
+```csharp
+var order = context.Event.Data;
+
+await context.Step.SendEventAsync("request-shipping",
+    new InngestEvent("shipping/label.requested", new { order.OrderId }));
+```
+
+Sending through `IInngestClient` inside a function would send again on every call that passes that line. Use the
+step tool there.
+
+## What an event holds
+
+`InngestEvent` is a record with the name and the data, plus optional properties:
+
+| Property | Meaning |
+|---|---|
+| `Name` | The event name, such as `shop/order.placed`. Names that start with `inngest/` are reserved and rejected. |
+| `Data` | Any object; serialized with the app's serializer options, so property names are camel case by default. |
+| `Id` | A deduplication key. Inngest ignores a second event with the same id for 24 hours. |
+| `Timestamp` | When the event happened. Defaults to when Inngest receives it. A time in the future delays the runs it starts. |
+| `User` | Optional user data. |
+| `Version` | An optional version of the event's schema, sent as `v`. |
+
+### Deduplicating with an id
+
+Set `Id` to something that identifies the occurrence, not the attempt to send it: an order id, a webhook delivery
+id, a request id. If the same thing is sent twice, by a retry or a second server, Inngest keeps the first and
+starts no new runs for the second. Ids are global across event names, so include the name or a prefix.
+
+The Inngest docs explain [event ids and deduplication](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/send-events).
+
+### Delaying runs
+
+A future `Timestamp` makes the functions an event triggers start at that time:
+
+{/* check: statements; IInngestClient inngest; string userId; CancellationToken cancellationToken */}
+```csharp
+await inngest.SendAsync(new InngestEvent("trial/ending-soon", new { userId })
+{
+    Timestamp = DateTimeOffset.UtcNow.AddDays(12),
+}, cancellationToken);
+```
+
+Inside a function, sleep instead; see [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/).
+
+## Keys and modes
+
+In production the client needs an event key: set `INNGEST_EVENT_KEY` or `InngestOptions.EventKey`. Without one,
+`SendAsync` throws an `InngestException`. In dev mode no key is needed; the dev server accepts any. See
+[Configuration](/inngest-dotnet/guides/configuration/).
+
+## Failures and retries
+
+The client retries a send that fails with a network error, a timeout, a `5xx`, `408`, `425` or `429`, up to five
+attempts, waiting 100 ms, 200 ms, 400 ms and so on with some jitter in between. Other errors, such as `401` for a
+wrong key or `400` for an invalid event, fail at once.
+
+Every attempt of one `SendAsync` call carries the same seed for event ids, so a retry after a lost response creates
+the same events rather than copies.
+
+When the send fails for good, `SendAsync` throws `InngestException`, with the HTTP status in `StatusCode` when
+there was one. Inside a function, `SendEventAsync` fails like any other step and is retried with it.
+
+{/* check: statements; IInngestClient inngest; ILogger logger; CancellationToken cancellationToken */}
+```csharp
+try
+{
+    await inngest.SendAsync(new InngestEvent("shop/cart.abandoned", new { cartId = "c_42" }), cancellationToken);
+}
+catch (InngestException exception) when (exception.StatusCode is 401)
+{
+    logger.LogError(exception, "The Inngest event key is wrong or missing.");
+    throw;
+}
+```
+
+## Changing events in one place
+
+Middleware can see and change every event the app sends, from code and from functions, for example to add
+tracing data or a tenant id. See `WrapSendEventAsync` in [Middleware](/inngest-dotnet/guides/middleware/).
+
+Inngest limits the size of an event and the number of events per request; the
+[limits](https://www.inngest.com/docs/durable-execution/limits) page lists them.
+
+## Related examples
+
+[Nightly billing](/inngest-dotnet/examples/nightly-billing/) fans out with `SendEventAsync`, and the [webhook pipeline](/inngest-dotnet/examples/webhook-pipeline/) sends one event per delivery.

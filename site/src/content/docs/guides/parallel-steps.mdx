@@ -1,0 +1,92 @@
+---
+title: Parallel steps with Task.WhenAll
+description: Run steps at the same time with Task.WhenAll and Task.WhenAny, how Inngest executes them, and what to watch out for.
+sidebar:
+  label: Parallel steps
+---
+
+import ParallelFan from '../../../components/figures/ParallelFan.astro';
+
+Steps run in parallel when the function starts them before awaiting them. There is no special API: start the
+tasks, then await them with `Task.WhenAll` or `Task.WhenAny`.
+
+{/* check: body UserSignedUp; IProfiles profiles; IOrderHistory orderHistory */}
+```csharp
+var user = context.Event.Data;
+
+var profile = context.Step.RunAsync("load-profile", ct => profiles.LoadAsync(user.UserId, ct));
+var orders = context.Step.RunAsync("load-orders", ct => orderHistory.LoadAsync(user.UserId, ct));
+await Task.WhenAll(profile, orders);
+
+context.Logger.LogInformation("{Name} has {Count} orders", (await profile).Name, (await orders).Count);
+```
+
+## How Inngest runs them
+
+When a call finds more than one new step, the SDK runs none of them. It answers with a `StepPlanned` op for each,
+and Inngest runs every planned step in a call of its own. Those calls can run at the same time, on one instance of
+the app or on several. Once the steps have finished, Inngest calls the function again; the results are memoized
+and the function continues after `Task.WhenAll`.
+
+<ParallelFan />
+
+[How it works](/inngest-dotnet/how-it-works/) shows a parallel section call by call, including the
+planned steps and the calls that run them.
+
+When a call finds a single new step, the SDK runs it right away, as it does for sequential steps, unless Inngest
+has asked it not to while a parallel section is still running.
+
+## Fan-out over a list
+
+Start one step per item and await them together. Give each step an id of its own:
+
+{/* check: body JsonElement; IBilling billing; string customerId */}
+```csharp
+var invoices = await context.Step.RunAsync("load-invoices",
+    ct => billing.GetOpenInvoicesAsync(customerId, ct));
+
+var paymentIds = await Task.WhenAll(invoices.Select(invoice =>
+    context.Step.RunAsync($"charge-{invoice.Id}", ct => billing.ChargeAsync(invoice.Id, ct))));
+```
+
+Every step counts toward the function's [concurrency limit](/inngest-dotnet/guides/flow-control/#concurrency),
+so a limit of 5 runs at most five of these charges at once, across all runs of the function. For hundreds of items,
+consider [invoking a function](/inngest-dotnet/guides/invoking-functions/) per item, or sending an event per item,
+so that each item is a run of its own with its own retries.
+
+## Racing steps
+
+`Task.WhenAny` works too. It completes with the step that finished first:
+
+{/* check: body JsonElement; ICarrier primaryCarrier; ICarrier backupCarrier; Shipment shipment */}
+```csharp
+var primary = context.Step.RunAsync("quote-primary", ct => primaryCarrier.QuoteAsync(shipment, ct));
+var backup = context.Step.RunAsync("quote-backup", ct => backupCarrier.QuoteAsync(shipment, ct));
+
+var quote = await await Task.WhenAny(primary, backup);
+```
+
+Every planned step still runs to the end; the losing quote is recorded and simply not used. Inngest calls the
+function again after the planned steps have finished, so a race picks the first result but does not return it any
+sooner. The SDK replays results in the order they finished, so the same step wins on every later call.
+
+## Things to watch
+
+- **Different ids in different branches.** Two parallel branches that reuse an id share its numbering, and which
+  branch gets which result can depend on timing. The SDK logs a warning when it sees that.
+- **Do not block on a step.** `.Result`, `.Wait()` and `GetAwaiter().GetResult()` on a step's task never return:
+  the SDK hands out results on the function's own scheduler, which a blocked thread holds up.
+- **Leaving the scheduler.** Code that uses `ConfigureAwait(false)` or `Task.Run` inside a function still works,
+  but steps started from other threads may be reported one at a time instead of all at once.
+- **Unawaited steps still run.** A step that is started and never awaited is reported to Inngest like the others.
+  If the function returns while such steps are new, the SDK reports the steps instead of the output and returns the
+  output on a later call.
+- **Inngest's limits.** A run can have up to 1,000 steps, parallel ones included. See the
+  [limits](https://www.inngest.com/docs/durable-execution/limits) page.
+
+The Inngest docs describe [parallel steps](https://www.inngest.com/docs/durable-execution/primitives/group-parallel)
+for the TypeScript SDK, which uses `Promise.all` where .NET uses `Task.WhenAll`.
+
+## Related examples
+
+[Fan-out with invoke](/inngest-dotnet/examples/fan-out-with-invoke/) and the [Connect worker](/inngest-dotnet/examples/connect-worker/) run steps in parallel.

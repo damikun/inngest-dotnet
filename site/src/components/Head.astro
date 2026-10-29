@@ -1,0 +1,10 @@
+---
+import { Font } from 'astro:assets';
+import Default from '@astrojs/starlight/components/Head.astro';
+---
+
+<Default><slot /></Default>
+<Font cssVariable="--font-heading-face" preload />
+<Font cssVariable="--font-body-face" preload />
+<Font cssVariable="--font-code-face" />
+<script is:inline>document.documentElement.classList.add('js');</script>

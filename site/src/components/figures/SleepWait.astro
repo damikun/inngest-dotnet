@@ -1,0 +1,54 @@
+---
+// The sleep and wait guide: a sleep between two steps, and a wait that ends with the event or with the timeout.
+// The hatched part is time in which the app runs nothing.
+import Figure from './Figure.astro';
+
+const rows = [
+  {
+    title: 'SleepAsync',
+    what: 'resumes after three days',
+    segments: [['run', 'send-welcome', 31], ['wait', '3 days', 32], ['run', 'send-check-in', 33]],
+  },
+  {
+    title: 'WaitForEventAsync',
+    what: 'the event arrives: returns it',
+    segments: [['wait', 'wait-for-activation', 58], ['event', 'user/activated', 38]],
+  },
+  {
+    title: 'WaitForEventAsync',
+    what: 'no event in 3 days: returns null',
+    segments: [['wait', '3 days, no event', 58], ['run', 'send-reminder', 38]],
+  },
+] as const;
+---
+
+<Figure>
+  <div class="fig-rows">
+    {
+      rows.map((row) => (
+        <div>
+          <p class="fig-row-head">
+            <strong>{row.title}</strong>
+            <span>{row.what}</span>
+          </p>
+          <div class="fig-track">
+            {row.segments.map(([kind, text, width]) => (
+              <span class:list={['fig-seg', kind]} style={`--w: ${width}%`}>
+                <span>{text}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <ul class="fig-legend">
+    <li><span class="fig-seg run"></span>a step runs</li>
+    <li><span class="fig-seg wait"></span>paused: nothing runs in the app</li>
+    <li><span class="fig-seg event"></span>the awaited event</li>
+  </ul>
+  <Fragment slot="caption">
+    While a run sleeps or waits, Inngest holds it and the app runs nothing for it: no thread, timer or connection.
+    Inngest calls the function again when the time has passed, when the event arrives, or at the timeout.
+  </Fragment>
+</Figure>

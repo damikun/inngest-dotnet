@@ -1,0 +1,35 @@
+---
+// The deploying guide: Inngest Cloud and an app running in containers behind a load balancer, with what crosses
+// between them and which keys each crossing uses.
+import Figure from './Figure.astro';
+---
+
+<Figure>
+  <div class="fig-flow" style="--cols: minmax(0, 0.9fr) minmax(11rem, 1fr) minmax(0, 1.3fr)">
+    <div class="fig-node accent">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.2 4.4 4.4 0 0 0 7 18z"></path></svg>
+      <p class="name">Inngest Cloud</p>
+      <p class="detail">or a self-hosted Inngest</p>
+    </div>
+    <div class="fig-link">
+      <div class="fig-arrow forward coral"><span>signed POST /api/inngest</span></div>
+      <div class="fig-arrow back ok"><span>events, with the event key</span></div>
+      <div class="fig-arrow back plan"><span>functions, on each sync</span></div>
+    </div>
+    <div class="fig-node">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 3 3 7.5l9 4.5 9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"></path></svg>
+      <p class="name">Your app, in containers</p>
+      <p class="detail">behind a load balancer at <code>https://shop.example.com</code>; any instance can answer</p>
+      <ul class="extra fig-keys" aria-label="Environment of each container">
+        <li>INNGEST_SIGNING_KEY</li>
+        <li>INNGEST_EVENT_KEY</li>
+        <li>INNGEST_SERVE_ORIGIN</li>
+      </ul>
+    </div>
+  </div>
+  <Fragment slot="caption">
+    In production, Inngest calls the app's public endpoint with requests signed by the signing key, and any instance
+    behind the load balancer can answer them. The app sends events with the event key, and reports its functions to
+    Inngest when it syncs after a deploy.
+  </Fragment>
+</Figure>

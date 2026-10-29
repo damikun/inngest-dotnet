@@ -1,0 +1,112 @@
+---
+title: Tracing runs with OpenTelemetry
+description: Wrap every function call and step in an OpenTelemetry activity with InngestMiddleware, with tags for the function, the run and the step.
+sidebar:
+  label: Tracing middleware
+---
+
+Each call from Inngest runs only part of a function, so request traces alone show a series of short, unrelated
+requests. A middleware can add what the traces lack: an activity per call and per executed step, tagged with the
+function, the run and the step, so that one run can be followed across calls.
+
+```csharp title="TracingMiddleware.cs"
+using System.Diagnostics;
+using Inngest;
+
+public sealed class TracingMiddleware : InngestMiddleware
+{
+    public static readonly ActivitySource Source = new("Shop.Inngest");
+
+    public override async Task<object?> WrapStepHandlerAsync(FunctionContext context, StepInfo step, Func<Task<object?>> next)
+    {
+        using var activity = Source.StartActivity($"step {step.Id}");
+        activity?.SetTag("inngest.function", context.FunctionId);
+        activity?.SetTag("inngest.run_id", context.RunId);
+        activity?.SetTag("inngest.step.id", step.Id);
+        activity?.SetTag("inngest.step.type", step.Type.ToString());
+        activity?.SetTag("inngest.attempt", context.Attempt);
+        try
+        {
+            return await next();
+        }
+        catch (Exception exception)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+            activity?.SetTag("exception.type", exception.GetType().FullName);
+            throw;
+        }
+    }
+
+    public override ValueTask OnRunStartAsync(FunctionContext context)
+    {
+        Activity.Current?.AddEvent(new ActivityEvent("inngest.run.started"));
+        return ValueTask.CompletedTask;
+    }
+
+    public override ValueTask OnRunCompleteAsync(FunctionContext context, object? output)
+    {
+        Activity.Current?.SetTag("inngest.run.completed", true);
+        return ValueTask.CompletedTask;
+    }
+
+    public override ValueTask OnRunErrorAsync(FunctionContext context, Exception exception, bool isFinalAttempt)
+    {
+        Activity.Current?.SetStatus(ActivityStatusCode.Error, exception.Message);
+        Activity.Current?.SetTag("inngest.run.final_failure", isFinalAttempt);
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+```csharp title="Program.cs"
+using Inngest;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("shop"))
+    .WithTracing(tracing => tracing
+        .AddSource(TracingMiddleware.Source.Name)
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter());
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<SyncCatalog>(new FunctionOptions { Id = "sync-catalog", Triggers = [Trigger.Event("catalog/changed")] })
+    .AddMiddleware<TracingMiddleware>();
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+app.Run();
+
+public sealed class SyncCatalog : InngestFunction<System.Text.Json.JsonElement>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<System.Text.Json.JsonElement> context, CancellationToken cancellationToken)
+    {
+        var count = await context.Step.RunAsync("load-products", () => 42);
+        await context.Step.RunAsync("publish", () => context.Logger.LogInformation("Published {Count} products", count));
+        return new { count };
+    }
+}
+```
+
+The `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore` and
+`OpenTelemetry.Exporter.OpenTelemetryProtocol` packages provide the registration.
+
+## How it works
+
+- **Spans around executed steps.** `WrapStepHandlerAsync` runs only when a step's handler actually runs, once per
+  attempt, so memoized steps add no spans and every retry gets one. Its `next()` always completes, so the `using`
+  always ends the activity.
+- **The request is the parent.** ASP.NET Core instrumentation starts an activity for each call to `/api/inngest`,
+  and the step activities nest under it. When a request from Inngest carries a `traceparent` header, the SDK passes
+  it back on the response.
+- **Run-level marks.** The observing hooks add an event when a run starts, a tag when it completes and an error
+  status when an attempt fails, on the current request's activity.
+- **Following a run.** Every span carries `inngest.run_id`, so a query on that tag shows all calls and steps of one
+  run, across instances of the app.
+
+`WrapFunctionAsync` would be the natural place for a span around the whole call, but its `next()` does not
+complete when a call ends at a new step; see [Middleware](/inngest-dotnet/guides/middleware/#when-next-never-returns).

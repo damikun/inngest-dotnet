@@ -1,0 +1,97 @@
+---
+title: Deploying background jobs to production
+description: Run an app with Inngest functions in production, in a container or anywhere ASP.NET Core runs, with cloud mode, keys, syncs and health checks.
+sidebar:
+  label: Deploying
+---
+
+import DeployTopology from '../../../components/figures/DeployTopology.astro';
+
+An app with Inngest functions is an ordinary ASP.NET Core app with one extra endpoint. It deploys like any other,
+with three additions: it runs in cloud mode with its keys, Inngest must be able to reach its endpoint, and it has
+to be synced after each deploy.
+
+<DeployTopology />
+
+## Checklist
+
+- **Cloud mode.** Do not set `INNGEST_DEV` in production. Cloud mode is the default.
+- **Keys.** Set `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` from the Inngest dashboard, from your secret store.
+  Without a signing key the endpoint answers Inngest with errors. See
+  [Configuration](/inngest-dotnet/guides/configuration/).
+- **A public endpoint.** Inngest calls `/api/inngest` over HTTPS. Behind a proxy or load balancer, set
+  `INNGEST_SERVE_ORIGIN` to the public origin so that syncs report the right URL. If the app cannot be reachable,
+  use [Connect](/inngest-dotnet/guides/connect/) instead.
+- **A sync after every deploy.** See below.
+- **Time for long steps.** A step runs inside one request from Inngest, so proxy and platform request timeouts
+  apply to it. Keep steps well under them, split long work into several steps, or use Connect.
+
+## Syncing
+
+Inngest only knows about the functions the app reported at its last sync. The first time, add the app in the
+Inngest dashboard with its URL; Inngest syncs it in-band, with a signed request that the SDK answers with its
+functions. After later deploys, sync again from the deploy pipeline:
+
+```bash
+curl -X PUT https://shop.example.com/api/inngest
+```
+
+That `PUT` makes the SDK post its configuration to Inngest, authenticated with the signing key. Inngest's
+[apps and syncs](https://www.inngest.com/docs/platform-and-operations/apps-and-syncs) page describes both kinds and
+the dashboard view of them.
+
+## In a container
+
+A multi-stage build is all it takes. The image below runs as the non-root user of the .NET images and listens on
+port 8080:
+
+```dockerfile title="Dockerfile"
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish Shop/Shop.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /app .
+USER $APP_UID
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Shop.dll"]
+```
+
+While the SDK is not on NuGet, the build context has to contain the SDK projects the app references, for example
+with the repository added as a git submodule. For a [Native AOT](/inngest-dotnet/guides/native-aot/) app, publish
+with `-r linux-x64` and use `mcr.microsoft.com/dotnet/runtime-deps:10.0` as the final image.
+
+Run it with the keys as environment variables:
+
+```bash wrap
+docker run -p 8080:8080 -e INNGEST_SIGNING_KEY=signkey-prod-... -e INNGEST_EVENT_KEY=... -e INNGEST_SERVE_ORIGIN=https://shop.example.com shop:latest
+```
+
+## Health checks
+
+Point health checks at an endpoint of their own, not at `/api/inngest`: in cloud mode the SDK refuses unsigned
+requests there and logs a warning for each one.
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapGet("/healthz", () => Results.Ok());
+```
+
+## Scaling and restarts
+
+The app holds no state between calls: a run's state lives in Inngest, and any instance can serve any call, including
+the next step of a run another instance started. Run as many replicas as you need behind a load balancer. A call
+that is cut off by a restart or a crash is retried by Inngest, so let the host shut down gracefully but do not
+worry about losing runs.
+
+## Self-hosting Inngest
+
+To run Inngest yourself instead of using Inngest Cloud, point the SDK at your server with `INNGEST_BASE_URL` and use
+the keys your server is configured with. See
+[self-hosting](https://www.inngest.com/docs/platform-and-operations/self-host-inngest) in the Inngest docs.
+
+## Related examples
+
+The [Connect worker](/inngest-dotnet/examples/connect-worker/) example includes Dockerfiles for a worker and a web app.

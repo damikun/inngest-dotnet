@@ -1,0 +1,190 @@
+---
+title: Getting started with Inngest in ASP.NET Core
+description: Add the Inngest .NET SDK to an ASP.NET Core app, write a first durable function in C#, run it against the Inngest dev server and watch each step run.
+sidebar:
+  label: Getting started
+---
+
+import { Aside, CardGrid, LinkCard, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import DevServer from '../../../components/DevServer.astro';
+import LocalSetup from '../../../components/figures/LocalSetup.astro';
+import StepsReplay from '../../../components/figures/StepsReplay.astro';
+
+In about five minutes you will have an ASP.NET Core app with a durable function running on your machine. When a
+user signs up, it sends a welcome email, waits, and sends a second one; if the second email fails, a retry sends
+only that one. The dev server shows every step as it happens.
+
+<LocalSetup />
+
+<Aside title="You need">
+
+- The [.NET SDK](https://dotnet.microsoft.com/download), version 8 or 10.
+- A way to run the [Inngest dev server](https://www.inngest.com/docs/local-development): its install script,
+  Homebrew, Node.js or Docker.
+
+</Aside>
+
+## 1. Add the SDK
+
+The packages are not on NuGet yet. Clone [the repository](https://github.com/damikun/inngest-dotnet) next to your
+app and reference two projects:
+
+```xml title="Shop.csproj"
+<ItemGroup>
+  <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
+  <ProjectReference Include="../inngest-dotnet/src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+</ItemGroup>
+```
+
+## 2. Write a function
+
+A function is a class. Each `RunAsync` is a step: it runs once and Inngest saves its result. `SleepAsync` pauses
+the run without holding a thread.
+
+```csharp title="OnboardUser.cs"
+using Inngest;
+
+public sealed record UserSignedUp(string UserId, string Email);
+
+public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    {
+        var user = context.Event.Data;
+
+        await context.Step.RunAsync("send-welcome-email",
+            ct => email.SendAsync(user.Email, "Welcome!", ct));
+
+        await context.Step.SleepAsync("wait-before-tips", TimeSpan.FromSeconds(30));
+
+        await context.Step.RunAsync("send-tips",
+            ct => email.SendAsync(user.Email, "Three things to try first", ct));
+
+        return new { user.UserId };
+    }
+}
+```
+
+The email service only logs for now:
+
+```csharp title="EmailSender.cs"
+public interface IEmailSender
+{
+    Task SendAsync(string to, string subject, CancellationToken cancellationToken);
+}
+
+public sealed class ConsoleEmailSender(ILogger<ConsoleEmailSender> logger) : IEmailSender
+{
+    public Task SendAsync(string to, string subject, CancellationToken cancellationToken)
+    {
+        logger.LogInformation("Sending \"{Subject}\" to {To}", subject, to);
+        return Task.CompletedTask;
+    }
+}
+```
+
+## 3. Serve it
+
+`AddInngest` registers the SDK and the function, `MapInngest` maps the endpoint Inngest calls, and `/signup`
+sends the event that starts a run:
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<OnboardUser>(new FunctionOptions
+    {
+        Id = "onboard-user",
+        Triggers = [Trigger.Event("user/signed-up")],
+    });
+
+var app = builder.Build();
+
+app.MapInngest("/api/inngest");
+
+app.MapPost("/signup", async (SignupRequest request, IInngestClient inngest, CancellationToken cancellationToken) =>
+{
+    var userId = Guid.NewGuid().ToString("N");
+    await inngest.SendAsync(new InngestEvent("user/signed-up", new UserSignedUp(userId, request.Email)), cancellationToken);
+    return Results.Accepted(value: new { userId });
+});
+
+app.Run();
+
+public sealed record SignupRequest(string Email);
+```
+
+<Aside type="tip">
+Keep the app id and the function id stable. Inngest knows this function as `shop-onboard-user`; renaming it
+creates a new function.
+</Aside>
+
+## 4. Run it
+
+<Steps>
+
+1. Start the app in dev mode. `INNGEST_DEV=1` points the SDK at the local dev server:
+
+   <Tabs syncKey="shell">
+   <TabItem label="bash">
+
+   ```bash
+   INNGEST_DEV=1 dotnet run --urls http://localhost:5280
+   ```
+
+   </TabItem>
+   <TabItem label="PowerShell">
+
+   ```powershell
+   $env:INNGEST_DEV = "1"; dotnet run --urls http://localhost:5280
+   ```
+
+   </TabItem>
+   </Tabs>
+
+2. Start the dev server and point it at the app. Use the install script or Homebrew on macOS and Linux, npx when
+   Node.js is installed, Docker when it is not, and Compose when a team shares the setup:
+
+   <DevServer />
+
+3. Sign up a user:
+
+   ```bash wrap
+   curl -X POST http://localhost:5280/signup -H 'Content-Type: application/json' -d '{"email": "ada@example.com"}'
+   ```
+
+4. Open `http://localhost:8288` and select **Runs**. The run shows `send-welcome-email`, the sleep, and after
+   30 seconds `send-tips`.
+
+</Steps>
+
+## What happened
+
+Inngest called the app four times for that one run, once per step and once more for the output:
+
+<StepsReplay
+  calls={[
+    { title: 'Call 1', what: 'runs send-welcome-email', status: 206, segments: [['run', 'send-welcome-email', 52]] },
+    { title: 'Call 2', what: 'replays it, then sleeps', status: 206, segments: [['saved', '1 saved result', 38], ['wait', 'sleep 30s', 30]] },
+    { title: 'Call 3', what: 'replays both, runs send-tips', status: 206, segments: [['saved', '2 saved results', 40], ['run', 'send-tips', 30]] },
+    { title: 'Call 4', what: 'replays all three and returns', status: 200, segments: [['saved', '3 saved results', 42], ['out', 'return', 20]] },
+  ]}
+  caption="Every call runs <code>ExecuteAsync</code> from the top. Steps that finished earlier return their saved results at once, so the welcome email goes out once however many calls pass it."
+/>
+
+That is why side effects belong in steps and why step ids must not change while runs are in flight.
+[Steps](/inngest-dotnet/guides/steps/) explains both, and [How it works](/inngest-dotnet/how-it-works/) lets you step
+through a run.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Functions and triggers" description="Event filters, cron schedules and functions as delegates." href="/inngest-dotnet/guides/functions-and-triggers/" />
+  <LinkCard title="Sleep and wait for events" description="Pause a run until a time or until something happens." href="/inngest-dotnet/guides/sleep-and-wait-for-events/" />
+  <LinkCard title="Deploying" description="Run the app against Inngest Cloud." href="/inngest-dotnet/guides/deploying/" />
+  <LinkCard title="The sample app" description="samples/Inngest.Sample: a complete app with several functions." href="https://github.com/damikun/inngest-dotnet/tree/main/samples/Inngest.Sample" />
+</CardGrid>

@@ -1,0 +1,318 @@
+---
+// The hero illustration: the checkout function, with each step's state next to it as Inngest runs the function.
+// The charge runs and completes, send-receipt fails and its retry succeeds while the charge stays completed, the run
+// sleeps, and ship runs. One script walks one list of frames (src/data/hero.ts), so every step changes together.
+// Without JavaScript, or with reduced motion, the picture shows the retry: completed, failed and running at once.
+import { frames, returnLine, stillFrame, steps, tokenize } from '../../data/hero';
+
+const tokenClass = { string: 's', keyword: 'k', type: 't', method: 'm' } as const;
+const highlight = (line: string) =>
+  tokenize(line).map((run) => (run.kind ? { cls: tokenClass[run.kind], text: run.text } : { text: run.text }));
+---
+
+<figure class="hero-steps not-content" data-hero-steps data-frames={JSON.stringify(frames)} aria-labelledby="hero-steps-caption">
+  <div class="code" role="region" aria-label="CheckoutFunction, with the state of each step" tabindex="0">
+    <pre><code><span class="line outside comment">// CheckoutFunction.ExecuteAsync</span>{steps.map((step, s) => (<span class="step" data-step data-state={stillFrame.steps[s][0]}><span class="gutter" aria-hidden="true"><span class="chip prior">Failed</span><span class="chip main"><i class="dot" /><span data-label>{stillFrame.steps[s][1] ?? ''}</span></span></span><span class="bracket" aria-hidden="true" /><span class="body">{step.lines.map((line) => (<span class="line">{highlight(line).map((run) => (run.cls ? <span class={run.cls}>{run.text}</span> : run.text))}</span>))}</span></span>))}<span class="line outside">{highlight(returnLine).map((run) => (run.cls ? <span class={run.cls}>{run.text}</span> : run.text))}</span></code></pre>
+  </div>
+  <button type="button" class="pause idn-js-only" data-pause aria-pressed="false" aria-label="Pause the animation">
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path class="icon-pause" d="M5 3.5v9M11 3.5v9"></path>
+      <path class="icon-play" d="M5 3.2v9.6L12.5 8z"></path>
+    </svg>
+  </button>
+  <figcaption id="hero-steps-caption" class="sr-only">
+    CheckoutFunction as Inngest runs it, step by step. The charge runs and completes. Send-receipt fails, and Inngest
+    retries that step alone while the charge stays completed; the retry succeeds. The run then sleeps for 30 minutes,
+    and ship runs.
+  </figcaption>
+</figure>
+
+<script>
+  // One timeline for the whole picture: each frame sets the state and chip of every step at once.
+  type Frame = { ms: number; steps: [string, string?][] };
+  const root = document.querySelector<HTMLElement>('[data-hero-steps]');
+  if (root) {
+    const frames = JSON.parse(root.dataset.frames ?? '[]') as Frame[];
+    const blocks = [...root.querySelectorAll<HTMLElement>('[data-step]')];
+    const button = root.querySelector<HTMLButtonElement>('[data-pause]');
+    const still = blocks.map((block) => [block.dataset.state, block.querySelector('[data-label]')?.textContent] as const);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    let index = 0;
+    let timer = 0;
+    let paused = false;
+
+    const show = (states: readonly (readonly [string | undefined, (string | null)?])[]) =>
+      states.forEach(([state, label], i) => {
+        blocks[i].dataset.state = state ?? 'idle';
+        const text = blocks[i].querySelector('[data-label]');
+        if (text) text.textContent = label ?? '';
+      });
+    const play = () => {
+      show(frames[index].steps);
+      timer = window.setTimeout(() => {
+        index = (index + 1) % frames.length;
+        play();
+      }, frames[index].ms);
+    };
+    const stop = () => {
+      window.clearTimeout(timer);
+      timer = 0;
+    };
+    const start = () => {
+      if (!paused && !reduce.matches && timer === 0) play();
+    };
+
+    button?.addEventListener('click', () => {
+      paused = !paused;
+      button.setAttribute('aria-pressed', String(paused));
+      button.setAttribute('aria-label', paused ? 'Play the animation' : 'Pause the animation');
+      if (paused) stop();
+      else start();
+    });
+    reduce.addEventListener('change', () => {
+      if (reduce.matches) {
+        stop();
+        show(still);
+      } else start();
+    });
+    start();
+  }
+</script>
+
+<style>
+  .hero-steps {
+    position: relative;
+    container-type: inline-size;
+    margin: 0;
+    width: 100%;
+    max-width: clamp(40rem, 32rem + 14vw, 52rem);
+    text-align: start;
+  }
+
+  /* The code size comes from the picture's own width, so the code, the chips and the gutter grow and shrink together
+     and the widest chip always fits beside its bracket. */
+  .code {
+    --hero-code: clamp(0.62rem, calc((100cqi - 2.5rem) / 33), 0.92rem);
+    --gutter: calc(var(--hero-code) * 12.8);
+    overflow-x: auto;
+  }
+  pre {
+    margin: 0;
+    padding: 0.25rem 0;
+    background-color: transparent;
+    font-family: var(--__sl-font-mono);
+    font-size: var(--hero-code);
+    line-height: 1.75;
+    color: var(--idn-code-text);
+  }
+  pre code {
+    display: block;
+    min-width: max-content;
+    font-family: inherit;
+  }
+  .line {
+    display: block;
+    white-space: pre;
+  }
+  .comment {
+    color: var(--idn-code-comment);
+  }
+  .k {
+    color: var(--idn-code-keyword);
+  }
+  .s {
+    color: var(--idn-code-string);
+  }
+  .t {
+    color: var(--idn-code-type);
+  }
+  .m {
+    color: var(--idn-coral-text);
+  }
+
+  /* A step: the chips, a bracket in the gutter and the code. Narrow, the chips sit on a row above the bracket. */
+  .step {
+    --tint: transparent;
+    --edge: color-mix(in srgb, var(--idn-border-strong) 55%, transparent);
+    display: grid;
+    grid-template-columns: 0.75rem minmax(0, 1fr);
+    grid-template-areas: 'gutter gutter' 'bracket body';
+    margin-block: 0.4rem;
+  }
+  .gutter {
+    grid-area: gutter;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    min-height: 1.45rem;
+    padding-bottom: 0.25rem;
+    white-space: normal;
+  }
+  .bracket {
+    grid-area: bracket;
+    margin-block: 0.1rem;
+    border: 2px solid var(--edge);
+    border-inline-end: 0;
+    border-radius: 0.35rem 0 0 0.35rem;
+    transition: border-color 0.25s ease;
+  }
+  .body {
+    grid-area: body;
+    padding: 0.2rem 0.75rem 0.2rem 0.35rem;
+    border-radius: 0 0.35rem 0.35rem 0;
+    background-color: var(--tint);
+    transition: background-color 0.25s ease;
+  }
+  .outside {
+    padding-inline-start: 1.1rem;
+  }
+
+  @container (min-width: 32rem) {
+    .code {
+      --hero-code: clamp(0.62rem, calc((100cqi - 2.5rem) / 44.5), 1.1rem);
+    }
+    .step {
+      grid-template-columns: var(--gutter) 0.75rem minmax(0, 1fr);
+      grid-template-areas: 'gutter bracket body';
+      align-items: center;
+    }
+    .gutter {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: flex-end;
+      justify-content: center;
+      align-self: stretch;
+      padding: 0 0.6rem 0 0;
+    }
+    .bracket {
+      align-self: stretch;
+    }
+    .outside {
+      padding-inline-start: calc(var(--gutter) + 0.75rem + 0.35rem);
+    }
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15em 0.7em;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-family: var(--__sl-font-mono);
+    font-size: calc(var(--hero-code) * 0.74);
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.main {
+    visibility: hidden;
+  }
+  .chip.prior {
+    display: none;
+  }
+  .dot {
+    display: none;
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 50%;
+    background-color: currentColor;
+  }
+
+  .step[data-state='running'],
+  .step[data-state='retrying'] {
+    --edge: var(--idn-coral);
+    --tint: color-mix(in srgb, var(--idn-coral) 13%, transparent);
+  }
+  .step[data-state='failed'] {
+    --edge: var(--idn-fail-solid);
+    --tint: color-mix(in srgb, var(--idn-fail-solid) 20%, transparent);
+  }
+  .step[data-state='completed'] {
+    --edge: var(--idn-ok);
+  }
+  .step[data-state='sleeping'] {
+    --edge: var(--idn-wait);
+  }
+  .step:not([data-state='idle']) .chip.main {
+    visibility: visible;
+  }
+  .step:is([data-state='running'], [data-state='retrying']) .chip.main {
+    color: var(--idn-coral-text);
+  }
+  .step:is([data-state='running'], [data-state='retrying']) .dot {
+    display: inline-block;
+  }
+  .step[data-state='completed'] .chip.main {
+    color: var(--idn-ok);
+  }
+  .step[data-state='sleeping'] .chip.main {
+    color: var(--idn-wait);
+  }
+  .step[data-state='failed'] .chip.main,
+  .step[data-state='retrying'] .chip.prior {
+    border-color: var(--idn-fail-solid);
+    color: #fff;
+    background-color: var(--idn-fail-solid);
+  }
+  .step[data-state='retrying'] .chip.prior {
+    display: inline-flex;
+  }
+
+  .pause {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--idn-border);
+    border-radius: 0.45rem;
+    color: var(--sl-color-gray-2);
+    background-color: var(--idn-surface);
+    cursor: pointer;
+  }
+  .pause:hover {
+    color: var(--sl-color-white);
+  }
+  .pause:focus-visible {
+    outline: 2px solid var(--idn-focus);
+    outline-offset: 2px;
+  }
+  .pause svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .icon-play,
+  .pause[aria-pressed='true'] .icon-pause {
+    display: none;
+  }
+  .pause[aria-pressed='true'] .icon-play {
+    display: inline;
+    fill: currentColor;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .step:is([data-state='running'], [data-state='retrying']) .dot {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pause {
+      display: none;
+    }
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+</style>

@@ -1,0 +1,155 @@
+---
+title: "Durable steps: RunAsync and step ids"
+description: How RunAsync and the other step tools make code durable, how step ids work, and what to keep in and out of steps.
+sidebar:
+  label: Steps
+---
+
+import StepsReplay from '../../../components/figures/StepsReplay.astro';
+
+A step is a piece of a function that Inngest records. `context.Step.RunAsync` runs its handler once and saves the
+result. Inngest runs a function by calling it again and again, and on every later call the step returns the saved
+result instead of running again. If the handler throws, only that step is retried.
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.RunAsync("mark-paid",
+    ct => orders.MarkPaidAsync(order.OrderId, paymentId, ct));
+```
+
+If `mark-paid` fails, Inngest retries it, and the function's code runs again from the top: `charge` returns the
+saved payment id without charging the card a second time.
+[How it works](/inngest-dotnet/how-it-works/) shows this call by call, and the Inngest docs cover
+[steps in general](https://www.inngest.com/docs/durable-execution/primitives/step-run).
+
+<StepsReplay />
+
+## The step tools
+
+| Method | What it does | More |
+|---|---|---|
+| `RunAsync(id, handler)` | Runs code once, saves its result, retries it on failure. | This page |
+| `SleepAsync(id, duration)` | Pauses the run for a duration. | [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/) |
+| `SleepUntilAsync(id, time)` | Pauses the run until a point in time. | [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/) |
+| `WaitForEventAsync<T>(id, options)` | Waits for a matching event, or returns `null` at the timeout. | [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/) |
+| `InvokeAsync<T>(id, options)` | Runs another function and returns its result. | [Invoking functions](/inngest-dotnet/guides/invoking-functions/) |
+| `SendEventAsync(id, events)` | Sends events exactly once per run. | [Sending events](/inngest-dotnet/guides/sending-events/) |
+
+All of them are on `IStepTools`, which is an interface so that functions can be
+[unit tested](/inngest-dotnet/guides/testing/) with a fake.
+
+## Step ids
+
+Inngest stores each result under its step id, so ids have two rules:
+
+- **Unique within the run.** Two different steps with the same id would share one result.
+- **Stable.** The same step must get the same id on every call, and in every version of the code that runs while a
+  run is in flight. Do not build ids from the time, random values or anything else that changes between calls.
+
+Reusing an id in a loop is allowed. The SDK numbers repeated ids in the order they are called, so the second
+`charge-invoice` below is stored as `charge-invoice:1`, the third as `charge-invoice:2` and so on:
+
+{/* check: body JsonElement; IBilling billing; string customerId */}
+```csharp
+var invoices = await context.Step.RunAsync("load-invoices",
+    ct => billing.GetOpenInvoicesAsync(customerId, ct));
+
+foreach (var invoice in invoices)
+{
+    await context.Step.RunAsync("charge-invoice", ct => billing.ChargeAsync(invoice.Id, ct));
+}
+```
+
+This works because the list comes from a step, so it is the same on every call. Ids built from stable data, such
+as `$"charge-{invoice.Id}"`, work too and are easier to read in the run history.
+
+Inngest stores results under the SHA-1 of the id, and the run history shows the id you wrote.
+
+## Handlers
+
+`RunAsync` takes a handler in whichever shape fits:
+
+{/* check: body JsonElement; IBilling billing; HttpClient http */}
+```csharp
+// Asynchronous, with the call's cancellation token.
+var invoices = await context.Step.RunAsync("load", ct => billing.GetOpenInvoicesAsync("cus_42", ct));
+
+// Asynchronous without a token, or synchronous.
+var page = await context.Step.RunAsync("fetch", () => http.GetStringAsync("https://example.com/feed"));
+var reference = await context.Step.RunAsync("create-reference", () => Guid.NewGuid().ToString("N"));
+
+// No result.
+await context.Step.RunAsync("notify", ct => billing.NotifyAsync("cus_42", ct));
+```
+
+The cancellation token passed to the handler is canceled when Inngest abandons the call or the app shuts down.
+
+A handler that returns a `ValueTask` is rejected with an `ArgumentException`, because the SDK would otherwise save
+the `ValueTask` itself instead of waiting for it. Make the lambda `async` or call `AsTask()`.
+
+## Results are JSON
+
+A step's result is serialized to JSON and stored by Inngest; every later call deserializes it. The SDK does this
+on the call that ran the step too, so the function always sees the result the same way. Return types that
+round-trip through `System.Text.Json`: records, DTOs, primitives, lists. Do not return services, streams, or
+entities with navigation properties.
+
+Results count toward Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits): a few MiB per step
+and in total per run. Store large data elsewhere and return a reference to it.
+
+## Keep side effects in steps
+
+Code outside steps runs on every call. That is fine for reading the event, computing values from step results and
+branching on them. Anything that changes the world, or that gives a different answer each time, belongs in a step:
+sending email, writing to a database, calling an API, reading the clock, generating ids.
+
+The same goes for variables. A handler does not run again once its step is memoized, so a value assigned inside it
+is lost on later calls. Return the value instead:
+
+{/* check: body JsonElement; IBilling billing */}
+```csharp
+// Wrong: total is only assigned on the call that runs the step. On later calls it stays 0.
+var total = 0m;
+await context.Step.RunAsync("sum-invoices", async ct => { total = await billing.SumOpenAsync("cus_42", ct); });
+```
+
+{/* check: body JsonElement; IBilling billing */}
+```csharp
+// Right: the result is saved and handed back on every call.
+var total = await context.Step.RunAsync("sum-invoices", ct => billing.SumOpenAsync("cus_42", ct));
+```
+
+## Logging
+
+`context.Logger` stays quiet while the function replays memoized steps and starts writing once it reaches new code,
+so a message between two steps is written once per run instead of once per call. Loggers you inject yourself do
+not know about replays.
+
+{/* check: body OrderPlaced; IPaymentGateway payments */}
+```csharp
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(context.Event.Data.CustomerId, context.Event.Data.Total, ct));
+
+context.Logger.LogInformation("Charged order {OrderId} with payment {PaymentId}", context.Event.Data.OrderId, paymentId);
+```
+
+## Steps cannot be nested
+
+Calling a step tool inside another step's handler throws an `InvalidOperationException`. Call steps from the
+function itself, one after the other or [in parallel](/inngest-dotnet/guides/parallel-steps/).
+
+## Retries and failures
+
+Each step has its own retry count: with `Retries = 3`, every step gets up to four attempts. When a step fails all of
+them, the SDK throws `StepFailedException` where the function awaits the step. Catch it to recover; left uncaught,
+it fails the run. [Errors and retries](/inngest-dotnet/guides/errors-and-retries/) covers this, along with
+`NonRetriableException` and `RetryAfterException`.
+
+## Related examples
+
+[Order fulfillment](/inngest-dotnet/examples/order-fulfillment/) and [nightly billing](/inngest-dotnet/examples/nightly-billing/) are built from steps throughout.

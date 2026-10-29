@@ -1,0 +1,31 @@
+---
+title: Roadmap
+description: What comes next for the Inngest .NET SDK, from NuGet packages, a test host and OpenTelemetry tracing to race mode for parallel steps and checkpointing.
+---
+
+The SDK already covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
+control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
+under Native AOT. This is what comes next, roughly in order.
+
+## Next
+
+- **NuGet packages.** A package reference instead of project references to a clone of the repository.
+- **A test host, `Inngest.Testing`.** Unit-test a function the way Inngest runs it, call by call, with mocks for sleeps
+  and waits.
+- **OpenTelemetry tracing, `Inngest.OpenTelemetry`.** Traces for runs and steps without writing the middleware
+  yourself.
+- **Connect health checks.** The worker's connection state and an `IHealthCheck` for readiness probes.
+- **Race mode for parallel steps.** Resume a run as soon as the first of several steps finishes, for races such as
+  approved or rejected.
+- **An admin client.** Read a run's status and output, and cancel runs, from your own code.
+- **Smaller additions.** Event access in middleware, typed system events, the cause of a failed step, cron jitter and
+  readable step names in the Inngest UI.
+- **More guides.** Versioning, idempotency, loops, expressions, local development and testing.
+
+## After that
+
+- **Checkpointing.** Several steps in one request, with their results reported in the background: lower latency
+  and fewer requests. It also opens the way to Inngest's durable endpoints.
+- Signals, Sentry and validation middleware packages, Roslyn analyzers, realtime and encryption.
+
+Ideas and pull requests are welcome on [GitHub](https://github.com/damikun/inngest-dotnet/issues).

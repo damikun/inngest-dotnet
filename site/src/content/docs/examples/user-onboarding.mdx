@@ -1,0 +1,96 @@
+---
+title: User onboarding with waits and reminders
+description: Welcome a new user, wait up to three days for them to activate their account, remind them if they do not, and stop when the account is deleted.
+sidebar:
+  label: User onboarding
+---
+
+Onboarding mixes waiting and reacting: send a welcome email, wait for the user to activate, nudge them if they do
+not, and follow up a day after they do. The function sleeps and waits through all of it without holding anything.
+
+```csharp title="OnboardUser.cs"
+using Inngest;
+
+public sealed record UserSignedUp(string UserId, string Email, string Name);
+
+public sealed record UserActivated(string UserId, string Plan);
+
+public sealed class OnboardUser(IMailer mailer, ICrm crm) : InngestFunction<UserSignedUp>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    {
+        var user = context.Event.Data;
+
+        await context.Step.RunAsync("send-welcome",
+            ct => mailer.SendAsync(user.Email, "welcome", new { user.Name }, ct));
+
+        var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
+            new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+
+        if (activated is null)
+        {
+            await context.Step.RunAsync("send-reminder",
+                ct => mailer.SendAsync(user.Email, "activation-reminder", new { user.Name }, ct));
+
+            activated = await context.Step.WaitForEventAsync<UserActivated>("wait-after-reminder",
+                new WaitForEventOptions("user/activated", TimeSpan.FromDays(4)) { Match = "data.userId" });
+
+            if (activated is null)
+            {
+                await context.Step.RunAsync("mark-dormant", ct => crm.MarkDormantAsync(user.UserId, ct));
+                return new { user.UserId, activated = false };
+            }
+        }
+
+        await context.Step.SleepAsync("wait-a-day", TimeSpan.FromDays(1));
+
+        var template = activated.Data.Plan == "team" ? "tips-for-teams" : "tips";
+        await context.Step.RunAsync("send-tips", ct => mailer.SendAsync(user.Email, template, new { user.Name }, ct));
+
+        return new { user.UserId, activated = true };
+    }
+}
+
+public interface IMailer
+{
+    Task SendAsync(string to, string template, object model, CancellationToken cancellationToken);
+}
+
+public interface ICrm
+{
+    Task MarkDormantAsync(string userId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<OnboardUser>(new FunctionOptions
+{
+    Id = "onboard-user",
+    Triggers = [Trigger.Event("user/signed-up")],
+    CancelOn = [new CancelOn("user/deleted") { Match = "data.userId" }],
+    RateLimit = new RateLimit(1, TimeSpan.FromHours(24)) { Key = "event.data.userId" },
+});
+```
+
+The app sends `user/activated` when the user confirms their email, with the same `userId`:
+
+{/* check: statements; IInngestClient inngest; string userId; string plan; CancellationToken cancellationToken */}
+```csharp
+await inngest.SendAsync(new InngestEvent("user/activated", new UserActivated(userId, plan)), cancellationToken);
+```
+
+## How it works
+
+- **Waiting for a person.** `WaitForEventAsync` pauses the run for up to three days. `Match = "data.userId"` makes
+  only this user's activation resume it. On timeout it returns `null`, and the function sends a reminder and waits
+  again.
+- **Branching on what happened.** The activation event is a step result, so code after the wait sees the same event
+  on every call, and the plan decides which tips to send.
+- **Stopping early.** `CancelOn` ends the run when the account is deleted, even in the middle of a three-day wait.
+- **One onboarding per user.** The rate limit skips a second `user/signed-up` for the same user within a day, for
+  example from a double-clicked sign-up button.
+
+A wait only sees events that arrive after it starts. Here the welcome email goes out first, which takes a moment;
+see [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/#only-events-after-the-wait-starts)
+if your users can activate faster than that.

@@ -1,0 +1,169 @@
+---
+title: Middleware for Inngest functions
+description: Observe and wrap function runs, steps and event sends with InngestMiddleware, for logging, metrics, tracing, error mapping and event enrichment.
+sidebar:
+  label: Middleware
+---
+
+Middleware runs code around every function call, step and event send of the app, without touching the functions
+themselves. Derive from `InngestMiddleware`, override the hooks you need and register the class.
+
+```csharp title="TimingMiddleware.cs"
+using System.Diagnostics;
+using Inngest;
+
+public sealed class TimingMiddleware(ILogger<TimingMiddleware> logger) : InngestMiddleware
+{
+    public override async Task<object?> WrapStepHandlerAsync(FunctionContext context, StepInfo step, Func<Task<object?>> next)
+    {
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            return await next();
+        }
+        finally
+        {
+            logger.LogInformation("Step {Step} of {Function} took {Elapsed}",
+                step.Id, context.FunctionId, Stopwatch.GetElapsedTime(started));
+        }
+    }
+}
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddMiddleware<TimingMiddleware>();
+```
+
+## Registration and lifetime
+
+`AddMiddleware<TMiddleware>()` registers the class as a scoped service. One instance serves one call from Inngest,
+including the events its steps send, so it can take scoped dependencies and keep state for the call in fields.
+`AddMiddleware(instance)` registers one instance for every call instead; keep such an instance free of per-call
+state.
+
+Middleware runs in registration order. For wrapping hooks, the first one registered is the outermost.
+
+## Observing hooks
+
+These run at points of a call and return nothing. An exception thrown in one is logged and the other middleware
+still run.
+
+| Hook | When it runs |
+|---|---|
+| `OnRunStartAsync(context)` | On the first call of a run only: the first attempt, with no memoized steps. |
+| `OnMemoizationEndAsync(context)` | Once the memoized steps have been replayed and the function reaches new code. |
+| `OnRunCompleteAsync(context, output)` | When the function returns. |
+| `OnRunErrorAsync(context, exception, isFinalAttempt)` | Every time the function throws; `isFinalAttempt` is true when no retry follows. |
+| `OnStepStartAsync(context, step)` | Before a step handler runs. Memoized steps do not run and raise no step hooks. |
+| `OnStepCompleteAsync(context, step, output)` | After a step handler succeeds. |
+| `OnStepErrorAsync(context, step, exception, isFinalAttempt)` | After a step handler throws. |
+
+Steps cannot be called from these hooks; the SDK throws an `InvalidOperationException` if one tries.
+
+## Wrapping hooks
+
+These receive a `next` delegate and decide what happens around it. Exceptions they throw propagate.
+
+| Hook | What it wraps |
+|---|---|
+| `WrapFunctionAsync(context, next)` | The function body, on every call, replays included. |
+| `WrapStepAsync(context, step, next)` | How a step's result reaches the function, memoized or freshly run. The result can be replaced. |
+| `WrapStepHandlerAsync(context, step, next)` | Only the actual execution of a step handler, once per attempt. |
+| `WrapSendEventAsync(context, events, next, cancellationToken)` | Every event send, from `IInngestClient` or a step. Pass changed events to `next` to change what is sent. `context` is `null` outside a run. |
+
+`StepInfo` describes the step: `Id` as the code wrote it, with the `:n` suffix of a repeated id; `HashedId`, which is
+what Inngest stores; `Type`; and `Memoized`.
+
+### When next never returns
+
+A call that reaches a new step ends there: the SDK reports the step to Inngest and abandons the rest of the
+function. In such a call, the `next()` of `WrapFunctionAsync` never completes, and neither does the `next()` of
+`WrapStepAsync` for the new step. Code after `await next()`, and `finally` blocks around it, do not run in that
+call. Put cleanup that must happen in `WrapStepHandlerAsync`, whose `next()` always completes, or in the observing
+hooks.
+
+Middleware can call step tools from `WrapFunctionAsync` and `WrapStepAsync`. A step created inside a middleware's
+`WrapStepAsync` is not wrapped by that same middleware again.
+
+## Examples
+
+### Map errors to non-retriable ones
+
+A `404` from an API will not go away on retry. Turn it into a failure that stops at once:
+
+```csharp title="NotFoundIsFinalMiddleware.cs"
+using System.Net;
+using Inngest;
+
+public sealed class NotFoundIsFinalMiddleware : InngestMiddleware
+{
+    public override async Task<object?> WrapStepHandlerAsync(FunctionContext context, StepInfo step, Func<Task<object?>> next)
+    {
+        try
+        {
+            return await next();
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new NonRetriableException($"Step {step.Id} got a 404.", exception);
+        }
+    }
+}
+```
+
+### Stamp every event
+
+`InngestEvent` is a record, so a middleware can change events with `with` before they are sent:
+
+```csharp title="EventVersionMiddleware.cs"
+using Inngest;
+
+public sealed class EventVersionMiddleware : InngestMiddleware
+{
+    public override Task<SendEventsResult> WrapSendEventAsync(
+        FunctionContext? context,
+        IReadOnlyList<InngestEvent> events,
+        Func<IReadOnlyList<InngestEvent>, Task<SendEventsResult>> next,
+        CancellationToken cancellationToken) =>
+        next([.. events.Select(e => e.Version is null ? e with { Version = "2026-10" } : e)]);
+}
+```
+
+### Count failures
+
+Observing hooks suit metrics. This one counts final failures per function with `System.Diagnostics.Metrics`; the
+instruments are static because the middleware is created for every call:
+
+```csharp title="FailureMetricsMiddleware.cs"
+using System.Diagnostics.Metrics;
+using Inngest;
+
+public sealed class FailureMetricsMiddleware : InngestMiddleware
+{
+    private static readonly Meter Meter = new("Shop.Inngest");
+    private static readonly Counter<long> Failures = Meter.CreateCounter<long>("inngest.run.failures");
+
+    public override ValueTask OnRunErrorAsync(FunctionContext context, Exception exception, bool isFinalAttempt)
+    {
+        if (isFinalAttempt)
+        {
+            Failures.Add(1, new KeyValuePair<string, object?>("function", context.FunctionId));
+        }
+
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+The [tracing example](/inngest-dotnet/examples/tracing-middleware/) wraps steps in OpenTelemetry activities.
+
+## Compared with the TypeScript SDK
+
+The hooks follow inngest-js v4's middleware, with .NET names. The transform hooks of the TypeScript SDK
+(`transformFunctionInput`, `transformStepInput`) and `wrapRequest` are not available yet; constructor injection
+covers most of what they are used for in TypeScript. Inngest's
+[middleware guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/middleware) describes the
+lifecycle in general.

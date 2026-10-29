@@ -1,0 +1,76 @@
+---
+title: Scheduled reminders with sleep and cancel
+description: Sleep until a user's reminder is due, cancel it when the reminder is deleted, and replace the pending run when the reminder is moved.
+sidebar:
+  label: Scheduled reminders
+---
+
+Reminders are runs that spend nearly all their life asleep. One run per reminder sleeps until the due time and then
+sends the notification. Deleting the reminder cancels the run; moving it starts a new run that replaces the old
+one.
+
+```csharp title="SendReminder.cs"
+using Inngest;
+
+public sealed record ReminderScheduled(string ReminderId, string UserId, string Text, DateTimeOffset DueAt);
+
+public sealed class SendReminder(INotifier notifier) : InngestFunction<ReminderScheduled>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<ReminderScheduled> context, CancellationToken cancellationToken)
+    {
+        var reminder = context.Event.Data;
+
+        // DueAt comes from the event, so it is the same on every call.
+        await context.Step.SleepUntilAsync("wait-until-due", reminder.DueAt);
+
+        await context.Step.RunAsync("notify", ct => notifier.NotifyAsync(reminder.UserId, reminder.Text, ct));
+        return new { reminder.ReminderId };
+    }
+}
+
+public interface INotifier
+{
+    Task NotifyAsync(string userId, string text, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<SendReminder>(new FunctionOptions
+{
+    Id = "send-reminder",
+    Triggers = [Trigger.Event("reminders/reminder.scheduled")],
+    // A newer schedule for the same reminder cancels the pending run.
+    Singleton = new Singleton(SingletonMode.Cancel) { Key = "event.data.reminderId" },
+    CancelOn = [new CancelOn("reminders/reminder.deleted") { Match = "data.reminderId" }],
+});
+```
+
+The app sends an event whenever a reminder is created or moved, and another when it is deleted:
+
+```csharp title="ReminderService.cs"
+using Inngest;
+
+public sealed class ReminderService(IInngestClient inngest)
+{
+    public Task ScheduleAsync(string reminderId, string userId, string text, DateTimeOffset dueAt, CancellationToken cancellationToken) =>
+        inngest.SendAsync(new InngestEvent("reminders/reminder.scheduled", new ReminderScheduled(reminderId, userId, text, dueAt)), cancellationToken);
+
+    public Task DeleteAsync(string reminderId, CancellationToken cancellationToken) =>
+        inngest.SendAsync(new InngestEvent("reminders/reminder.deleted", new { reminderId }), cancellationToken);
+}
+```
+
+## How it works
+
+- **Sleeping costs nothing.** `SleepUntilAsync` ends the call. Inngest calls the function again at the due time,
+  which can be weeks away and on another instance of the app.
+- **Moving a reminder.** Sending `reminders/reminder.scheduled` again for the same reminder starts a new run. The
+  singleton option in cancel mode, keyed on the reminder id, cancels the run that was waiting for the old time.
+- **Deleting a reminder.** `CancelOn` with `Match = "data.reminderId"` cancels the sleeping run when the deletion
+  event names the same reminder.
+- **Stable times.** The due time comes from the event, which is the same on every call. A time computed from the
+  clock outside a step would move each time the function replays.
+
+The [sleep and wait guide](/inngest-dotnet/guides/sleep-and-wait-for-events/) covers sleeps in detail, and
+[Flow control](/inngest-dotnet/guides/flow-control/#singleton) the singleton option.

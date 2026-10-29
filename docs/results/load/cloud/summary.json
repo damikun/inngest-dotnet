@@ -1,0 +1,93 @@
+{
+  "mode": "cloud",
+  "finished_at": "2026-10-29T12:03:21.677212+00:00",
+  "runs_requested": 2000,
+  "runs_sent": 2000,
+  "in_flight_target": 50,
+  "timed_out": false,
+  "load_duration_s": 728.8,
+  "parent_runs_per_s": 2.7,
+  "all_runs_per_s": 11,
+  "parent_runs": 2000,
+  "parent_runs_correct": 2000,
+  "child_runs": 6000,
+  "child_runs_correct": 6000,
+  "child_runs_per_account": {
+    "initech": 2000,
+    "globex": 2000,
+    "acme": 2000
+  },
+  "success_rate": 1,
+  "statuses": {
+    "COMPLETED": 8000
+  },
+  "parent_latency_queued_to_ended_ms": {
+    "count": 2000,
+    "min": 8488,
+    "p50": 17542,
+    "p95": 23428,
+    "p99": 27037,
+    "max": 31690,
+    "mean": 17480
+  },
+  "parent_latency_sent_to_ended_ms": {
+    "count": 2000,
+    "min": 8548,
+    "p50": 17844,
+    "p95": 23570,
+    "p99": 27371,
+    "max": 31926,
+    "mean": 17731
+  },
+  "child_latency_queued_to_ended_ms": {
+    "count": 6000,
+    "min": 1752,
+    "p50": 7740,
+    "p95": 11893,
+    "p99": 14562,
+    "max": 15355,
+    "mean": 7723
+  },
+  "app_container": {
+    "image": "inngest-dotnet-sample:local",
+    "memory_limit_bytes": 536870912,
+    "cpu_limit": 2,
+    "usage": {
+      "samples": 1485,
+      "memory_before_load_mib": 31.1,
+      "memory_max_during_load_mib": 57.7,
+      "memory_mean_during_load_mib": 47.8,
+      "memory_after_load_mib": 48.2,
+      "memory_limit_mib": 512,
+      "cpu_max_percent": 26.4,
+      "cpu_mean_percent": 1.7,
+      "pids_max": 27
+    }
+  },
+  "server_container": {
+    "usage": {
+      "samples": 1485,
+      "memory_before_load_mib": 101,
+      "memory_max_during_load_mib": 343.8,
+      "memory_mean_during_load_mib": 247.2,
+      "memory_after_load_mib": 380.8,
+      "memory_limit_mib": 7932.9,
+      "cpu_max_percent": 106.6,
+      "cpu_mean_percent": 74.8,
+      "pids_max": 37
+    }
+  },
+  "logs": {
+    "app_log_lines": 10,
+    "app_warnings": 2,
+    "app_errors": 0,
+    "server_log_lines": 41324,
+    "server_warnings": 0,
+    "server_errors": 11255,
+    "server_problem_messages": {
+      "rejecting event; event key not recognized": 1,
+      "error inserting trace run": 6813,
+      "error inserting span": 4441
+    }
+  }
+}

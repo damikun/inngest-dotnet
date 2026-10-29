@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.AspNetCore</RootNamespace>
+    <Description>ASP.NET Core hosting for the Inngest .NET SDK: MapInngest serves sync, introspection and invocation.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+    <InternalsVisibleTo Include="Inngest.IntegrationTests" />
+  </ItemGroup>
+</Project>

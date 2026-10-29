@@ -1,0 +1,197 @@
+---
+title: Concurrency, throttling and rate limits
+description: Concurrency, throttling, rate limits, debounce, batching, priority, idempotency, singletons, cancellation and timeouts, set in FunctionOptions and enforced by Inngest.
+sidebar:
+  label: Flow control
+---
+
+import FlowTimeline from '../../../components/islands/FlowTimeline';
+
+Flow control decides when runs start and how many run at once. You set it per function in `FunctionOptions`, the
+SDK sends it to Inngest when the app syncs, and Inngest enforces it. Nothing in your app has to queue, lock or
+count.
+
+{/* check: expression FunctionOptions */}
+```csharp
+new FunctionOptions
+{
+    Id = "sync-account",
+    Triggers = [Trigger.Event("account/updated")],
+    Concurrency = [new ConcurrencyLimit(5) { Key = "event.data.accountId" }],
+    Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),
+    Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.accountId" },
+    CancelOn = [new CancelOn("account/deleted") { Match = "data.accountId" }],
+}
+```
+
+The [function options builder](/inngest-dotnet/explainers/function-options/) shows the JSON these options turn into.
+
+## See it on a timeline
+
+The timeline below sends the same burst of events to a function with each kind of flow control; change the settings
+to see which runs start at once, which wait, which are skipped and which are merged. The
+[flow control explainer](/inngest-dotnet/explainers/flow-control/) says how to read it.
+
+<FlowTimeline client:visible />
+
+## Keys
+
+Most options take a `Key`, an [expression](https://www.inngest.com/docs/guides/writing-expressions) evaluated
+against each event. Runs with the same key value share a limit, and runs with different values do not. A
+concurrency limit of 1 keyed on `event.data.accountId` runs one step at a time per account, while all accounts
+run side by side. A key can combine fields: `event.data.tenantId + "-" + event.data.region`.
+
+## Concurrency
+
+{/* check: members FunctionOptions */}
+```csharp
+Concurrency =
+[
+    new ConcurrencyLimit(50),
+    new ConcurrencyLimit(1) { Key = "event.data.accountId" },
+],
+```
+
+Limits how many steps of the function execute at the same time. Runs over the limit wait in a queue and start in
+order. A function can have up to two limits; a step starts when it fits both. Concurrency counts executing
+steps, not runs: a run that sleeps or waits for an event holds no slot.
+
+`Scope` widens a keyed limit beyond the function. `ConcurrencyScope.Environment` shares it with every function in
+the environment that uses the same key, and `ConcurrencyScope.Account` with every environment of the account.
+Both need a key. See [concurrency](https://www.inngest.com/docs/durable-execution/flow-control/concurrency).
+
+## Throttle
+
+{/* check: members FunctionOptions */}
+```csharp
+Throttle = new Throttle(10, TimeSpan.FromMinutes(1)) { Burst = 5, Key = "event.data.merchantId" },
+```
+
+Limits how many runs start per period. Runs over the limit are queued, not dropped, and their starts are spread
+over the period. `Burst` lets that many extra runs start at once. Use it to protect an API with a rate limit of its
+own. The period must be at least one second. See
+[throttling](https://www.inngest.com/docs/durable-execution/flow-control/throttling).
+
+## Rate limit
+
+{/* check: members FunctionOptions */}
+```csharp
+RateLimit = new RateLimit(1, TimeSpan.FromHours(4)) { Key = "event.data.userId" },
+```
+
+Also limits how many runs start per period, but events over the limit are skipped and never run. Use it where
+running late is worse than not running, such as a "your report is ready" email. The period is between one second
+and 24 hours. See [rate limiting](https://www.inngest.com/docs/durable-execution/flow-control/rate-limiting).
+
+## Debounce
+
+{/* check: members FunctionOptions */}
+```csharp
+Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.productId", Timeout = TimeSpan.FromMinutes(5) },
+```
+
+Waits until events stop arriving for the period, then runs once with the last event. Each new event restarts the
+period. `Timeout` caps the total wait, so a steady stream of events still runs the function every so often. The
+period is between one second and seven days. See [debounce](https://www.inngest.com/docs/durable-execution/flow-control/debounce).
+
+## Batching
+
+{/* check: members FunctionOptions */}
+```csharp
+BatchEvents = new BatchEvents(100, TimeSpan.FromSeconds(10)) { Key = "event.data.importId" },
+```
+
+Runs the function with up to `MaxSize` events at once, or with what has arrived when the timeout passes. The events
+are in `context.Events`; `context.Event` is the first of them. `If` limits batching to events that match an
+expression; others run on their own.
+
+{/* check: body ImportRow; IRowWriter rows */}
+```csharp
+var batch = context.Events.Select(e => e.Data).ToList();
+await context.Step.RunAsync("write-rows", ct => rows.WriteAsync(batch, ct));
+```
+
+`MaxSize` must be at least 2 and the timeout between one and 60 seconds. Inngest does not allow batching together
+with cancellation, debounce, singletons or priority, and the SDK rejects those combinations at startup. See
+[batching](https://www.inngest.com/docs/durable-execution/flow-control/batching).
+
+## Priority
+
+{/* check: members FunctionOptions */}
+```csharp
+Priority = new Priority("event.data.plan == 'enterprise' ? 120 : 0"),
+```
+
+`Run` is an expression that returns a number of seconds, from -600 to 600. A run with priority 120 starts ahead of
+runs that have been waiting for up to two minutes; a negative value holds a run back. Priority only matters when
+runs queue up, so it goes together with concurrency or throttling. See
+[priority](https://www.inngest.com/docs/durable-execution/flow-control/priority).
+
+## Idempotency
+
+{/* check: members FunctionOptions */}
+```csharp
+Idempotency = "event.data.paymentId",
+```
+
+Starts at most one run per value of the expression in 24 hours, for this function. Other functions triggered by the
+same event are not affected. Inngest implements it as a rate limit of 1 per 24 hours, so it replaces any
+`RateLimit`. To deduplicate an event for every function, give the event an
+[`Id`](/inngest-dotnet/guides/sending-events/#deduplicating-with-an-id) instead. See
+[idempotency](https://www.inngest.com/docs/durable-execution/guides-and-advanced/idempotency).
+
+## Singleton
+
+{/* check: members FunctionOptions */}
+```csharp
+Singleton = new Singleton(SingletonMode.Skip) { Key = "event.data.accountId" },
+```
+
+Allows one active run per key. With `SingletonMode.Skip` a new run is skipped while another is active; with
+`SingletonMode.Cancel` the new run cancels the active one. Unlike a concurrency limit of 1, this covers the whole
+run, sleeps and waits included. See [singleton](https://www.inngest.com/docs/durable-execution/flow-control/singleton).
+
+## Cancel on events
+
+{/* check: members FunctionOptions */}
+```csharp
+CancelOn =
+[
+    new CancelOn("account/deleted") { Match = "data.accountId" },
+    new CancelOn("subscription/changed") { If = "async.data.plan == 'free'", Timeout = TimeSpan.FromDays(7) },
+],
+```
+
+Cancels a run when a matching event arrives. `Match` compares a property of the triggering event with the same
+property of the cancelling one; `If` is a full expression where `event` is the triggering event and `async` the
+cancelling one. `Timeout` limits how long after the run is scheduled an event can still cancel it. A function can
+have up to five.
+
+Cancellation takes effect between steps: a step that is running finishes, and the run stops before the next one.
+See [cancellation](https://www.inngest.com/docs/durable-execution/guides-and-advanced/cancellation/events).
+
+## Timeouts
+
+{/* check: members FunctionOptions */}
+```csharp
+Timeouts = new FunctionTimeouts { Start = TimeSpan.FromMinutes(10), Finish = TimeSpan.FromHours(1) },
+```
+
+`Start` cancels a run that waited in the queue longer than that before its first step. `Finish` cancels a run that
+takes longer than that from its first step to the end. Neither interrupts a step that is running; give the calls
+inside your steps timeouts of their own. See
+[timeouts](https://www.inngest.com/docs/durable-execution/guides-and-advanced/cancellation/timeouts).
+
+## Validation
+
+The SDK checks these options when the app starts, against the limits Inngest enforces, and throws an
+`InvalidOperationException` that names the function and the problem, for example
+`Function "import-rows": BatchEvents cannot be combined with Debounce.` A mistake fails the deploy instead of the
+sync.
+
+The [flow control overview](https://www.inngest.com/docs/durable-execution/flow-control) in the Inngest docs explains
+how the options interact and in which order Inngest applies them.
+
+## Related examples
+
+The [webhook pipeline](/inngest-dotnet/examples/webhook-pipeline/) uses idempotency and a throttle, [nightly billing](/inngest-dotnet/examples/nightly-billing/) concurrency and a singleton, and [order fulfillment](/inngest-dotnet/examples/order-fulfillment/) cancellation.

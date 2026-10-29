@@ -1,0 +1,36 @@
+---
+title: Function options builder
+description: Build a FunctionOptions value in the browser and see the C# that registers it and the JSON the SDK sends to Inngest when the app syncs.
+tableOfContents: false
+---
+
+import OptionsBuilder from '../../../components/islands/OptionsBuilder';
+
+Everything Inngest controls about a function, from its triggers to flow control, goes in `FunctionOptions`. When
+Inngest syncs the app, the SDK turns those options into JSON. Pick a preset or change the options, and the output
+shows the C# registration and that JSON side by side.
+
+<OptionsBuilder client:visible />
+
+## How the output is made
+
+The builder writes the JSON the same way the SDK's `RegistrationWriter` does: the same properties in the same
+order, with durations as Inngest time strings (`90` minutes becomes `"1h30m"`) and options that are not set left
+out, so Inngest applies its defaults. A few details worth knowing:
+
+- A function's id on the wire is `<app id>-<function id>`.
+- `retries.attempts` holds the number of retries, not attempts. Leave `Retries` empty to get Inngest's default of
+  4 retries.
+- `Match` on a cancellation becomes the expression `event.<path> == async.<path>`.
+- A cron trigger with a time zone is sent with a `TZ=` prefix.
+- A class that implements `IFailureHandler` registers a second function, `<id>-failure`, triggered by
+  `inngest/function.failed`.
+
+The checks are the ones `FunctionOptionsValidator` makes when the app starts. The SDK stops at the first problem;
+the builder lists all of them.
+
+The site's build checks this page against the SDK: the snippet check compiles the C# of every preset, registers
+it in a real app and compares the JSON the SDK sends with the JSON shown here.
+
+[Flow control](/inngest-dotnet/guides/flow-control/) explains each option, and
+[Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/) covers ids, names and triggers.

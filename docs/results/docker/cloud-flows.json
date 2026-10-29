@@ -1,0 +1,73 @@
+{
+  "mode": "cloud",
+  "checkedAt": "2026-10-29T11:49:30.33853+00:00",
+  "server": "http://127.0.0.1:18288",
+  "results": [
+    {
+      "name": "the server is healthy",
+      "passed": true,
+      "detail": "GET /health answered 200",
+      "seconds": 0.0288642
+    },
+    {
+      "name": "the app synced over the Docker network",
+      "passed": true,
+      "detail": "http://sample:8080/api/inngest, sdk dotnet v0.1.0-preview, framework aspnetcore, method SERVE, 5 functions",
+      "seconds": 0.0144087
+    },
+    {
+      "name": "the app container runs as non-root, publishes no port and is not on the host network",
+      "passed": true,
+      "detail": "user 1654, network mode inngest-sample_inngest (inngest-sample_inngest), 0 published ports, health healthy",
+      "seconds": 0.050115
+    },
+    {
+      "name": "an unsigned GET from inside the network is refused",
+      "passed": true,
+      "detail": "HTTP/1.1 401 Unauthorized",
+      "seconds": 0.0620411
+    },
+    {
+      "name": "a call with a forged signature from inside the network is refused",
+      "passed": true,
+      "detail": "HTTP/1.1 401 Unauthorized",
+      "seconds": 0.0497202
+    },
+    {
+      "name": "the server refuses events with another key",
+      "passed": true,
+      "detail": "401 for an unknown event key",
+      "seconds": 0.0054096
+    },
+    {
+      "name": "hello-world runs its step and returns the greeting",
+      "passed": true,
+      "detail": "COMPLETED in 309 ms: {\u0022greeting\u0022:\u0022Hello, Docker!\u0022}",
+      "seconds": 0.6751148
+    },
+    {
+      "name": "summarize-accounts invokes score-account three times in parallel and sends an event",
+      "passed": true,
+      "detail": "output {\u0022accounts\u0022:3,\u0022total\u0022:170}; COMPLETED {\u0022accountId\u0022:\u0022acme\u0022,\u0022score\u0022:40}; COMPLETED {\u0022accountId\u0022:\u0022globex\u0022,\u0022score\u0022:60}; COMPLETED {\u0022accountId\u0022:\u0022initech\u0022,\u0022score\u0022:70}; the app sent sample/summary.ready {\u0022total\u0022:170}",
+      "seconds": 1.2804358
+    },
+    {
+      "name": "onboard-user waits for activation, sleeps 5 s and finishes",
+      "passed": true,
+      "detail": "COMPLETED after 5.4 s: {\u0022activated\u0022:true,\u0022userId\u0022:\u0022user-8db5b7989f4942749083e14738039e7c\u0022,\u0022welcomeId\u0022:\u002204669f93689d4551a6969cac4e2c73f7\u0022}",
+      "seconds": 5.6171632
+    },
+    {
+      "name": "onboard-user is cancelled by sample/user.deleted",
+      "passed": true,
+      "detail": "CANCELLED while it waited for activation",
+      "seconds": 0.6976859
+    },
+    {
+      "name": "the app logged the sync and no other warnings or errors",
+      "passed": true,
+      "detail": "2026-10-29T11:49:15.985Z info: Inngest.Serving.InngestCommHandler[406] Synced 5 functions with Inngest at http://sample:8080/api/inngest; 2 warnings for the refused probes",
+      "seconds": 0.0542203
+    }
+  ]
+}

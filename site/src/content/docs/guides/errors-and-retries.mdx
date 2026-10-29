@@ -1,0 +1,186 @@
+---
+title: Errors, retries and failure handlers
+description: How failed steps and functions are retried, how to stop or delay retries with exceptions, how to recover from a failed step, and how to run code when a function fails for good.
+sidebar:
+  label: Errors and retries
+---
+
+Errors are exceptions. When a step throws, Inngest retries that step. When code outside steps throws, Inngest
+retries the call, which runs the function from the top again with the steps that already succeeded memoized.
+Three exception types change that default, and a failure handler runs when everything else has failed.
+
+## How many retries
+
+`Retries` in `FunctionOptions` is the number of retries after the first attempt, from 0 to 20. Without it, Inngest
+retries 4 times, so 5 attempts in all.
+
+{/* check: members FunctionOptions */}
+```csharp
+Retries = 8,
+```
+
+The count applies to each step separately, not to the run as a whole: with `Retries = 8`, every step gets up to 9
+attempts. Inngest waits longer between attempts as they go on. `context.Attempt` is the zero-based attempt of the
+current step or call, and `context.MaxAttempts` the total, when Inngest sends it. See
+[retries](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/retries) in the Inngest
+docs.
+
+## Fail without retrying
+
+Throw `NonRetriableException` when another attempt cannot help, such as for invalid input:
+
+{/* check: body OrderPlaced; IPaymentGateway payments */}
+```csharp
+var order = context.Event.Data;
+if (order.Total <= 0)
+{
+    throw new NonRetriableException($"Order {order.OrderId} has no amount to charge.");
+}
+
+await context.Step.RunAsync("charge", ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+```
+
+Thrown outside a step, it fails the run at once. Thrown inside a step's handler, it fails that step at once, and
+the function gets a `StepFailedException` where it awaits the step, as described below.
+
+## Retry later
+
+Throw `RetryAfterException` to retry, but not before a delay or a point in time. It suits APIs that say when to come
+back:
+
+{/* check: body JsonElement; HttpClient http */}
+```csharp
+var rates = await context.Step.RunAsync("fetch-rates", async ct =>
+{
+    using var response = await http.GetAsync("https://rates.example.com/latest", ct);
+    if (response.StatusCode is System.Net.HttpStatusCode.TooManyRequests)
+    {
+        var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(1);
+        throw new RetryAfterException("The rates API asked us to slow down.", wait);
+    }
+
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadFromJsonAsync<ExchangeRates>(ct);
+});
+```
+
+The SDK sends the delay to Inngest as a `Retry-After` header. Inngest waits at least a second and at most a day; a
+longer delay is cut to a day.
+
+## Recover from a failed step
+
+When a step has failed all its attempts, the SDK throws `StepFailedException` where the function awaits the step,
+on that call and on every later replay. Catch it to recover, for example to undo earlier steps:
+
+{/* check: body OrderPlaced; IInventory inventory; IPaymentGateway payments */}
+```csharp
+var order = context.Event.Data;
+
+var reservationId = await context.Step.RunAsync("reserve-stock",
+    ct => inventory.ReserveAsync(order.OrderId, ct));
+
+try
+{
+    await context.Step.RunAsync("charge-card", ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+}
+catch (StepFailedException exception)
+{
+    await context.Step.RunAsync("release-stock", ct => inventory.ReleaseAsync(reservationId, ct));
+    throw new NonRetriableException($"Payment failed: {exception.Error.Message}", exception);
+}
+```
+
+`StepId` names the failed step and `Error` holds the original failure as Inngest stored it: the exception type
+name, the message and the stack trace. The exception object itself does not survive; the step failed in another
+call, perhaps on another machine.
+
+Left uncaught, `StepFailedException` fails the run without further retries: the step already used its attempts.
+Inngest's guide to [rollbacks](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/rollbacks)
+covers compensation in more depth.
+
+## Run code when a function fails
+
+Implement `IFailureHandler` on the function's class to run code once the function has failed for good:
+
+```csharp title="ImportCatalog.cs"
+using Inngest;
+
+public sealed record CatalogUploaded(string FileId);
+
+public sealed class ImportCatalog(ICatalogImporter importer, IAlerts alerts) : InngestFunction<CatalogUploaded>, IFailureHandler
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<CatalogUploaded> context, CancellationToken cancellationToken)
+    {
+        var count = await context.Step.RunAsync("import", ct => importer.ImportAsync(context.Event.Data.FileId, ct));
+        return new { count };
+    }
+
+    public async Task OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken)
+    {
+        var failure = context.Event.Data;
+        await context.Step.RunAsync("alert",
+            ct => alerts.SendAsync($"Catalog import {failure.RunId} failed: {failure.Error.Message}", ct));
+    }
+}
+
+public interface ICatalogImporter
+{
+    Task<int> ImportAsync(string fileId, CancellationToken cancellationToken);
+}
+
+public interface IAlerts
+{
+    Task SendAsync(string text, CancellationToken cancellationToken);
+}
+```
+
+The handler is a function of its own. The SDK registers it as `<function id>-failure`, triggered by the
+`inngest/function.failed` event for this function, with one retry, and it can use steps like any function.
+`context.Event.Data` is a `FunctionFailure`:
+
+| Property | Meaning |
+|---|---|
+| `FunctionId` | The failed function as Inngest knows it, `<app id>-<function id>`. |
+| `RunId` | The failed run. `context.RunId` is the failure handler's own run. |
+| `Error` | The error the run failed with: `Name`, `Message` and `Stack`. |
+| `Event` | The event that triggered the failed run, as a `JsonElement`. |
+
+A delegate function takes its failure handler as `onFailure`:
+
+{/* check: statements; IInngestBuilder inngest; ICatalogImporter importer */}
+```csharp
+inngest.AddFunction<CatalogUploaded>(
+    new FunctionOptions { Id = "import-catalog", Triggers = [Trigger.Event("catalog/uploaded")] },
+    async (context, cancellationToken) =>
+    {
+        var count = await context.Step.RunAsync("import", ct => importer.ImportAsync(context.Event.Data.FileId, ct));
+        return new { count };
+    },
+    onFailure: (context, cancellationToken) =>
+    {
+        context.Logger.LogError("Run {RunId} failed: {Message}", context.Event.Data.RunId, context.Event.Data.Error.Message);
+        return Task.CompletedTask;
+    });
+```
+
+To handle failures of every function in one place, write a function triggered by `inngest/function.failed`
+itself, with `FunctionFailure` as its event data. See Inngest's
+[failure handlers](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/failure-handlers)
+page and the [function.failed event](https://www.inngest.com/docs/reference/system-events/inngest-function-failed).
+
+## What Inngest records
+
+The SDK reports an error as the exception's type name, its message and its stack trace, and includes inner
+exceptions as the cause, up to five levels deep. That is what the run history shows, what `StepFailedException.Error`
+and `FunctionFailure.Error` hold, and what Inngest sends in `inngest/function.failed`.
+
+A run that is cancelled, by an event, a timeout or the API, ends with an `inngest/function.cancelled` event. A
+function triggered by that event can clean up after it; see
+[function.cancelled](https://www.inngest.com/docs/reference/system-events/inngest-function-cancelled).
+
+Middleware sees every failed attempt, not only the last one, through `OnRunErrorAsync` and `OnStepErrorAsync`; see
+[Middleware](/inngest-dotnet/guides/middleware/).
+
+## Related examples
+
+[Order fulfillment](/inngest-dotnet/examples/order-fulfillment/) compensates a failed payment, and the [webhook pipeline](/inngest-dotnet/examples/webhook-pipeline/) retries with `RetryAfterException`.

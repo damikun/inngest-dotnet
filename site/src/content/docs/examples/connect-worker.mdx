@@ -1,0 +1,142 @@
+---
+title: Background worker with Inngest Connect
+description: A background worker with no HTTP endpoint that runs Inngest functions over Connect, with a web app that only sends events, a Dockerfile and graceful shutdown.
+sidebar:
+  label: Connect worker
+---
+
+This example splits an app in two: a public web app that accepts uploads and sends events, and a worker in a private
+network that processes them. The worker has no inbound port at all. It connects out to Inngest with
+[Connect](/inngest-dotnet/guides/connect/) and receives its work over that connection.
+
+## The worker
+
+```csharp title="Worker/Program.cs"
+using Inngest;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// Register your IThumbnailer implementation here; any image library works.
+builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
+builder.Services
+    .AddInngest(options => options.AppId = "media-worker")
+    .AddFunction<MakeThumbnails>(new FunctionOptions
+    {
+        Id = "make-thumbnails",
+        Triggers = [Trigger.Event("media/image.uploaded")],
+        Concurrency = [new ConcurrencyLimit(8)],
+    })
+    .AddConnect(connect =>
+    {
+        // Stable per container, unique between containers.
+        connect.InstanceId = Environment.GetEnvironmentVariable("HOSTNAME");
+        connect.MaxWorkerConcurrency = 4;
+    });
+
+await builder.Build().RunAsync();
+```
+
+```csharp title="Worker/MakeThumbnails.cs"
+using Inngest;
+
+public sealed record ImageUploaded(string ImageId, string BlobPath);
+
+public sealed class MakeThumbnails(IThumbnailer thumbnailer) : InngestFunction<ImageUploaded>
+{
+    private static readonly int[] Widths = [160, 480, 1200];
+
+    public override async Task<object?> ExecuteAsync(FunctionContext<ImageUploaded> context, CancellationToken cancellationToken)
+    {
+        var image = context.Event.Data;
+
+        var paths = await Task.WhenAll(Widths.Select(width =>
+            context.Step.RunAsync($"resize-{width}", ct => thumbnailer.ResizeAsync(image.BlobPath, width, ct))));
+
+        await context.Step.SendEventAsync("announce",
+            new InngestEvent("media/thumbnails.ready", new { image.ImageId, paths }));
+
+        return new { image.ImageId, thumbnails = paths.Length };
+    }
+}
+
+public interface IThumbnailer
+{
+    Task<string> ResizeAsync(string blobPath, int width, CancellationToken cancellationToken);
+}
+```
+
+The worker's project references `Inngest` and `Inngest.Connect` and uses the worker SDK:
+
+```xml title="Worker/Worker.csproj"
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
+    <ProjectReference Include="../inngest-dotnet/src/Inngest.Connect/Inngest.Connect.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+## The web app
+
+The web app only sends events, so it needs `AddInngest` and an event key, but no functions and no `MapInngest`:
+
+```csharp title="Web/Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddInngest(options => options.AppId = "media-web");
+
+var app = builder.Build();
+
+app.MapPost("/images/{imageId}", async (string imageId, IInngestClient inngest, CancellationToken cancellationToken) =>
+{
+    // Store the upload first; then hand the processing to the worker.
+    var blobPath = $"uploads/{imageId}";
+    await inngest.SendAsync(new InngestEvent("media/image.uploaded", new { imageId, blobPath }), cancellationToken);
+    return Results.Accepted();
+});
+
+app.Run();
+```
+
+## Running it in containers
+
+```dockerfile title="Worker/Dockerfile"
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish Worker/Worker.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+WORKDIR /app
+COPY --from=build /app .
+USER $APP_UID
+ENTRYPOINT ["dotnet", "Worker.dll"]
+```
+
+The worker image needs only the .NET runtime, not ASP.NET Core, and exposes no port. Give it the signing key; the
+web app needs the event key:
+
+```bash
+docker run -e INNGEST_SIGNING_KEY=signkey-prod-... media-worker:latest
+docker run -p 8080:8080 -e INNGEST_EVENT_KEY=... media-web:latest
+```
+
+## How it works
+
+- **No ingress.** The worker dials Inngest; nothing dials the worker. It works from a private subnet, a laptop or a
+  network that only allows outbound traffic.
+- **Two apps in Inngest.** The worker syncs itself as `media-worker` through its connection. The web app has no
+  functions to sync; it only sends events.
+- **Capacity per worker.** `MaxWorkerConcurrency` caps how many calls Inngest sends one worker at a time, and
+  Inngest spreads the rest over other workers. The function's own concurrency limit caps all workers together.
+- **Graceful shutdown.** When the container stops, the worker takes no new work and waits up to two minutes for
+  running calls. Calls cut off after that are cancelled and retried elsewhere. Set the orchestrator's grace period a
+  little longer than the shutdown timeout.
+- **Several workers.** Run as many containers as you need. Each needs its own `InstanceId`, which the container's
+  host name provides.

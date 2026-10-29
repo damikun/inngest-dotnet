@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.astro/
+# Pages generated from the repository's docs/ folder at build time.
+src/content/docs/internals/

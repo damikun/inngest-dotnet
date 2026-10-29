@@ -1,0 +1,56 @@
+---
+// The Connect guide: who opens the connection. With MapInngest, Inngest calls in over HTTPS; with Connect, the
+// worker dials out and receives work over the socket it opened.
+import Figure from './Figure.astro';
+
+const cols = '--cols: minmax(0, 1fr) minmax(10rem, 1.1fr) minmax(0, 1fr)';
+const cloud = 'M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.2 4.4 4.4 0 0 0 7 18z';
+---
+
+<Figure>
+  <p class="fig-title">HTTP endpoint, with MapInngest</p>
+  <div class="fig-flow" style={cols}>
+    <div class="fig-node">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d={cloud}></path></svg>
+      <p class="name">Inngest</p>
+      <p class="detail">calls the app</p>
+    </div>
+    <div class="fig-link">
+      <div class="fig-arrow forward coral"><span>POST /api/inngest</span></div>
+      <div class="fig-arrow back plan"><span>206 or 200</span></div>
+    </div>
+    <div class="fig-node">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"></path></svg>
+      <p class="name">ASP.NET Core app</p>
+      <p class="detail">needs a public URL</p>
+    </div>
+  </div>
+
+  <p class="fig-title connect">Connect worker, with AddConnect</p>
+  <div class="fig-flow" style={cols}>
+    <div class="fig-node">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d={cloud}></path></svg>
+      <p class="name">Inngest</p>
+      <p class="detail">Connect gateway</p>
+    </div>
+    <div class="fig-link">
+      <div class="fig-arrow back run"><span>WebSocket, opened by the worker</span></div>
+      <div class="fig-arrow forward coral dashed"><span>work, over that socket</span></div>
+    </div>
+    <div class="fig-node private">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>
+      <p class="name">Worker</p>
+      <p class="detail">private network, no inbound port</p>
+    </div>
+  </div>
+  <Fragment slot="caption">
+    With <code>MapInngest</code>, Inngest calls the app over HTTPS, so the app must be reachable. With Connect, the
+    worker opens a WebSocket to Inngest and receives work over it, so nothing has to reach the worker from outside.
+  </Fragment>
+</Figure>
+
+<style>
+  .connect {
+    margin-top: 1.5rem;
+  }
+</style>

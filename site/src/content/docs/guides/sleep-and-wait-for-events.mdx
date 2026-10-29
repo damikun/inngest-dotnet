@@ -1,0 +1,113 @@
+---
+title: Sleep and wait for events in a workflow
+description: Pause a run for a duration, until a point in time, or until a matching event arrives, without holding a thread, a request or a worker.
+sidebar:
+  label: Sleep and wait for events
+---
+
+import SleepWait from '../../../components/figures/SleepWait.astro';
+
+A paused run costs nothing while it waits. The SDK tells Inngest what the run is waiting for and the call ends.
+Inngest calls the function again when the time comes or the event arrives, and the function continues after the
+step. The app can be restarted, scaled down or redeployed in between.
+
+## Sleep for a duration
+
+{/* check: body UserSignedUp; IEmailSender email */}
+```csharp
+await context.Step.RunAsync("send-welcome", ct => email.SendAsync(context.Event.Data.Email, "Welcome!", ct));
+
+await context.Step.SleepAsync("wait-three-days", TimeSpan.FromDays(3));
+
+await context.Step.RunAsync("send-check-in", ct => email.SendAsync(context.Event.Data.Email, "How is it going?", ct));
+```
+
+Durations are sent to Inngest in whole seconds; anything shorter than a second becomes one second. A single sleep
+can last up to a year, within your plan's maximum run length; see Inngest's
+[limits](https://www.inngest.com/docs/durable-execution/limits) and
+[sleep](https://www.inngest.com/docs/durable-execution/primitives/step-sleep) pages.
+
+## Sleep until a time
+
+`SleepUntilAsync` takes a `DateTimeOffset`. The SDK sends it to Inngest in UTC, so the offset you use does not
+matter:
+
+{/* check: body JsonElement; IReminders reminders */}
+```csharp
+var reminder = await context.Step.RunAsync("load-reminder",
+    ct => reminders.GetAsync(context.Event.Data.GetProperty("reminderId").GetString()!, ct));
+
+await context.Step.SleepUntilAsync("wait-until-due", reminder.DueAt);
+
+await context.Step.RunAsync("notify", ct => reminders.NotifyAsync(reminder.Id, ct));
+```
+
+The time comes from a step, which keeps it the same on every call. A time computed outside a step, such as
+`DateTimeOffset.UtcNow.AddHours(1)`, would be different on each call and the step would move.
+
+To delay the start of a whole function rather than part of it, send the triggering event with a future
+`Timestamp`. See [Sending events](/inngest-dotnet/guides/sending-events/).
+
+## Wait for an event
+
+`WaitForEventAsync` pauses until an event with the given name arrives, or until the timeout passes. It returns the
+event, or `null` on timeout:
+
+{/* check: body UserSignedUp; IEmailSender email */}
+```csharp
+var user = context.Event.Data;
+
+var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
+    new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+
+if (activated is null)
+{
+    await context.Step.RunAsync("send-reminder", ct => email.SendAsync(user.Email, "Your account is waiting", ct));
+}
+```
+
+The type argument is the event's data type; leave it out to get a `JsonElement`. The timeout is required, so a run
+can never wait forever.
+
+### Matching the right event
+
+Without a condition, any `user/activated` event resumes the wait, whoever it is for. Two options narrow it down:
+
+- `Match` names a property path that must be equal in the triggering event and the awaited one. `"data.userId"`
+  becomes the expression `event.data.userId == async.data.userId`.
+- `If` is a full [expression](https://www.inngest.com/docs/guides/writing-expressions). `event` is the event that
+  triggered the run and `async` is the candidate event:
+
+{/* check: expression WaitForEventOptions */}
+```csharp
+new WaitForEventOptions("billing/invoice.paid", TimeSpan.FromDays(14))
+{
+    If = "async.data.invoiceId == event.data.invoiceId && async.data.amount >= event.data.amount",
+}
+```
+
+When both are set, `Match` wins and `If` is ignored.
+
+### Only events after the wait starts
+
+A wait sees events that arrive after it starts, not earlier ones. If the event can come before the function reaches
+the wait, for example because users often activate their account within seconds of signing up, wait as early in
+the function as you can, or check in a step whether it already happened before you wait. The Inngest docs on
+[waitForEvent](https://www.inngest.com/docs/durable-execution/primitives/step-waitforevent) cover the details.
+
+## Waiting does not hold capacity
+
+A sleeping or waiting run does not use a concurrency slot, a thread or a connection. Thousands of runs can wait at
+once. If a waiting run should stop instead, for example when the user deletes their account, cancel it with an
+event: see [cancellation](/inngest-dotnet/guides/flow-control/#cancel-on-events).
+
+<SleepWait />
+
+## What Inngest stores
+
+A finished sleep is memoized as `null`, and a wait as the matching event or `null`. Replays return those values,
+so code after a wait sees the same event on every call.
+
+## Related examples
+
+[User onboarding](/inngest-dotnet/examples/user-onboarding/) waits for an activation event, and [scheduled reminders](/inngest-dotnet/examples/scheduled-reminders/) sleep until a due date.

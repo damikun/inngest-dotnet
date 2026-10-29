@@ -1,0 +1,10 @@
+variant,path,invocations,tracked_objects,alive_right_after_last_call,alive_after_500ms,expected_alive,status_ok
+sleep-after-memoized-step,engine,20000,60000,0,0,0,true
+parallel-steps-reported,engine,20000,60000,0,0,0,true
+step-executed-and-awaited,engine,20000,60000,0,0,0,true
+wait-registered-off-scheduler,engine,20000,60000,3,0,0,true
+inside-middleware-wrap,engine,20000,80000,0,0,0,true
+token-registration-per-call-token,engine,20000,40000,0,0,0,true
+control-token-registration-shared-token,engine,20000,40000,20000,20000,20000,true
+token-registration-connections-open,http (kestrel, signed),20000,40000,0,0,0,true
+token-registration-connections-closed,http (kestrel, signed),20000,40000,0,0,0,true

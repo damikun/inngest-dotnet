@@ -1,0 +1,115 @@
+---
+title: Fan-out with invoke and Task.WhenAll
+description: Build a weekly report from per-region figures by invoking one function per region in parallel, and finish the report even when a region fails.
+sidebar:
+  label: Fan-out with invoke
+---
+
+When a function needs results back from many pieces of work, invoke a function per piece. Each invocation is a run
+of its own with its own retries and concurrency, and the caller waits for all of them with `Task.WhenAll`.
+
+```csharp title="RegionFigures.cs"
+using Inngest;
+
+public sealed record RegionRequest(string Region, string Week);
+
+public sealed record RegionFigures(string Region, decimal Revenue, int Orders);
+
+public sealed class ComputeRegionFigures(IWarehouseQueries queries) : InngestFunction<RegionRequest>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<RegionRequest> context, CancellationToken cancellationToken)
+    {
+        var (region, week) = context.Event.Data;
+        var revenue = await context.Step.RunAsync("revenue", ct => queries.RevenueAsync(region, week, ct));
+        var orders = await context.Step.RunAsync("orders", ct => queries.OrderCountAsync(region, week, ct));
+        return new RegionFigures(region, revenue, orders);
+    }
+}
+
+public interface IWarehouseQueries
+{
+    Task<decimal> RevenueAsync(string region, string week, CancellationToken cancellationToken);
+
+    Task<int> OrderCountAsync(string region, string week, CancellationToken cancellationToken);
+}
+```
+
+```csharp title="WeeklyReport.cs"
+using Inngest;
+
+public sealed record ReportRequested(string Week);
+
+public sealed class WeeklyReport(IReportMailer mailer) : InngestFunction<ReportRequested>
+{
+    private static readonly string[] Regions = ["eu-west", "eu-central", "us-east", "us-west", "ap-south"];
+
+    public override async Task<object?> ExecuteAsync(FunctionContext<ReportRequested> context, CancellationToken cancellationToken)
+    {
+        var week = context.Event.Data.Week;
+
+        var results = await Task.WhenAll(Regions.Select(region => FiguresOrNullAsync(context, region, week)));
+        var figures = results.OfType<RegionFigures>().ToList();
+        var missing = Regions.Except(figures.Select(f => f.Region)).ToList();
+
+        await context.Step.RunAsync("send-report", ct => mailer.SendAsync(week, figures, missing, ct));
+        return new { week, regions = figures.Count, missing };
+    }
+
+    // A region that fails all its attempts, or does not finish within the timeout, is reported as missing
+    // instead of failing the whole report.
+    private static async Task<RegionFigures?> FiguresOrNullAsync(FunctionContext context, string region, string week)
+    {
+        try
+        {
+            return await context.Step.InvokeAsync<RegionFigures>($"figures-{region}",
+                new InvokeOptions("compute-region-figures")
+                {
+                    Data = new RegionRequest(region, week),
+                    Timeout = TimeSpan.FromMinutes(30),
+                });
+        }
+        catch (StepFailedException exception)
+        {
+            context.Logger.LogWarning("No figures for {Region}: {Error}", region, exception.Error.Message);
+            return null;
+        }
+    }
+}
+
+public interface IReportMailer
+{
+    Task SendAsync(string week, IReadOnlyList<RegionFigures> figures, IReadOnlyList<string> missing, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest
+    .AddFunction<WeeklyReport>(new FunctionOptions
+    {
+        Id = "weekly-report",
+        Triggers = [Trigger.Event("reports/weekly.requested")],
+    })
+    .AddFunction<ComputeRegionFigures>(new FunctionOptions
+    {
+        Id = "compute-region-figures",
+        Triggers = [],
+        Retries = 3,
+        Concurrency = [new ConcurrencyLimit(2)],
+    });
+```
+
+## How it works
+
+- **Parallel invocations.** All five `InvokeAsync` steps start before any is awaited, so the SDK reports them
+  together and Inngest starts five runs of `compute-region-figures`. The concurrency limit lets two of them query the
+  warehouse at once.
+- **Results come back typed.** Each invocation returns the region function's output, read as `RegionFigures`.
+- **Partial failure.** An invoke step fails when the invoked run fails for good or the timeout passes. Catching
+  `StepFailedException` per region turns that into a gap in the report rather than a failed report. The helper takes
+  the base `FunctionContext`, which has the step tools and the logger.
+- **Retries stay where the work is.** The region function retries its own queries. The invoke step itself is not
+  retried, so retries never multiply across the two levels.
+
+[Invoking functions](/inngest-dotnet/guides/invoking-functions/) covers the options, and
+[Parallel steps](/inngest-dotnet/guides/parallel-steps/) how parallel steps execute.

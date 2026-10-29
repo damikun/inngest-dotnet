@@ -1,0 +1,115 @@
+---
+title: "Connect: workers without a public endpoint"
+description: Run functions in a worker that holds an outbound WebSocket to Inngest, with no public endpoint, using Inngest.Connect and AddConnect.
+sidebar:
+  label: Connect
+---
+
+import ConnectVsServe from '../../../components/figures/ConnectVsServe.astro';
+
+import DevServer from '../../../components/DevServer.astro';
+
+With [Connect](https://www.inngest.com/docs/durable-execution/deploying-functions/connect), the app opens a
+WebSocket to Inngest and receives work over it, instead of exposing an HTTP endpoint for Inngest to call. That suits
+workers behind a firewall or a NAT, apps without a public URL, and long-running processes such as a container that
+should not also be a web server.
+
+The functions are the same. Only the way they are served changes.
+
+<ConnectVsServe />
+
+## Set up a worker
+
+Reference the `Inngest.Connect` project as well as `Inngest`:
+
+```xml title="Worker.csproj"
+<ItemGroup>
+  <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
+  <ProjectReference Include="../inngest-dotnet/src/Inngest.Connect/Inngest.Connect.csproj" />
+</ItemGroup>
+```
+
+Then call `AddConnect` instead of mapping an endpoint. A worker needs no web server at all; the generic host is
+enough:
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services
+    .AddInngest(options => options.AppId = "shop-worker")
+    .AddFunction<OnboardUser>(new FunctionOptions
+    {
+        Id = "onboard-user",
+        Triggers = [Trigger.Event("user/signed-up")],
+    })
+    .AddConnect(connect =>
+    {
+        connect.InstanceId = Environment.GetEnvironmentVariable("HOSTNAME");
+        connect.MaxWorkerConcurrency = 20;
+    });
+
+await builder.Build().RunAsync();
+```
+
+`AddConnect` registers a hosted service. It connects when the host starts and syncs the app through the connection,
+so there is no URL to sync and nothing to call `PUT` on. An ASP.NET Core app can use `AddConnect` too, alongside
+its own endpoints; it then needs no `MapInngest`.
+
+## Options
+
+| Option | Variable | Meaning |
+|---|---|---|
+| `InstanceId` | | Identifies this worker to Inngest, which tracks leases and capacity per instance. Keep it stable across restarts of one worker and unique between workers. Defaults to the machine name. |
+| `MaxWorkerConcurrency` | `INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` | The most executions Inngest sends to this worker at once. Unlimited by default. |
+| `GatewayUrl` | `INNGEST_CONNECT_GATEWAY_URL` | A `ws://` or `wss://` URL to dial instead of the gateway Inngest assigns, for when a proxy or port mapping sits in between. |
+
+The app id, keys, environment and Inngest's address come from `InngestOptions` as usual; see
+[Configuration](/inngest-dotnet/guides/configuration/). In cloud mode the worker needs a signing key and refuses to
+start without one.
+
+## Run it locally
+
+The dev server runs a Connect gateway on port 8289. Publish that port as well as 8288, and start the worker in dev
+mode:
+
+<DevServer connect />
+
+```bash
+INNGEST_DEV=1 dotnet run
+```
+
+The app appears in the dev server's Apps page as soon as the worker connects. `--no-discovery` stops the dev
+server from looking for HTTP apps, which a worker does not have.
+
+## What the worker does
+
+Once connected, the worker:
+
+- receives each call as a message, acknowledges it and runs it through the same execution engine as an HTTP call,
+  so functions behave the same either way;
+- extends the call's lease while it runs, so Inngest does not hand it to another worker;
+- sends heartbeats, and reconnects with backoff, from one second up to five minutes, when the connection drops;
+- opens a new connection before closing the old one when Inngest drains a gateway;
+- switches to the fallback signing key when Inngest refuses the current one.
+
+A slow function never holds up heartbeats or lease extensions: the socket has its own reader and writer, and
+functions run on the thread pool.
+
+## Shutting down
+
+When the host stops, the worker tells Inngest to send it no more work, waits for running calls to finish, and closes
+the connection. Calls still running when the host's shutdown timeout passes are cancelled through their
+`CancellationToken`, and Inngest retries them elsewhere. Give the host enough time for your longest step:
+
+{/* check: statements; HostApplicationBuilder builder */}
+```csharp
+builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
+```
+
+On platforms that stop containers with `SIGTERM`, such as Kubernetes or ECS, set the platform's grace period a
+little longer than that timeout.
+
+The [Connect worker example](/inngest-dotnet/examples/connect-worker/) is a complete worker with a Dockerfile.

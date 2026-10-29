@@ -1,0 +1,42 @@
+---
+import { faq } from '../../data/faq';
+---
+
+<div class="faq">
+  {
+    faq.map(({ question, answer }) => (
+      <div class="item">
+        <h3>{question}</h3>
+        <p set:html={answer} />
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .faq {
+    display: grid;
+    gap: 0.5rem 3rem;
+  }
+  @media (min-width: 56rem) {
+    .faq {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .item {
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--idn-border);
+  }
+  h3 {
+    margin: 0 0 0.5rem;
+    font-family: var(--__sl-font);
+    font-size: var(--sl-text-lg);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--sl-color-white);
+  }
+  p {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+  }
+</style>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.OpenTelemetry</RootNamespace>
+    <Description>OpenTelemetry for the Inngest .NET SDK: spans for function calls and executed steps, and metrics for runs, steps, retries and durations.</Description>
+    <PackageTags>$(PackageTags);opentelemetry;tracing;metrics</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only for AddInngestInstrumentation on the tracer and meter provider builders; the spans and metrics themselves use System.Diagnostics. -->
+    <PackageReference Include="OpenTelemetry.Api" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

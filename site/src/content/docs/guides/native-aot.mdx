@@ -1,0 +1,88 @@
+---
+title: Native AOT and trimming
+description: Publish an app with Inngest functions as a trimmed or Native AOT binary by giving the SDK source-generated JSON metadata for your types.
+---
+
+The SDK is trimming and AOT compatible: its own types use source-generated `System.Text.Json` metadata and it
+does not rely on reflection. Your types are the only thing left to cover. Everything the SDK serializes for you,
+event data, step results, invoke payloads and function output, goes through `InngestOptions.SerializerOptions`,
+and in a trimmed or AOT app that needs a source-generated `JsonSerializerContext` that knows your types.
+
+## Set it up
+
+Turn on Native AOT in the project:
+
+```xml title="Shop.csproj"
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+  <InvariantGlobalization>true</InvariantGlobalization>
+</PropertyGroup>
+```
+
+Declare a context with every type that crosses the wire, and put it first in the resolver chain:
+
+```csharp title="Program.cs"
+using System.Text.Json.Serialization;
+using Inngest;
+
+var builder = WebApplication.CreateSlimBuilder(args);
+
+builder.Services
+    .AddInngest(options =>
+    {
+        options.AppId = "shop";
+        options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJson.Default);
+    })
+    .AddFunction<Greeting>(new FunctionOptions { Id = "greet", Triggers = [Trigger.Event("demo/greet")] },
+        async (context, cancellationToken) =>
+        {
+            var reply = await context.Step.RunAsync("compose", () => new Reply($"Hello, {context.Event.Data.Name}!"));
+            await context.Step.SleepAsync("pause", TimeSpan.FromSeconds(1));
+            return reply;
+        });
+
+var app = builder.Build();
+app.MapInngest();
+app.Run();
+
+public sealed record Greeting(string Name);
+
+public sealed record Reply(string Text);
+
+[JsonSerializable(typeof(Greeting))]
+[JsonSerializable(typeof(Reply))]
+internal sealed partial class AppJson : JsonSerializerContext;
+```
+
+`samples/Inngest.AotSample` in the repository is this app. It publishes with no trimming or AOT warnings and runs
+against the dev server as a native binary:
+
+```bash
+dotnet publish -c Release -r linux-x64
+```
+
+## Which types to list
+
+List every type that the SDK serializes or deserializes for your code:
+
+- the event data type of every function, `TEventData`;
+- the result type of every `RunAsync`, the `T` in `Task<T>`;
+- the type each function returns as its output;
+- the `TData` of `WaitForEventAsync<TData>`, and the `TResult` and `Data` of `InvokeAsync`;
+- the runtime types of `Data` and `User` in the events you send.
+
+The SDK covers its own public types, such as `FunctionFailure`, `SendEventsResult`, `JsonElement` and `object`, so a
+step without a result or an untyped event needs nothing extra.
+
+Anonymous types cannot be source generated, so use records where the other guides use `new { ... }`. A type the
+context does not know fails at run time with a `NotSupportedException` from `System.Text.Json`, in the step or call
+that serializes it; the publish warnings will not catch it, so test the paths that matter.
+
+## Class functions and middleware
+
+`AddFunction<TFunction>` and `AddMiddleware<TMiddleware>` keep the constructors they need through
+`DynamicallyAccessedMembers`, so class-based functions and middleware work in AOT apps without extra configuration.
+
+Microsoft's [Native AOT deployment](https://learn.microsoft.com/dotnet/core/deploying/native-aot/) and
+[source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation)
+docs cover the general rules.

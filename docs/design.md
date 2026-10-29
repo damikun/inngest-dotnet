@@ -1,0 +1,390 @@
+# Design
+
+This document describes how the .NET SDK is put together and the wire protocol it speaks. It is written for
+people working on the SDK; the README covers usage.
+
+The SDK is a port of the official TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js) (v4.26.1
+at the time of the port), checked against the server's
+[SDK spec](https://github.com/inngest/inngest/blob/main/docs/SDK_SPEC.md) and the server's Go code. Where the
+spec and the TypeScript SDK disagree, the SDK does what the server actually relies on. Those cases are listed in
+[Spec deviations](#spec-deviations).
+
+## Protocol
+
+Inngest talks to an app through one HTTP endpoint (by default `/api/inngest`). The method decides the action:
+
+| Method | Caller | Purpose |
+|---|---|---|
+| `GET` | Inngest, dev server discovery, anyone | Introspection and health check |
+| `PUT` | Inngest, the dev server, a deploy script | Sync: register the app's functions |
+| `POST` | Inngest executor | Call: run a function or one of its steps |
+
+Every response to a verified request (and every response in dev mode) carries
+`X-Inngest-SDK: inngest-dotnet:v<version>`. The server treats a 2xx without it as "not an SDK" and retries, which
+matters behind proxies. Answers to unverified requests in cloud mode leave out the SDK headers on purpose, so they
+tell an anonymous caller nothing.
+
+### Sync (PUT)
+
+The `X-Inngest-Sync-Kind` request header picks the kind of sync.
+
+**Out-of-band** (header absent or `out_of_band`): the SDK posts its configuration to
+`POST {api}/fn/register?deployId=<from the PUT query>` with `Authorization: Bearer <hashed signing key>` and
+`X-Inngest-Expected-Server-Kind` copied from the PUT's `X-Inngest-Server-Kind`. It then answers the PUT with
+`200 {"message":"Successfully registered","modified":<from Inngest>}` or `500 {"message":"<error>","modified":false}`,
+plus `X-Inngest-Sync-Kind: out_of_band`. Out-of-band PUTs are accepted unsigned, as in the TypeScript SDK, because
+the SDK only calls back the configured Inngest.
+
+**In-band** (header `in_band`): the PUT body is `{"url":"<serve url>"}` and must be signed in cloud mode. The SDK
+answers `200` with `X-Inngest-Sync-Kind: in_band` and the configuration in the body, so Inngest does not need to
+reach the app twice. `InngestOptions.AllowInBandSync = false` forces out-of-band syncs, and
+`AllowUnsignedSync = false` (`INNGEST_ENABLE_UNAUTHED_SYNC=false`) makes cloud mode refuse unsigned ones.
+
+The configuration (the register body, and the `functions` of an in-band reply):
+
+```json
+{
+  "url": "https://example.com/api/inngest",
+  "deployType": "ping",
+  "appName": "shop",
+  "appVersion": "1.4.0",
+  "sdk": "dotnet:v0.1.0",
+  "v": "0.1",
+  "framework": "aspnetcore",
+  "capabilities": { "trust_probe": "v1" },
+  "functions": [{
+    "id": "shop-send-welcome-email",
+    "name": "Send welcome email",
+    "triggers": [
+      { "event": "user/signed.up", "expression": "event.data.plan == 'pro'" },
+      { "cron": "TZ=Europe/Prague 0 9 * * 1-5" }
+    ],
+    "steps": { "step": {
+      "id": "step", "name": "step",
+      "runtime": { "type": "http", "url": "https://example.com/api/inngest?fnId=shop-send-welcome-email&stepId=step" },
+      "retries": { "attempts": 3 }
+    }},
+    "concurrency": [{ "limit": 10, "key": "event.data.accountId", "scope": "fn" }],
+    "throttle": { "limit": 5, "period": "1m", "burst": 2, "key": "event.data.accountId" },
+    "rateLimit": { "limit": 1, "period": "4h", "key": "event.data.accountId" },
+    "idempotency": "event.data.orderId",
+    "debounce": { "period": "5s", "key": "event.data.accountId", "timeout": "1m" },
+    "batchEvents": { "maxSize": 50, "timeout": "5s", "key": "event.data.tenant" },
+    "priority": { "run": "event.data.vip ? 120 : 0" },
+    "cancel": [{ "event": "user/deleted", "if": "event.data.userId == async.data.userId", "timeout": "1d" }],
+    "timeouts": { "start": "10m", "finish": "1h" },
+    "singleton": { "mode": "skip", "key": "event.data.userId" }
+  }]
+}
+```
+
+Notes on the fields:
+
+- A function's id on the wire is `<app id>-<function id>`, not slugified. `name` is required by the server and
+  defaults to the function id.
+- `retries.attempts` holds the number of retries, not attempts. When omitted the server uses 4 retries (5
+  attempts); the maximum is 20.
+- Durations are time strings (`"1h30m"`), formatted from `TimeSpan` with whole-second resolution. Batch timeouts
+  are parsed with Go's `time.ParseDuration`, so they never use `d` or `w` units.
+- `idempotency` is turned into a 24h rate limit by the server and replaces any `rateLimit`.
+- A function with a failure handler registers a second function `<id>-failure`, triggered by
+  `inngest/function.failed` with `event.data.function_id == '<app id>-<id>'` and one retry.
+
+### Introspection (GET)
+
+Returns `schema_version: "2024-05-24"`. In cloud mode with a valid signature the body is the authenticated form
+(app id, origins, hashed keys, function count, mode, SDK language and version); in cloud mode without one the SDK
+answers `401`, as the TypeScript SDK does. Dev mode verifies nothing, so it always gets the unauthenticated form
+(function count, mode, which keys are set).
+
+### Call (POST)
+
+Query parameters: `fnId` is the composite function id; `stepId` is `step` for a normal call or the hashed id of a
+planned step to run. The body (keys arrive sorted, because Inngest canonicalizes it before signing):
+
+```json
+{
+  "event": { "name": "user/signed.up", "data": { "userId": 1 }, "user": {}, "id": "01J...", "ts": 1705586504000 },
+  "events": [ "...all events of a batch, or just event..." ],
+  "steps": {
+    "e7d8a2f140845095749d60246ff1110c9d01d76a": { "data": "A" },
+    "2c4ac3...": { "error": { "name": "Error", "message": "boom", "stack": "..." } },
+    "8f1a2b...": null,
+    "93bd77...": { "name": "order/paid", "data": {}, "ts": 1705586505000 },
+    "51c0de...": { "input": [] }
+  },
+  "ctx": {
+    "run_id": "01J...", "attempt": 0, "max_attempts": 5,
+    "stack": { "stack": ["e7d8a2f1...", "2c4ac3..."], "current": 2 },
+    "disable_immediate_execution": false, "use_api": false, "fn_id": "<uuid>"
+  },
+  "version": 2
+}
+```
+
+A memoized step is read as: an object with only `data` is a result, only `error` is a final failure, only `input`
+is not a result (input of a step still in progress), and anything else, including `null` and a raw event, is the
+result itself. Sleeps memoize `null`; `waitForEvent` memoizes the matched event or `null` on timeout.
+
+When `ctx.use_api` is true the server trimmed a large payload, and the SDK fetches the events from
+`GET {api}/v0/runs/{run id}/batch` and the steps from `GET {api}/v0/runs/{run id}/actions`, authenticated with the
+hashed signing key. Any failure there answers `500`.
+
+### Responses to calls
+
+| Status | Meaning | Headers |
+|---|---|---|
+| `200` | The function returned; the body is its output as JSON | |
+| `206` | The body is an array of step operations | `X-Inngest-No-Retry` when a step errored |
+| `500` | Retriable function error; body `{"name","message","stack"}` | `X-Inngest-No-Retry: false`, optional `Retry-After` |
+| `400` | Final function error (non-retriable, uncaught step failure, or last attempt) | `X-Inngest-No-Retry: true` |
+| `401` | Signature missing or invalid in cloud mode | |
+
+Every call response also carries `X-Inngest-Req-Version: 2`. In cloud mode it is signed with
+`X-Inngest-Signature` using the key that verified the request.
+
+Step operations (`id` is the hashed step id):
+
+| `op` | Sent when | Shape |
+|---|---|---|
+| `StepPlanned` | A `run` or `sendEvent` step is found but not executed | `{id, op, name, displayName, opts: {type}}` |
+| `StepRun` | A step ran and succeeded | `{id, op, name, displayName, data, timing}` |
+| `StepError` | A step threw and has attempts left | `{id, op, name, displayName, error}` |
+| `StepFailed` | A step threw on its last attempt or threw `NonRetriableException` | `{id, op, name, displayName, error}` |
+| `Sleep` | `SleepAsync`, `SleepUntilAsync` | `{id, op, name: "<duration or RFC 3339 time>", opts: {duration}}` |
+| `WaitForEvent` | `WaitForEventAsync` | `{id, op, name: "<event>", opts: {event, timeout, if}}` |
+| `InvokeFunction` | `InvokeAsync` | `{id, op, opts: {function_id, payload: {data, user}, timeout}}` |
+
+Step ids are the lowercase hex SHA-1 of the id the code passed. A repeated id gets `:1`, `:2`, ... appended before
+hashing, in call order (`my-step` = `e7d8a2f1...` is the spec's example for `my-step-id`).
+
+### Deciding what to answer
+
+For `stepId=step`, the SDK replays the function, feeding it memoized results, until the function returns, throws,
+or waits on steps that are not memoized. Then:
+
+- If exactly one new step was found, it is a `run` step and `ctx.disable_immediate_execution` is false, the SDK
+  runs it right away and answers `206 [StepRun]` (or `StepError`/`StepFailed`).
+- Otherwise it answers `206` with all new steps. The server runs each `StepPlanned` step in its own call with
+  `stepId=<hash>` and sets `disable_immediate_execution` for the rest of the parallel section.
+- If the function returns while new steps are pending (fired but not awaited), the steps are reported, not the
+  return value.
+
+For `stepId=<hash>`, the SDK replays until it reaches that step, runs it and answers with one operation. If the step
+does not show up within 10 seconds, it answers `500` with `X-Inngest-No-Retry: false` (the server has no
+`StepNotFound` op).
+
+Memoized results are handed back in the order recorded in `ctx.stack.stack`, so races between parallel steps
+replay the way they first resolved. If the code asks for steps in an order the stack cannot satisfy, the SDK logs
+that the function changed between calls and falls back to the earliest memoized step that was asked for.
+
+### Retries
+
+Every queue item (the first call, each planned step, each discovery call) gets `retries + 1` attempts, counted by
+`ctx.attempt` from zero. A function error is final when it is a `NonRetriableException`, an uncaught
+`StepFailedException`, or happens on the last attempt; the SDK answers `400` then. A `RetryAfterException` adds
+`Retry-After` (seconds, or an RFC 3339 time), which the server clamps to between 1 second and 24 hours.
+
+After the final failure Inngest emits `inngest/function.failed` with `{function_id, run_id, error, event}`, which
+is what failure handlers run on.
+
+### Signing
+
+Requests from Inngest carry `X-Inngest-Signature: t=<unix seconds>&s=<hex>`. `s` is HMAC-SHA256 over the raw body
+followed by `t`, keyed with the signing key minus its `signkey-<env>-` prefix, used as UTF-8 text (not decoded
+from hex). Requests older or newer than 5 minutes are rejected. With a fallback key configured
+(`INNGEST_SIGNING_KEY_FALLBACK`), a signature that fails with the current key is checked against the fallback, so
+a key can be rotated without downtime.
+
+Calls to the Inngest API authenticate with `Authorization: Bearer signkey-<env>-<sha256 of the hex-decoded key>`
+and are retried once with the fallback key on `401` or `403`.
+
+In dev mode nothing is verified or signed.
+
+### Events
+
+`POST {event api}/e/{event key}` with a JSON array of `{name, data, user, id, ts, v}`. The response is
+`{"ids": [...], "status": 200}`; the body's `status` decides success. The SDK sends
+`X-Inngest-Event-Id-Seed: <unix ms>,<base64 of 10 random bytes>` once per send and keeps it across retries, so a
+retried send creates the same event ids. Sends are retried up to 5 attempts with exponential backoff.
+
+### Modes and configuration
+
+| Setting | Environment variable | Default |
+|---|---|---|
+| `IsDev` | `INNGEST_DEV` (`1`/`true`, or the dev server URL) | cloud mode |
+| `EventKey` | `INNGEST_EVENT_KEY` | none; any key works against the dev server |
+| `SigningKey`, `SigningKeyFallback` | `INNGEST_SIGNING_KEY`, `INNGEST_SIGNING_KEY_FALLBACK` | required in cloud mode |
+| `Environment` | `INNGEST_ENV` | the key's environment |
+| `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl` | `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL`, `INNGEST_EVENT_API_BASE_URL` | `https://api.inngest.com`, `https://inn.gs`, or `http://localhost:8288` in dev mode |
+| `ServeOrigin`, `ServePath` | `INNGEST_SERVE_ORIGIN`, `INNGEST_SERVE_PATH` | the URL the request arrived on |
+| `AllowInBandSync` | `INNGEST_ALLOW_IN_BAND_SYNC` | `true` |
+| `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
+
+Options set in code win over environment variables. Variables are read through `IConfiguration`, so they can
+also come from `appsettings.json` or any other configuration source.
+
+## .NET architecture
+
+### Packages
+
+| Package | Contents |
+|---|---|
+| `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. |
+| `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler. |
+| `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
+
+### Public API
+
+The API follows .NET conventions rather than the shape of the TypeScript SDK:
+
+- `services.AddInngest(options => ...)` registers everything and returns an `IInngestBuilder` for
+  `AddFunction<TFunction>(FunctionOptions)`, `AddFunction<TEventData>(FunctionOptions, handler)` and
+  `AddMiddleware<TMiddleware>()`. `app.MapInngest("/api/inngest")` serves the endpoint.
+- Functions are classes deriving from `InngestFunction<TEventData>`, resolved from a DI scope per invocation, or
+  delegates. `FunctionOptions` and the flow control records (`ConcurrencyLimit`, `Throttle`, `RateLimit`,
+  `Debounce`, `BatchEvents`, `Priority`, `CancelOn`, `FunctionTimeouts`, `Singleton`) are immutable records with
+  `TimeSpan` durations.
+- `FunctionContext<TEventData>` gives the typed event and batch, run id, attempt, step tools, a replay-safe
+  `ILogger` and the invocation's `IServiceProvider`.
+- Step tools are an interface, `IStepTools`, so user code can be unit tested with a fake: `RunAsync`, `SleepAsync`,
+  `SleepUntilAsync`, `WaitForEventAsync`, `InvokeAsync`, `SendEventAsync`. Parallel steps are plain
+  `Task.WhenAll`/`Task.WhenAny`.
+- Errors are exceptions: `NonRetriableException`, `RetryAfterException`, and `StepFailedException` thrown at a
+  step's call site when the step failed for good. `InngestException` covers failures talking to Inngest.
+- Failure handlers implement `IFailureHandler` on the function class, or pass `onFailure` with a delegate.
+- Middleware derives from `InngestMiddleware` and overrides only the hooks it needs: observers (`OnRunStartAsync`,
+  `OnMemoizationEndAsync`, `OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`,
+  `OnStepErrorAsync`) and wrappers (`WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync`,
+  `WrapSendEventAsync`). Instances are resolved per invocation, so they can hold per-run state, as in v4.
+
+### Request path
+
+```
+Kestrel -> MapInngest -> InngestEndpoint (pooled body) -> InngestCommHandler
+  GET  -> introspection
+  PUT  -> FunctionRegistry.WriteRegistration -> in-band body, or IInngestApi.RegisterAsync
+  POST -> signature check -> FunctionRegistry.TryGet(fnId) -> ExecutionEngine.ExecuteAsync -> ServeResponse
+```
+
+`InngestCommHandler` knows nothing about ASP.NET Core; it works on `IServeRequest` and returns `ServeResponse`, so
+other hosts, and the Connect worker, reuse it. Startup data (resolved settings, the function registry) is immutable and
+read without locks. Request and response bodies live in pooled buffers; the body's raw bytes are what the
+signature is computed over and what `JsonDocument` parses, without copies.
+
+### Execution engine
+
+Each call replays the function from the top. The interesting part is knowing when the user's code has gone as far
+as it can in this call. The TypeScript SDK approximates that by waiting out a fixed number of microtask turns.
+The .NET engine runs the user's code on a private `SynchronizationContext` for the invocation
+(`InvocationScheduler`), so every continuation of the function is queued there. When that queue is empty and the
+function has not finished, the function is waiting on something: a step that will not complete in this call, or
+real I/O whose continuation will arrive later. That is a precise signal, not a timeout, and it keeps
+`Task.WhenAll` batching and `Task.WhenAny` races working with no special API. One limit: a function that keeps
+queueing work without ever waiting (a tight `Task.Yield` loop) is cut off after 100,000 continuations per round so
+that a call always ends; memoized results may then be handed out before the function idles.
+
+From there the engine follows the TypeScript SDK:
+
+1. Step tools hash the id and return a task the engine controls.
+2. Memoized results are handed out one at a time, in `ctx.stack.stack` order, each followed by running the
+   function until it idles again.
+3. When nothing memoized is left to hand out, the steps found since the last report decide the answer, as
+   described in [Deciding what to answer](#deciding-what-to-answer).
+4. Steps that were found but not run are left pending. Their tasks are never faulted or cancelled, so `catch` and
+   `finally` blocks in user code do not run for them in this call, matching the TypeScript SDK.
+
+User code that leaves the scheduler (`ConfigureAwait(false)`, `Task.Run`) still works: step calls made from other
+threads are posted back to the scheduler, so engine state is only touched by one logical thread and needs no locks.
+Such code can only make the SDK report fewer steps at once, never wrong ones. Blocking on a step task (`.Result`)
+deadlocks the invocation, as it would on any single-threaded context.
+
+### Serialization
+
+The SDK's own wire types use System.Text.Json source generation, one `JsonSerializerContext` per area. User types
+(event data, step results, function output) go through `InngestOptions.SerializerOptions`, which defaults to
+`JsonSerializerDefaults.Web` with reflection when reflection is enabled. Apps that trim or use Native AOT add their
+own source-generated context to its `TypeInfoResolverChain`. Step results are round-tripped through JSON even on
+the call that ran them, the same as every later replay sees them.
+
+### Logging
+
+`ILogger` with source-generated `LoggerMessage` methods throughout. `FunctionContext.Logger` drops messages while
+the function replays memoized steps, so a message written between two steps appears once per run rather than once
+per call.
+
+### What is supported
+
+| Area | Status |
+|---|---|
+| Serve endpoint: introspection, in-band and out-of-band sync, calls | Supported |
+| Dev mode and cloud mode, signing, signing key rotation, response signing | Supported |
+| Steps: run, sleep, sleepUntil, waitForEvent, invoke, sendEvent, parallel steps | Supported |
+| Flow control and function config: concurrency, throttle, rate limit, debounce, batching, priority, idempotency, retries, cancelOn, timeouts, singleton | Supported |
+| Failure handlers (`inngest/function.failed`) | Supported |
+| Errors: non-retriable, retry-after, step failures | Supported |
+| Middleware: observer and wrap hooks | Supported |
+| `use_api` for large runs | Supported |
+| Checkpointing (running several steps per call) | Not yet; every call uses the classic protocol |
+| Connect (WebSocket workers): start, handshake, heartbeats, leases, reply buffering and flush, draining, reconnects, graceful shutdown | Supported (`Inngest.Connect`) |
+| `step.ai.*`, `step.fetch`, `step.waitForSignal`, realtime, `defer`, durable endpoints, streaming responses | Not yet |
+| Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) and `wrapRequest` | Not yet |
+| `group.parallel` race mode | Not yet |
+
+
+## Spec deviations
+
+| Topic | Spec | This SDK, following the server and inngest-js |
+|---|---|---|
+| Step not found | `StepNotFound` op | `500` with `X-Inngest-No-Retry: false`; the server has no such op |
+| Bad signature | `500` | `401` |
+| Sleep and wait payloads | `opts.duration`, `opts.event` | sent both in `opts` and in `name`, which the server falls back to |
+| Sync kind values | `in-band` | `in_band` / `out_of_band` |
+| Default retries | "4 attempts" | the server's default of 4 retries (5 attempts) |
+| `sdk` field | equal to `X-Inngest-SDK` | `dotnet:v<version>` in the body, `inngest-dotnet:v<version>` in the header, as the server only splits the body value on `:` |
+
+## Differences from the TypeScript SDK
+
+Behaviour that differs on purpose, beyond the API shape:
+
+| Area | TypeScript SDK | This SDK |
+|---|---|---|
+| Function options | Invalid options produce a warning at sync | Rejected at startup with an exception naming the function |
+| Sync URL | Keeps `deployId` in the registered URLs | Strips it, as the spec requires |
+| Failure handlers | Always registered with runtime type `http` | Same runtime type as the function they belong to |
+| Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |
+| `INNGEST_DEV` URL | Redirects the APIs even when `isDev` is false | Only used in dev mode |
+| Error names | JavaScript error names, with a `__serialized` marker | .NET exception type names, no marker |
+| Planned run steps | `opts` is `{}` | `opts.type` is `"step.run"` |
+| Targeted call whose step was started but not awaited | Answers 200 and drops the step | Runs the step |
+| Uncaught `StepFailedException` | Final only for the most recent step failure | Always final |
+| Memoized `{}` | Read as an error | Read as data |
+| Steps called inside other steps or observer hooks | Hang | Throw `InvalidOperationException` |
+| Invalid in-band sync body | 500 | 400 `invalid_request` |
+| Introspection | Omits `has_signing_key_fallback` and `authentication_succeeded` when unauthenticated | Includes both, as the spec describes |
+| In-band `sdk_author` | `inngest` | `inngest-dotnet` |
+| `Match` and `If` on a wait or cancellation | Match replaces If (the types forbid setting both) | Both apply, joined with `&&` |
+| Connect shutdown | Closes the socket without a code | Closes with 1000 and `WORKER_SHUTDOWN`, which the gateway recognizes |
+| Connect replies not acknowledged | Flushed over HTTP only on reconnect and close | Flushed as soon as the 5 second deadline passes, and at shutdown |
+| Unsigned out-of-band syncs | Can be refused with `INNGEST_ENABLE_UNAUTHED_SYNC=false` | Same, plus `AllowUnsignedSync`; unsigned callers are never told why a sync failed |
+
+## Connect
+
+With `AddConnect`, the app opens an outbound WebSocket to Inngest instead of exposing an endpoint, which suits
+workers behind a firewall. The worker calls `POST {api}/v0/connect/start` with the hashed signing key, dials the
+returned gateway with the `v0.connect.inngest.com` subprotocol and exchanges protobuf `ConnectMessage` frames
+(`connect.v1`, copied from inngest-js):
+
+1. Handshake: `GATEWAY_HELLO`, then `WORKER_CONNECT` with the same app configuration a sync sends (runtime type
+   `ws`), then `GATEWAY_CONNECTION_READY` with the heartbeat and lease intervals, then `WORKER_READY`.
+2. Each `GATEWAY_EXECUTOR_REQUEST` is acknowledged, run through the same execution engine as an HTTP call, kept
+   alive with `WORKER_REQUEST_EXTEND_LEASE` and answered with `WORKER_REPLY`. A reply that is not acknowledged within
+   5 seconds is sent again over `POST {api}/v0/connect/flush`.
+3. `GATEWAY_CLOSING` makes the worker open a new connection before closing the old one; a lost connection is
+   retried with backoff (1 s up to 5 minutes); a 401 switches to the fallback signing key.
+4. On shutdown the worker sends `WORKER_PAUSE`, waits for running calls up to the host's shutdown timeout and
+   closes with 1000 `WORKER_SHUTDOWN`.
+
+Each socket has a single writer fed by a channel and a reader that never runs user code, so a slow function cannot
+stall heartbeats or lease extensions.
+

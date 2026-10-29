@@ -1,0 +1,75 @@
+---
+// The evidence on the landing page: what the tests and the readiness checks show, each figure taken from the
+// readiness report. Keep them in step with docs/readiness.md when either changes.
+const base = '/inngest-dotnet/';
+const stats = [
+  { value: '1,249', label: 'unit tests, including concurrency stress tests with thousands of invocations at once' },
+  { value: '164', label: 'end-to-end tests against the Inngest server in Docker, in dev mode and signed cloud mode' },
+  { value: '8,000 / 8,000', label: 'runs completed correctly under sustained load, in dev mode and again in cloud mode' },
+  { value: 'Flat', label: 'memory over 8 million engine invocations and 1.6 million signed HTTP calls' },
+];
+---
+
+<div class="proof not-content">
+  <ul class="stats">
+    {
+      stats.map((stat) => (
+        <li>
+          <span class="value idn-display">{stat.value}</span>
+          <span class="label">{stat.label}</span>
+        </li>
+      ))
+    }
+  </ul>
+  <p class="also">
+    Ships for .NET 8 and .NET 10, runs under Native AOT, serves over HTTP or a Connect WebSocket, and checks every
+    request's signature, with a fallback key for rotation. <a href={`${base}internals/readiness/`}>Read the readiness
+    report</a>.
+  </p>
+  <p class="next">
+    <strong>Coming next:</strong> NuGet packages, a test host, OpenTelemetry tracing and race mode for parallel steps,
+    then checkpointing. <a href={`${base}roadmap/`}>See the roadmap</a>.
+  </p>
+</div>
+
+<style>
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .stats li {
+    display: grid;
+    align-content: start;
+    gap: 0.4rem;
+    padding: 1.1rem 1.2rem;
+    border: 1px solid var(--idn-border);
+    border-radius: 0.875rem;
+    background-color: var(--idn-surface);
+  }
+  .value {
+    font-size: clamp(1.75rem, 1.4rem + 1.2vw, 2.4rem);
+    line-height: 1.1;
+    color: var(--sl-color-white);
+  }
+  .label {
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+  }
+  p {
+    margin: 1.25rem 0 0;
+    max-width: 52rem;
+    color: var(--sl-color-gray-2);
+  }
+  .next strong {
+    color: var(--sl-color-white);
+  }
+  a {
+    color: var(--sl-color-text-accent);
+    text-underline-offset: 0.2em;
+  }
+</style>

@@ -1,0 +1,78 @@
+---
+title: How Inngest runs .NET functions
+description: How durable execution works with the Inngest .NET SDK. Inngest calls your ASP.NET Core endpoint once per step, the function replays saved step results and answers 206 or 200. Step through a real run.
+tableOfContents: false
+sidebar:
+  label: How it works
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Architecture from '../../components/landing/Architecture.astro';
+import RunLoop from '../../components/landing/RunLoop.astro';
+import ReplayVisualizer from '../../components/islands/ReplayVisualizer';
+
+Inngest runs a durable function by calling your app once per step. Every call runs the function from the top, and
+the steps that already finished return their saved results, so the function picks up where it stopped.
+
+<RunLoop />
+
+## The loop
+
+<Steps>
+
+1. **Inngest calls your app.** It sends a request to `/api/inngest`, or to a
+   [Connect](/inngest-dotnet/guides/connect/) worker, with the saved result of every finished step.
+
+2. **The function runs from the top.** A step that finished in an earlier call returns its saved result at once.
+   It does not run again.
+
+3. **The next step runs.** The first step without a saved result runs, or the run reports a sleep or a wait.
+
+4. **The app answers.** `206` with the step's result, which Inngest saves before it calls again, now or when the
+   sleep is over. `200` with the output once the function returns.
+
+</Steps>
+
+## Who does what
+
+<Architecture />
+
+Your code sends the events, Inngest stores the run and decides when to call, and the app keeps no state between
+calls, so any instance can take any call.
+
+## Step through a real run
+
+One run of `FulfillOrder`, call by call: what Inngest sent, which steps had saved results, and what the SDK
+answered. The answers are what the SDK in this repository returns; the site's snippet check fails if they ever
+stop matching.
+
+<ReplayVisualizer client:visible />
+
+## What the SDK answers
+
+| The function | The SDK answers |
+|---|---|
+| reaches one new `RunAsync` step | runs it and answers `206` with a `StepRun` op and its result |
+| starts several new steps together | runs none and answers `206` with a `StepPlanned` op for each; Inngest runs each in its own call |
+| reaches a sleep, a wait for an event or an invocation | answers `206` with that op; Inngest carries it out |
+| returns | answers `200` with the output |
+| throws | answers `500` if Inngest should retry, `400` if the failure is final |
+
+The [design document](/inngest-dotnet/internals/design/#protocol) lists every field.
+
+## What it means for your code
+
+- **Code outside steps runs on every call.** Side effects and anything that differs between calls, such as the
+  clock or a new id, belong in a step. See [Steps](/inngest-dotnet/guides/steps/).
+- **Step ids identify results.** Keep them the same while runs are in flight.
+- **Results are JSON.** Return types that round-trip through `System.Text.Json`, such as records.
+- **Nothing waits in your app.** A week-long sleep is a timestamp in Inngest; deploys and restarts do not affect it.
+
+## Going deeper
+
+- [Parallel steps](/inngest-dotnet/guides/parallel-steps/) explains the planned steps in call 4 of the run above.
+- [Errors and retries](/inngest-dotnet/guides/errors-and-retries/) covers what happens when a step throws.
+- Inngest's [durable execution concepts](https://www.inngest.com/docs/durable-execution/concepts) describe the
+  model for all of its SDKs.
+- The [order fulfillment example](/inngest-dotnet/examples/order-fulfillment/) is a production-style version of
+  the function above.

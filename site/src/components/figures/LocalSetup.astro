@@ -1,0 +1,27 @@
+---
+// Getting started: the two processes on the developer's machine and what passes between them.
+import Figure from './Figure.astro';
+---
+
+<Figure>
+  <div class="fig-flow" style="--cols: minmax(0, 1fr) minmax(10rem, 0.9fr) minmax(0, 1fr)">
+    <div class="fig-node">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"></path></svg>
+      <p class="name">Your ASP.NET Core app</p>
+      <p class="detail"><code>localhost:5280</code>, with <code>/api/inngest</code></p>
+    </div>
+    <div class="fig-link">
+      <div class="fig-arrow forward coral"><span>user/signed-up event</span></div>
+      <div class="fig-arrow back plan"><span>POST /api/inngest, per step</span></div>
+    </div>
+    <div class="fig-node accent">
+      <svg class="icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.2 4.4 4.4 0 0 0 7 18z"></path></svg>
+      <p class="name">Inngest dev server</p>
+      <p class="detail"><code>localhost:8288</code>, with the runs</p>
+    </div>
+  </div>
+  <Fragment slot="caption">
+    What you will run: the app sends an event when a user signs up, and the dev server runs the function by calling
+    the app's endpoint once per step. Its UI shows every run.
+  </Fragment>
+</Figure>

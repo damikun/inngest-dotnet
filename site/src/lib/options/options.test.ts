@@ -1,0 +1,262 @@
+import { describe, expect, it } from 'vitest';
+import { className, csString, functionOptionsCode, registrationCode } from './csharp.ts';
+import type { AppModel, FunctionOptionsModel } from './model.ts';
+import { registrationBody, registrationFunctions, serveUrls } from './registration.ts';
+import { formatSeconds } from './time.ts';
+import { validate } from './validate.ts';
+
+const app: AppModel = { appId: 'my-app', serveUrl: 'https://example.com/api/inngest', failureHandler: false };
+
+describe('formatSeconds', () => {
+  // The cases of tests/Inngest.Tests/Internal/TimeStringTests.cs, in seconds.
+  it.each([
+    [0, '0s'],
+    [0.999, '1s'],
+    [1, '1s'],
+    [1.5, '1s'],
+    [60, '1m'],
+    [5400, '1h30m'],
+    [86400, '1d'],
+    [694861, '1w1d1h1m1s'],
+  ])('formats %s seconds as %s', (seconds, expected) => {
+    expect(formatSeconds(seconds)).toBe(expected);
+  });
+
+  it('rejects negative durations', () => {
+    expect(() => formatSeconds(-1)).toThrow(RangeError);
+  });
+});
+
+describe('registration JSON', () => {
+  // The function of tests/Inngest.Tests/Registration/FullExampleTests.cs, which uses every option, and the JSON
+  // that test expects from the SDK.
+  const everyOption: FunctionOptionsModel = {
+    id: 'sync-user',
+    name: 'Sync user',
+    triggers: [
+      { kind: 'event', event: 'app/user.created', if: "event.data.plan == 'pro'" },
+      { kind: 'cron', schedule: '0 9 * * 1-5', timezone: 'Europe/Prague' },
+    ],
+    retries: 5,
+    concurrency: [
+      { limit: 10, scope: 'Function' },
+      { limit: 1, key: 'event.data.user_id', scope: 'Environment' },
+    ],
+    throttle: { limit: 5, period: { value: 1, unit: 'm' }, burst: 2, key: 'event.data.user_id' },
+    rateLimit: { limit: 1, period: { value: 4, unit: 'h' }, key: 'event.data.user_id' },
+    idempotency: 'event.data.user_id',
+    debounce: { period: { value: 5, unit: 's' }, key: 'event.data.user_id', timeout: { value: 1, unit: 'm' } },
+    priority: { run: "event.data.plan == 'pro' ? 120 : 0" },
+    timeouts: { start: { value: 10, unit: 'm' }, finish: { value: 1, unit: 'h' } },
+    singleton: { mode: 'Skip', key: 'event.data.user_id' },
+    cancelOn: [
+      { event: 'app/user.deleted', match: 'data.user_id', timeout: { value: 1, unit: 'h' } },
+      { event: 'app/user.paused', if: 'async.data.id == event.data.id', timeout: { value: 1, unit: 'm' } },
+    ],
+  };
+
+  it('matches the SDK for a function with every option and a failure handler', () => {
+    const body = registrationBody(everyOption, { ...app, failureHandler: true }, '1.2.3');
+    expect(JSON.stringify(body)).toBe(
+      JSON.stringify({
+        url: 'https://example.com/api/inngest',
+        deployType: 'ping',
+        appName: 'my-app',
+        sdk: 'dotnet:v1.2.3',
+        v: '0.1',
+        framework: 'aspnetcore',
+        capabilities: { trust_probe: 'v1' },
+        functions: [
+          {
+            id: 'my-app-sync-user',
+            name: 'Sync user',
+            triggers: [
+              { event: 'app/user.created', expression: "event.data.plan == 'pro'" },
+              { cron: 'TZ=Europe/Prague 0 9 * * 1-5' },
+            ],
+            steps: {
+              step: {
+                id: 'step',
+                name: 'step',
+                runtime: { type: 'http', url: 'https://example.com/api/inngest?fnId=my-app-sync-user&stepId=step' },
+                retries: { attempts: 5 },
+              },
+            },
+            concurrency: [
+              { limit: 10, scope: 'fn' },
+              { limit: 1, key: 'event.data.user_id', scope: 'env' },
+            ],
+            throttle: { limit: 5, period: '1m', burst: 2, key: 'event.data.user_id' },
+            rateLimit: { limit: 1, period: '4h', key: 'event.data.user_id' },
+            idempotency: 'event.data.user_id',
+            debounce: { period: '5s', key: 'event.data.user_id', timeout: '1m' },
+            priority: { run: "event.data.plan == 'pro' ? 120 : 0" },
+            cancel: [
+              { event: 'app/user.deleted', timeout: '1h', if: 'event.data.user_id == async.data.user_id' },
+              { event: 'app/user.paused', timeout: '1m', if: 'async.data.id == event.data.id' },
+            ],
+            timeouts: { start: '10m', finish: '1h' },
+            singleton: { mode: 'skip', key: 'event.data.user_id' },
+          },
+          {
+            id: 'my-app-sync-user-failure',
+            name: 'Sync user (failure)',
+            triggers: [{ event: 'inngest/function.failed', expression: "event.data.function_id == 'my-app-sync-user'" }],
+            steps: {
+              step: {
+                id: 'step',
+                name: 'step',
+                runtime: { type: 'http', url: 'https://example.com/api/inngest?fnId=my-app-sync-user-failure&stepId=step' },
+                retries: { attempts: 1 },
+              },
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  it('keeps query parameters other than deployId, as the SDK does', () => {
+    const functions = registrationFunctions(
+      { id: 'orders', triggers: [{ kind: 'event', event: 'order/created' }], retries: 3 },
+      { ...app, serveUrl: 'https://example.com/api/inngest?region=eu&deployId=01HZ' },
+    );
+    expect(functions[0].steps).toEqual({
+      step: {
+        id: 'step',
+        name: 'step',
+        runtime: { type: 'http', url: 'https://example.com/api/inngest?region=eu&fnId=my-app-orders&stepId=step' },
+        retries: { attempts: 3 },
+      },
+    });
+    expect(serveUrls('https://example.com/api/inngest?region=eu&deployId=01HZ').app).toBe('https://example.com/api/inngest?region=eu');
+  });
+
+  it('leaves out options that are not set, and names a function after its id', () => {
+    const [fn] = registrationFunctions({ id: 'hello', triggers: [] }, app);
+    expect(Object.keys(fn)).toEqual(['id', 'name', 'triggers', 'steps']);
+    expect(fn.name).toBe('hello');
+    expect(fn.triggers).toEqual([]);
+  });
+
+  it('keeps a TZ prefix the schedule already has', () => {
+    const [fn] = registrationFunctions(
+      { id: 'report', triggers: [{ kind: 'cron', schedule: 'TZ=UTC 0 0 * * *', timezone: 'Europe/Prague' }] },
+      app,
+    );
+    expect(fn.triggers).toEqual([{ cron: 'TZ=UTC 0 0 * * *' }]);
+  });
+
+  it('escapes the id in the failure trigger', () => {
+    const functions = registrationFunctions({ id: "it's", triggers: [] }, { ...app, failureHandler: true });
+    expect(functions[1].triggers).toEqual([
+      { event: 'inngest/function.failed', expression: "event.data.function_id == 'my-app-it\\'s'" },
+    ]);
+  });
+});
+
+describe('C# code', () => {
+  it('writes every option as the docs do', () => {
+    expect(
+      functionOptionsCode(
+        {
+          id: 'sync-account',
+          triggers: [{ kind: 'event', event: 'account/updated' }],
+          concurrency: [{ limit: 5, key: 'event.data.accountId', scope: 'Function' }],
+          throttle: { limit: 10, period: { value: 1, unit: 'm' } },
+          cancelOn: [{ event: 'account/deleted', match: 'data.accountId' }],
+          singleton: { mode: 'Skip', key: 'event.data.accountId' },
+        },
+        '',
+      ),
+    ).toBe(
+      [
+        'new FunctionOptions',
+        '{',
+        '    Id = "sync-account",',
+        '    Triggers = [Trigger.Event("account/updated")],',
+        '    Concurrency = [new ConcurrencyLimit(5) { Key = "event.data.accountId" }],',
+        '    Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),',
+        '    CancelOn = [new CancelOn("account/deleted") { Match = "data.accountId" }],',
+        '    Singleton = new Singleton(SingletonMode.Skip) { Key = "event.data.accountId" },',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  it('lists several triggers on their own lines and names arguments', () => {
+    const code = functionOptionsCode(
+      {
+        id: 'report',
+        triggers: [
+          { kind: 'event', event: 'report/requested', if: "event.data.kind == 'daily'" },
+          { kind: 'cron', schedule: '0 6 * * *', timezone: 'Europe/Prague' },
+        ],
+      },
+      '',
+    );
+    expect(code).toContain('    Triggers =\n    [\n');
+    expect(code).toContain(`        Trigger.Event("report/requested", @if: "event.data.kind == 'daily'"),\n`);
+    expect(code).toContain('        Trigger.Cron("0 6 * * *", timezone: "Europe/Prague"),\n');
+  });
+
+  it('escapes strings', () => {
+    expect(csString('a "b" \\ c\nd')).toBe('"a \\"b\\" \\\\ c\\nd"');
+  });
+
+  it('derives a class name from the id', () => {
+    expect(className('sync-account')).toBe('SyncAccount');
+    expect(className('2fa.reset')).toBe('Function2faReset');
+    expect(className('--')).toBe('MyFunction');
+  });
+
+  it('wraps the options in a registration and mentions the failure function', () => {
+    const code = registrationCode({ id: 'charge-card', triggers: [] }, { ...app, appVersion: ' 1.4.0 ', failureHandler: true });
+    expect(code).toContain('// ChargeCard implements IFailureHandler, so the SDK also registers "charge-card-failure".');
+    expect(code).toContain('options.AppVersion = "1.4.0";');
+    expect(code).toContain('.AddFunction<ChargeCard>(functionOptions);');
+    expect(code.startsWith('// ChargeCard implements IFailureHandler')).toBe(true);
+    expect(code).toContain('var functionOptions = new FunctionOptions\n{\n    Id = "charge-card",');
+  });
+});
+
+describe('validation', () => {
+  const base: FunctionOptionsModel = { id: 'orders', triggers: [{ kind: 'event', event: 'order/created' }] };
+
+  it('accepts valid options', () => {
+    expect(validate(base)).toEqual([]);
+  });
+
+  it('uses the messages of FunctionOptionsValidator', () => {
+    expect(validate({ ...base, retries: 21 })).toEqual(['Function "orders": Retries must be between 0 and 20, but was 21.']);
+    expect(validate({ ...base, id: ' ' })).toEqual([
+      'A function has no Id. Set FunctionOptions.Id to an id that is unique in the app and never changes.',
+    ]);
+    expect(validate({ ...base, rateLimit: { limit: 1, period: { value: 2, unit: 'd' } } })).toEqual([
+      'Function "orders": RateLimit.Period must be between 1s and 24h, but was 2d.',
+    ]);
+    expect(validate({ ...base, concurrency: [{ limit: 1, scope: 'Account' }] })).toEqual([
+      'Function "orders": A concurrency limit with the Account scope needs a Key. Only the Function scope can go without one.',
+    ]);
+  });
+
+  it('rejects batching combined with options Inngest refuses alongside it', () => {
+    expect(
+      validate({
+        ...base,
+        batchEvents: { maxSize: 100, timeout: { value: 30, unit: 's' } },
+        debounce: { period: { value: 5, unit: 's' } },
+        priority: { run: 'event.data.vip ? 120 : 0' },
+      }),
+    ).toEqual([
+      'Function "orders": BatchEvents cannot be combined with Debounce.',
+      'Function "orders": BatchEvents cannot be combined with Priority.',
+    ]);
+  });
+
+  it('describes sub-second durations as given', () => {
+    expect(validate({ ...base, throttle: { limit: 1, period: { value: 0, unit: 's' } } })).toEqual([
+      'Function "orders": Throttle.Period must be at least 1s, but was 0s.',
+    ]);
+  });
+});

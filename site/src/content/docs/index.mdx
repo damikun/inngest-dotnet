@@ -1,0 +1,324 @@
+---
+title: Inngest .NET SDK for durable functions and workflows
+description: inngest-dotnet is an Inngest SDK for .NET. Write durable functions and background workflows in C# with steps that retry, sleep and wait for events, served from ASP.NET Core or a Connect worker.
+template: splash
+editUrl: false
+hero:
+  title: Durable functions for .NET
+  tagline: Write background jobs and workflows as plain C# methods. Inngest runs every step once, retries only what fails and lets a run wait for days, so you ship reliable workflows without queues, state tables or cron glue.
+  actions:
+    - text: Get started
+      link: /inngest-dotnet/guides/getting-started/
+      icon: right-arrow
+    - text: How it works
+      link: /inngest-dotnet/how-it-works/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/damikun/inngest-dotnet
+      variant: minimal
+      icon: external
+---
+
+import { LinkCard, Steps } from '@astrojs/starlight/components';
+import DevServer from '../../components/DevServer.astro';
+import Faq from '../../components/landing/Faq.astro';
+import Architecture from '../../components/landing/Architecture.astro';
+import Proof from '../../components/landing/Proof.astro';
+import Section from '../../components/landing/Section.astro';
+
+<Section id="why" eyebrow="Why durable execution" title="Background work that does not fall over" lead="Checkout flows, onboarding emails, billing runs and webhook handlers call systems that fail, and some have to wait for days. With durable steps, a failure costs one retry of one step, not a second charge.">
+
+<div class="idn-grid idn-grid-3">
+<div class="idn-card">
+
+### A retry repeats only what failed
+
+A function is split into steps. Inngest saves each step's result, so when an API returns a `500` or the process
+crashes, the retry runs the step that failed, not the charge and the email before it.
+
+</div>
+<div class="idn-card">
+
+### Runs can wait for days
+
+A run can sleep until a date or wait for an event, such as a payment or a reply, without a worker, a timer or a
+table of your own. The app can deploy, restart or scale down in the meantime.
+
+</div>
+<div class="idn-card">
+
+### No queue plumbing
+
+Concurrency limits, throttling, rate limits, debounce, batching and cancellation are options on the function.
+Inngest enforces them and keeps the history of every run.
+
+</div>
+</div>
+
+</Section>
+
+<Section id="how-it-works" eyebrow="How it works" title="Inngest calls your app for every step" lead="Inngest stores the run and calls your ASP.NET Core app for each step. Steps you start together with Task.WhenAll run in parallel, each in its own call. Your app keeps no state between calls; the SDK replays the function and tells Inngest what to do next.">
+
+<Architecture />
+
+<div class="idn-grid idn-grid-3 idn-steps-explained">
+<div>
+
+**1. An event starts a run.** Your code, a webhook or a schedule sends an event such as `shop/order.placed`, and
+Inngest starts a run of every function it triggers.
+
+</div>
+<div>
+
+**2. Each call replays the function.** Inngest calls `/api/inngest` with the results of the steps that already
+finished. The SDK hands them back instantly, so the function picks up where it stopped.
+
+</div>
+<div>
+
+**3. The answer says what is next.** The SDK answers `206` with the step it ran or reached, such as a sleep, or `200`
+with the output once the function returns.
+
+</div>
+</div>
+
+[See a real run, call by call](/inngest-dotnet/how-it-works/)
+
+</Section>
+
+<Section id="code" eyebrow="Code and run" title="Ordinary C#, durable by default" lead="The function from the top of the page, in full. Each step is a call to RunAsync, SleepAsync or another step tool; the rest is plain C#.">
+
+<div class="idn-grid idn-code-trace">
+<div>
+
+```csharp title="CheckoutFunction.cs"
+using Inngest;
+
+public sealed record OrderPaid(string OrderId, string CustomerId, decimal Amount);
+
+public sealed record Charge(string Id, decimal Amount);
+
+public sealed class CheckoutFunction(IPayments pay, IMailer mail, IWarehouse warehouse)
+    : InngestFunction<OrderPaid>
+{
+    public override async Task<object?> ExecuteAsync(
+        FunctionContext<OrderPaid> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var charge = await context.Step.RunAsync("charge",
+            ct => pay.ChargeAsync(order, ct));
+
+        await context.Step.RunAsync("send-receipt",
+            ct => mail.SendReceiptAsync(order, ct));
+
+        await context.Step.SleepAsync("cooling-off",
+            TimeSpan.FromMinutes(30));
+
+        await context.Step.RunAsync("ship",
+            ct => warehouse.ShipAsync(order, ct));
+
+        return new { charge.Id };
+    }
+}
+
+public interface IPayments
+{
+    Task<Charge> ChargeAsync(OrderPaid order, CancellationToken cancellationToken);
+}
+
+public interface IMailer
+{
+    Task SendReceiptAsync(OrderPaid order, CancellationToken cancellationToken);
+}
+
+public interface IWarehouse
+{
+    Task ShipAsync(OrderPaid order, CancellationToken cancellationToken);
+}
+```
+
+</div>
+<div class="idn-annotations">
+
+**`RunAsync("charge", ...)`** is a step. Inngest stores the charge it returns, and later calls get that stored
+result instead of charging again. If it throws, Inngest retries this step alone.
+
+**`RunAsync("send-receipt", ...)`** is a step of its own. If the mail server fails, Inngest retries the receipt,
+and the charge stays done.
+
+**`SleepAsync("cooling-off", ...)`** ends the call. Inngest calls the function again in 30 minutes. Nothing runs
+or waits in your app meanwhile, and deploys in between do not matter.
+
+**`RunAsync("ship", ...)`** runs after the sleep. By then the charge and the receipt come back from Inngest's
+store, not from the payment provider or the mail server.
+
+**`return`** gives the run its output. The SDK answers `200` and Inngest marks the run completed.
+
+</div>
+</div>
+
+</Section>
+
+<Section id="capabilities" eyebrow="Capabilities" title="Everything a workflow needs" lead="Steps, sleeps, waits, parallel work, flow control and retries, in the .NET types you already use: TimeSpan for durations, Task.WhenAll for parallel steps, exceptions for errors.">
+
+<div class="idn-grid idn-grid-2">
+<div class="idn-card">
+
+### Steps that run once
+
+A step's result is saved; later calls get it back without running the code again.
+[Steps](/inngest-dotnet/guides/steps/)
+
+{/* check: body OrderPlaced; IPaymentGateway payments; OrderPlaced order */}
+```csharp
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+```
+
+</div>
+<div class="idn-card">
+
+### Sleep and wait for events
+
+Pause for days, or until a matching event arrives, without holding anything.
+[Sleep and wait](/inngest-dotnet/guides/sleep-and-wait-for-events/)
+
+{/* check: body UserSignedUp */}
+```csharp
+var activated = await context.Step.WaitForEventAsync<UserActivated>(
+    "wait-for-activation",
+    new WaitForEventOptions("user/activated", TimeSpan.FromDays(3))
+    {
+        Match = "data.userId",
+    });
+```
+
+</div>
+<div class="idn-card">
+
+### Parallel steps
+
+Start steps together and await them with `Task.WhenAll`; Inngest runs each in its own call.
+[Parallel steps](/inngest-dotnet/guides/parallel-steps/)
+
+{/* check: body UserSignedUp; IProfiles profiles; IOrderHistory history; string userId */}
+```csharp
+var profile = context.Step.RunAsync("load-profile",
+    ct => profiles.LoadAsync(userId, ct));
+var orders = context.Step.RunAsync("load-orders",
+    ct => history.LoadAsync(userId, ct));
+await Task.WhenAll(profile, orders);
+```
+
+</div>
+<div class="idn-card">
+
+### Flow control
+
+Concurrency, throttling, rate limits, debounce, batching, priority and singletons are options.
+[Flow control](/inngest-dotnet/guides/flow-control/)
+
+{/* check: members FunctionOptions */}
+```csharp
+Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.accountId" }],
+Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),
+CancelOn = [new CancelOn("account/deleted") { Match = "data.accountId" }],
+```
+
+</div>
+<div class="idn-card">
+
+### Errors and retries
+
+Every step retries on its own. Exceptions stop retries or ask for a delay.
+[Errors and retries](/inngest-dotnet/guides/errors-and-retries/)
+
+{/* check: body JsonElement */}
+```csharp
+throw new RetryAfterException("Rate limited.", TimeSpan.FromMinutes(1));
+```
+
+</div>
+<div class="idn-card">
+
+### Workers without an endpoint
+
+With Connect, a worker holds an outbound WebSocket to Inngest and needs no public URL.
+[Connect](/inngest-dotnet/guides/connect/)
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
+```
+
+</div>
+</div>
+
+</Section>
+
+<Section id="proof" eyebrow="Tested" title="Tested against the real Inngest server" lead="Triggers, steps, sleeps, waits, flow control, retries, middleware, key rotation and Connect run end to end against Inngest's own server image, in dev mode and in signed cloud mode.">
+
+<Proof />
+
+</Section>
+
+<Section id="quick-start" eyebrow="Quick start" title="Your first durable function in five minutes" lead="Reference the SDK, register a function, start the dev server, and watch a run go step by step on your machine.">
+
+<Steps>
+
+1. Reference the SDK. The packages are not on NuGet yet, so clone the
+   [repository](https://github.com/damikun/inngest-dotnet) and reference its projects:
+
+   ```xml
+   <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
+   <ProjectReference Include="../inngest-dotnet/src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+   ```
+
+2. Register the function and map the endpoint Inngest calls:
+
+   ```csharp title="Program.cs"
+   using Inngest;
+
+   var builder = WebApplication.CreateBuilder(args);
+
+   builder.Services
+       .AddInngest(options => options.AppId = "shop")
+       .AddFunction<OnboardUser>(new FunctionOptions
+       {
+           Id = "onboard-user",
+           Triggers = [Trigger.Event("user/signed-up")],
+       });
+
+   var app = builder.Build();
+   app.MapInngest("/api/inngest");
+   app.Run();
+   ```
+
+3. Start the app with `INNGEST_DEV=1`, run the [Inngest dev server](https://www.inngest.com/docs/local-development)
+   and send a `user/signed-up` event. The run appears at `http://localhost:8288`:
+
+   <DevServer />
+
+</Steps>
+
+[Getting started](/inngest-dotnet/guides/getting-started/) goes through the same steps in detail.
+
+</Section>
+
+<Section id="faq" eyebrow="FAQ" title="Questions engineers ask first">
+
+<Faq />
+
+</Section>
+
+<Section id="learn-more" eyebrow="Learn more" title="Docs for this SDK and for Inngest">
+
+<div class="idn-grid idn-grid-2">
+<LinkCard title="Guides" description="Functions, steps, events, flow control, errors, middleware, Connect and deployment." href="/inngest-dotnet/guides/getting-started/" />
+<LinkCard title="Examples" description="Order fulfillment, onboarding, nightly billing, webhooks and more, complete and explained." href="/inngest-dotnet/examples/order-fulfillment/" />
+<LinkCard title="Roadmap" description="What comes next: NuGet packages, a test host, OpenTelemetry tracing, race mode and checkpointing." href="/inngest-dotnet/roadmap/" />
+<LinkCard title="Inngest documentation" description="The platform: events, flow control, deployment, self-hosting and the dashboard." href="https://www.inngest.com/docs" />
+</div>
+
+</Section>

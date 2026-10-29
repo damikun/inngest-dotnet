@@ -1,0 +1,24 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Page not found',
+    description: 'The page you asked for does not exist.',
+    template: 'splash',
+    editUrl: false,
+    pagefind: false,
+    head: [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }],
+    hero: {
+      title: 'Page not found',
+      tagline: 'The page you asked for does not exist. It may have moved. Try the search, or start from the guides.',
+      actions: [
+        { text: 'Getting started', link: `${base}guides/getting-started/`, variant: 'primary' },
+        { text: 'Home', link: base, variant: 'secondary' },
+      ],
+    },
+  }}
+/>

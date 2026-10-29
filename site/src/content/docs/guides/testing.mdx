@@ -1,0 +1,181 @@
+---
+title: Testing Inngest functions with xUnit
+description: Unit test Inngest functions by running them with a fake IStepTools, and test them end to end against the Inngest dev server.
+sidebar:
+  label: Testing functions
+---
+
+A function is a class with a method that takes a `FunctionContext<T>`. The step tools behind `context.Step` are an
+interface, `IStepTools`, so a test can give the function a fake that runs every step inline and records what
+happened. No Inngest server is involved, and the test runs in milliseconds.
+
+## The function under test
+
+```csharp title="OnboardUser.cs"
+using Inngest;
+
+public sealed record UserSignedUp(string UserId, string Email);
+
+public sealed record UserActivated(string UserId);
+
+public interface IEmailSender
+{
+    Task SendAsync(string to, string subject, CancellationToken cancellationToken);
+}
+
+public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    {
+        var user = context.Event.Data;
+
+        await context.Step.RunAsync("send-welcome", ct => email.SendAsync(user.Email, "Welcome!", ct));
+
+        var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
+            new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+
+        if (activated is null)
+        {
+            await context.Step.RunAsync("send-reminder", ct => email.SendAsync(user.Email, "Your account is waiting", ct));
+        }
+
+        return new { activated = activated is not null };
+    }
+}
+```
+
+## A fake for the step tools
+
+This fake runs step handlers at once, returns at once from sleeps, answers waits from a dictionary, and records
+every step id in order:
+
+```csharp title="InlineStepTools.cs"
+using Inngest;
+
+public sealed class InlineStepTools : IStepTools
+{
+    public List<string> Steps { get; } = [];
+
+    public Dictionary<string, object> Waits { get; } = [];
+
+    public List<InngestEvent> Sent { get; } = [];
+
+    public async Task<T> RunAsync<T>(string id, Func<CancellationToken, Task<T>> handler)
+    {
+        Steps.Add(id);
+        return await handler(CancellationToken.None);
+    }
+
+    public Task SleepAsync(string id, TimeSpan duration)
+    {
+        Steps.Add(id);
+        return Task.CompletedTask;
+    }
+
+    public Task SleepUntilAsync(string id, DateTimeOffset until)
+    {
+        Steps.Add(id);
+        return Task.CompletedTask;
+    }
+
+    public Task<InngestEvent<TData>?> WaitForEventAsync<TData>(string id, WaitForEventOptions options)
+    {
+        Steps.Add(id);
+        return Task.FromResult(Waits.TryGetValue(id, out var received) ? (InngestEvent<TData>?)received : null);
+    }
+
+    public Task<TResult> InvokeAsync<TResult>(string id, InvokeOptions options) =>
+        throw new NotSupportedException($"Step {id} invokes {options.FunctionId}; give the fake a result for it.");
+
+    public Task<SendEventsResult> SendEventAsync(string id, IReadOnlyList<InngestEvent> events)
+    {
+        Steps.Add(id);
+        Sent.AddRange(events);
+        return Task.FromResult(new SendEventsResult([.. events.Select((_, i) => $"{id}-{i}")]));
+    }
+}
+```
+
+The SDK's extension methods, such as `RunAsync` with a handler that takes no cancellation token, all end up in
+these six methods, so the fake covers every overload.
+
+## The tests
+
+`FunctionContext<T>` has public `init` properties, so a test builds one directly:
+
+```csharp title="OnboardUserTests.cs"
+using Inngest;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+public sealed class OnboardUserTests
+{
+    private readonly RecordingEmailSender _email = new();
+    private readonly InlineStepTools _steps = new();
+
+    [Fact]
+    public async Task Sends_a_reminder_when_the_user_does_not_activate()
+    {
+        await new OnboardUser(_email).ExecuteAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["send-welcome", "wait-for-activation", "send-reminder"], _steps.Steps);
+        Assert.Equal(["Welcome!", "Your account is waiting"], _email.Subjects);
+    }
+
+    [Fact]
+    public async Task Skips_the_reminder_when_the_user_activates()
+    {
+        _steps.Waits["wait-for-activation"] = new InngestEvent<UserActivated> { Name = "user/activated", Data = new("u_1") };
+
+        await new OnboardUser(_email).ExecuteAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["send-welcome", "wait-for-activation"], _steps.Steps);
+    }
+
+    private FunctionContext<UserSignedUp> Context()
+    {
+        var signedUp = new InngestEvent<UserSignedUp> { Name = "user/signed-up", Data = new("u_1", "ada@example.com") };
+        return new FunctionContext<UserSignedUp>
+        {
+            FunctionId = "onboard-user",
+            RunId = "test-run",
+            Attempt = 0,
+            Step = _steps,
+            Logger = NullLogger.Instance,
+            Services = new ServiceCollection().BuildServiceProvider(),
+            Event = signedUp,
+            Events = [signedUp],
+        };
+    }
+
+    private sealed class RecordingEmailSender : IEmailSender
+    {
+        public List<string> Subjects { get; } = [];
+
+        public Task SendAsync(string to, string subject, CancellationToken cancellationToken)
+        {
+            Subjects.Add(subject);
+            return Task.CompletedTask;
+        }
+    }
+}
+```
+
+These tests check the function's logic and the order of its steps. They do not exercise replays, serialization of
+step results or flow control, which Inngest and the SDK take care of.
+
+## End to end against the dev server
+
+To test the whole path, run the app against an [Inngest dev server](https://www.inngest.com/docs/local-development)
+in a container, send an event and poll the dev server's API until the run finishes. The SDK's own integration tests
+do this with [Testcontainers](https://dotnet.testcontainers.org/) and the `inngest/inngest` image; see
+`tests/Inngest.IntegrationTests` in the [repository](https://github.com/damikun/inngest-dotnet) for a harness that
+starts the server, starts the app and waits for runs.
+
+Inngest's [testing guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/testing) covers the
+same ideas for its other SDKs.
+
+## Related examples
+
+The functions of the [examples](/inngest-dotnet/examples/order-fulfillment/) can be tested the same way.

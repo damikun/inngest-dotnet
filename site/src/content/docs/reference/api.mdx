@@ -1,0 +1,122 @@
+---
+title: C# API overview
+description: The public types of the Inngest, Inngest.AspNetCore and Inngest.Connect packages, with their members and what they are for.
+sidebar:
+  label: API overview
+---
+
+Every public type of the SDK, grouped by what it is for. The guides explain how to use them; this page is for
+looking things up. Types are in the `Inngest` namespace unless noted.
+
+## Registration
+
+| Member | Purpose |
+|---|---|
+| `IServiceCollection.AddInngest(Action<InngestOptions>?)` | Registers the SDK and returns an `IInngestBuilder`. In `Microsoft.Extensions.DependencyInjection`. |
+| `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function, resolved from a scope for every call. |
+| `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?)` | Registers a delegate function with typed event data. |
+| `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?)` | Registers a delegate function with `JsonElement` event data. |
+| `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |
+| `IInngestBuilder.AddMiddleware(InngestMiddleware)` | Registers one middleware instance for all calls. |
+| `IInngestBuilder.AddConnect(Action<ConnectOptions>?)` | Runs the functions in a Connect worker. Package `Inngest.Connect`. |
+| `IEndpointRouteBuilder.MapInngest(string pattern = "/api/inngest")` | Maps the endpoint Inngest calls. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
+| `IInngestBuilder.Services` | The service collection the SDK is registered in. |
+
+## Options
+
+**`InngestOptions`**: `AppId`, `AppVersion`, `EventKey`, `SigningKey`, `SigningKeyFallback`, `Environment`,
+`IsDev`, `DevServerUrl`, `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl`, `ServeOrigin`, `ServePath`, `AllowInBandSync`,
+`AllowUnsignedSync`, `SerializerOptions`. See [Configuration](/inngest-dotnet/guides/configuration/).
+
+**`ConnectOptions`**: `InstanceId`, `MaxWorkerConcurrency`, `GatewayUrl`. See [Connect](/inngest-dotnet/guides/connect/).
+
+**`FunctionOptions`**, an immutable record:
+
+| Property | Type |
+|---|---|
+| `Id` (required) | `string` |
+| `Name` | `string?` |
+| `Triggers` (required) | `IReadOnlyList<FunctionTrigger>` |
+| `Retries` | `int?` |
+| `Concurrency` | `IReadOnlyList<ConcurrencyLimit>?` |
+| `Throttle`, `RateLimit`, `Debounce`, `BatchEvents`, `Priority` | records of the same names |
+| `Idempotency` | `string?` |
+| `CancelOn` | `IReadOnlyList<CancelOn>?` |
+| `Timeouts` | `FunctionTimeouts?` |
+| `Singleton` | `Singleton?` |
+
+The flow control records and their constructor arguments and properties:
+
+| Record | Constructor | Properties |
+|---|---|---|
+| `ConcurrencyLimit` | `(int Limit)` | `Key`, `Scope` (`ConcurrencyScope.Function`, `Environment`, `Account`) |
+| `Throttle` | `(int Limit, TimeSpan Period)` | `Burst`, `Key` |
+| `RateLimit` | `(int Limit, TimeSpan Period)` | `Key` |
+| `Debounce` | `(TimeSpan Period)` | `Key`, `Timeout` |
+| `BatchEvents` | `(int MaxSize, TimeSpan Timeout)` | `Key`, `If` |
+| `Priority` | `(string Run)` | |
+| `CancelOn` | `(string Event)` | `If`, `Match`, `Timeout` |
+| `FunctionTimeouts` | | `Start`, `Finish` |
+| `Singleton` | `(SingletonMode Mode)` | `Key`; modes `Skip` and `Cancel` |
+
+**Triggers**: `Trigger.Event(string name, string? @if = null)` returns an `EventTrigger`, and
+`Trigger.Cron(string schedule, string? timezone = null)` a `CronTrigger`. Both derive from `FunctionTrigger`.
+
+## Functions
+
+| Type | Purpose |
+|---|---|
+| `InngestFunction<TEventData>` | Base class of class functions. Override `ExecuteAsync(FunctionContext<TEventData>, CancellationToken)`. |
+| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`. |
+| `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
+| `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
+| `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |
+| `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`. |
+
+## Steps
+
+**`IStepTools`**, the type of `context.Step`:
+
+| Method | Returns |
+|---|---|
+| `RunAsync<T>(string id, Func<CancellationToken, Task<T>> handler)` | `Task<T>` |
+| `SleepAsync(string id, TimeSpan duration)` | `Task` |
+| `SleepUntilAsync(string id, DateTimeOffset until)` | `Task` |
+| `WaitForEventAsync<TData>(string id, WaitForEventOptions options)` | `Task<InngestEvent<TData>?>` |
+| `InvokeAsync<TResult>(string id, InvokeOptions options)` | `Task<TResult>` |
+| `SendEventAsync(string id, IReadOnlyList<InngestEvent> events)` | `Task<SendEventsResult>` |
+
+`StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
+synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, and `SendEventAsync` for a single
+event.
+
+| Record | Constructor | Properties |
+|---|---|---|
+| `WaitForEventOptions` | `(string Event, TimeSpan Timeout)` | `Match`, `If` |
+| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout` |
+
+## Events
+
+| Type | Purpose |
+|---|---|
+| `IInngestClient` | `SendAsync(InngestEvent, CancellationToken)` and `SendAsync(IEnumerable<InngestEvent>, CancellationToken)`; `AppId`. |
+| `InngestEvent` | An event to send: `(string Name, object? Data = null)` with `Id`, `User`, `Timestamp`, `Version`. |
+| `InngestEvent<TData>` | A received event: `Name`, `Data`, `Id`, `User`, `Timestamp`, `Version`. |
+| `SendEventsResult` | `Ids` of the sent events, in order. |
+
+## Errors
+
+| Exception | Meaning |
+|---|---|
+| `NonRetriableException` | Thrown by your code to fail a step or run without retrying. |
+| `RetryAfterException` | Thrown by your code to retry after `Delay` or at `RetryAt`. |
+| `StepFailedException` | Thrown by the SDK where a step that failed for good is awaited: `StepId`, `Error`. |
+| `InngestException` | Thrown by the SDK when talking to Inngest fails, with `StatusCode` when there is one. |
+
+## Middleware
+
+`InngestMiddleware` has virtual hooks that do nothing by default: `OnRunStartAsync`, `OnMemoizationEndAsync`,
+`OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`, `OnStepErrorAsync`,
+`WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync` and `WrapSendEventAsync`. `StepInfo` describes a step:
+`Id`, `HashedId`, `Type` (a `StepType`: `Run`, `Sleep`, `WaitForEvent`, `Invoke`, `SendEvent`) and `Memoized`. See
+[Middleware](/inngest-dotnet/guides/middleware/).

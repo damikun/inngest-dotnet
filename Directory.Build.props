@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <!-- The packages and their unit tests cover every supported runtime. Samples, benchmarks and the integration tests use the latest. -->
+    <SupportedTargetFrameworks>net8.0;net10.0</SupportedTargetFrameworks>
+    <LatestTargetFramework>net10.0</LatestTargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Needed for IDE0005 to run during build. Members are not XML-documented, so CS1591 stays off. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IsPackable>false</IsPackable>
+    <!-- INNGEST_BUILD_SLOT builds into artifacts/slots/<slot> so that parallel builds do not collide. -->
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath Condition="'$(INNGEST_BUILD_SLOT)' != ''">$(MSBuildThisFileDirectory)artifacts/slots/$(INNGEST_BUILD_SLOT)</ArtifactsPath>
+    <ArtifactsPath Condition="'$(ArtifactsPath)' == ''">$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+  </PropertyGroup>
+</Project>

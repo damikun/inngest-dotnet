@@ -1,0 +1,61 @@
+{
+  "mode": "dev",
+  "checkedAt": "2026-10-29T11:44:45.566834+00:00",
+  "server": "http://127.0.0.1:18288",
+  "results": [
+    {
+      "name": "the server is healthy",
+      "passed": true,
+      "detail": "GET /health answered 200",
+      "seconds": 0.0317932
+    },
+    {
+      "name": "the app synced over the Docker network",
+      "passed": true,
+      "detail": "http://sample:8080/api/inngest, sdk dotnet v0.1.0-preview, framework aspnetcore, method SERVE, 5 functions",
+      "seconds": 0.0168402
+    },
+    {
+      "name": "the app container runs as non-root, publishes no port and is not on the host network",
+      "passed": true,
+      "detail": "user 1654, network mode inngest-sample_inngest (inngest-sample_inngest), 0 published ports, health healthy",
+      "seconds": 0.0625325
+    },
+    {
+      "name": "introspection from inside the network answers in dev mode",
+      "passed": true,
+      "detail": "HTTP/1.1 200 OK",
+      "seconds": 0.0641685
+    },
+    {
+      "name": "hello-world runs its step and returns the greeting",
+      "passed": true,
+      "detail": "COMPLETED in 301 ms: {\u0022greeting\u0022:\u0022Hello, Docker!\u0022}",
+      "seconds": 0.4569953
+    },
+    {
+      "name": "summarize-accounts invokes score-account three times in parallel and sends an event",
+      "passed": true,
+      "detail": "output {\u0022accounts\u0022:3,\u0022total\u0022:170}; COMPLETED {\u0022accountId\u0022:\u0022acme\u0022,\u0022score\u0022:40}; COMPLETED {\u0022accountId\u0022:\u0022globex\u0022,\u0022score\u0022:60}; COMPLETED {\u0022accountId\u0022:\u0022initech\u0022,\u0022score\u0022:70}; the app sent sample/summary.ready {\u0022total\u0022:170}",
+      "seconds": 1.2747043
+    },
+    {
+      "name": "onboard-user waits for activation, sleeps 5 s and finishes",
+      "passed": true,
+      "detail": "COMPLETED after 5.7 s: {\u0022activated\u0022:true,\u0022userId\u0022:\u0022user-ad0b6c49aea64ef294d6fa1b35a5f61e\u0022,\u0022welcomeId\u0022:\u0022f2884d9cee7244969c6392b243f8d678\u0022}",
+      "seconds": 6.0021485
+    },
+    {
+      "name": "onboard-user is cancelled by sample/user.deleted",
+      "passed": true,
+      "detail": "CANCELLED while it waited for activation",
+      "seconds": 0.9013718
+    },
+    {
+      "name": "the app logged the sync and no other warnings or errors",
+      "passed": true,
+      "detail": "2026-10-29T11:44:30.662Z info: Inngest.Serving.InngestCommHandler[406] Synced 5 functions with Inngest at http://sample:8080/api/inngest; 0 warnings for the refused probes",
+      "seconds": 0.0466266
+    }
+  ]
+}

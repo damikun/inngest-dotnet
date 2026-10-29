@@ -1,0 +1,122 @@
+before: 13:09  up 30 days,  4:06, 2 users, load averages: 16.09 8.01 7.52
+engine: 8,000,000 invocations, 64 in flight, 20 checkpoints
+     400,000 invocations      5.5 s  heap after forced GC     5,102 KB  failed 0
+     800,000 invocations      7.9 s  heap after forced GC     5,094 KB  failed 0
+   1,200,000 invocations     11.4 s  heap after forced GC     5,201 KB  failed 0
+   1,600,000 invocations     14.0 s  heap after forced GC     5,199 KB  failed 0
+   2,000,000 invocations     16.2 s  heap after forced GC     5,200 KB  failed 0
+   2,400,000 invocations     18.3 s  heap after forced GC     5,200 KB  failed 0
+   2,800,000 invocations     20.5 s  heap after forced GC     5,200 KB  failed 0
+   3,200,000 invocations     22.5 s  heap after forced GC     5,201 KB  failed 0
+   3,600,000 invocations     24.5 s  heap after forced GC     5,165 KB  failed 0
+   4,000,000 invocations     26.7 s  heap after forced GC     5,091 KB  failed 0
+   4,400,000 invocations     28.7 s  heap after forced GC     5,054 KB  failed 0
+   4,800,000 invocations     30.8 s  heap after forced GC     4,982 KB  failed 0
+   5,200,000 invocations     32.9 s  heap after forced GC     4,836 KB  failed 0
+   5,600,000 invocations     35.7 s  heap after forced GC     4,757 KB  failed 0
+   6,000,000 invocations     38.7 s  heap after forced GC     4,327 KB  failed 0
+   6,400,000 invocations     42.2 s  heap after forced GC     4,681 KB  failed 0
+   6,800,000 invocations     44.6 s  heap after forced GC     4,681 KB  failed 0
+   7,200,000 invocations     47.0 s  heap after forced GC     4,681 KB  failed 0
+   7,600,000 invocations     50.6 s  heap after forced GC     4,719 KB  failed 0
+   8,000,000 invocations     56.7 s  heap after forced GC     4,695 KB  failed 0
+{
+  "soak": "engine",
+  "finished_at": "2026-10-29T12:10:53.280571+00:00",
+  "runtime": ".NET 10.0.12",
+  "os": "macOS 26.7.1",
+  "processor_count": 16,
+  "server_gc": false,
+  "gc_latency_mode": "Interactive",
+  "invocations": 8000000,
+  "concurrency": 64,
+  "duration_s": 56.7,
+  "invocations_per_s": 141038,
+  "failed": 0,
+  "first_failure": null,
+  "steps_executed": 5000000,
+  "steps_executed_expected": 5000000,
+  "events_sent": 1000000,
+  "events_sent_expected": 1000000,
+  "allocated_bytes_per_invocation": 14980,
+  "gen0_collections": 14508,
+  "gen1_collections": 1298,
+  "gen2_collections": 0,
+  "heap": {
+    "before_first_invocation_bytes": 3283872,
+    "after_first_segment_bytes": 5224728,
+    "last_bytes": 4807336,
+    "second_half_min_bytes": 4431064,
+    "second_half_max_bytes": 5213576,
+    "second_half_slope_bytes_per_million_invocations": -107413,
+    "max_working_set_bytes": 88915968
+  }
+}
+engine exit=0
+between: 13:10  up 30 days,  4:07, 2 users, load averages: 19.84 10.08 8.30
+http: 1,600,000 invocations, 64 in flight, 20 checkpoints
+      80,000 invocations      5.8 s  heap after forced GC     8,642 KB  failed 0
+     160,000 invocations     11.1 s  heap after forced GC     8,643 KB  failed 0
+     240,000 invocations     16.7 s  heap after forced GC     8,665 KB  failed 0
+     320,000 invocations     24.8 s  heap after forced GC     8,459 KB  failed 0
+     400,000 invocations     31.1 s  heap after forced GC     8,343 KB  failed 0
+     480,000 invocations     36.5 s  heap after forced GC     8,276 KB  failed 0
+     560,000 invocations     42.0 s  heap after forced GC     8,244 KB  failed 0
+     640,000 invocations     47.5 s  heap after forced GC     8,202 KB  failed 0
+     720,000 invocations     52.4 s  heap after forced GC     8,192 KB  failed 0
+     800,000 invocations     57.9 s  heap after forced GC     8,086 KB  failed 0
+     880,000 invocations     64.5 s  heap after forced GC     8,071 KB  failed 0
+     960,000 invocations     72.6 s  heap after forced GC     8,099 KB  failed 0
+   1,040,000 invocations     81.4 s  heap after forced GC     8,059 KB  failed 0
+   1,120,000 invocations     89.5 s  heap after forced GC     8,100 KB  failed 0
+   1,200,000 invocations     95.6 s  heap after forced GC     8,089 KB  failed 0
+   1,280,000 invocations    101.1 s  heap after forced GC     8,073 KB  failed 0
+   1,360,000 invocations    106.5 s  heap after forced GC     8,075 KB  failed 0
+   1,440,000 invocations    111.8 s  heap after forced GC     8,066 KB  failed 0
+   1,520,000 invocations    117.3 s  heap after forced GC     8,070 KB  failed 0
+   1,600,000 invocations    123.0 s  heap after forced GC     8,091 KB  failed 0
+{
+  "soak": "http",
+  "finished_at": "2026-10-29T12:12:56.982688+00:00",
+  "runtime": ".NET 10.0.12",
+  "os": "macOS 26.7.1",
+  "processor_count": 16,
+  "server_gc": false,
+  "gc_latency_mode": "Interactive",
+  "invocations": 1600000,
+  "concurrency": 64,
+  "duration_s": 123,
+  "invocations_per_s": 13012,
+  "failed": 0,
+  "first_failure": null,
+  "steps_executed": 1000000,
+  "steps_executed_expected": 1000000,
+  "events_sent": 200000,
+  "events_sent_expected": 200000,
+  "allocated_bytes_per_invocation": 21993,
+  "gen0_collections": 4249,
+  "gen1_collections": 1337,
+  "gen2_collections": 0,
+  "heap": {
+    "before_first_invocation_bytes": 3907256,
+    "after_first_segment_bytes": 8849568,
+    "last_bytes": 8285376,
+    "second_half_min_bytes": 8252128,
+    "second_half_max_bytes": 8294112,
+    "second_half_slope_bytes_per_million_invocations": -8143,
+    "max_working_set_bytes": 116113408
+  }
+}
+http exit=0
+between: 13:12  up 30 days,  4:09, 2 users, load averages: 24.98 15.41 10.65
+sleep-after-memoized-step                  engine                    20000 invocations   60000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+parallel-steps-reported                    engine                    20000 invocations   60000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+step-executed-and-awaited                  engine                    20000 invocations   60000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+wait-registered-off-scheduler              engine                    20000 invocations   60000 tracked       3 alive at once,      0 after 500 ms (expected 0)
+inside-middleware-wrap                     engine                    20000 invocations   80000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+token-registration-per-call-token          engine                    20000 invocations   40000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+control-token-registration-shared-token    engine                    20000 invocations   40000 tracked   20000 alive at once,  20000 after 500 ms (expected 20000)
+token-registration-connections-open        http (kestrel, signed)    20000 invocations   40000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+token-registration-connections-closed      http (kestrel, signed)    20000 invocations   40000 tracked       0 alive at once,      0 after 500 ms (expected 0)
+abandon exit=0
+after: 13:13  up 30 days,  4:10, 2 users, load averages: 23.14 15.19 10.60

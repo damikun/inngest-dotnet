@@ -1,0 +1,32 @@
+{
+  "soak": "http",
+  "finished_at": "2026-10-29T12:12:56.982688+00:00",
+  "runtime": ".NET 10.0.12",
+  "os": "macOS 26.7.1",
+  "processor_count": 16,
+  "server_gc": false,
+  "gc_latency_mode": "Interactive",
+  "invocations": 1600000,
+  "concurrency": 64,
+  "duration_s": 123,
+  "invocations_per_s": 13012,
+  "failed": 0,
+  "first_failure": null,
+  "steps_executed": 1000000,
+  "steps_executed_expected": 1000000,
+  "events_sent": 200000,
+  "events_sent_expected": 200000,
+  "allocated_bytes_per_invocation": 21993,
+  "gen0_collections": 4249,
+  "gen1_collections": 1337,
+  "gen2_collections": 0,
+  "heap": {
+    "before_first_invocation_bytes": 3907256,
+    "after_first_segment_bytes": 8849568,
+    "last_bytes": 8285376,
+    "second_half_min_bytes": 8252128,
+    "second_half_max_bytes": 8294112,
+    "second_half_slope_bytes_per_million_invocations": -8143,
+    "max_working_set_bytes": 116113408
+  }
+}

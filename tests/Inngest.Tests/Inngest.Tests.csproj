@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Tests run on the latest runtime by default. Build with -p:TestAllFrameworks=true to also produce the net8.0
+         test app, which the README shows how to run inside an aspnet:8.0 container. -->
+    <TargetFrameworks>$(LatestTargetFramework)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TestAllFrameworks)' == 'true'">$(SupportedTargetFrameworks)</TargetFrameworks>
+    <!-- .NET 8 leaves support on 2026-11-10; newer SDKs would otherwise warn, which fails the build. -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Shouldly" />
+    <Using Include="Xunit" />
+    <!-- .NET 8 has no System.Threading.Lock; the tests only use it with the lock statement, which an object serves as well. -->
+    <Using Include="System.Object" Alias="Lock" Condition="'$(TargetFramework)' == 'net8.0'" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.OpenTelemetry\Inngest.OpenTelemetry.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Testing\Inngest.Testing.csproj" />
+  </ItemGroup>
+</Project>

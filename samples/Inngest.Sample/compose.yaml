@@ -1,0 +1,105 @@
+# The sample app and an Inngest server on one Docker network. Pick the mode with a profile, from this folder:
+#
+#   docker compose --profile dev up --build -d     # inngest dev: nothing is signed, any event key works
+#   docker compose --profile cloud up --build -d   # inngest start: every request is signed
+#
+# Cloud mode takes its keys from the environment or from an .env file next to this file. The server and the app
+# read the same INNGEST_SIGNING_KEY and INNGEST_EVENT_KEY. `inngest start` needs the signing key as plain hex,
+# without a signkey- prefix:
+#
+#   export INNGEST_SIGNING_KEY=$(openssl rand -hex 32)
+#   export INNGEST_EVENT_KEY=$(openssl rand -hex 16)
+#
+# The app publishes no port: the server calls it as http://sample:8080/api/inngest over the network, and the app
+# calls the server back as http://inngest:8288. Only the server's API and UI are published, on the host's loopback
+# interface, at http://127.0.0.1:${INNGEST_HOST_PORT:-18288}. Stop with `docker compose --profile <mode> down`.
+
+name: inngest-sample
+
+# Docker kills a container 10 seconds after asking it to stop. The app's host waits up to 30 seconds for requests
+# in flight, so the grace period matches that: a step that is running when the app is redeployed can finish.
+x-sample: &sample
+  image: inngest-dotnet-sample:local
+  build:
+    context: ../..
+    dockerfile: samples/Inngest.Sample/Dockerfile
+  restart: unless-stopped
+  stop_grace_period: 30s
+  deploy:
+    resources:
+      limits:
+        cpus: "2"
+        memory: 512M
+
+# Single-line console logs with UTC timestamps, so that each entry is one line in `docker compose logs`. The
+# HttpClient factory logs every request at Information, which is noise in production.
+x-sample-logging: &sample-logging
+  Logging__LogLevel__System.Net.Http.HttpClient: Warning
+  Logging__Console__FormatterName: simple
+  Logging__Console__FormatterOptions__SingleLine: "true"
+  Logging__Console__FormatterOptions__TimestampFormat: "yyyy-MM-ddTHH:mm:ss.fffZ "
+  Logging__Console__FormatterOptions__UseUtcTimestamp: "true"
+
+x-server: &server
+  image: inngest/inngest:v1.49.0
+  restart: unless-stopped
+  ports:
+    - "127.0.0.1:${INNGEST_HOST_PORT:-18288}:8288"
+  healthcheck:
+    test: ["CMD", "inngest", "alpha", "doctor", "healthcheck", "--skip-connect-gateway"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+
+services:
+  # Dev mode. The server starts once the app answers, so that its first sync finds the app up.
+  inngest-dev:
+    <<: *server
+    profiles: [dev]
+    command: [inngest, dev, --no-discovery, --no-poll, --poll-interval, "1", -u, "http://sample:8080/api/inngest"]
+    environment:
+      DO_NOT_TRACK: "1"
+    networks:
+      inngest:
+        aliases: [inngest]
+    depends_on:
+      sample-dev:
+        condition: service_healthy
+
+  sample-dev:
+    <<: *sample
+    profiles: [dev]
+    environment:
+      <<: *sample-logging
+      INNGEST_DEV: "http://inngest:8288"
+    networks:
+      inngest:
+        aliases: [sample]
+
+  # Cloud mode against a self-hosted server. `inngest start` refuses to start without both keys.
+  inngest:
+    <<: *server
+    profiles: [cloud]
+    command: [inngest, start, --poll-interval, "1", -u, "http://sample:8080/api/inngest"]
+    environment:
+      DO_NOT_TRACK: "1"
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:-}
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-}
+    networks: [inngest]
+    depends_on:
+      sample:
+        condition: service_healthy
+
+  sample:
+    <<: *sample
+    profiles: [cloud]
+    environment:
+      <<: *sample-logging
+      INNGEST_DEV: "0"
+      INNGEST_BASE_URL: "http://inngest:8288"
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:-}
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-}
+    networks: [inngest]
+
+networks:
+  inngest: {}

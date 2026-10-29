@@ -1,0 +1,42 @@
+---
+title: Flow control timeline
+description: See how concurrency, throttling, rate limiting and debouncing change when the runs for a burst of events start.
+---
+
+import FlowTimeline from '../../../components/islands/FlowTimeline';
+
+The same fifteen events arrive in bursts over a minute. Pick a kind of flow control and change its settings to see
+which runs start at once, which wait, which are skipped and which are merged.
+
+<FlowTimeline client:visible />
+
+## Reading the timeline
+
+Each dot on the top line is an event. Each bar below is a run, from when it starts to when it ends, and the line
+from an event leads to the run that handles it. A slanted line means the run started later than its event arrived.
+
+The model is simple on purpose: one key, every run is a single step, and timings are in seconds. Inngest's
+scheduler works with more detail, for example concurrency limits steps rather than whole runs, and rate limiting
+uses the generic cell rate algorithm with the period starting at the first event. Inngest has its own
+[flow control simulator](https://www.inngest.com/docs/durable-execution/flow-control/simulator) for exact behavior.
+
+## In code
+
+Each of these is one property of `FunctionOptions`:
+
+{/* check: members FunctionOptions */}
+```csharp
+Concurrency = [new ConcurrencyLimit(2)],
+Throttle = new Throttle(3, TimeSpan.FromSeconds(10)) { Burst = 1 },
+RateLimit = new RateLimit(3, TimeSpan.FromSeconds(10)),
+```
+
+A debounce takes a period and an optional timeout:
+
+{/* check: members FunctionOptions */}
+```csharp
+Debounce = new Debounce(TimeSpan.FromSeconds(5)) { Timeout = TimeSpan.FromSeconds(15) },
+```
+
+[Flow control](/inngest-dotnet/guides/flow-control/) covers every option, including keys that give each customer
+a limit of its own.

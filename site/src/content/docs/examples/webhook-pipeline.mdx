@@ -1,0 +1,127 @@
+---
+title: Webhook processing with idempotency
+description: Accept payment webhooks quickly, turn each delivery into one event, and process it with idempotency, a per-merchant throttle and retries that respect the downstream API.
+sidebar:
+  label: Webhook pipeline
+---
+
+Webhook senders want a fast `200` and retry when they do not get one, sometimes delivering the same webhook more
+than once. The pattern: verify the request, send an event with the delivery id, answer at once, and do the real
+work in a function.
+
+```csharp title="Program.cs"
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpClient<ILedger, LedgerClient>(client => client.BaseAddress = new Uri("https://ledger.internal/"));
+builder.Services
+    .AddInngest(options => options.AppId = "payments")
+    .AddFunction<ProcessPaymentWebhook>(new FunctionOptions
+    {
+        Id = "process-payment-webhook",
+        Triggers = [Trigger.Event("payments/webhook.received")],
+        Retries = 8,
+        Idempotency = "event.data.deliveryId",
+        Throttle = new Throttle(10, TimeSpan.FromSeconds(1)) { Key = "event.data.merchantId" },
+    });
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+
+app.MapPost("/webhooks/payments", async (HttpRequest request, IInngestClient inngest, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    using var reader = new StreamReader(request.Body);
+    var body = await reader.ReadToEndAsync(cancellationToken);
+    if (!IsSigned(body, request.Headers["Webhook-Signature"].ToString(), configuration["PAYMENTS_WEBHOOK_SECRET"]!))
+    {
+        return Results.Unauthorized();
+    }
+
+    var webhook = JsonSerializer.Deserialize<PaymentWebhook>(body, JsonSerializerOptions.Web)!;
+    await inngest.SendAsync(new InngestEvent("payments/webhook.received", webhook)
+    {
+        // The same delivery sent twice becomes one event.
+        Id = $"payments-webhook-{webhook.DeliveryId}",
+    }, cancellationToken);
+
+    return Results.Ok();
+});
+
+app.Run();
+
+static bool IsSigned(string body, string signature, string secret)
+{
+    var hash = HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(body));
+    var expected = Encoding.ASCII.GetBytes(Convert.ToHexString(hash).ToLowerInvariant());
+    return CryptographicOperations.FixedTimeEquals(expected, Encoding.ASCII.GetBytes(signature));
+}
+
+public sealed record PaymentWebhook(string DeliveryId, string MerchantId, string Type, string PaymentId, long AmountMinor, string Currency);
+```
+
+```csharp title="ProcessPaymentWebhook.cs"
+using System.Net;
+using Inngest;
+
+public sealed class ProcessPaymentWebhook(ILedger ledger) : InngestFunction<PaymentWebhook>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<PaymentWebhook> context, CancellationToken cancellationToken)
+    {
+        var webhook = context.Event.Data;
+        if (webhook.Type is not ("payment.succeeded" or "payment.refunded"))
+        {
+            // Retrying will not make an unknown type known.
+            throw new NonRetriableException($"Unsupported webhook type {webhook.Type}.");
+        }
+
+        var entryId = await context.Step.RunAsync("record-in-ledger", ct => ledger.RecordAsync(webhook, ct));
+        return new { webhook.DeliveryId, entryId };
+    }
+}
+
+public interface ILedger
+{
+    Task<string> RecordAsync(PaymentWebhook webhook, CancellationToken cancellationToken);
+}
+
+public sealed class LedgerClient(HttpClient http) : ILedger
+{
+    public async Task<string> RecordAsync(PaymentWebhook webhook, CancellationToken cancellationToken)
+    {
+        using var response = await http.PostAsJsonAsync("entries", webhook, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            // Come back when the ledger says, instead of on Inngest's own schedule.
+            throw new RetryAfterException("The ledger is rate limiting us.", response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(30));
+        }
+
+        response.EnsureSuccessStatusCode();
+        var entry = await response.Content.ReadFromJsonAsync<LedgerEntry>(cancellationToken);
+        return entry!.Id;
+    }
+
+    private sealed record LedgerEntry(string Id);
+}
+```
+
+## How it works
+
+- **Answer fast, work later.** The endpoint verifies the signature, sends one event and returns `200` within
+  milliseconds. Slow or failing downstream systems never make the sender retry.
+- **Two layers of deduplication.** The event id, built from the delivery id, makes Inngest ignore the same delivery
+  sent twice within 24 hours. `Idempotency` on the function guards the run as well, in case another path sends the
+  same delivery.
+- **A throttle per merchant.** At most ten webhooks per merchant start per second; the rest queue. A merchant with a
+  burst of refunds cannot crowd out the others.
+- **Retries that listen.** A `429` from the ledger becomes a `RetryAfterException` with the ledger's own delay. Other
+  failures are retried with Inngest's backoff, up to eight times.
+- **Fail fast on bad input.** An unsupported webhook type throws `NonRetriableException`, so it fails once instead of
+  nine times.
+
+The signature check is a sketch: use the verification your payment provider documents, including its timestamp
+check. Inngest's guide to [receiving webhooks](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/receive-webhook-events)
+describes a variant where Inngest itself receives the webhook.

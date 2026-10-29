@@ -1,0 +1,45 @@
+---
+// The parallel steps guide: one call reaches two new steps and plans both, Inngest runs each in a call of its own,
+// and the next call continues with both results.
+import Figure from './Figure.astro';
+---
+
+<Figure>
+  <div class="fig-fan">
+    <div class="fig-node wide">
+      <span class="num" aria-hidden="true">1</span>
+      <p class="name">Call 1 reaches two new steps</p>
+      <p class="detail"><code>load-profile</code> and <code>load-orders</code>, before <code>Task.WhenAll</code></p>
+    </div>
+    <div class="lines out" style="--arrow: var(--idn-plan)">
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path d="M50 0V26M25 26H75M25 26V40M75 26V40"></path></svg>
+      <i style="left: 25%"></i><i style="left: 75%"></i>
+      <span>206 · two planned steps</span>
+    </div>
+    <div class="fig-node">
+      <span class="num" aria-hidden="true">2</span>
+      <p class="name">Call 2 runs</p>
+      <p class="detail"><code>load-profile</code></p>
+    </div>
+    <div class="fig-node">
+      <span class="num" aria-hidden="true">3</span>
+      <p class="name">Call 3 runs</p>
+      <p class="detail"><code>load-orders</code></p>
+    </div>
+    <div class="lines in" style="--arrow: var(--idn-ok)">
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path d="M25 0V14M75 0V14M25 14H75M50 14V40"></path></svg>
+      <i style="left: 50%"></i>
+      <span>once both are saved</span>
+    </div>
+    <div class="fig-node wide">
+      <span class="num" aria-hidden="true">4</span>
+      <p class="name">Call 4 continues after <code>Task.WhenAll</code></p>
+      <p class="detail">both steps return their saved results</p>
+    </div>
+  </div>
+  <Fragment slot="caption">
+    When a call reaches two new steps at once, the SDK runs neither. It answers 206 with both as planned steps,
+    Inngest runs each in a call of its own, possibly at the same time and on different instances, and calls the
+    function again once both results are saved.
+  </Fragment>
+</Figure>

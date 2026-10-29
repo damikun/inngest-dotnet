@@ -1,0 +1,10 @@
+---
+// The frame shared by the diagrams in the guides: the drawing on the surface color, and a caption that says in words
+// what it shows. The drawing is HTML, so its text stays real text; the frame is the size container that decides
+// whether a flow stacks or lines up in a row.
+---
+
+<figure class="idn-figure not-content">
+  <div class="canvas"><slot /></div>
+  <figcaption><slot name="caption" /></figcaption>
+</figure>

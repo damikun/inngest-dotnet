@@ -1,0 +1,43 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+import { INNGEST_DOCS_URL, REPO_URL } from '../consts';
+---
+
+<Default><slot /></Default>
+<div class="community not-content">
+  <p>
+    inngest-dotnet is a community port of the Inngest TypeScript SDK to .NET. It is not affiliated with or
+    endorsed by Inngest Inc.
+  </p>
+  <ul>
+    <li><a href={INNGEST_DOCS_URL}>Inngest documentation</a></li>
+    <li><a href={REPO_URL}>Source on GitHub</a></li>
+    <li><a href={`${REPO_URL}/blob/main/LICENSE`}>Apache License 2.0</a></li>
+  </ul>
+</div>
+
+<style>
+  .community {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-size: var(--sl-text-xs);
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  a {
+    color: var(--sl-color-gray-3);
+    text-underline-offset: 0.2em;
+  }
+  a:hover {
+    color: var(--sl-color-text-accent);
+  }
+</style>

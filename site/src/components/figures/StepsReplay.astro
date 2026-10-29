@@ -1,0 +1,65 @@
+---
+// Calls of one run on a timeline: which step each call runs and which it only replays from the saved result. The
+// steps guide uses the default run of charge and mark-paid; other pages pass their own calls and caption.
+import Figure from './Figure.astro';
+
+type Kind = 'run' | 'saved' | 'wait' | 'out';
+interface Call {
+  title: string;
+  what: string;
+  status: 200 | 206;
+  segments: [Kind, string, number][];
+}
+interface Props {
+  calls?: Call[];
+  caption?: string;
+}
+
+const {
+  calls = [
+    { title: 'Call 1', what: 'runs charge', status: 206, segments: [['run', 'charge', 40]] },
+    { title: 'Call 2', what: 'replays charge, runs mark-paid', status: 206, segments: [['saved', 'charge', 27], ['run', 'mark-paid', 40]] },
+    { title: 'Call 3', what: 'replays both and returns', status: 200, segments: [['saved', 'charge', 27], ['saved', 'mark-paid', 27], ['out', 'return', 19]] },
+  ],
+  caption = 'Inngest calls the function once for each step. Every call runs the code from the top; steps that already ran return their saved result at once, so <code>charge</code> runs a single time even though three calls pass it.',
+} = Astro.props as Props;
+const legend = [
+  ['run', 'runs the handler'],
+  ['saved', 'returns the saved result'],
+  ...(calls.some((call) => call.segments.some(([kind]) => kind === 'wait')) ? [['wait', 'sleeps']] : []),
+];
+---
+
+<Figure>
+  <div class="fig-rows">
+    {
+      calls.map((call) => (
+        <div>
+          <p class="fig-row-head">
+            <strong>{call.title}</strong>
+            <span>{call.what}</span>
+          </p>
+          <div class="fig-track">
+            {call.segments.map(([kind, text, width]) => (
+              <span class:list={['fig-seg', kind]} style={`--w: ${width}%`}>
+                <span>{text}</span>
+              </span>
+            ))}
+            <span class:list={['fig-chip', call.status === 200 ? 'ok' : 'partial']}>{call.status}</span>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <ul class="fig-legend">
+    {
+      legend.map(([kind, text]) => (
+        <li>
+          <span class:list={['fig-seg', kind]} />
+          {text}
+        </li>
+      ))
+    }
+  </ul>
+  <Fragment slot="caption" set:html={caption} />
+</Figure>

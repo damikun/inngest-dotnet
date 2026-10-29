@@ -1,0 +1,5 @@
+Full BenchmarkDotNet run, default job, Release: dotnet run -c Release --project benchmarks/Inngest.Benchmarks -- --filter '*' -e GitHub CSV JSON
+Started 2026-10-29T12:13:42Z, finished 2026-10-29T12:18:13Z.
+load before: 13:13  up 30 days,  4:10, 2 users, load averages: 29.61 17.98 11.84
+load after: 13:18  up 30 days,  4:15, 3 users, load averages: 3.21 9.42 9.65
+The machine was shared with other agents. The 1-minute load average was 29.6 when the run started and 3.2 when it ended.

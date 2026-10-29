@@ -1,0 +1,600 @@
+{
+  "source": "public sealed class FulfillOrder(\n    IInventory inventory, IPayments payments, IMailer mailer, IWarehouse warehouse)\n    : InngestFunction<OrderPlaced>\n{\n    public override async Task<object?> ExecuteAsync(\n        FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)\n    {\n        var order = context.Event.Data;\n\n        var reservation = await context.Step.RunAsync(\"reserve-stock\",\n            ct => inventory.ReserveAsync(order.OrderId, ct));\n\n        var payment = await context.Step.RunAsync(\"charge-card\",\n            ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));\n\n        await context.Step.SleepAsync(\"cooling-off\", TimeSpan.FromMinutes(30));\n\n        await Task.WhenAll(\n            context.Step.RunAsync(\"send-receipt\",\n                ct => mailer.SendReceiptAsync(order.OrderId, payment.PaymentId, ct)),\n            context.Step.RunAsync(\"ship-order\",\n                ct => warehouse.ShipAsync(reservation.ReservationId, ct)));\n\n        return new OrderFulfilled(order.OrderId, payment.PaymentId);\n    }\n}",
+  "stepNames": {
+    "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": "reserve-stock",
+    "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": "charge-card",
+    "d6ef22dea68b364acf8b96e9fa39dcb222867fdf": "cooling-off",
+    "179d7057db2cb69316c43e700089e6aeec07caff": "send-receipt",
+    "8b4b44df020db368ad1ab221cf78db64d9d78e13": "ship-order"
+  },
+  "calls": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=step",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {},
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [],
+              "current": 0
+            },
+            "disable_immediate_execution": false,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+            "op": "StepRun",
+            "name": "reserve-stock",
+            "displayName": "reserve-stock",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "reserve-stock"
+            },
+            "data": {
+              "reservationId": "res_8c1f"
+            },
+            "timing": {
+              "a": 1793611800000000000,
+              "b": 142000000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=step",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            }
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935"
+              ],
+              "current": 1
+            },
+            "disable_immediate_execution": false,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "b2ae8f272ea660900fca3aeefbd39695c43f5cc9",
+            "op": "StepRun",
+            "name": "charge-card",
+            "displayName": "charge-card",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "charge-card"
+            },
+            "data": {
+              "paymentId": "pay_31d9",
+              "amount": 59.9
+            },
+            "timing": {
+              "a": 1793611800142000000,
+              "b": 418000000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=step",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            },
+            "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": {
+              "data": {
+                "paymentId": "pay_31d9",
+                "amount": 59.9
+              }
+            }
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+                "b2ae8f272ea660900fca3aeefbd39695c43f5cc9"
+              ],
+              "current": 2
+            },
+            "disable_immediate_execution": false,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "d6ef22dea68b364acf8b96e9fa39dcb222867fdf",
+            "op": "Sleep",
+            "name": "30m",
+            "displayName": "cooling-off",
+            "opts": {
+              "duration": "30m"
+            },
+            "userland": {
+              "id": "cooling-off"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=step",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            },
+            "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": {
+              "data": {
+                "paymentId": "pay_31d9",
+                "amount": 59.9
+              }
+            },
+            "d6ef22dea68b364acf8b96e9fa39dcb222867fdf": null
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+                "b2ae8f272ea660900fca3aeefbd39695c43f5cc9",
+                "d6ef22dea68b364acf8b96e9fa39dcb222867fdf"
+              ],
+              "current": 3
+            },
+            "disable_immediate_execution": false,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "179d7057db2cb69316c43e700089e6aeec07caff",
+            "op": "StepPlanned",
+            "name": "send-receipt",
+            "displayName": "send-receipt",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "send-receipt"
+            }
+          },
+          {
+            "id": "8b4b44df020db368ad1ab221cf78db64d9d78e13",
+            "op": "StepPlanned",
+            "name": "ship-order",
+            "displayName": "ship-order",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "ship-order"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=179d7057db2cb69316c43e700089e6aeec07caff",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            },
+            "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": {
+              "data": {
+                "paymentId": "pay_31d9",
+                "amount": 59.9
+              }
+            },
+            "d6ef22dea68b364acf8b96e9fa39dcb222867fdf": null
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+                "b2ae8f272ea660900fca3aeefbd39695c43f5cc9",
+                "d6ef22dea68b364acf8b96e9fa39dcb222867fdf"
+              ],
+              "current": 3
+            },
+            "disable_immediate_execution": true,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "179d7057db2cb69316c43e700089e6aeec07caff",
+            "op": "StepRun",
+            "name": "send-receipt",
+            "displayName": "send-receipt",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "send-receipt"
+            },
+            "data": null,
+            "timing": {
+              "a": 1793613600560000000,
+              "b": 236000000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=8b4b44df020db368ad1ab221cf78db64d9d78e13",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            },
+            "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": {
+              "data": {
+                "paymentId": "pay_31d9",
+                "amount": 59.9
+              }
+            },
+            "d6ef22dea68b364acf8b96e9fa39dcb222867fdf": null
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+                "b2ae8f272ea660900fca3aeefbd39695c43f5cc9",
+                "d6ef22dea68b364acf8b96e9fa39dcb222867fdf"
+              ],
+              "current": 3
+            },
+            "disable_immediate_execution": true,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": [
+          {
+            "id": "8b4b44df020db368ad1ab221cf78db64d9d78e13",
+            "op": "StepRun",
+            "name": "ship-order",
+            "displayName": "ship-order",
+            "opts": {
+              "type": "step.run"
+            },
+            "userland": {
+              "id": "ship-order"
+            },
+            "data": "trk_5b72",
+            "timing": {
+              "a": 1793613600796000000,
+              "b": 307000000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/api/inngest?fnId=shop-fulfill-order&stepId=step",
+        "body": {
+          "event": {
+            "name": "shop/order.placed",
+            "data": {
+              "orderId": "ord_1042",
+              "customerId": "cus_7d2e",
+              "total": 59.9
+            },
+            "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+            "ts": 1793611798000,
+            "user": {}
+          },
+          "events": [
+            {
+              "name": "shop/order.placed",
+              "data": {
+                "orderId": "ord_1042",
+                "customerId": "cus_7d2e",
+                "total": 59.9
+              },
+              "id": "01JDZ6Q2XF4H9K1M3N5P7R9T2V",
+              "ts": 1793611798000,
+              "user": {}
+            }
+          ],
+          "steps": {
+            "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935": {
+              "data": {
+                "reservationId": "res_8c1f"
+              }
+            },
+            "b2ae8f272ea660900fca3aeefbd39695c43f5cc9": {
+              "data": {
+                "paymentId": "pay_31d9",
+                "amount": 59.9
+              }
+            },
+            "d6ef22dea68b364acf8b96e9fa39dcb222867fdf": null,
+            "179d7057db2cb69316c43e700089e6aeec07caff": {
+              "data": null
+            },
+            "8b4b44df020db368ad1ab221cf78db64d9d78e13": {
+              "data": "trk_5b72"
+            }
+          },
+          "ctx": {
+            "run_id": "01JDZ6Q3T8K3V2M4H5N6P7R8S9",
+            "attempt": 0,
+            "max_attempts": 4,
+            "stack": {
+              "stack": [
+                "c3c77fbce7bd0d6d6ed264a1e6030ce7955ef935",
+                "b2ae8f272ea660900fca3aeefbd39695c43f5cc9",
+                "d6ef22dea68b364acf8b96e9fa39dcb222867fdf",
+                "179d7057db2cb69316c43e700089e6aeec07caff",
+                "8b4b44df020db368ad1ab221cf78db64d9d78e13"
+              ],
+              "current": 5
+            },
+            "disable_immediate_execution": false,
+            "use_api": false
+          },
+          "version": 2
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "X-Inngest-SDK": "inngest-dotnet:v0.1.0-preview",
+          "X-Inngest-Req-Version": "2"
+        },
+        "body": {
+          "orderId": "ord_1042",
+          "paymentId": "pay_31d9"
+        }
+      }
+    }
+  ]
+}

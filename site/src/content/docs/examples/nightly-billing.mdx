@@ -1,0 +1,128 @@
+---
+title: Nightly billing with cron and fan-out
+description: A cron function that finds every account due for billing and fans out one event per account, and a second function that bills each account with its own retries and limits.
+sidebar:
+  label: Nightly billing
+---
+
+Billing thousands of accounts in one loop has two problems: one failing account stops or delays the rest, and a
+retry would bill the early ones again. Splitting the work fixes both. A scheduled function only decides what to
+do and sends one event per account; a second function bills one account per run.
+
+```csharp title="StartBillingRun.cs"
+using System.Text.Json;
+using Inngest;
+
+public sealed record AccountDue(string AccountId, string BillingDate);
+
+public sealed class StartBillingRun(IAccounts accounts, TimeProvider time) : InngestFunction<JsonElement>
+{
+    private const int ChunkSize = 500;
+
+    public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+    {
+        // Both values come from steps, so every call of this run sees the same date and the same list.
+        var billingDate = await context.Step.RunAsync("pick-billing-date",
+            () => DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime).ToString("yyyy-MM-dd"));
+
+        var due = await context.Step.RunAsync("load-accounts-due",
+            ct => accounts.GetDueAsync(DateOnly.Parse(billingDate), ct));
+
+        var chunks = due.Chunk(ChunkSize).ToArray();
+        for (var i = 0; i < chunks.Length; i++)
+        {
+            InngestEvent[] events =
+            [
+                .. chunks[i].Select(accountId => new InngestEvent("billing/account.due", new AccountDue(accountId, billingDate))
+                {
+                    // One event per account and day, however often this function runs.
+                    Id = $"billing-{billingDate}-{accountId}",
+                }),
+            ];
+            await context.Step.SendEventAsync($"send-batch-{i}", events);
+        }
+
+        return new { billingDate, accounts = due.Count };
+    }
+}
+
+public interface IAccounts
+{
+    Task<IReadOnlyList<string>> GetDueAsync(DateOnly date, CancellationToken cancellationToken);
+}
+```
+
+```csharp title="BillAccount.cs"
+using Inngest;
+
+public sealed record Bill(string InvoiceId, decimal Amount);
+
+public sealed class BillAccount(IBillingEngine billing) : InngestFunction<AccountDue>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<AccountDue> context, CancellationToken cancellationToken)
+    {
+        var (accountId, billingDate) = context.Event.Data;
+
+        var bill = await context.Step.RunAsync("create-invoice",
+            ct => billing.CreateInvoiceAsync(accountId, billingDate, ct));
+
+        if (bill.Amount == 0)
+        {
+            return new { accountId, charged = false };
+        }
+
+        await context.Step.RunAsync("collect-payment", ct => billing.CollectAsync(bill.InvoiceId, ct));
+        await context.Step.RunAsync("email-invoice", ct => billing.EmailAsync(bill.InvoiceId, ct));
+
+        return new { accountId, bill.InvoiceId, charged = true };
+    }
+}
+
+public interface IBillingEngine
+{
+    Task<Bill> CreateInvoiceAsync(string accountId, string billingDate, CancellationToken cancellationToken);
+
+    Task CollectAsync(string invoiceId, CancellationToken cancellationToken);
+
+    Task EmailAsync(string invoiceId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest
+    .AddFunction<StartBillingRun>(new FunctionOptions
+    {
+        Id = "start-billing-run",
+        Triggers = [Trigger.Cron("0 2 * * *", timezone: "Europe/Prague")],
+        Singleton = new Singleton(SingletonMode.Skip),
+    })
+    .AddFunction<BillAccount>(new FunctionOptions
+    {
+        Id = "bill-account",
+        Triggers = [Trigger.Event("billing/account.due")],
+        Retries = 10,
+        Concurrency = [new ConcurrencyLimit(20)],
+        Throttle = new Throttle(200, TimeSpan.FromMinutes(1)),
+        Idempotency = "event.data.accountId + '-' + event.data.billingDate",
+    });
+```
+
+`TimeProvider` is registered by `AddInngest` if the app has not registered one.
+
+## How it works
+
+- **Decide once, in steps.** The billing date and the list of accounts come from steps. If sending a batch fails and
+  the function is retried, it sends the same accounts for the same date instead of reading the clock and the database
+  again.
+- **Fan out with events.** Each batch of up to 500 events goes out in one `SendEventAsync` step, with ids derived
+  from the account and the date, so a repeated run produces duplicates that Inngest ignores. Inngest accepts up to
+  5,000 events per request.
+- **One run per account.** `BillAccount` runs once per event, with its own ten retries. A failing account does not
+  hold up the others, and its failure is visible on its own.
+- **Limits on the downstream system.** At most 20 accounts are billed at once and at most 200 start per minute,
+  whatever the size of the batch. `Idempotency` stops a second run for the same account and date within a day.
+- **No overlap.** The singleton option skips a scheduled run while the previous one is still going.
+
+The scheduled run's own event is `inngest/scheduled.timer`, which is why `StartBillingRun` reads its event as
+`JsonElement` and ignores it.

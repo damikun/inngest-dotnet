@@ -1,0 +1,46 @@
+---
+// A landing page section: an eyebrow, a display heading and an optional lead, then the content.
+interface Props {
+  id: string;
+  eyebrow: string;
+  title: string;
+  lead?: string;
+}
+const { id, eyebrow, title, lead } = Astro.props;
+---
+
+<section class="idn-section" aria-labelledby={id}>
+  <div class="head">
+    <p class="eyebrow">{eyebrow}</p>
+    <h2 id={id} class="idn-display">{title}</h2>
+    {lead && <p class="lead">{lead}</p>}
+  </div>
+  <slot />
+</section>
+
+<style>
+  .idn-section {
+    padding-block: clamp(2.5rem, 5vw, 4.5rem) 0;
+  }
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-width: 48rem;
+    margin-bottom: 2rem;
+  }
+  .head > * {
+    margin: 0;
+  }
+  h2 {
+    font-size: clamp(1.875rem, 1.3rem + 2.2vw, 2.875rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+  .lead {
+    font-size: var(--sl-text-lg);
+    color: var(--sl-color-gray-2);
+  }
+</style>

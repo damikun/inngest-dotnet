@@ -1,0 +1,133 @@
+---
+title: Order fulfillment workflow in C#
+description: Reserve stock, charge the card, ship and confirm an order, release the stock when payment fails, cancel on request and alert someone when a run fails for good.
+sidebar:
+  label: Order fulfillment
+---
+
+An order goes through four steps that each talk to another system. Any of them can fail on its own; none of them
+should run twice. Each is a step, so a retry repeats only the step that failed.
+
+```csharp title="FulfillOrder.cs"
+using Inngest;
+
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total, string Email);
+
+public sealed record Shipment(string TrackingNumber, string Carrier);
+
+public sealed class FulfillOrder(IInventory inventory, IPayments payments, IShipping shipping, IMailer mailer, IAlerts alerts)
+    : InngestFunction<OrderPlaced>, IFailureHandler
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var reservationId = await context.Step.RunAsync("reserve-stock",
+            ct => inventory.ReserveAsync(order.OrderId, ct));
+
+        string paymentId;
+        try
+        {
+            // The order id is the payment provider's idempotency key, so a retry after a lost response
+            // cannot charge the card twice.
+            paymentId = await context.Step.RunAsync("charge-card",
+                ct => payments.ChargeAsync(order.CustomerId, order.Total, idempotencyKey: order.OrderId, ct));
+        }
+        catch (StepFailedException exception)
+        {
+            await context.Step.RunAsync("release-stock", ct => inventory.ReleaseAsync(reservationId, ct));
+            await context.Step.RunAsync("send-payment-failed",
+                ct => mailer.SendAsync(order.Email, "We could not take your payment", ct));
+            throw new NonRetriableException($"Payment for {order.OrderId} failed: {exception.Error.Message}", exception);
+        }
+
+        var shipment = await context.Step.RunAsync("create-shipment",
+            ct => shipping.CreateAsync(order.OrderId, reservationId, ct));
+
+        await context.Step.RunAsync("send-confirmation",
+            ct => mailer.SendAsync(order.Email, $"On its way with {shipment.Carrier}: {shipment.TrackingNumber}", ct));
+
+        return new { order.OrderId, paymentId, shipment.TrackingNumber };
+    }
+
+    public async Task OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken)
+    {
+        var failure = context.Event.Data;
+        await context.Step.RunAsync("alert-operations",
+            ct => alerts.SendAsync($"Order run {failure.RunId} failed: {failure.Error.Name}: {failure.Error.Message}", ct));
+    }
+}
+
+public interface IInventory
+{
+    Task<string> ReserveAsync(string orderId, CancellationToken cancellationToken);
+
+    Task ReleaseAsync(string reservationId, CancellationToken cancellationToken);
+}
+
+public interface IPayments
+{
+    Task<string> ChargeAsync(string customerId, decimal amount, string idempotencyKey, CancellationToken cancellationToken);
+}
+
+public interface IShipping
+{
+    Task<Shipment> CreateAsync(string orderId, string reservationId, CancellationToken cancellationToken);
+}
+
+public interface IMailer
+{
+    Task SendAsync(string to, string subject, CancellationToken cancellationToken);
+}
+
+public interface IAlerts
+{
+    Task SendAsync(string text, CancellationToken cancellationToken);
+}
+```
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register the implementations of IInventory, IPayments, IShipping, IMailer and IAlerts here.
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<FulfillOrder>(new FunctionOptions
+    {
+        Id = "fulfill-order",
+        Name = "Fulfill an order",
+        Triggers = [Trigger.Event("shop/order.placed")],
+        Retries = 5,
+        Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
+        CancelOn = [new CancelOn("shop/order.cancelled") { Match = "data.orderId", Timeout = TimeSpan.FromHours(1) }],
+        Idempotency = "event.data.orderId",
+    });
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+app.Run();
+```
+
+## How it works
+
+- **One step per side effect.** Reserving, charging, shipping and emailing are separate steps. If the shipping
+  API is down, Inngest retries `create-shipment` up to five times while the reservation and the charge stay done.
+- **Compensation.** When `charge-card` fails all its attempts, the function catches `StepFailedException`, releases
+  the stock and tells the customer, both as steps, then fails the run with `NonRetriableException`, since retrying
+  the run would not change the outcome.
+- **No double charges.** The charge passes the order id to the payment provider as an idempotency key. A step can
+  succeed and then lose its response, so the provider must recognize a repeat; Inngest cannot. `Idempotency` on the
+  function keeps a duplicated `shop/order.placed` event from starting a second run within 24 hours.
+- **One order per customer at a time.** The concurrency limit keyed on the customer stops two orders of one
+  customer from competing for the same stock, while orders of different customers run side by side.
+- **Cancellation.** A `shop/order.cancelled` event for the same order, within an hour, stops the run before its
+  next step.
+- **Alerting.** `IFailureHandler` runs once, after the run has failed for good, for example when a step keeps failing.
+  The compensation path ends in that handler too, so operations hear about every failed order.
+
+Try it with the dev server by sending `shop/order.placed` with `orderId`, `customerId`, `total` and `email`. See
+[Errors and retries](/inngest-dotnet/guides/errors-and-retries/) and [Flow control](/inngest-dotnet/guides/flow-control/)
+for the options used here.

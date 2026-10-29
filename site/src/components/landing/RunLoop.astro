@@ -1,0 +1,454 @@
+---
+// How it works: one run of the checkout function, call by call, at the reader's pace. Each call shows what Inngest
+// holds and sends, how far the function gets, and what the app answers. The buttons pick a call; a script redraws
+// every part of the picture from that one choice. Without JavaScript the picture shows the fourth call and the list
+// below it tells every call.
+import { calls, loopIcons, loopLabels, returnLine, stillCall, steps, tokenize } from '../../data/hero';
+
+const tokenClass = { string: 's', keyword: 'k', type: 't', method: 'm' } as const;
+const highlight = (line: string) =>
+  tokenize(line).map((run) => (run.kind ? { cls: tokenClass[run.kind], text: run.text } : { text: run.text }));
+const call = calls[stillCall];
+const blocks = [...steps.map((step) => step.lines), [returnLine]];
+---
+
+<figure
+  class="run-loop not-content"
+  data-run-loop
+  data-calls={JSON.stringify(calls)}
+  data-labels={JSON.stringify(loopLabels)}
+  data-icons={JSON.stringify(loopIcons)}
+  aria-labelledby="run-loop-caption"
+>
+  <div class="controls idn-js-only" role="group" aria-label="Show a call">
+    {
+      calls.map((_, i) => (
+        <button type="button" data-go={i} aria-pressed={i === stillCall ? 'true' : 'false'}>
+          Call {i + 1}
+        </button>
+      ))
+    }
+    <button type="button" class="next" data-next>Next call</button>
+  </div>
+
+  <div class="stage">
+    <div class="inngest">
+      <span class="who">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.2 4.4 4.4 0 0 0 7 18z"></path></svg>
+        Inngest
+      </span>
+      <span class="saved-label">saved</span>
+      <span class="chips">
+        {
+          steps.map((step, i) => (
+            <span class="chip" data-chip={i} hidden={i >= call.saved}>
+              {step.id}
+            </span>
+          ))
+        }
+        <span class="none" data-none hidden={call.saved > 0}>nothing yet</span>
+      </span>
+    </div>
+
+    <div class="wire" aria-hidden="true">
+      <span class="lane down">
+        <span class="track"></span>
+        <code class="label">POST /api/inngest</code>
+      </span>
+      <span class="lane up">
+        <span class="label"><b class:list={['code', call.answer.code === 200 ? 'ok' : 'partial']} data-answer-code>{call.answer.code}</b><span data-answer>{call.answer.label}</span></span>
+        <span class="track"></span>
+      </span>
+    </div>
+
+    <div class="window">
+      <div class="bar">
+        <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="file">CheckoutFunction.cs</span>
+        <span class="pill" data-call-label>Call {stillCall + 1} of {calls.length}</span>
+      </div>
+      <div class="code-scroll" role="region" aria-label="CheckoutFunction.cs, with what this call does at each step" tabindex="0">
+        <pre><code>{blocks.map((lines, i) => (<span class="step" data-step data-state={call.states[i]}><span class="lens"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d={loopIcons[call.states[i]]} /></svg><span data-label>{loopLabels[call.states[i]]}</span></span>{lines.map((line) => (<span class="line">{highlight(line).map((run) => (run.cls ? <span class={run.cls}>{run.text}</span> : run.text))}</span>))}</span>))}</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <p class="story" data-story aria-live="polite"><strong data-story-call>Call {stillCall + 1}.</strong> <span data-story-text set:html={call.story} /></p>
+  <ol class="all idn-nojs-only">
+    {calls.map((c) => <li set:html={c.story} />)}
+  </ol>
+  <figcaption id="run-loop-caption" class="sr-only">
+    One run of CheckoutFunction, call by call. Inngest calls the app's /api/inngest endpoint, or a Connect worker, with
+    the saved results of the finished steps. The function runs from the top, the finished steps return their saved
+    results at once, and the next step runs. The app answers 206 with that step's result, and 200 when the function
+    returns.
+  </figcaption>
+</figure>
+
+<script>
+  type Call = {
+    states: string[];
+    saved: number;
+    answer: { code: number; label: string };
+    story: string;
+  };
+  for (const root of document.querySelectorAll<HTMLElement>('[data-run-loop]')) {
+    const calls = JSON.parse(root.dataset.calls ?? '[]') as Call[];
+    const labels = JSON.parse(root.dataset.labels ?? '{}') as Record<string, string>;
+    const icons = JSON.parse(root.dataset.icons ?? '{}') as Record<string, string>;
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-go]')];
+    let current = buttons.findIndex((button) => button.getAttribute('aria-pressed') === 'true');
+
+    const show = (index: number) => {
+      current = index;
+      const call = calls[index];
+      buttons.forEach((button, i) => button.setAttribute('aria-pressed', String(i === index)));
+      root.querySelectorAll<HTMLElement>('[data-chip]').forEach((chip) => {
+        chip.hidden = Number(chip.dataset.chip) >= call.saved;
+      });
+      const none = root.querySelector<HTMLElement>('[data-none]');
+      if (none) none.hidden = call.saved > 0;
+      const code = root.querySelector<HTMLElement>('[data-answer-code]');
+      if (code) {
+        code.textContent = String(call.answer.code);
+        code.classList.toggle('ok', call.answer.code === 200);
+        code.classList.toggle('partial', call.answer.code !== 200);
+      }
+      const answer = root.querySelector('[data-answer]');
+      if (answer) answer.textContent = call.answer.label;
+      const label = root.querySelector('[data-call-label]');
+      if (label) label.textContent = `Call ${index + 1} of ${calls.length}`;
+      root.querySelectorAll<HTMLElement>('[data-step]').forEach((step, i) => {
+        const state = call.states[i];
+        step.dataset.state = state;
+        const text = step.querySelector('[data-label]');
+        if (text) text.textContent = labels[state];
+        step.querySelector('path')?.setAttribute('d', icons[state]);
+      });
+      const storyCall = root.querySelector('[data-story-call]');
+      if (storyCall) storyCall.textContent = `Call ${index + 1}.`;
+      const story = root.querySelector('[data-story-text]');
+      if (story) story.innerHTML = call.story;
+    };
+
+    buttons.forEach((button, i) => button.addEventListener('click', () => show(i)));
+    root.querySelector('[data-next]')?.addEventListener('click', () => show((current + 1) % calls.length));
+  }
+</script>
+
+<style>
+  .run-loop {
+    margin: 0;
+    width: 100%;
+    max-width: 38rem;
+    text-align: start;
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+  }
+  .controls button {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--idn-border-strong);
+    border-radius: 999px;
+    font: inherit;
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    color: var(--sl-color-gray-2);
+    background-color: transparent;
+    cursor: pointer;
+  }
+  .controls button:hover {
+    color: var(--sl-color-white);
+  }
+  .controls button[aria-pressed='true'] {
+    border-color: var(--idn-coral);
+    color: var(--idn-coral-text);
+    background-color: color-mix(in srgb, var(--idn-coral) 12%, transparent);
+  }
+  .controls .next {
+    margin-inline-start: auto;
+    border-color: transparent;
+    color: var(--idn-coral-text);
+  }
+  .controls button:focus-visible {
+    outline: 2px solid var(--idn-focus);
+    outline-offset: 2px;
+  }
+
+  .inngest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.6rem;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid color-mix(in srgb, var(--idn-coral) 45%, var(--idn-border));
+    border-radius: 0.875rem;
+    background-color: var(--idn-surface);
+  }
+  .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-inline-end: 0.35rem;
+    font-weight: 700;
+    color: var(--sl-color-white);
+  }
+  .who svg {
+    fill: none;
+    stroke: var(--idn-coral-text);
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+  }
+  .saved-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+  }
+  .chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 1.4rem;
+  }
+  .chip,
+  .none {
+    padding: 0.1rem 0.45rem;
+    border: 1px solid;
+    border-radius: 0.35rem;
+    font-family: var(--__sl-font-mono);
+    font-size: 0.7rem;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .chip {
+    color: var(--idn-ok);
+    border-color: color-mix(in srgb, var(--idn-ok) 55%, transparent);
+    background-color: var(--idn-ok-bg);
+  }
+  .none {
+    border-color: transparent;
+    color: var(--sl-color-gray-3);
+  }
+  [hidden] {
+    display: none;
+  }
+
+  .wire {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding-inline: 1.6rem;
+  }
+  .lane {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .lane.up {
+    justify-content: flex-end;
+    text-align: end;
+  }
+  .track {
+    --arrow: var(--idn-coral-text);
+    position: relative;
+    flex: none;
+    width: 2px;
+    height: 2.75rem;
+    background-color: var(--arrow);
+  }
+  .up .track {
+    --arrow: var(--idn-plan);
+  }
+  .track::after {
+    content: '';
+    position: absolute;
+    left: -5px;
+    border-inline: 6px solid transparent;
+  }
+  .down .track::after {
+    bottom: -1px;
+    border-top: 8px solid var(--arrow);
+  }
+  .up .track::after {
+    top: -1px;
+    border-bottom: 8px solid var(--arrow);
+  }
+  .label {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--sl-color-gray-1);
+  }
+  .label .code {
+    margin-inline-end: 0.35rem;
+    padding: 0 0.3rem;
+    border-radius: 0.25rem;
+  }
+  .code.partial {
+    color: var(--idn-plan);
+    background-color: var(--idn-plan-bg);
+  }
+  .code.ok {
+    color: var(--idn-ok);
+    background-color: var(--idn-ok-bg);
+  }
+
+  .window {
+    overflow: hidden;
+    border: 1px solid var(--idn-border);
+    border-radius: 0.875rem;
+    background-color: var(--idn-code-bg);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--idn-border);
+    background-color: var(--idn-surface);
+    font-family: var(--__sl-font-mono);
+    font-size: 0.72rem;
+    color: var(--sl-color-gray-2);
+  }
+  .dots {
+    display: inline-flex;
+    gap: 0.35rem;
+  }
+  .dots i {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background-color: var(--idn-border-strong);
+  }
+  .file {
+    margin-inline-end: auto;
+  }
+  .pill {
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-family: var(--__sl-font);
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--idn-coral-text);
+    background-color: color-mix(in srgb, var(--idn-coral) 14%, transparent);
+  }
+
+  .code-scroll {
+    overflow-x: auto;
+  }
+  pre {
+    margin: 0;
+    padding: 0.7rem 0 0.8rem;
+    background-color: transparent;
+    font-family: var(--__sl-font-mono);
+    font-size: clamp(0.62rem, 0.5rem + 0.6vw, 0.78rem);
+    line-height: 1.6;
+    color: var(--idn-code-text);
+  }
+  pre code {
+    display: block;
+    min-width: max-content;
+    font-family: inherit;
+  }
+  .step {
+    display: block;
+    margin: 0 0 0.45rem;
+    padding: 0.1rem 0.75rem 0.15rem 0.85rem;
+    border-inline-start: 3px solid var(--idn-border-strong);
+    transition:
+      border-color 0.2s ease,
+      background-color 0.2s ease;
+  }
+  .step:last-child {
+    margin-bottom: 0;
+  }
+  .step[data-state='saved'],
+  .step[data-state='returns'] {
+    border-color: var(--idn-ok);
+  }
+  .step[data-state='running'] {
+    border-color: var(--idn-coral);
+    background-color: color-mix(in srgb, var(--idn-coral) 10%, transparent);
+  }
+  .step[data-state='sleeping'] {
+    border-color: var(--idn-wait);
+    background-color: color-mix(in srgb, var(--idn-wait) 9%, transparent);
+  }
+  .line {
+    display: block;
+    white-space: pre;
+  }
+  .lens {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: var(--__sl-font);
+    font-size: 0.7rem;
+    font-weight: 650;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--sl-color-gray-3);
+  }
+  .lens svg {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .step[data-state='running'] .lens path {
+    fill: currentColor;
+  }
+  .step[data-state='saved'] .lens,
+  .step[data-state='returns'] .lens {
+    color: var(--idn-ok);
+  }
+  .step[data-state='running'] .lens {
+    color: var(--idn-coral-text);
+  }
+  .step[data-state='sleeping'] .lens {
+    color: var(--idn-wait);
+  }
+  .k {
+    color: var(--idn-code-keyword);
+  }
+  .s {
+    color: var(--idn-code-string);
+  }
+  .t {
+    color: var(--idn-code-type);
+  }
+  .m {
+    color: var(--idn-coral-text);
+  }
+
+  .story {
+    min-height: 3em;
+    margin: 0.85rem 0 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+  }
+  .story strong {
+    color: var(--sl-color-white);
+  }
+  .story :global(code),
+  .all :global(code) {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.92em;
+    color: var(--sl-color-white);
+  }
+  .all {
+    margin: 0.75rem 0 0;
+    padding-inline-start: 1.25rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+  }
+</style>

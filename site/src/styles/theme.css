@@ -1,0 +1,179 @@
+/*
+  Colors, after inngest.com's current identity: a warm near-black canvas with white type, the coral #f65c4f
+  (Inngest's salmon) for actions, eyebrows and highlights, and green only for success and step states. The light
+  theme mirrors it on a warm off-white. Tints are a scale color mixed into the page background.
+
+  Starlight reads the --sl-color-* variables; the site's own components read the --idn-* ones.
+  src/styles/contrast.test.ts checks every text and control pairing below against WCAG AA.
+*/
+
+/* Dark theme (Starlight's default). */
+:root,
+::backdrop {
+  --sl-color-white: #f6f6f6;
+  --sl-color-gray-1: #e8e5e2;
+  --sl-color-gray-2: #d6d2ce;
+  --sl-color-gray-3: #a8a29d;
+  --sl-color-gray-4: #6b6560;
+  --sl-color-gray-5: #3a3735;
+  --sl-color-gray-6: #2c2a28;
+  --sl-color-black: #1b1a19;
+
+  --sl-color-accent-low: #3e2522;
+  --sl-color-accent: #f65c4f;
+  --sl-color-accent-high: #fd8a72;
+
+  --sl-color-text: var(--sl-color-gray-2);
+  --sl-color-text-accent: var(--sl-color-accent-high);
+  --sl-color-text-invert: #1b1a19;
+  --sl-color-bg: var(--sl-color-black);
+  --sl-color-bg-nav: var(--sl-color-black);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: #2c2a28;
+  --sl-color-bg-accent: var(--sl-color-accent);
+  --sl-color-hairline-light: #3a3735;
+  --sl-color-hairline: #2c2a28;
+  --sl-color-hairline-shade: #0e0d0c;
+
+  --sl-color-blue-low: #172d4f;
+  --sl-color-blue: #2389f1;
+  --sl-color-blue-high: #9cd2ff;
+  --sl-color-green-low: #0e3422;
+  --sl-color-green: #2c9b63;
+  --sl-color-green-high: #9adab3;
+  --sl-color-orange-low: #3f2915;
+  --sl-color-orange: #ec9923;
+  --sl-color-orange-high: #ffe39b;
+  --sl-color-red-low: #4a2019;
+  --sl-color-red: #f54a3f;
+  --sl-color-red-high: #fdbcb8;
+  --sl-color-purple-low: #2f1e64;
+  --sl-color-purple: #8b74f9;
+  --sl-color-purple-high: #cec6fd;
+
+  --sl-color-backdrop-overlay: rgb(14 13 12 / 0.72);
+
+  --idn-surface: #232120;
+  --idn-surface-raised: #2c2a28;
+  --idn-border: #3a3735;
+  --idn-border-strong: #7d7671;
+  --idn-focus: #fd8a72;
+  --idn-coral: #f65c4f;
+  --idn-coral-hover: #fd8a72;
+  --idn-coral-text: #fd8a72;
+  --idn-on-coral: #1b1a19;
+  --idn-grain-opacity: 0.07;
+
+  --idn-ok: #66bd8b;
+  --idn-ok-bg: #0e3422;
+  --idn-run: #52b2fd;
+  --idn-run-bg: #172d4f;
+  --idn-plan: #fcc43f;
+  --idn-plan-bg: #3f2915;
+  --idn-wait: #ad9ffc;
+  --idn-wait-bg: #2f1e64;
+  --idn-fail: #fa8d86;
+  --idn-fail-bg: #4a2019;
+  /* A solid red that carries white text, for failure chips. */
+  --idn-fail-solid: #c62828;
+
+  --idn-code-bg: #141312;
+  --idn-code-text: #e8e5e2;
+  --idn-code-comment: #a8a29d;
+  --idn-code-keyword: #ad9ffc;
+  --idn-code-string: #66bd8b;
+  --idn-code-number: #fcc43f;
+  --idn-code-type: #9cd2ff;
+  --idn-code-property: #cec6fd;
+  --idn-code-punctuation: #b5afaa;
+}
+
+/* Light theme. */
+:root[data-theme='light'],
+[data-theme='light'] ::backdrop {
+  --sl-color-white: #1b1a19;
+  --sl-color-gray-1: #2c2a28;
+  --sl-color-gray-2: #3b3835;
+  --sl-color-gray-3: #625c57;
+  --sl-color-gray-4: #a8a29d;
+  --sl-color-gray-5: #d6d2ce;
+  --sl-color-gray-6: #e8e4df;
+  --sl-color-gray-7: #f2efeb;
+  --sl-color-black: #faf9f7;
+
+  --sl-color-accent-low: #f9e3df;
+  --sl-color-accent: #f65c4f;
+  --sl-color-accent-high: #a8321a;
+
+  --sl-color-text: var(--sl-color-gray-2);
+  --sl-color-text-accent: #b8351c;
+  --sl-color-text-invert: #faf9f7;
+  --sl-color-bg: var(--sl-color-black);
+  --sl-color-bg-nav: var(--sl-color-black);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: #ece8e3;
+  --sl-color-bg-accent: #b8351c;
+  --sl-color-hairline-light: #e2ddd8;
+  --sl-color-hairline: #e8e4df;
+  --sl-color-hairline-shade: #d6d2ce;
+
+  --sl-color-blue-low: #e0f2ff;
+  --sl-color-blue: #1365d6;
+  --sl-color-blue-high: #17439b;
+  --sl-color-green-low: #dff5e6;
+  --sl-color-green: #027a48;
+  --sl-color-green-high: #015430;
+  --sl-color-orange-low: #ffeec4;
+  --sl-color-orange: #d56b13;
+  --sl-color-orange-high: #78340f;
+  --sl-color-red-low: #feebe9;
+  --sl-color-red: #cb2a1d;
+  --sl-color-red-high: #8b1e16;
+  --sl-color-purple-low: #f0edff;
+  --sl-color-purple: #7147f1;
+  --sl-color-purple-high: #4d1fc4;
+
+  --sl-color-backdrop-overlay: rgb(44 42 40 / 0.5);
+
+  --idn-surface: #f2efeb;
+  --idn-surface-raised: #ffffff;
+  --idn-border: #e2ddd8;
+  --idn-border-strong: #8f8882;
+  --idn-focus: #b8351c;
+  --idn-coral: #f65c4f;
+  --idn-coral-hover: #fd8a72;
+  --idn-coral-text: #b8351c;
+  --idn-on-coral: #1b1a19;
+  --idn-grain-opacity: 0.05;
+
+  --idn-ok: #027a48;
+  --idn-ok-bg: #dff5e6;
+  --idn-run: #1450b1;
+  --idn-run-bg: #e0f2ff;
+  --idn-plan: #95360f;
+  --idn-plan-bg: #ffeec4;
+  --idn-wait: #6222df;
+  --idn-wait-bg: #f0edff;
+  --idn-fail: #a52015;
+  --idn-fail-bg: #feebe9;
+  /* A solid red that carries white text, for failure chips. */
+  --idn-fail-solid: #c62828;
+
+  --idn-code-bg: #f2efeb;
+  --idn-code-text: #1b1a19;
+  --idn-code-comment: #625c57;
+  --idn-code-keyword: #6222df;
+  --idn-code-string: #016239;
+  --idn-code-number: #95360f;
+  --idn-code-type: #1450b1;
+  --idn-code-property: #4d1fc4;
+  --idn-code-punctuation: #4b4744;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
