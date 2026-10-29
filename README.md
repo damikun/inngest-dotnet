@@ -174,11 +174,12 @@ Each package targets `net8.0` and `net10.0`.
    dotnet add package Inngest.AspNetCore --prerelease
    ```
 
-   Or reference it in your project file:
+   Or reference it in your project file. `*-*` restores the newest version, previews included; put a version
+   such as `0.1.0-preview.2` there instead to pin it:
 
    ```xml
    <ItemGroup>
-     <PackageReference Include="Inngest.AspNetCore" Version="0.1.0-preview.2" />
+     <PackageReference Include="Inngest.AspNetCore" Version="*-*" />
    </ItemGroup>
    ```
 
