@@ -1,6 +1,9 @@
 ---
 import { Font } from 'astro:assets';
 import Default from '@astrojs/starlight/components/Head.astro';
+
+// Google Analytics, only in the published site, so local previews are not counted.
+const analytics = import.meta.env.PROD;
 ---
 
 <Default><slot /></Default>
@@ -8,3 +11,18 @@ import Default from '@astrojs/starlight/components/Head.astro';
 <Font cssVariable="--font-body-face" preload />
 <Font cssVariable="--font-code-face" />
 <script is:inline>document.documentElement.classList.add('js');</script>
+{
+  analytics && (
+    <>
+      <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-EEWHQ27Y9S" />
+      <script is:inline>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        gtag('js', new Date());
+        gtag('config', 'G-EEWHQ27Y9S');
+      </script>
+    </>
+  )
+}
