@@ -5,12 +5,11 @@ using Inngest.AotSample;
 // Publishes with Native AOT: dotnet publish -c Release -r <rid>. Every type the functions serialize is in AppJson.
 var builder = WebApplication.CreateSlimBuilder(args);
 
+// The app id comes from the Inngest section of appsettings.json, which the SDK reads key by key, without the
+// reflection-based configuration binder.
 builder.Services
-    .AddInngest(options =>
-    {
-        options.AppId = "inngest-dotnet-aot-sample";
-        options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJson.Default);
-    })
+    .AddInngest(builder.Configuration.GetSection("Inngest"),
+        options => options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJson.Default))
     .AddFunction<Greeting>(new FunctionOptions { Id = "greet", Triggers = [Trigger.Event("aot/greet")] },
         async (context, cancellationToken) =>
         {
