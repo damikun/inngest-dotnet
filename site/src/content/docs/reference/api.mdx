@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore and Inngest.Connect packages, with their members and what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry and Inngest.Testing packages, with their members and what they are for.
 sidebar:
   label: API overview
 ---
@@ -23,13 +23,16 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IInngestBuilder.AddMiddleware(InngestMiddleware)` | Registers one middleware instance for all calls. |
 | `IInngestBuilder.AddConnect(Action<ConnectOptions>?)` | Runs the functions in a Connect worker. Package `Inngest.Connect`. |
 | `IEndpointRouteBuilder.MapInngest(string pattern = "/api/inngest")` | Maps the endpoint Inngest calls. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
+| `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
+
+`AddInngest` also registers `IInngestClient` and `IInngestRunsClient`.
 
 ## Options
 
 **`InngestOptions`**: `AppId`, `AppVersion`, `EventKey`, `SigningKey`, `SigningKeyFallback`, `Environment`,
 `IsDev`, `DevServerUrl`, `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl`, `ServeOrigin`, `ServePath`, `AllowInBandSync`,
-`AllowUnsignedSync`, `SerializerOptions`. See [Configuration](/inngest-dotnet/guides/configuration/).
+`AllowUnsignedSync`, `Checkpointing`, `SerializerOptions`. See [Configuration](/inngest-dotnet/guides/configuration/).
 
 **`ConnectOptions`**: `InstanceId`, `MaxWorkerConcurrency`, `GatewayUrl`. See [Connect](/inngest-dotnet/guides/connect/).
 
@@ -47,6 +50,8 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `CancelOn` | `IReadOnlyList<CancelOn>?` |
 | `Timeouts` | `FunctionTimeouts?` |
 | `Singleton` | `Singleton?` |
+| `Middleware` | `IReadOnlyList<FunctionMiddleware>?`; see [Middleware](#middleware) |
+| `Checkpointing` | `CheckpointingOptions?` |
 
 The flow control records and their constructor arguments and properties:
 
@@ -63,8 +68,22 @@ The flow control records and their constructor arguments and properties:
 | `Singleton` | `(SingletonMode Mode)` | `Key`; modes `Skip` and `Cancel` |
 
 **Triggers**: `Trigger.Event(string name, string? @if = null)` and `Trigger.Event<T>(string? @if = null)`, for a
-typed event `T`, return an `EventTrigger`, and `Trigger.Cron(string schedule, string? timezone = null)` a
-`CronTrigger`. Both derive from `FunctionTrigger`. `CancelOn.For<T>()` returns a `CancelOn` for a typed event.
+typed event `T`, return an `EventTrigger`. `Trigger.Cron(string schedule, string? timezone = null)` and
+`Trigger.Cron(string schedule, TimeSpan jitter, string? timezone = null)` return a `CronTrigger`, whose `Jitter`, from
+1 second to 5 minutes, starts each scheduled run up to that much later. `EventTrigger` and `CronTrigger` derive from
+`FunctionTrigger`. `CancelOn.For<T>()` returns a `CancelOn` for a typed event.
+
+**`CheckpointingOptions`**, a record. Checkpointing runs the steps of a function one after another in the same call
+from Inngest and saves each to Inngest as it completes, instead of ending the call after every step. It is off by
+default. `InngestOptions.Checkpointing` sets it for every function, and `FunctionOptions.Checkpointing`, which wins
+over it, for one function.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `Enabled` | `true` | `false` turns checkpointing off for one function when the app turns it on. |
+| `MaxRuntime` | null: 10 seconds for the serve endpoint, 5 minutes for Connect workers | How long one call may keep running steps. `Timeout.InfiniteTimeSpan` removes the limit. |
+| `BufferedSteps` | `1` | How many completed steps are saved to Inngest together. |
+| `MaxInterval` | null | The longest a completed step waits to be saved while `BufferedSteps` is not reached; null waits until the buffer is full or the call ends. |
 
 ## Attributes
 
@@ -94,12 +113,16 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 |---|---|
 | `InngestFunction<TEventData>` | Base class of class functions. Override `ExecuteAsync(FunctionContext<TEventData>, CancellationToken)`, which returns `Task<object?>`. |
 | `InngestFunction<TEventData, TResult>` | Base class of class functions with a result type: `ExecuteAsync` returns `Task<TResult>`. `InngestFunction<TEventData>` derives from it with `object?`. |
+| `InngestFunction` | The base of both, which the methods that take a function class require. A class cannot derive from it directly. |
 | `IReturns<TResult>` | Implemented by `InngestFunction<TEventData, TResult>`, so that `InvokeAsync<TFunction, TResult>` can require the result type. |
-| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`. |
+| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`, `RequestId` and `JobId`. For code that does not know the event type, such as middleware: `EventName`, `EventId` and `RawEvent`, the triggering event as JSON. |
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
 | `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |
-| `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`. |
+| `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`, and `Cause`, the error that caused it. |
+| `SystemEvents` | The names of the events Inngest sends about runs: `FunctionFailed`, `FunctionFinished`, `FunctionCancelled`, `FunctionInvoked`, `ScheduledTimer`. |
+| `FunctionFinished` | The data of `inngest/function.finished`, sent when a run ends however it ends: `FunctionId`, `RunId`, `Result`, `Error`, `Event`, `CorrelationId`. |
+| `FunctionCancelled` | The data of `inngest/function.cancelled`: `FunctionId`, `RunId`, `Event`, `CorrelationId`. |
 
 ## Steps
 
@@ -114,28 +137,68 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `InvokeAsync<TResult>(string id, InvokeOptions options)` | `Task<TResult>` |
 | `SendEventAsync(string id, IReadOnlyList<InngestEvent> events)` | `Task<SendEventsResult>` |
 | `InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)` | `Task<TResult>`; runs the function registered as `TFunction`, which must return a `TResult` |
+| `WaitForSignalAsync<TData>(string id, WaitForSignalOptions options)` | `Task<InngestSignal<TData>?>`; null when the timeout passes first |
+| `SendSignalAsync(string id, InngestSignal signal)` | `Task<string?>`: the id of the run the signal resumed, or null when no run waits for it |
+| `FetchAsync(string id, HttpRequestMessage request)` | `Task<HttpResponseMessage>`; Inngest makes the request, and the response is memoized |
+| `InferAsync<TResponse>(string id, InferOptions options)` | `Task<TResponse>`; Inngest sends the request to the AI provider, and the response is memoized |
+| `ParallelAsync<T>(ParallelMode mode, Func<Task<T>> steps)` | `Task<T>`; runs the callback with the mode applied to every step it creates |
+
+The members after the first six have default implementations, so a fake only has to implement the six. The defaults
+of `InvokeAsync<TFunction, TResult>`, `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `InferAsync` throw
+`NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
+the id.
 
 `StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
 synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, and `SendEventAsync` for a single
 event. For a typed event `T` it adds `WaitForEventAsync<T>(string id, TimeSpan timeout, string? match = null,
-string? @if = null)` and `SendEventAsync<T>` for one `T` or several. Every method also takes a `StepOptions` in place
-of the id.
+string? @if = null)` and `SendEventAsync<T>` for one `T` or several. It also adds a non-generic `WaitForSignalAsync`
+with `JsonElement` data, an `InferAsync` that returns `JsonElement`, and `ParallelAsync(ParallelMode, Func<Task>)`
+for steps without a result. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
 
 | Record | Constructor | Properties |
 |---|---|---|
+| `StepOptions` | `(string Id)` | `Name`, shown in the Inngest UI; `ParallelMode`, for this step instead of the mode of an enclosing `ParallelAsync`. A `string` converts to it implicitly. |
 | `WaitForEventOptions` | `(string Event, TimeSpan Timeout)` | `Match`, `If` |
 | `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout` |
+| `WaitForSignalOptions` | `(string Signal, TimeSpan Timeout)` | `OnConflict`: `SignalConflict.Fail`, the default, fails the run when another run already waits for the signal; `Replace` takes the signal over |
+| `InngestSignal` | `(string Name, object? Data = null)` | A signal to send. |
+| `InngestSignal<TData>` | `(string Name, TData Data)` | A signal as the waiting run receives it. |
+| `InferOptions` | `(AIFormat Format, Uri Url, object Body)` | `AuthKey`, `Headers` |
+
+`ParallelMode` is `Wait`, the default, where Inngest calls the function again once all the steps started together
+have finished, or `Race`, where it calls the function again each time one of them finishes. See
+[Parallel steps](/inngest-dotnet/guides/parallel-steps/). `AIFormat` names the provider API: `OpenAIChat`,
+`OpenAIResponses`, `Anthropic`, `Gemini`, `Grok` or `AzureOpenAI`.
 
 ## Events
 
 | Type | Purpose |
 |---|---|
-| `IInngestClient` | `SendAsync(InngestEvent, CancellationToken)` and `SendAsync(IEnumerable<InngestEvent>, CancellationToken)`; `AppId`. |
+| `IInngestClient` | `SendAsync` for one `InngestEvent` or several, each also with a `SendOptions`; `SendSignalAsync(InngestSignal, CancellationToken)`, also with a `SendOptions`, which returns the id of the run the signal resumed, or null when no run waits for it; `AppId`. |
 | `IInngestEventData` | Implemented by an event's data record: `static abstract string EventName` and `static virtual string? EventVersion`. |
 | `InngestClientExtensions` | `SendAsync<T>(T, CancellationToken)` and `SendAsync<T>(IEnumerable<T>, CancellationToken)` for typed events. |
 | `InngestEvent` | An event to send: `(string Name, object? Data = null)` with `Id`, `User`, `Timestamp`, `Version`. |
 | `InngestEvent<TData>` | A received event: `Name`, `Data`, `Id`, `User`, `Timestamp`, `Version`. |
 | `SendEventsResult` | `Ids` of the sent events, in order. |
+| `SendOptions` | Options for one send: `Environment`, a branch environment to send to instead of the app's. |
+
+## Runs
+
+**`IInngestRunsClient`** reads and cancels runs through the Inngest REST API, with the app's signing key:
+
+| Method | Returns |
+|---|---|
+| `GetRunAsync(string runId, CancellationToken)` | `Task<FunctionRun>`: the run's status and, once it has ended, its output |
+| `GetEventRunsAsync(string eventId, CancellationToken)` | `Task<IReadOnlyList<FunctionRun>>`: the runs an event started, by the event id that sending it returned |
+| `CancelRunAsync(string runId, CancellationToken)` | `Task`; a step that is running finishes, and no further steps run |
+
+**`FunctionRun`**, a record: `RunId`, `Status`, `FunctionId` (Inngest's own id of the function, a UUID),
+`FunctionVersion`, `StartedAt`, `EndedAt`, `EventId`, `BatchId`, `OriginalRunId`, `Cron`, `EnvironmentId`, `Output`
+and `GetOutput<T>()`, which reads the output with the app's serializer options. `Status` is a `FunctionRunStatus`:
+`Unknown`, `Scheduled`, `Running`, `Completed`, `Failed` or `Cancelled`.
+
+Inngest caches these answers for a few seconds, a run for 3 and the runs of an event for 15, and only `EndedAt` says
+for sure that a run is over. Failures throw `InngestException` with Inngest's message.
 
 ## Errors
 
@@ -143,7 +206,8 @@ of the id.
 |---|---|
 | `NonRetriableException` | Thrown by your code to fail a step or run without retrying. |
 | `RetryAfterException` | Thrown by your code to retry after `Delay` or at `RetryAt`. |
-| `StepFailedException` | Thrown by the SDK where a step that failed for good is awaited: `StepId`, `Error`. |
+| `StepFailedException` | Thrown by the SDK where a step that failed for good is awaited: `StepId`, `Error`. When the recorded error has a cause, `InnerException` is a `FunctionErrorException` for it. |
+| `FunctionErrorException` | An error Inngest recorded, rebuilt as an exception: `Error` holds the recorded name, message and stack, and `InnerException` the recorded cause. |
 | `InngestException` | Thrown by the SDK when talking to Inngest fails, with `StatusCode` when there is one. |
 
 ## Middleware
@@ -151,5 +215,79 @@ of the id.
 `InngestMiddleware` has virtual hooks that do nothing by default: `OnRunStartAsync`, `OnMemoizationEndAsync`,
 `OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`, `OnStepErrorAsync`,
 `WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync` and `WrapSendEventAsync`. `StepInfo` describes a step:
-`Id`, `HashedId`, `Type` (a `StepType`: `Run`, `Sleep`, `WaitForEvent`, `Invoke`, `SendEvent`) and `Memoized`. See
+`Id`, `HashedId`, `Type`, `Memoized`, and `Name`, the display name the code gave it. `Type` is a `StepType`: `Run`,
+`Sleep`, `WaitForEvent`, `Invoke`, `SendEvent`, `WaitForSignal`, `SendSignal`, `Fetch` or `AIInfer`. See
 [Middleware](/inngest-dotnet/guides/middleware/).
+
+**`FunctionMiddleware`** is middleware for one function, listed in `FunctionOptions.Middleware`. It runs inside the
+app's middleware, also for the function's failure handler. `FunctionMiddleware.Of<TMiddleware>()` resolves
+`TMiddleware` from the call's scope and registers it as scoped unless the app registered it;
+`FunctionMiddleware.Of(Func<IServiceProvider, InngestMiddleware>)` calls the factory with the call's scope on every
+call.
+
+**`IPayloadTransform`**, implemented by a middleware, rewrites the raw JSON between Inngest and the function:
+
+| Method | Rewrites |
+|---|---|
+| `TransformEvent(JsonElement @event, Utf8JsonWriter writer)` | A triggering event, before the function's event type is read from it |
+| `TransformStepResult(FunctionContext context, StepInfo step, JsonElement result, Utf8JsonWriter writer)` | A memoized result of any step type, before the step's result type is read from it |
+| `TransformStepOutput(FunctionContext context, StepInfo step, JsonElement output, Utf8JsonWriter writer)` | What a step handler returned, before Inngest memoizes it |
+| `TransformFunctionOutput(FunctionContext context, JsonElement output, Utf8JsonWriter writer)` | The function's output, before it is sent to Inngest |
+
+Each method writes one replacement value and returns `true`, or writes nothing and returns `false` to keep the value;
+the defaults keep every value. JSON coming in reaches the transforms in registration order, and JSON going out in
+reverse order.
+
+## Connect
+
+Package `Inngest.Connect`. `AddConnect` registers **`IInngestConnection`**, the worker's connection to Inngest:
+`State`, and `WaitForStateChangedAsync(InngestConnectionState lastObservedState, CancellationToken)`, which completes
+with the state the connection moves to. `InngestConnectionState` is `Connecting`, `Active`, `Reconnecting`, `Closing`
+or `Closed`.
+
+`IHealthChecksBuilder.AddInngestConnect(string name = "inngest-connect", HealthStatus? failureStatus = null,
+IEnumerable<string>? tags = null)`, in `Microsoft.Extensions.DependencyInjection`, adds a health check that is healthy
+only while the connection is `Active`. See [Deploying](/inngest-dotnet/guides/deploying/).
+
+## OpenTelemetry
+
+Package `Inngest.OpenTelemetry`.
+
+| Member | Purpose |
+|---|---|
+| `IInngestBuilder.AddInstrumentation()` | Adds the middleware that traces and measures runs. Add it before other middleware, so that their work falls inside its spans. |
+| `TracerProviderBuilder.AddInngestInstrumentation()` | Collects the SDK's spans. In `OpenTelemetry.Trace`. |
+| `MeterProviderBuilder.AddInngestInstrumentation()` | Collects the SDK's metrics. In `OpenTelemetry.Metrics`. |
+| `InngestInstrumentation.ActivitySourceName`, `InngestInstrumentation.MeterName` | `"inngest"`, for `AddSource`, `AddMeter` or a listener of your own. |
+
+The spans are `inngest.execution`, one per call from Inngest, and `inngest.step`, one per step the app executes; a
+Connect worker adds `inngest.connect.request` for every request it receives. The metrics are `inngest.run.started`,
+`inngest.run.completed`, `inngest.run.failed`, `inngest.retries`, `inngest.execution.duration` and
+`inngest.step.duration`, with durations in seconds. The [tracing middleware example](/inngest-dotnet/examples/tracing-middleware/)
+shows how to write such a middleware yourself.
+
+## Test host
+
+Package `Inngest.Testing`, namespace `Inngest.Testing`. See [Testing functions](/inngest-dotnet/guides/testing/).
+
+| Member | Purpose |
+|---|---|
+| `InngestTestHost(IServiceCollection services)` | Builds the app's services from a copy of the collection, with nothing sent to Inngest. |
+| `RunAsync(string functionId, InngestEvent @event, StepMocks mocks, CancellationToken)` | Runs the function until it completes, fails for good or waits on a step without a mock. Also without `mocks`, and with an `IReadOnlyList<InngestEvent>` for a batch. |
+| `RunAsync<TFunction>(InngestEvent @event, StepMocks mocks, CancellationToken)` | The same for the function registered as `TFunction`, with the same overloads. |
+| `ExecuteStepAsync(string functionId, string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | Runs the function until the step has run, or has been reached when Inngest carries it out. Also without `mocks`. |
+| `ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | The same for the function registered as `TFunction`. Also without `mocks`. |
+| `SentEvents` | Every event sent through the app's client since the host was created. |
+| `Services` | The app's services, as functions resolve them. Disposing the host, which is `IAsyncDisposable`, disposes them. |
+
+**`StepMocks`** answers steps by id, and every method returns a new set: `Run<T>(id, T result)`,
+`Run<T>(id, Func<int, T> handler)`, `RunThrows(id, exception)`, `Sleep(id)`, `AllSleeps()`,
+`WaitForEvent(id, received)`, `WaitForEventTimeout(id)`, `Invoke<T>(id, T result)`,
+`Invoke<TFunction, TResult>(id, TResult result)` and `InvokeThrows(id, exception)`.
+
+**`TestRun`**: `RunId`, `FunctionId`, `Status`, `Output`, `GetOutput<T>()`, `Error`, `Steps`, `GetStep(id)`,
+`WaitingOn`, `SentEvents` and `FailureHandler`; `ToString()` describes the outcome. `Status` is a `TestRunStatus`:
+`Completed`, `Failed`, `Waiting` or `Stopped`.
+
+**`TestStep`**: `Id`, `HashedId`, `Type`, `Op`, `Options`, `Status`, `Attempts`, `Mocked`, `Output`,
+`GetOutput<T>()`, `Error` and `Errors`. `Status` is a `TestStepStatus`: `Pending`, `Completed` or `Failed`.
