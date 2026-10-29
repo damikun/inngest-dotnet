@@ -23,6 +23,14 @@ TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js), and it foll
 injection, `IOptions`, `ILogger`, `CancellationToken`, `TimeSpan` and plain `Task`-based code. Serve your functions
 from ASP.NET Core, or from a worker that needs no public endpoint.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/how-a-run-works-dark.svg">
+  <img alt="CheckoutFunction as Inngest runs it, step by step. The charge runs and completes. Send-receipt fails, and Inngest retries that step alone while the charge stays completed; the retry succeeds. The run then sleeps for 30 minutes, and ship runs." src=".github/assets/how-a-run-works-light.svg">
+</picture>
+
+Inngest runs each step once and keeps its result. When `send-receipt` fails, Inngest retries that step alone, so the
+card is not charged again, and a sleep holds no thread or worker while it waits.
+
 ## Ordinary C#, durable by default
 
 A function is a class. Each call to a step tool, such as `RunAsync` or `SleepAsync`, is a step. The rest is plain C#.
