@@ -37,6 +37,9 @@ internal static class TestFunctions
         "itests-always-fails-failure",
         "itests-configured",
         "itests-batched",
+        "itests-typed-order",
+        "itests-typed-pricing",
+        "itests-typed-confirmation",
     ];
 
     public static IInngestBuilder AddTestFunctions(this IInngestBuilder inngest)
@@ -65,6 +68,11 @@ internal static class TestFunctions
         inngest.AddFunction<AlwaysFailsFunction>(AlwaysFailsFunction.Options);
         inngest.AddFunction<ConfiguredFunction>(ConfiguredFunction.Options);
         inngest.AddFunction<BatchedFunction>(BatchedFunction.Options);
+
+        // Configured by their attributes.
+        inngest.AddFunction<TypedOrderFunction>();
+        inngest.AddFunction<TypedPricingFunction>();
+        inngest.AddFunction<TypedConfirmationFunction>();
         return inngest;
     }
 }
