@@ -40,8 +40,6 @@ public interface IEmailSender
     Task SendAsync(string to, string subject, CancellationToken cancellationToken);
 }
 
-[InngestFunction("onboard-user")]
-[EventTrigger<UserSignedUp>]
 public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp, OnboardingResult>
 {
     public override async Task<OnboardingResult> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -149,16 +147,22 @@ public sealed class OnboardUserTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<IEmailSender>(_email);
-        services.AddInngest(options => options.AppId = "shop").AddFunction<OnboardUser>();
+        services.AddInngest(options => options.AppId = "shop").AddFunction<OnboardUser>(new FunctionOptions
+        {
+            Id = "onboard-user",
+            Triggers = [Trigger.Event<UserSignedUp>()],
+        });
         return new InngestTestHost(services);
     }
 }
 ```
 
-`RunAsync<OnboardUser>` runs the function the app registered as `OnboardUser`, under the id its attribute gives it;
+`RunAsync<OnboardUser>` runs the function registered as `OnboardUser`, under the id it was registered with;
 `RunAsync("onboard-user", ...)` does the same by id. Both have overloads without mocks, and overloads that take an
 `IReadOnlyList<InngestEvent>` in place of the event to run a function that takes batches. A run goes on until the
-function completes, fails for good, or waits on a step that has no mock, and `RunAsync` then returns a `TestRun`.
+function completes, fails for good, or waits on a step that has no mock, and `RunAsync` then returns a `TestRun`. A
+class with its options as [attributes](/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes) is
+registered with `AddFunction<OnboardUser>()`, as in the app, and runs the same way.
 
 The host copies the service collection, so tests can share one. It builds the services the way the app does at
 startup, so function options that Inngest would reject make the constructor throw. `host.Services` is the built

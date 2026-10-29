@@ -5,6 +5,8 @@ sidebar:
   label: Connect worker
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 This example splits an app in two: a public web app that accepts uploads and sends events, and a worker in a private
 network that processes them. The worker has no inbound port at all. It connects out to Inngest with
 [Connect](/inngest-dotnet/guides/connect/) and receives its work over that connection.
@@ -40,7 +42,12 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
 builder.Services
     .AddInngest(options => options.AppId = "media-worker")
-    .AddFunction<MakeThumbnails>()
+    .AddFunction<MakeThumbnails>(new FunctionOptions
+    {
+        Id = "make-thumbnails",
+        Triggers = [Trigger.Event<ImageUploaded>()],
+        Concurrency = [new ConcurrencyLimit(8)],
+    })
     .AddConnect(connect =>
     {
         // Stable per container, unique between containers.
@@ -51,14 +58,9 @@ builder.Services
 await builder.Build().RunAsync();
 ```
 
-`AddFunction` reads the attributes once at startup:
-
 ```csharp title="Worker/MakeThumbnails.cs"
 using Inngest;
 
-[InngestFunction("make-thumbnails")]
-[EventTrigger<ImageUploaded>]
-[Concurrency(8)]
 public sealed class MakeThumbnails(IThumbnailer thumbnailer) : InngestFunction<ImageUploaded>
 {
     private static readonly int[] Widths = [160, 480, 1200];
@@ -81,6 +83,28 @@ public interface IThumbnailer
     Task<string> ResizeAsync(string blobPath, int width, CancellationToken cancellationToken);
 }
 ```
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+`Worker/Program.cs` registers the function with its options: its id, its trigger and a concurrency limit of 8.
+
+</TabItem>
+<TabItem label="Attributes">
+
+The same options as attributes on `MakeThumbnails`:
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("make-thumbnails")]
+[EventTrigger<ImageUploaded>]
+[Concurrency(8)]
+```
+
+`Worker/Program.cs` then registers it with `.AddFunction<MakeThumbnails>()`, without options.
+
+</TabItem>
+</Tabs>
 
 The worker's project uses the worker SDK, references the contracts library and adds the `Inngest.Connect` package, which
 brings in `Inngest`:
@@ -153,7 +177,7 @@ docker run -p 8080:8080 -e INNGEST_EVENT_KEY=... media-web:latest
 - **Two apps in Inngest.** The worker syncs itself as `media-worker` through its connection. The web app has no
   functions to sync; it only sends events.
 - **Capacity per worker.** `MaxWorkerConcurrency` caps how many calls Inngest sends one worker at a time, and
-  Inngest spreads the rest over other workers. The function's own `[Concurrency(8)]` caps all workers together.
+  Inngest spreads the rest over other workers. The function's own concurrency limit caps all workers together.
 - **Graceful shutdown.** When the container stops, the worker takes no new work and waits up to two minutes for
   running calls. Calls cut off after that are cancelled and retried elsewhere. Set the orchestrator's grace period a
   little longer than the shutdown timeout.

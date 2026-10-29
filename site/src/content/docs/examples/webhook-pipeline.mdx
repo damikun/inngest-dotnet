@@ -5,6 +5,8 @@ sidebar:
   label: Webhook pipeline
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Webhook senders want a fast `200` and retry when they do not get one, sometimes delivering the same webhook more
 than once. The pattern: verify the request, send an event with the delivery id, answer at once, and do the real
 work in a function.
@@ -20,7 +22,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpClient<ILedger, LedgerClient>(client => client.BaseAddress = new Uri("https://ledger.internal/"));
 builder.Services
     .AddInngest(options => options.AppId = "payments")
-    .AddFunction<ProcessPaymentWebhook>();
+    .AddFunction<ProcessPaymentWebhook>(new FunctionOptions
+    {
+        Id = "process-payment-webhook",
+        Triggers = [Trigger.Event<PaymentWebhook>()],
+        Retries = 8,
+        Idempotency = "event.data.deliveryId",
+        Throttle = new Throttle(10, TimeSpan.FromSeconds(1)) { Key = "event.data.merchantId" },
+    });
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");
@@ -60,15 +69,10 @@ public sealed record PaymentWebhook(string DeliveryId, string MerchantId, string
 }
 ```
 
-`AddFunction` reads the attributes once at startup. Durations in them are time strings such as `"1s"`:
-
 ```csharp title="ProcessPaymentWebhook.cs"
 using System.Net;
 using Inngest;
 
-[InngestFunction("process-payment-webhook", Retries = 8, Idempotency = "event.data.deliveryId")]
-[EventTrigger<PaymentWebhook>]
-[Throttle(10, "1s", Key = "event.data.merchantId")]
 public sealed class ProcessPaymentWebhook(ILedger ledger) : InngestFunction<PaymentWebhook>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<PaymentWebhook> context, CancellationToken cancellationToken)
@@ -110,15 +114,38 @@ public sealed class LedgerClient(HttpClient http) : ILedger
 }
 ```
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+`Program.cs` registers the function with its options: eight retries, an idempotency key on the delivery id and a
+throttle per merchant.
+
+</TabItem>
+<TabItem label="Attributes">
+
+The same options as attributes on `ProcessPaymentWebhook`:
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("process-payment-webhook", Retries = 8, Idempotency = "event.data.deliveryId")]
+[EventTrigger<PaymentWebhook>]
+[Throttle(10, "1s", Key = "event.data.merchantId")]
+```
+
+`Program.cs` then registers it with `.AddFunction<ProcessPaymentWebhook>()`, without options.
+
+</TabItem>
+</Tabs>
+
 ## How it works
 
 - **Answer fast, work later.** The endpoint verifies the signature, sends one event and returns `200` within
   milliseconds. Slow or failing downstream systems never make the sender retry.
 - **Two layers of deduplication.** The event id, built from the delivery id, makes Inngest ignore the same delivery
-  sent twice within 24 hours. `Idempotency` on `[InngestFunction]` guards the run as well, in case another path sends
-  the same delivery.
-- **A throttle per merchant.** `[Throttle]` keyed on the merchant starts at most ten of its webhooks per second; the
-  rest queue. A merchant with a burst of refunds cannot crowd out the others.
+  sent twice within 24 hours. `Idempotency` on the function guards the run as well, in case another path sends the
+  same delivery.
+- **A throttle per merchant.** At most ten webhooks per merchant start per second; the rest queue. A merchant with a
+  burst of refunds cannot crowd out the others.
 - **Retries that listen.** A `429` from the ledger becomes a `RetryAfterException` with the ledger's own delay. Other
   failures are retried with Inngest's backoff, up to eight times.
 - **Fail fast on bad input.** An unsupported webhook type throws `NonRetriableException`, so it fails once instead of

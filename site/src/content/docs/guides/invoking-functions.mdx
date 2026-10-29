@@ -5,6 +5,8 @@ sidebar:
   label: Invoking functions
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 `InvokeAsync` runs another function and waits for its output, as a step. The other function runs as a run of its
 own, with its own retries, flow control and history, and its output comes back as the step's result.
 
@@ -16,8 +18,8 @@ var score = await context.Step.InvokeAsync<ScoreAccount, AccountScore>("score-ac
 context.Logger.LogInformation("acme scored {Score}", score.Score);
 ```
 
-`ScoreAccount` is the class of the function to run. The step looks up the id the app registered it under, from its
-attributes or from options in code, and the compiler checks that `ScoreAccount` returns an `AccountScore`.
+`ScoreAccount` is the class of the function to run. The step looks up the id the app registered it under, from
+options in code or from its attributes, and the compiler checks that `ScoreAccount` returns an `AccountScore`.
 
 ## The invoked function
 
@@ -31,7 +33,6 @@ public sealed record ScoreRequest(string AccountId);
 
 public sealed record AccountScore(string AccountId, int Score);
 
-[InngestFunction("score-account")]
 public sealed class ScoreAccount(IScoring scoring) : InngestFunction<ScoreRequest, AccountScore>
 {
     public override async Task<AccountScore> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken)
@@ -48,10 +49,26 @@ public interface IScoring
 }
 ```
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp
-inngest.AddFunction<ScoreAccount>();
+inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Triggers = [] });
 ```
+
+</TabItem>
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("score-account")]
+```
+
+The attribute goes on `ScoreAccount`, and `inngest.AddFunction<ScoreAccount>()` registers it.
+
+</TabItem>
+</Tabs>
 
 Inngest starts the invoked run with an `inngest/function.invoked` event whose `data` is the data you passed, so the
 invoked function reads it as its event data. Its return value is what `InvokeAsync` returns.

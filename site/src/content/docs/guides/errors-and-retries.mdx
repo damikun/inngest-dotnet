@@ -5,19 +5,36 @@ sidebar:
   label: Errors and retries
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Errors are exceptions. When a step throws, Inngest retries that step. When code outside steps throws, Inngest
 retries the call, which runs the function from the top again with the steps that already succeeded memoized.
 Three exception types change that default, and a failure handler runs when everything else has failed.
 
 ## How many retries
 
-`Retries` on `[InngestFunction]`, or in `FunctionOptions`, is the number of retries after the first attempt, from 0
+`Retries` in `FunctionOptions`, or on `[InngestFunction]`, is the number of retries after the first attempt, from 0
 to 20. Without it, Inngest retries 4 times, so 5 attempts in all.
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Id = "import-catalog",
+Retries = 8,
+```
+
+</TabItem>
+<TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [InngestFunction("import-catalog", Retries = 8)]
 ```
+
+</TabItem>
+</Tabs>
 
 The count applies to each step separately, not to the run as a whole: with `Retries = 8`, every step gets up to 9
 attempts. Inngest waits longer between attempts as they go on. `context.Attempt` is the zero-based attempt of the

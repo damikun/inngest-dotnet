@@ -31,7 +31,8 @@ public sealed record LabelRequested(string OrderId) : IInngestEventData
 }
 ```
 
-The functions that run on the event name the type as well, with `[EventTrigger<OrderPlaced>]`. The name can then
+The functions that run on the event name the type as well, with `Trigger.Event<OrderPlaced>()` or
+`[EventTrigger<OrderPlaced>]`. The name can then
 no longer drift from the data it carries, and a typo is a compile error. Everything below also works with an
 `InngestEvent` that names the event as a string, for events without a record of their own.
 

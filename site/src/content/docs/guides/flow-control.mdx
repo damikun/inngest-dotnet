@@ -1,18 +1,18 @@
 ---
 title: Concurrency, throttling and rate limits
-description: Concurrency, throttling, rate limits, debounce, batching, priority, idempotency, singletons, cancellation and timeouts, set with attributes or FunctionOptions and enforced by Inngest.
+description: Concurrency, throttling, rate limits, debounce, batching, priority, idempotency, singletons, cancellation and timeouts, set in FunctionOptions or with attributes and enforced by Inngest.
 sidebar:
   label: Flow control
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 import FlowTimeline from '../../../components/islands/FlowTimeline';
 
-Flow control decides when runs start and how many run at once. You set it per function, with attributes on its
-class or in `FunctionOptions`, the SDK sends it to Inngest when the app syncs, and Inngest enforces it. Nothing in
+Flow control decides when runs start and how many run at once. You set it per function, in its `FunctionOptions`
+or with attributes on its class, the SDK sends it to Inngest when the app syncs, and Inngest enforces it. Nothing in
 your app has to queue, lock or count.
 
 ```csharp title="SyncAccount.cs"
-using System.Text.Json;
 using Inngest;
 
 public sealed record AccountUpdated(string AccountId) : IInngestEventData
@@ -25,12 +25,6 @@ public sealed record AccountDeleted(string AccountId) : IInngestEventData
     public static string EventName => "account/deleted";
 }
 
-[InngestFunction("sync-account")]
-[EventTrigger<AccountUpdated>]
-[Concurrency(5, Key = "event.data.accountId")]
-[Throttle(10, "1m")]
-[Debounce("30s", Key = "event.data.accountId")]
-[CancelOn<AccountDeleted>(Match = "data.accountId")]
 public sealed class SyncAccount : InngestFunction<AccountUpdated>
 {
     public override Task<object?> ExecuteAsync(FunctionContext<AccountUpdated> context, CancellationToken cancellationToken) =>
@@ -38,13 +32,14 @@ public sealed class SyncAccount : InngestFunction<AccountUpdated>
 }
 ```
 
-Each attribute sets the `FunctionOptions` member of the same name. Durations in attributes are time strings, such
-as `"30s"`, `"5m"` or `"1h30m"`, because attribute arguments must be constants; in code they are `TimeSpan`s. The
-same function with its options in code:
+Its options, with a concurrency limit, a throttle, a debounce and a cancellation event:
 
-{/* check: expression FunctionOptions */}
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
 ```csharp
-new FunctionOptions
+inngest.AddFunction<SyncAccount>(new FunctionOptions
 {
     Id = "sync-account",
     Triggers = [Trigger.Event<AccountUpdated>()],
@@ -52,11 +47,31 @@ new FunctionOptions
     Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),
     Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.accountId" },
     CancelOn = [CancelOn.For<AccountDeleted>() with { Match = "data.accountId" }],
-}
+});
 ```
 
-The sections below show the attributes. The [function options builder](/inngest-dotnet/explainers/function-options/)
-shows the JSON the options turn into, and which record each attribute sets.
+</TabItem>
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("sync-account")]
+[EventTrigger<AccountUpdated>]
+[Concurrency(5, Key = "event.data.accountId")]
+[Throttle(10, "1m")]
+[Debounce("30s", Key = "event.data.accountId")]
+[CancelOn<AccountDeleted>(Match = "data.accountId")]
+```
+
+The attributes go on `SyncAccount`, and `inngest.AddFunction<SyncAccount>()` registers it without options.
+
+</TabItem>
+</Tabs>
+
+Each attribute sets the `FunctionOptions` member of the same name. Durations are `TimeSpan`s in code and time strings
+in attributes, such as `"30s"`, `"5m"` or `"1h30m"`, because attribute arguments must be constants. The sections
+below show both forms. The [function options builder](/inngest-dotnet/explainers/function-options/) shows the JSON
+the options turn into, and which record each attribute sets.
 
 ## See it on a timeline
 
@@ -75,11 +90,29 @@ run side by side. A key can combine fields: `event.data.tenantId + "-" + event.d
 
 ## Concurrency
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Concurrency =
+[
+    new ConcurrencyLimit(50),
+    new ConcurrencyLimit(1) { Key = "event.data.accountId" },
+],
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Concurrency(50)]
 [Concurrency(1, Key = "event.data.accountId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Limits how many steps of the function execute at the same time. Runs over the limit wait in a queue and start in
 order. A function can have up to two limits; a step starts when it fits both. Concurrency counts executing
@@ -91,10 +124,24 @@ Both need a key. See [concurrency](https://www.inngest.com/docs/durable-executio
 
 ## Throttle
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Throttle = new Throttle(10, TimeSpan.FromMinutes(1)) { Burst = 5, Key = "event.data.merchantId" },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Throttle(10, "1m", Burst = 5, Key = "event.data.merchantId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Limits how many runs start per period. Runs over the limit are queued, not dropped, and their starts are spread
 over the period. `Burst` lets that many extra runs start at once. Use it to protect an API with a rate limit of its
@@ -103,10 +150,24 @@ own. The period must be at least one second. See
 
 ## Rate limit
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+RateLimit = new RateLimit(1, TimeSpan.FromHours(4)) { Key = "event.data.userId" },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [RateLimit(1, "4h", Key = "event.data.userId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Also limits how many runs start per period, but events over the limit are skipped and never run. Use it where
 running late is worse than not running, such as a "your report is ready" email. The period is between one second
@@ -114,10 +175,24 @@ and 24 hours. See [rate limiting](https://www.inngest.com/docs/durable-execution
 
 ## Debounce
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.productId", Timeout = TimeSpan.FromMinutes(5) },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Debounce("30s", Key = "event.data.productId", Timeout = "5m")]
 ```
+
+</TabItem>
+</Tabs>
 
 Waits until events stop arriving for the period, then runs once with the last event. Each new event restarts the
 period. `Timeout` caps the total wait, so a steady stream of events still runs the function every so often. The
@@ -125,10 +200,24 @@ period is between one second and seven days. See [debounce](https://www.inngest.
 
 ## Batching
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+BatchEvents = new BatchEvents(100, TimeSpan.FromSeconds(10)) { Key = "event.data.importId" },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [BatchEvents(100, "10s", Key = "event.data.importId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Runs the function with up to `MaxSize` events at once, or with what has arrived when the timeout passes. The events
 are in `context.Events`; `context.Event` is the first of them. `If` limits batching to events that match an
@@ -146,10 +235,24 @@ with cancellation, debounce, singletons or priority, and the SDK rejects those c
 
 ## Priority
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Priority = new Priority("event.data.plan == 'enterprise' ? 120 : 0"),
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Priority("event.data.plan == 'enterprise' ? 120 : 0")]
 ```
+
+</TabItem>
+</Tabs>
 
 `Run` is an expression that returns a number of seconds, from -600 to 600. A run with priority 120 starts ahead of
 runs that have been waiting for up to two minutes; a negative value holds a run back. Priority only matters when
@@ -158,10 +261,24 @@ runs queue up, so it goes together with concurrency or throttling. See
 
 ## Idempotency
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Idempotency = "event.data.paymentId",
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [InngestFunction("record-payment", Idempotency = "event.data.paymentId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Starts at most one run per value of the expression in 24 hours, for this function. Other functions triggered by the
 same event are not affected. Inngest implements it as a rate limit of 1 per 24 hours, so it replaces any
@@ -171,10 +288,24 @@ same event are not affected. Inngest implements it as a rate limit of 1 per 24 h
 
 ## Singleton
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Singleton = new Singleton(SingletonMode.Skip) { Key = "event.data.accountId" },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Singleton(SingletonMode.Skip, Key = "event.data.accountId")]
 ```
+
+</TabItem>
+</Tabs>
 
 Allows one active run per key. With `SingletonMode.Skip` a new run is skipped while another is active; with
 `SingletonMode.Cancel` the new run cancels the active one. Unlike a concurrency limit of 1, this covers the whole
@@ -182,15 +313,33 @@ run, sleeps and waits included. See [singleton](https://www.inngest.com/docs/dur
 
 ## Cancel on events
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+CancelOn =
+[
+    CancelOn.For<AccountDeleted>() with { Match = "data.accountId" },
+    new CancelOn("subscription/changed") { If = "async.data.plan == 'free'", Timeout = TimeSpan.FromDays(7) },
+],
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [CancelOn<AccountDeleted>(Match = "data.accountId")]
 [CancelOn("subscription/changed", If = "async.data.plan == 'free'", Timeout = "7d")]
 ```
 
+</TabItem>
+</Tabs>
+
 Cancels a run when a matching event arrives. `Match` compares a property of the triggering event with the same
 property of the cancelling one; `If` is a full expression where `event` is the triggering event and `async` the
-cancelling one; when both are set, both apply. `[CancelOn<T>]` takes the event's name from a
+cancelling one; when both are set, both apply. `CancelOn.For<T>()` and `[CancelOn<T>]` take the event's name from a
 [typed event](/inngest-dotnet/guides/sending-events/#typed-events). `Timeout` limits how long after the run is
 scheduled an event can still cancel it. A function can have up to five.
 
@@ -199,10 +348,24 @@ See [cancellation](https://www.inngest.com/docs/durable-execution/guides-and-adv
 
 ## Timeouts
 
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Timeouts = new FunctionTimeouts { Start = TimeSpan.FromMinutes(10), Finish = TimeSpan.FromHours(1) },
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
 {/* check: attributes */}
 ```csharp
 [Timeouts(Start = "10m", Finish = "1h")]
 ```
+
+</TabItem>
+</Tabs>
 
 `Start` cancels a run that waited in the queue longer than that before its first step. `Finish` cancels a run that
 takes longer than that from its first step to the end. Neither interrupts a step that is running; give the calls
@@ -211,8 +374,8 @@ inside your steps timeouts of their own. See
 
 ## Validation
 
-The SDK checks these options when the app starts, against the limits Inngest enforces, whether they come from
-attributes or code. It throws an `InvalidOperationException` that names the function and the problem, for example
+The SDK checks these options when the app starts, against the limits Inngest enforces, whether they come from code
+or attributes. It throws an `InvalidOperationException` that names the function and the problem, for example
 `Function "import-rows": BatchEvents cannot be combined with Debounce.` A duration in an attribute that is not a
 time string fails the same way, when `AddFunction` reads it. A mistake fails the deploy instead of the sync.
 

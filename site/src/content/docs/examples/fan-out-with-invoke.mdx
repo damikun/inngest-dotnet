@@ -5,6 +5,8 @@ sidebar:
   label: Fan-out with invoke
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 When a function needs results back from many pieces of work, invoke a function per piece. Each invocation is a run
 of its own with its own retries and concurrency, and the caller waits for all of them with `Task.WhenAll`.
 
@@ -16,8 +18,6 @@ public sealed record RegionRequest(string Region, string Week);
 public sealed record RegionFigures(string Region, decimal Revenue, int Orders);
 
 // Has no trigger of its own: other functions invoke it.
-[InngestFunction("compute-region-figures", Retries = 3)]
-[Concurrency(2)]
 public sealed class ComputeRegionFigures(IWarehouseQueries queries) : InngestFunction<RegionRequest, RegionFigures>
 {
     public override async Task<RegionFigures> ExecuteAsync(FunctionContext<RegionRequest> context, CancellationToken cancellationToken)
@@ -45,8 +45,6 @@ public sealed record ReportRequested(string Week) : IInngestEventData
     public static string EventName => "reports/weekly.requested";
 }
 
-[InngestFunction("weekly-report")]
-[EventTrigger<ReportRequested>]
 public sealed class WeeklyReport(IReportMailer mailer) : InngestFunction<ReportRequested>
 {
     private static readonly string[] Regions = ["eu-west", "eu-central", "us-east", "us-west", "ap-south"];
@@ -86,6 +84,47 @@ public interface IReportMailer
 }
 ```
 
+The app registers both with their options in code, or with the options as attributes on the classes:
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest
+    .AddFunction<WeeklyReport>(new FunctionOptions
+    {
+        Id = "weekly-report",
+        Triggers = [Trigger.Event<ReportRequested>()],
+    })
+    .AddFunction<ComputeRegionFigures>(new FunctionOptions
+    {
+        Id = "compute-region-figures",
+        Triggers = [],
+        Retries = 3,
+        Concurrency = [new ConcurrencyLimit(2)],
+    });
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
+On `ComputeRegionFigures`, which has no trigger attribute:
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("compute-region-figures", Retries = 3)]
+[Concurrency(2)]
+```
+
+On `WeeklyReport`:
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("weekly-report")]
+[EventTrigger<ReportRequested>]
+```
+
 `AddFunction` reads the attributes of both classes once at startup:
 
 {/* check: statements; IInngestBuilder inngest */}
@@ -95,14 +134,18 @@ inngest
     .AddFunction<ComputeRegionFigures>();
 ```
 
+</TabItem>
+</Tabs>
+
 ## How it works
 
 - **Parallel invocations.** All five `InvokeAsync` steps start before any is awaited, so the SDK reports them
-  together and Inngest starts five runs of `compute-region-figures`. `[Concurrency(2)]` lets two of them query the
+  together and Inngest starts five runs of `compute-region-figures`. The concurrency limit lets two of them query the
   warehouse at once.
 - **Results come back typed.** `ComputeRegionFigures` derives from `InngestFunction<RegionRequest, RegionFigures>`, so
   `InvokeAsync<ComputeRegionFigures, RegionFigures>` returns a `RegionFigures` and the compiler checks the result
-  type. The step takes the function's id from the class, so the id is written once, on `[InngestFunction]`. To invoke
+  type. The step finds the function's id by its class, so the id is written once, where the function is registered
+  or in its attribute. To invoke
   a function of another app, or a delegate function, pass `InvokeOptions` with its id instead.
 - **Partial failure.** An invoke step fails when the invoked run fails for good or the timeout passes. Catching
   `StepFailedException` per region turns that into a gap in the report rather than a failed report. The helper takes

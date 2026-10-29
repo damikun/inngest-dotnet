@@ -14,9 +14,9 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 |---|---|
 | `IServiceCollection.AddInngest(Action<InngestOptions>?)` | Registers the SDK and returns an `IInngestBuilder`. In `Microsoft.Extensions.DependencyInjection`. |
 | `IServiceCollection.AddInngest(IConfiguration, Action<InngestOptions>?)` | The same, with settings read from a configuration section such as `Inngest` in `appsettings.json`. |
-| `IInngestBuilder.AddFunction<TFunction>()` | Registers a class function configured by its [attributes](#attributes), resolved from a scope for every call. |
+| `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function with these options, resolved from a scope for every call. Attributes on the class are ignored. |
+| `IInngestBuilder.AddFunction<TFunction>()` | Registers a class function configured by its [attributes](#attributes). |
 | `IInngestBuilder.AddFunction<TFunction>(Func<FunctionOptions, FunctionOptions>)` | Registers a class function with the options its attributes give, as the callback changes them. |
-| `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function with these options; attributes on the class are ignored. |
 | `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?)` | Registers a delegate function with typed event data. |
 | `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?)` | Registers a delegate function with `JsonElement` event data. |
 | `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |

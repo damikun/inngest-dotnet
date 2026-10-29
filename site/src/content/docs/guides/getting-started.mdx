@@ -132,6 +132,10 @@ app.Run();
 public sealed record SignupRequest(string Email);
 ```
 
+The function's options are in code here. They can also go on the class as attributes, `[InngestFunction("onboard-user")]`
+and `[EventTrigger("user/signed-up")]`, with `.AddFunction<OnboardUser>()` and no options;
+[Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes) shows both forms.
+
 <Aside type="tip">
 Keep the app id and the function id stable. Inngest knows this function as `shop-onboard-user`; renaming it
 creates a new function.

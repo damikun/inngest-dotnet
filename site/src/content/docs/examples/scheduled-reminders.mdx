@@ -5,6 +5,8 @@ sidebar:
   label: Scheduled reminders
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Reminders are runs that spend nearly all their life asleep. One run per reminder sleeps until the due time and then
 sends the notification. Deleting the reminder cancels the run; moving it starts a new run that replaces the old
 one.
@@ -22,11 +24,6 @@ public sealed record ReminderDeleted(string ReminderId) : IInngestEventData
     public static string EventName => "reminders/reminder.deleted";
 }
 
-[InngestFunction("send-reminder")]
-[EventTrigger<ReminderScheduled>]
-// A newer schedule for the same reminder cancels the pending run.
-[Singleton(SingletonMode.Cancel, Key = "event.data.reminderId")]
-[CancelOn<ReminderDeleted>(Match = "data.reminderId")]
 public sealed class SendReminder(INotifier notifier) : InngestFunction<ReminderScheduled>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<ReminderScheduled> context, CancellationToken cancellationToken)
@@ -47,12 +44,44 @@ public interface INotifier
 }
 ```
 
-`AddFunction` reads the attributes once at startup:
+The app registers it with its options in code, or with the options as attributes on the class:
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<SendReminder>(new FunctionOptions
+{
+    Id = "send-reminder",
+    Triggers = [Trigger.Event<ReminderScheduled>()],
+    // A newer schedule for the same reminder cancels the pending run.
+    Singleton = new Singleton(SingletonMode.Cancel) { Key = "event.data.reminderId" },
+    CancelOn = [CancelOn.For<ReminderDeleted>() with { Match = "data.reminderId" }],
+});
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("send-reminder")]
+[EventTrigger<ReminderScheduled>]
+// A newer schedule for the same reminder cancels the pending run.
+[Singleton(SingletonMode.Cancel, Key = "event.data.reminderId")]
+[CancelOn<ReminderDeleted>(Match = "data.reminderId")]
+```
+
+The attributes go on `SendReminder`, and `AddFunction` reads them once at startup:
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest.AddFunction<SendReminder>();
 ```
+
+</TabItem>
+</Tabs>
 
 The app sends an event whenever a reminder is created or moved, and another when it is deleted:
 
@@ -73,10 +102,10 @@ public sealed class ReminderService(IInngestClient inngest)
 
 - **Sleeping costs nothing.** `SleepUntilAsync` ends the call. Inngest calls the function again at the due time,
   which can be weeks away and on another instance of the app.
-- **Moving a reminder.** Sending `reminders/reminder.scheduled` again for the same reminder starts a new run.
-  `[Singleton(SingletonMode.Cancel)]`, keyed on the reminder id, cancels the run that was waiting for the old time.
-- **Deleting a reminder.** `[CancelOn<ReminderDeleted>]` with `Match = "data.reminderId"` cancels the sleeping run
-  when the deletion event names the same reminder.
+- **Moving a reminder.** Sending `reminders/reminder.scheduled` again for the same reminder starts a new run. The
+  singleton option in cancel mode, keyed on the reminder id, cancels the run that was waiting for the old time.
+- **Deleting a reminder.** The cancellation on `ReminderDeleted`, with `Match = "data.reminderId"`, cancels the
+  sleeping run when the deletion event names the same reminder.
 - **Stable times.** The due time comes from the event, which is the same on every call. A time computed from the
   clock outside a step would move each time the function replays.
 

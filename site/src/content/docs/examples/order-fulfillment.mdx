@@ -5,6 +5,8 @@ sidebar:
   label: Order fulfillment
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 An order goes through four steps that each talk to another system. Any of them can fail on its own; none of them
 should run twice. Each is a step, so a retry repeats only the step that failed.
 
@@ -23,10 +25,6 @@ public sealed record OrderCancelled(string OrderId) : IInngestEventData
 
 public sealed record Shipment(string TrackingNumber, string Carrier);
 
-[InngestFunction("fulfill-order", Name = "Fulfill an order", Retries = 5, Idempotency = "event.data.orderId")]
-[EventTrigger<OrderPlaced>]
-[Concurrency(1, Key = "event.data.customerId")]
-[CancelOn<OrderCancelled>(Match = "data.orderId", Timeout = "1h")]
 public sealed class FulfillOrder(IInventory inventory, IPayments payments, IShipping shipping, IMailer mailer, IAlerts alerts)
     : InngestFunction<OrderPlaced>, IFailureHandler
 {
@@ -98,8 +96,48 @@ public interface IAlerts
 }
 ```
 
-`AddFunction` reads the attributes once at startup. Durations in them are time strings such as `"1h"`, because attribute
-arguments must be constants:
+The app registers the function with its options in code, or with the options as attributes on the class:
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register the implementations of IInventory, IPayments, IShipping, IMailer and IAlerts here.
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<FulfillOrder>(new FunctionOptions
+    {
+        Id = "fulfill-order",
+        Name = "Fulfill an order",
+        Triggers = [Trigger.Event<OrderPlaced>()],
+        Retries = 5,
+        Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
+        CancelOn = [CancelOn.For<OrderCancelled>() with { Match = "data.orderId", Timeout = TimeSpan.FromHours(1) }],
+        Idempotency = "event.data.orderId",
+    });
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+app.Run();
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("fulfill-order", Name = "Fulfill an order", Retries = 5, Idempotency = "event.data.orderId")]
+[EventTrigger<OrderPlaced>]
+[Concurrency(1, Key = "event.data.customerId")]
+[CancelOn<OrderCancelled>(Match = "data.orderId", Timeout = "1h")]
+```
+
+The attributes go on `FulfillOrder`, and the app registers it without options:
 
 ```csharp title="Program.cs"
 using Inngest;
@@ -117,6 +155,9 @@ app.MapInngest("/api/inngest");
 app.Run();
 ```
 
+</TabItem>
+</Tabs>
+
 ## How it works
 
 - **One step per side effect.** Reserving, charging, shipping and emailing are separate steps. If the shipping
@@ -125,12 +166,12 @@ app.Run();
   the stock and tells the customer, both as steps, then fails the run with `NonRetriableException`, since retrying
   the run would not change the outcome.
 - **No double charges.** The charge passes the order id to the payment provider as an idempotency key. A step can
-  succeed and then lose its response, so the provider must recognize a repeat; Inngest cannot. `Idempotency` on
-  `[InngestFunction]` keeps a duplicated `shop/order.placed` event from starting a second run within 24 hours.
-- **One order per customer at a time.** `[Concurrency]` with a key on the customer stops two orders of one
+  succeed and then lose its response, so the provider must recognize a repeat; Inngest cannot. `Idempotency` on the
+  function keeps a duplicated `shop/order.placed` event from starting a second run within 24 hours.
+- **One order per customer at a time.** The concurrency limit keyed on the customer stops two orders of one
   customer from competing for the same stock, while orders of different customers run side by side.
-- **Cancellation.** With `[CancelOn<OrderCancelled>]`, a `shop/order.cancelled` event for the same order, within an
-  hour, stops the run before its next step.
+- **Cancellation.** A `shop/order.cancelled` event for the same order, within an hour, stops the run before its
+  next step.
 - **Alerting.** `IFailureHandler` runs once, after the run has failed for good, for example when a step keeps failing.
   The compensation path ends in that handler too, so operations hear about every failed order.
 

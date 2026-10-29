@@ -5,6 +5,8 @@ sidebar:
   label: User onboarding
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Onboarding mixes waiting and reacting: send a welcome email, wait for the user to activate, nudge them if they do
 not, and follow up a day after they do. The function sleeps and waits through all of it without holding anything.
 
@@ -26,10 +28,6 @@ public sealed record UserDeleted(string UserId) : IInngestEventData
     public static string EventName => "user/deleted";
 }
 
-[InngestFunction("onboard-user")]
-[EventTrigger<UserSignedUp>]
-[CancelOn<UserDeleted>(Match = "data.userId")]
-[RateLimit(1, "24h", Key = "event.data.userId")]
 public sealed class OnboardUser(IMailer mailer, ICrm crm) : InngestFunction<UserSignedUp>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -78,13 +76,42 @@ public interface ICrm
 ```
 
 Each event record names its event in `EventName`, so the trigger, the waits and the cancellation refer to the type. The
-attributes give the function its id, trigger, cancellation and rate limit; durations in them are time strings such as
-`"24h"`, because attribute arguments must be constants. `AddFunction` reads the attributes once at startup:
+function's options give it its id, trigger, cancellation and rate limit, in code or as attributes on the class:
+
+<Tabs syncKey="function-style">
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<OnboardUser>(new FunctionOptions
+{
+    Id = "onboard-user",
+    Triggers = [Trigger.Event<UserSignedUp>()],
+    CancelOn = [CancelOn.For<UserDeleted>() with { Match = "data.userId" }],
+    RateLimit = new RateLimit(1, TimeSpan.FromHours(24)) { Key = "event.data.userId" },
+});
+```
+
+</TabItem>
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("onboard-user")]
+[EventTrigger<UserSignedUp>]
+[CancelOn<UserDeleted>(Match = "data.userId")]
+[RateLimit(1, "24h", Key = "event.data.userId")]
+```
+
+The attributes go on `OnboardUser`, and `AddFunction` reads them once at startup:
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest.AddFunction<OnboardUser>();
 ```
+
+</TabItem>
+</Tabs>
 
 When the user confirms their email, the app sends a `UserActivated` event, named `user/activated`, with the same
 `userId`:
@@ -101,9 +128,9 @@ await inngest.SendAsync(new UserActivated(userId, plan), cancellationToken);
   again.
 - **Branching on what happened.** The activation event is a step result, so code after the wait sees the same event
   on every call, and the plan decides which tips to send.
-- **Stopping early.** `[CancelOn<UserDeleted>]` ends the run when the account is deleted, even in the middle of a
-  three-day wait.
-- **One onboarding per user.** `[RateLimit]` skips a second `user/signed-up` for the same user within a day, for
+- **Stopping early.** The cancellation on `UserDeleted` ends the run when the account is deleted, even in the middle
+  of a three-day wait.
+- **One onboarding per user.** The rate limit skips a second `user/signed-up` for the same user within a day, for
   example from a double-clicked sign-up button.
 
 A wait only sees events that arrive after it starts. Here the welcome email goes out first, which takes a moment;
