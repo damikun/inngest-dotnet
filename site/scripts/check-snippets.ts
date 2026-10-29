@@ -377,9 +377,8 @@ const props = `<Project>
 </Project>
 `;
 
-const references = ['Inngest', 'Inngest.AspNetCore', 'Inngest.Connect']
-  .map((name) => `    <ProjectReference Include="${join(repo, 'src', name, `${name}.csproj`)}" />`)
-  .join('\n');
+const reference = (name: string) => `    <ProjectReference Include="${join(repo, 'src', name, `${name}.csproj`)}" />`;
+const references = ['Inngest', 'Inngest.AspNetCore', 'Inngest.Connect'].map(reference).join('\n');
 
 const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
@@ -396,6 +395,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
   </ItemGroup>
   <ItemGroup>
 ${references}
+${reference('Inngest.Testing')}
   </ItemGroup>
   <ItemGroup>
     <Using Include="Docs.Support" />

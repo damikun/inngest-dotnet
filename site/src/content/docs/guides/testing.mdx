@@ -1,15 +1,24 @@
 ---
 title: Testing Inngest functions with xUnit
-description: Unit test Inngest functions by running them with a fake IStepTools, and test them end to end against the Inngest dev server.
+description: Unit test Inngest functions on the test host of Inngest.Testing, which replays them on the real execution engine with mocked steps, or with a fake IStepTools, and test them end to end against the Inngest dev server.
 sidebar:
   label: Testing functions
 ---
 
-A function is a class with a method that takes a `FunctionContext<T>`. The step tools behind `context.Step` are an
-interface, `IStepTools`, so a test can give the function a fake that runs every step inline and records what
-happened. No Inngest server is involved, and the test runs in milliseconds.
+There are three ways to test an Inngest function:
+
+- **The test host** of the [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) package runs the
+  function on the SDK's real execution engine and plays Inngest's part: it calls the function again after every
+  step, passes step results through JSON, retries failures and answers sleeps, waits and invokes from mocks. Nothing
+  leaves the test process.
+- **A fake `IStepTools`** runs every step inline. It needs no package besides `Inngest` and checks the function's
+  logic and the order of its steps, but not replays or the serialization of step results.
+- **The Inngest dev server** runs the whole app as Inngest runs it, flow control included.
 
 ## The function under test
+
+The unit tests on this page test this function. It sends a welcome email, waits up to three days for the user to
+activate, and sends a reminder when they do not:
 
 ```csharp title="OnboardUser.cs"
 using Inngest;
@@ -24,6 +33,8 @@ public sealed record UserActivated(string UserId) : IInngestEventData
     public static string EventName => "user/activated";
 }
 
+public sealed record OnboardingResult(bool Activated);
+
 public interface IEmailSender
 {
     Task SendAsync(string to, string subject, CancellationToken cancellationToken);
@@ -31,9 +42,9 @@ public interface IEmailSender
 
 [InngestFunction("onboard-user")]
 [EventTrigger<UserSignedUp>]
-public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>
+public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp, OnboardingResult>
 {
-    public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    public override async Task<OnboardingResult> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
     {
         var user = context.Event.Data;
 
@@ -47,15 +58,246 @@ public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSigned
             await context.Step.RunAsync("send-reminder", ct => email.SendAsync(user.Email, "Your account is waiting", ct));
         }
 
-        return new { activated = activated is not null };
+        return new OnboardingResult(activated is not null);
     }
 }
 ```
 
+The tests replace the email service with one that records the subject of every email:
+
+```csharp title="RecordingEmailSender.cs"
+public sealed class RecordingEmailSender : IEmailSender
+{
+    public List<string> Subjects { get; } = [];
+
+    public Task SendAsync(string to, string subject, CancellationToken cancellationToken)
+    {
+        Subjects.Add(subject);
+        return Task.CompletedTask;
+    }
+}
+```
+
+## The test host
+
+Add the package to the test project:
+
+```bash
+dotnet add package Inngest.Testing --prerelease
+```
+
+`InngestTestHost` takes a service collection with the app's registrations: `AddInngest`, the functions and
+middleware to test, and the services they use. These tests register the function as the app does and the recording
+email sender in place of the real one:
+
+```csharp title="OnboardUserTests.cs"
+using Inngest;
+using Inngest.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+public sealed class OnboardUserTests
+{
+    private static readonly InngestEvent SignedUp = new(UserSignedUp.EventName, new UserSignedUp("u_1", "ada@example.com"));
+
+    private readonly RecordingEmailSender _email = new();
+
+    [Fact]
+    public async Task Sends_a_reminder_when_the_user_does_not_activate()
+    {
+        await using var host = CreateHost();
+
+        var run = await host.RunAsync<OnboardUser>(SignedUp,
+            new StepMocks().WaitForEventTimeout("wait-for-activation"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(TestRunStatus.Completed, run.Status);
+        Assert.False(run.GetOutput<OnboardingResult>()!.Activated);
+        Assert.Equal(["send-welcome", "wait-for-activation", "send-reminder"], run.Steps.Select(step => step.Id));
+        Assert.Equal(["Welcome!", "Your account is waiting"], _email.Subjects);
+    }
+
+    [Fact]
+    public async Task Skips_the_reminder_when_the_user_activates()
+    {
+        await using var host = CreateHost();
+        var activated = new InngestEvent(UserActivated.EventName, new UserActivated("u_1"));
+
+        var run = await host.RunAsync<OnboardUser>(SignedUp,
+            new StepMocks().WaitForEvent("wait-for-activation", activated),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(run.GetOutput<OnboardingResult>()!.Activated);
+        Assert.Equal(["Welcome!"], _email.Subjects);
+    }
+
+    [Fact]
+    public async Task Waits_three_days_for_the_same_user_to_activate()
+    {
+        await using var host = CreateHost();
+
+        var run = await host.ExecuteStepAsync<OnboardUser>("wait-for-activation", SignedUp,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(TestRunStatus.Stopped, run.Status);
+        var wait = run.GetStep("wait-for-activation");
+        Assert.Equal("3d", wait.Options.GetProperty("timeout").GetString());
+        Assert.Equal("event.data.userId == async.data.userId", wait.Options.GetProperty("if").GetString());
+    }
+
+    private InngestTestHost CreateHost()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IEmailSender>(_email);
+        services.AddInngest(options => options.AppId = "shop").AddFunction<OnboardUser>();
+        return new InngestTestHost(services);
+    }
+}
+```
+
+`RunAsync<OnboardUser>` runs the function the app registered as `OnboardUser`, under the id its attribute gives it;
+`RunAsync("onboard-user", ...)` does the same by id. Both have overloads without mocks, and overloads that take an
+`IReadOnlyList<InngestEvent>` in place of the event to run a function that takes batches. A run goes on until the
+function completes, fails for good, or waits on a step that has no mock, and `RunAsync` then returns a `TestRun`.
+
+The host copies the service collection, so tests can share one. It builds the services the way the app does at
+startup, so function options that Inngest would reject make the constructor throw. `host.Services` is the built
+container, and disposing the host disposes it. Runs are independent of each other, and one host can run several at
+once.
+
+### What the host does
+
+- It calls the function again after every step, as Inngest does, so code outside steps runs once per call, and every
+  step result reaches the function through JSON written with the app's serializer options.
+- It resolves the function, its middleware and the services they use from a new scope for every call, and the app's
+  middleware runs around every call and step.
+- It runs steps that start together in calls of their own, one per step, and calls the function again once all of
+  them have finished, or after each one in [race mode](/inngest-dotnet/guides/parallel-steps/).
+- It retries a failing step or function at once, with the attempt numbers Inngest would send, until the function's
+  `Retries` run out (4 retries when it sets none). A `NonRetriableException` fails at once, and a
+  `RetryAfterException` is retried without waiting out its delay.
+- When a run fails for good, it runs the function's failure handler, if it has one, with the
+  `inngest/function.failed` event Inngest would send, and with the same mocks.
+- It records the events the app sends instead of sending them.
+
+What it does not do:
+
+- It sends nothing to Inngest. The SDK's own `HttpClient` throws for every request, even to a dev server on the same
+  machine, and the `INNGEST_*` environment variables are ignored, so the machine a test runs on does not change how
+  the test runs. Options set in code and a configuration section passed to `AddInngest` still apply.
+- It does not apply what Inngest enforces outside the SDK: concurrency limits, throttling, rate limits, debounce,
+  priority, idempotency, singletons, cancellation and timeouts. A batch is the list of events the test passes.
+- It does not check a wait mock's event against the wait's `Match` or `If`, only against the event name.
+- It does not carry out signal waits, fetch steps or inference steps, which cannot be mocked, so the run waits on
+  them. Nor does it run invoked functions: an invoke without a mock leaves the run waiting.
+
+### Reading a run
+
+`TestRun` is the run as the host left it:
+
+| Member | What it holds |
+|---|---|
+| `Status` | `Completed` when the function returned, `Failed` when it failed for good, `Waiting` when it waits on steps the test did not mock or the host does not carry out, and `Stopped` when `ExecuteStepAsync` reached its step. |
+| `Output`, `GetOutput<T>()` | What the function returned, as the JSON Inngest stores; null unless the run completed. `GetOutput<T>()` reads it with the app's serializer options and throws `InvalidOperationException` when there is no output. |
+| `Error` | The exception the run failed with, as the function or the SDK threw it: a `StepFailedException` when a step failed for good and the function did not catch it. Null unless the run failed. |
+| `Steps`, `GetStep(id)` | Every step the run reached, in the order Inngest heard of them. `GetStep` finds one by the id the code passed, and throws `KeyNotFoundException` naming the steps the run reached when there is none. |
+| `WaitingOn` | The steps a waiting run waits on. |
+| `SentEvents` | The events the run sent, from send steps and through the client, in order. |
+| `FailureHandler` | The run of the failure handler, when the function failed for good and has one; otherwise null. |
+| `RunId`, `FunctionId` | The id of the run, and the id of the function without the app's prefix. |
+
+`ToString()` describes the outcome, such as `Waiting on step "wait-for-activation" (WaitForEvent).`, which makes a
+failed assertion easier to read.
+
+Each step is a `TestStep`:
+
+| Member | What it holds |
+|---|---|
+| `Id`, `HashedId` | The id the code passed, and the hash Inngest stores the step under. |
+| `Type` | The `StepType`, such as `Run`, `Sleep`, `WaitForEvent`, `Invoke` or `SendEvent`. Null for an operation the host does not know. |
+| `Op`, `Options` | The last operation the SDK reported for the step, such as `StepRun`, `Sleep` or `WaitForEvent`, and its options as JSON, such as the `duration` of a sleep or the `event`, `timeout` and `if` of a wait. |
+| `Status` | `Pending` when the step is planned or waits on something the test did not mock, `Completed`, or `Failed` when it failed for good. |
+| `Attempts` | How many times its handler, or its mock, ran. Zero for a sleep, wait or invoke, which Inngest carries out. |
+| `Mocked` | Whether a mock answered the step. |
+| `Output`, `GetOutput<T>()` | The result the function receives, as JSON: the value of a run step or an invoke, the event a wait received, or JSON `null` for a sleep or a wait that timed out. Null unless the step completed. |
+| `Error`, `Errors` | What the step failed with for good, and what each failed attempt threw, including attempts that a retry made up for. |
+
+A step id that the code uses more than once, as in a loop, gets a `:<n>` suffix from its second use on, so the third
+step named `page` is `page:2`, both in `GetStep` and in mocks.
+
+### Mocking steps
+
+`StepMocks` holds what the host answers in place of steps, by step id. Every method returns a new set, so tests can
+share a set and add to it.
+
+| Method | What the step does |
+|---|---|
+| `Run<T>(id, T result)` | Returns `result` instead of running its handler. A `SendSignalAsync` step is mocked the same way. |
+| `Run<T>(id, Func<int, T> handler)` | Calls `handler` in place of the step's own handler on every attempt, with the attempt number from 0. Throw from it to fail the attempt. |
+| `RunThrows(id, exception)` | Throws on every attempt, so the step is retried and then fails for good, at once for a `NonRetriableException`. |
+| `Sleep(id)` | The sleep ends. |
+| `AllSleeps()` | Every sleep ends. |
+| `WaitForEvent(id, received)` | The wait receives `received`, which must have the name the step waits for. |
+| `WaitForEventTimeout(id)` | The wait times out and returns null. |
+| `Invoke<T>(id, T result)` | The invoked function returns `result`. |
+| `Invoke<TFunction, TResult>(id, TResult result)` | The same for a step that invokes `TFunction` by its class. |
+| `InvokeThrows(id, exception)` | The invoked function fails, and the step throws `StepFailedException` where the function awaits it. |
+
+A mocked run step still goes through the engine: its value is serialized, memoized and replayed like a real result,
+and the app's middleware runs around it. A run step without a mock runs its handler.
+
+For a step that invokes a function by its class, as `InvokeAsync<ScoreAccount, AccountScore>` does in
+[Invoking functions](/inngest-dotnet/guides/invoking-functions/), name the class in the mock too:
+
+{/* check: statements */}
+```csharp
+using Inngest.Testing;
+
+var mocks = new StepMocks()
+    .Invoke<ScoreAccount, AccountScore>("score-acme", new AccountScore("acme", 40))
+    .Invoke<ScoreAccount, AccountScore>("score-globex", new AccountScore("globex", 60));
+```
+
+The compiler checks that `ScoreAccount` returns an `AccountScore`, and the host checks that the step invokes
+`ScoreAccount`: when it invokes another function, `RunAsync` throws an `InvalidOperationException` that names both.
+`Invoke<T>` without a class answers any invoke, by class or by id.
+
+A mock that does not fit its step makes `RunAsync` throw `InvalidOperationException` too: a mock for another kind of
+step, such as `Run` for a sleep, or a wait mock whose event has another name. Send steps take no mock; the host
+records their events.
+
+Steps that start together, as with `Task.WhenAll`, hold each other up: without race mode Inngest calls the function
+again only once all of them have finished, so a wait without a mock keeps the run waiting even when the other steps
+of the group are mocked.
+
+### Time
+
+Sleeps and wait timeouts end at the time they would end under Inngest, on a simulated clock: it starts at the app's
+time and moves forward only when something completes, so a run never waits in real time, and steps that run together
+end in the order of their end times. When the app's `TimeProvider` is a `FakeTimeProvider` from
+`Microsoft.Extensions.TimeProvider.Testing`, the host moves it to the end of every sleep, so code that reads the
+clock after a sleep sees the time it would see under Inngest.
+
+### Events
+
+`run.SentEvents` holds the events one run sent, and `host.SentEvents` every event sent through the app's client
+since the host was created, from runs or not. The host checks each event as the client does before sending, so an
+event with a reserved `inngest/` name fails its send step, and a send returns ids in the format Inngest gives events.
+An event sent through `IInngestClient` outside a step is sent again on every call, so it shows up once per call; send
+it from a step to send it once.
+
+### Running up to one step
+
+`ExecuteStepAsync` runs the function only until one step has run, after its retries, or until a step that Inngest
+carries out, such as a sleep or a wait, has been reached. The run then ends as `Stopped`, unless it completed,
+failed or started waiting before it got there. The last test above uses it to check how the function waits, with no
+mocks for what comes after the wait. `ExecuteStepAsync<TFunction>` finds the function by its class, and
+`ExecuteStepAsync(functionId, stepId, ...)` by its id.
+
 ## A fake for the step tools
 
-This fake runs step handlers at once, returns at once from sleeps, answers waits from a dictionary, and records
-every step id in order:
+To test without the extra package, give the function a fake `IStepTools`. This one runs step handlers at once,
+returns at once from sleeps, answers waits from a dictionary, and records every step id in order:
 
 ```csharp title="InlineStepTools.cs"
 using Inngest;
@@ -104,23 +346,22 @@ public sealed class InlineStepTools : IStepTools
 }
 ```
 
-The SDK's extension methods, such as `RunAsync` with a handler that takes no cancellation token or the typed
-`WaitForEventAsync<T>` and `SendEventAsync<T>`, all end up in these six methods, so the fake covers every overload.
-Invoking by class, with `InvokeAsync<TFunction, TResult>`, needs the app's registrations to find the function's id,
-so a fake has nothing to fall back on: implement that method too if the function under test uses it. The
-interface's default throws `NotSupportedException`.
-
-## The tests
+The SDK's extension methods for these steps, such as `RunAsync` with a handler that takes no cancellation token or
+the typed `WaitForEventAsync<T>` and `SendEventAsync<T>`, end up in these six methods, and so do their overloads that
+take a `StepOptions` in place of the id. `ParallelAsync` needs nothing from the fake. The other members of
+`IStepTools` have defaults that throw `NotSupportedException`: `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`,
+`InferAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by class and needs the app's registrations to find
+the function's id. Implement the ones the function under test calls.
 
 `FunctionContext<T>` has public `init` properties, so a test builds one directly:
 
-```csharp title="OnboardUserTests.cs"
+```csharp title="OnboardUserFakeTests.cs"
 using Inngest;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-public sealed class OnboardUserTests
+public sealed class OnboardUserFakeTests
 {
     private readonly RecordingEmailSender _email = new();
     private readonly InlineStepTools _steps = new();
@@ -159,28 +400,19 @@ public sealed class OnboardUserTests
             Events = [signedUp],
         };
     }
-
-    private sealed class RecordingEmailSender : IEmailSender
-    {
-        public List<string> Subjects { get; } = [];
-
-        public Task SendAsync(string to, string subject, CancellationToken cancellationToken)
-        {
-            Subjects.Add(subject);
-            return Task.CompletedTask;
-        }
-    }
 }
 ```
 
-These tests check the function's logic and the order of its steps. They do not exercise replays, serialization of
-step results or flow control, which Inngest and the SDK take care of.
+These tests check the function's logic and the order of its steps. They do not exercise replays or the
+serialization of step results, which the test host does.
 
 ## End to end against the dev server
 
-To test the whole path, run the app against an [Inngest dev server](https://www.inngest.com/docs/local-development)
-in a container, send an event and poll the dev server's API until the run finishes. The SDK's own integration tests
-do this with [Testcontainers](https://dotnet.testcontainers.org/) and the `inngest/inngest` image; see
+Flow control, cancellation and the expressions of triggers and waits are applied by Inngest, so only a run against
+Inngest exercises them. To test the whole path, run the app against an
+[Inngest dev server](https://www.inngest.com/docs/local-development) in a container, send an event and poll the dev
+server's API until the run finishes. The SDK's own integration tests do this with
+[Testcontainers](https://dotnet.testcontainers.org/) and the `inngest/inngest` image; see
 `tests/Inngest.IntegrationTests` in the [repository](https://github.com/damikun/inngest-dotnet) for a harness that
 starts the server, starts the app and waits for runs.
 

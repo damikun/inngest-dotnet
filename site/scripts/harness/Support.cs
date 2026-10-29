@@ -48,6 +48,15 @@ public interface IBilling
 
 public sealed record AccountScore(string AccountId, int Score);
 
+public sealed record ScoreRequest(string AccountId);
+
+[Inngest.InngestFunction("score-account")]
+public sealed class ScoreAccount : Inngest.InngestFunction<ScoreRequest, AccountScore>
+{
+    public override Task<AccountScore> ExecuteAsync(Inngest.FunctionContext<ScoreRequest> context, CancellationToken cancellationToken) =>
+        Task.FromResult(new AccountScore(context.Event.Data.AccountId, 0));
+}
+
 public interface IReports
 {
     Task<string> BuildAsync(IReadOnlyList<AccountScore> scores, CancellationToken cancellationToken);
