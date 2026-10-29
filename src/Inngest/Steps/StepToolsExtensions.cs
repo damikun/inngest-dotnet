@@ -52,6 +52,27 @@ public static class StepToolsExtensions
     public static Task<SendEventsResult> SendEventAsync(this IStepTools step, string id, InngestEvent @event) =>
         step.SendEventAsync(id, [@event]);
 
+    // Waits for an event of type T. Match and If work as on WaitForEventOptions.
+    public static Task<InngestEvent<T>?> WaitForEventAsync<T>(
+        this IStepTools step,
+        string id,
+        TimeSpan timeout,
+        string? match = null,
+        string? @if = null)
+        where T : IInngestEventData =>
+        step.WaitForEventAsync<T>(id, new WaitForEventOptions(T.EventName, timeout) { Match = match, If = @if });
+
+    public static Task<SendEventsResult> SendEventAsync<T>(this IStepTools step, string id, T data)
+        where T : IInngestEventData =>
+        step.SendEventAsync(id, [InngestEvent.From(data)]);
+
+    public static Task<SendEventsResult> SendEventAsync<T>(this IStepTools step, string id, IEnumerable<T> data)
+        where T : IInngestEventData
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return step.SendEventAsync(id, [.. data.Select(InngestEvent.From)]);
+    }
+
     public static Task<InngestSignal<JsonElement>?> WaitForSignalAsync(this IStepTools step, string id, WaitForSignalOptions options) =>
         step.WaitForSignalAsync<JsonElement>(id, options);
 
@@ -103,6 +124,26 @@ public static class StepToolsExtensions
 
     public static Task<SendEventsResult> SendEventAsync(this IStepTools step, StepOptions stepOptions, InngestEvent @event) =>
         step.SendEventAsync(stepOptions, [@event]);
+
+    public static Task<InngestEvent<T>?> WaitForEventAsync<T>(
+        this IStepTools step,
+        StepOptions stepOptions,
+        TimeSpan timeout,
+        string? match = null,
+        string? @if = null)
+        where T : IInngestEventData =>
+        step.WaitForEventAsync<T>(stepOptions, new WaitForEventOptions(T.EventName, timeout) { Match = match, If = @if });
+
+    public static Task<SendEventsResult> SendEventAsync<T>(this IStepTools step, StepOptions stepOptions, T data)
+        where T : IInngestEventData =>
+        step.SendEventAsync(stepOptions, [InngestEvent.From(data)]);
+
+    public static Task<SendEventsResult> SendEventAsync<T>(this IStepTools step, StepOptions stepOptions, IEnumerable<T> data)
+        where T : IInngestEventData
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return step.SendEventAsync(stepOptions, [.. data.Select(InngestEvent.From)]);
+    }
 
     public static Task<InngestSignal<JsonElement>?> WaitForSignalAsync(this IStepTools step, StepOptions stepOptions, WaitForSignalOptions options) =>
         step.WaitForSignalAsync<JsonElement>(stepOptions, options);

@@ -15,4 +15,11 @@ public sealed record InngestEvent(string Name, object? Data = null)
     public DateTimeOffset? Timestamp { get; init; }
 
     public string? Version { get; init; }
+
+    internal static InngestEvent From<T>(T data)
+        where T : IInngestEventData
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return new InngestEvent(T.EventName, data) { Version = T.EventVersion };
+    }
 }

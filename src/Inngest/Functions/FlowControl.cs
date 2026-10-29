@@ -63,6 +63,10 @@ public sealed record CancelOn(string Event)
     public string? Match { get; init; }
 
     public TimeSpan? Timeout { get; init; }
+
+    // Set the other members with a with expression, for example CancelOn.For<UserDeleted>() with { Match = "data.userId" }.
+    public static CancelOn For<T>()
+        where T : IInngestEventData => new(T.EventName);
 }
 
 // Start limits the time a run may wait in the queue before its first step; Finish limits the time from the

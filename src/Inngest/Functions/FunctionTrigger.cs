@@ -33,6 +33,9 @@ public static class Trigger
 {
     public static EventTrigger Event(string name, string? @if = null) => new(name) { If = @if };
 
+    public static EventTrigger Event<T>(string? @if = null)
+        where T : IInngestEventData => new(T.EventName) { If = @if };
+
     public static CronTrigger Cron(string schedule, string? timezone = null) => new(schedule) { Timezone = timezone };
 
     public static CronTrigger Cron(string schedule, TimeSpan jitter, string? timezone = null) =>
