@@ -1,12 +1,21 @@
 ---
 // The parts of a run and what travels between them: an event comes in, Inngest keeps the state of every step, and
-// it reaches your code one of two supported ways, shown side by side. Over HTTP, Inngest calls the app's endpoint and
-// the app answers with a step result or the output. With Connect, the worker opens a WebSocket to Inngest, executions
-// arrive over it and results go back over it. It uses the diagram classes of the guides; with five columns it needs
-// more room than they do, so it lines up from 56rem.
+// it reaches your code one of two supported ways. On wide screens this is an animated picture of one run over HTTP,
+// drawn in the theme's colors by scripts/architecture-animation.ts. Below 56rem its labels would be too small to
+// read, so the same parts are shown stacked, with the diagram classes of the guides.
+import dark from '../../assets/architecture-dark.svg?url';
+import light from '../../assets/architecture-light.svg?url';
+
+const alt =
+  'One run over HTTP, animated. An event reaches Inngest, which calls the app once per step: charge answers 206 with ' +
+  'its result, send-receipt fails and is retried after a backoff, and the last call answers 200 with the output.';
 ---
 
 <figure class="arch not-content">
+  <div class="picture">
+    <img class="dark" src={dark} alt={alt} width="960" height="368" loading="lazy" decoding="async" />
+    <img class="light" src={light} alt={alt} width="960" height="368" loading="lazy" decoding="async" />
+  </div>
   <div class="fig-flow">
     <div class="fig-node source">
       <svg class="icon" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>
@@ -153,111 +162,26 @@
     margin-top: 0.5rem;
   }
 
-  /* The row layout of the guides' diagrams, at a breakpoint of its own. Each way to reach the code is a row on the
-     right; Inngest and the event source span both. */
+  /* Only the picture of the current theme shows, and lazy loading skips the hidden one. */
+  .picture {
+    display: none;
+  }
+  .picture img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  :global(:root[data-theme='light']) .picture .dark,
+  :global(:root:not([data-theme='light'])) .picture .light {
+    display: none;
+  }
+
   @media (min-width: 56rem) {
+    .picture {
+      display: block;
+    }
     .arch > .fig-flow {
-      grid-template-columns: minmax(0, 1fr) minmax(6.5rem, 0.55fr) minmax(0, 1.25fr) minmax(11rem, 0.9fr) minmax(0, 1fr);
-      grid-template-areas:
-        'source event inngest http-title http-title'
-        'source event inngest http app'
-        'source event inngest connect-title connect-title'
-        'source event inngest socket worker';
-      align-items: center;
-      padding: 1.75rem;
-    }
-    .source {
-      grid-area: source;
-    }
-    .event {
-      grid-area: event;
-    }
-    /* Inngest spans both ways to your code, so every arrow on its right starts at its edge. */
-    .inngest {
-      grid-area: inngest;
-      align-self: stretch;
-      justify-content: center;
-      padding-block: 2rem;
-    }
-    .inngest .name {
-      font-size: var(--sl-text-xl);
-    }
-    .inngest .icon {
-      width: 36px;
-      height: 36px;
-    }
-    .http-only.mode-title {
-      grid-area: http-title;
-      padding-inline-start: 0.5rem;
-    }
-    .http {
-      grid-area: http;
-    }
-    .app {
-      grid-area: app;
-    }
-    .connect-only.mode-title {
-      grid-area: connect-title;
-      padding-inline-start: 0.5rem;
-    }
-    .socket {
-      grid-area: socket;
-    }
-    .worker {
-      grid-area: worker;
-      margin-top: 0;
-    }
-    .app + .mode-title {
-      padding-top: 1.25rem;
-    }
-    .fig-node {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.3rem;
-      padding: 1.1rem 1rem;
-      text-align: center;
-    }
-    .fig-link {
-      align-items: stretch;
-      gap: 0.4rem;
-      padding: 0 0.5rem;
-    }
-    .fig-arrow {
-      justify-content: center;
-      min-height: 0;
-      padding: 0 0 0.55rem;
-      text-align: center;
-    }
-    .fig-arrow::before {
-      inset: auto 0 0;
-      width: auto;
-      height: 2px;
-    }
-    .fig-arrow.back::before,
-    .fig-arrow.dashed::before {
-      background: repeating-linear-gradient(to right, var(--arrow) 0 5px, transparent 5px 9px);
-    }
-    .fig-arrow::after {
-      inset-inline-start: auto;
-      top: auto;
-      bottom: -5px;
-      border-inline: 0;
-      border-block: 6px solid transparent;
-    }
-    .fig-arrow.forward::after {
-      top: auto;
-      bottom: -5px;
-      inset-inline-end: -1px;
-      border-top: 6px solid transparent;
-      border-inline-start: 8px solid var(--arrow);
-    }
-    .fig-arrow.back::after {
-      top: auto;
-      bottom: -5px;
-      inset-inline-start: -1px;
-      border-bottom: 6px solid transparent;
-      border-inline-end: 8px solid var(--arrow);
+      display: none;
     }
   }
 </style>

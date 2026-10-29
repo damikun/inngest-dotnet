@@ -4,9 +4,9 @@
 //
 //   node scripts/readme-images.ts
 //
-// Writes the banner, the How it works figure and the animated run of the hero's steps, each as -dark.svg and
-// -light.svg, and social-preview.png to ../.github/assets. The social preview is uploaded by hand, in the
-// repository's settings.
+// Writes the banner and the animated run of the hero's steps, each as -dark.svg and -light.svg, and
+// social-preview.png to ../.github/assets. The social preview is uploaded by hand, in the repository's settings.
+// The architecture figure has a script of its own, architecture-animation.ts.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -29,64 +29,6 @@ const fonts = {
   wordmark: load('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-600-normal.woff2'),
 };
 type Face = keyof typeof fonts;
-
-// The colors of the landing page's architecture figure, from src/styles/theme.css.
-interface Palette {
-  frame: string;
-  frameBorder: string;
-  node: string;
-  border: string;
-  borderStrong: string;
-  accentBorder: string;
-  name: string;
-  text: string;
-  muted: string;
-  code: string;
-  icon: string;
-  arrow: string;
-  coral: string;
-  plan: string;
-  ok: string;
-  run: string;
-}
-
-const dark: Palette = {
-  frame: '#232120',
-  frameBorder: '#3a3735',
-  node: '#2c2a28',
-  border: '#3a3735',
-  borderStrong: '#7d7671',
-  accentBorder: '#a14b43',
-  name: '#f6f6f6',
-  text: '#d6d2ce',
-  muted: '#a8a29d',
-  code: '#e8e5e2',
-  icon: '#fd8a72',
-  arrow: '#d6d2ce',
-  coral: '#fd8a72',
-  plan: '#fcc43f',
-  ok: '#66bd8b',
-  run: '#52b2fd',
-};
-
-const light: Palette = {
-  frame: '#f2efeb',
-  frameBorder: '#e2ddd8',
-  node: '#ffffff',
-  border: '#e2ddd8',
-  borderStrong: '#8f8882',
-  accentBorder: '#ed968d',
-  name: '#1b1a19',
-  text: '#3b3835',
-  muted: '#625c57',
-  code: '#2c2a28',
-  icon: '#b8351c',
-  arrow: '#3b3835',
-  coral: '#b8351c',
-  plan: '#95360f',
-  ok: '#027a48',
-  run: '#1450b1',
-};
 
 // A piece of a line of text, in one face and color.
 interface Run {
@@ -192,137 +134,11 @@ class Picture {
   }
 }
 
-// Icons of the architecture figure, on a 24 by 24 grid, stroked.
-const icons = {
-  source: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-  inngest: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.2 4.4 4.4 0 0 0 7 18z"/>',
-  app: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01M8 14l2 2-2 2M12 18h4"/>',
-  worker: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
-  store:
-    '<ellipse cx="12" cy="5" rx="7.5" ry="2.8"/><path d="M4.5 5v14c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8V5"/><path d="M4.5 12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8"/>',
-};
-
-const icon = (markup: string, cx: number, top: number, size: number, stroke: string, width = 1.7) =>
-  `<g transform="translate(${round(cx - size / 2)} ${round(top)}) scale(${round(size / 24)})" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${markup}</g>`;
-
 interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
-}
-
-// The landing page's architecture figure, laid out for the width of a README: the event source, Inngest with the
-// step state it keeps, and the two ways it reaches your code, over HTTP and over Connect.
-function architecture(c: Palette): string {
-  const W = 960;
-  const H = 338;
-  const pad = 24;
-  const p = new Picture(
-    W,
-    H,
-    'An event reaches Inngest, which stores the state of every step. Inngest calls your ASP.NET Core app over HTTP, or sends executions to your Connect worker over a WebSocket the worker opened.',
-  );
-
-  const source: Box = { x: pad, y: 108, w: 150, h: 122 };
-  const inngest: Box = { x: 262, y: pad, w: 238, h: H - 2 * pad };
-  const app: Box = { x: 716, y: 52, w: W - pad - 716, h: 110 };
-  const worker: Box = { x: 716, y: 204, w: W - pad - 716, h: 110 };
-  const gap = 8;
-
-  p.add(`<rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="14" fill="${c.frame}" stroke="${c.frameBorder}"/>`);
-
-  const node = (box: Box, { accent = false, dashed = false } = {}) => {
-    if (accent) {
-      p.add(`<rect x="${box.x - 2.5}" y="${box.y - 2.5}" width="${box.w + 5}" height="${box.h + 5}" rx="14.5" fill="none" stroke="${c.coral}" stroke-opacity="0.12" stroke-width="4"/>`);
-    }
-    const stroke = accent ? c.accentBorder : dashed ? c.borderStrong : c.border;
-    p.add(
-      `<rect x="${box.x + 0.5}" y="${box.y + 0.5}" width="${box.w - 1}" height="${box.h - 1}" rx="12" fill="${c.node}" stroke="${stroke}"${dashed ? ' stroke-dasharray="5 4"' : ''}/>`,
-    );
-  };
-
-  // Writes the lines of a node's detail centered under its name, and checks that they fit.
-  const detail = (box: Box, lines: Run[][], top: number, size = 13, leading = 18) => {
-    lines.forEach((runs, i) => {
-      const width = p.measure(runs, size);
-      if (width > box.w - 24) throw new Error(`"${runs.map((r) => r.text).join('')}" is ${Math.round(width)}px wide`);
-      p.line(runs, size, box.x + box.w / 2, top + i * leading, c.muted, { center: true });
-    });
-  };
-
-  // Event source.
-  node(source);
-  p.add(icon(icons.source, source.x + source.w / 2, source.y + 18, 26, c.icon));
-  p.line([{ text: 'Event source', face: 'name' }], 15.5, source.x + source.w / 2, source.y + 68, c.name, { center: true });
-  detail(source, [[{ text: 'Your API, a webhook' }], [{ text: 'or a schedule' }]], source.y + 88);
-
-  // Inngest, spanning both ways to your code.
-  node(inngest, { accent: true });
-  const mid = inngest.x + inngest.w / 2;
-  p.add(icon(icons.inngest, mid, inngest.y + 40, 36, c.icon));
-  p.line([{ text: 'Inngest', face: 'name' }], 21, mid, inngest.y + 102, c.name, { center: true });
-  detail(inngest, [[{ text: 'Inngest Cloud, self-hosted' }], [{ text: 'or the dev server' }]], inngest.y + 125);
-
-  const store: Box = { x: inngest.x + 18, y: inngest.y + 160, w: inngest.w - 36, h: 86 };
-  p.add(
-    `<rect x="${store.x + 0.5}" y="${store.y + 0.5}" width="${store.w - 1}" height="${store.h - 1}" rx="8" fill="none" stroke="${c.borderStrong}" stroke-dasharray="4 3"/>`,
-  );
-  p.add(icon(icons.store, store.x + 21, store.y + 12, 18, c.ok));
-  p.line([{ text: 'Step state stored by Inngest' }], 12, store.x + 36, store.y + 26, c.text);
-  ['charge', 'send-receipt'].forEach((step, i) => {
-    const y = store.y + 51 + i * 21;
-    p.add(
-      `<path d="M${store.x + 14} ${y - 4} l3 3 l6 -7" fill="none" stroke="${c.ok}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-    );
-    p.line([{ text: step, face: 'mono', fill: c.code }, { text: ' done' }], 12.5, store.x + 30, y, c.text);
-  });
-
-  // An arrow from x1 to x2 at height y, with its label above it.
-  const arrow = (x1: number, x2: number, y: number, label: string, color: string, forward: boolean, dashed: boolean) => {
-    const width = p.measure([{ text: label, face: 'mono' }], 12);
-    if (width > x2 - x1) throw new Error(`"${label}" is ${Math.round(width)}px wide`);
-    p.line([{ text: label, face: 'mono' }], 12, (x1 + x2) / 2, y - 8, c.code, { center: true });
-    p.add(
-      `<path d="M${forward ? x1 : x1 + 7} ${y}H${forward ? x2 - 7 : x2}" stroke="${color}" stroke-width="2"${dashed ? ' stroke-dasharray="5 4"' : ''}/>`,
-    );
-    p.add(
-      forward
-        ? `<path d="M${x2} ${y} l-9 -6 v12 z" fill="${color}"/>`
-        : `<path d="M${x1} ${y} l9 -6 v12 z" fill="${color}"/>`,
-    );
-  };
-
-  arrow(source.x + source.w + gap, inngest.x - gap - 2, source.y + source.h / 2, 'event in', c.arrow, true, false);
-
-  const from = inngest.x + inngest.w + gap + 2;
-  const to = app.x - gap;
-  const title = (text: string, y: number) =>
-    p.line([{ text: text.toUpperCase(), face: 'name' }], 11, from + 2, y, c.text, { tracking: 0.7 });
-
-  title('Over HTTP', app.y - 14);
-  node(app);
-  const appMid = app.x + app.w / 2;
-  p.add(icon(icons.app, appMid, app.y + 14, 26, c.icon));
-  p.line([{ text: 'Your ASP.NET Core app', face: 'name' }], 15.5, appMid, app.y + 60, c.name, { center: true });
-  detail(app, [[{ text: 'MapInngest', face: 'mono', fill: c.code }, { text: ' runs one step' }], [{ text: 'per call' }]], app.y + 80, 12.5, 16);
-  const http = app.y + app.h / 2 - 24;
-  arrow(from, to, http, 'POST /api/inngest', c.coral, true, false);
-  arrow(from, to, http + 30, '206 · step result', c.plan, false, true);
-  arrow(from, to, http + 60, '200 · done', c.ok, false, true);
-
-  title('Or over Connect, with no public endpoint', worker.y - 14);
-  node(worker, { dashed: true });
-  const workerMid = worker.x + worker.w / 2;
-  p.add(icon(icons.worker, workerMid, worker.y + 14, 26, c.icon));
-  p.line([{ text: 'Your Connect worker', face: 'name' }], 15.5, workerMid, worker.y + 60, c.name, { center: true });
-  detail(worker, [[{ text: 'No public endpoint, so it can' }], [{ text: 'run behind a firewall' }]], worker.y + 80, 12.5, 16);
-  const socket = worker.y + worker.h / 2 - 24;
-  arrow(from, to, socket, 'WebSocket from your worker', c.run, false, true);
-  arrow(from, to, socket + 30, 'executions over the socket', c.coral, true, true);
-  arrow(from, to, socket + 60, 'results over the socket', c.ok, false, true);
-
-  return p.svg();
 }
 
 // The colors of the landing page's hero, from src/styles/theme.css.
@@ -597,8 +413,6 @@ writeFileSync(
   join(out, 'banner-light.svg'),
   banner({ background: '#faf9f7', border: '#e2ddd8', title: '#1b1a19', suffix: '#b8351c', facts: '#625c57', grain: 0, grainOpacity: 0.05 }),
 );
-writeFileSync(join(out, 'how-it-works-dark.svg'), architecture(dark));
-writeFileSync(join(out, 'how-it-works-light.svg'), architecture(light));
 writeFileSync(join(out, 'how-a-run-works-dark.svg'), runSteps(heroDark));
 writeFileSync(join(out, 'how-a-run-works-light.svg'), runSteps(heroLight));
 writeFileSync(join(out, 'social-preview.png'), await socialPreview());

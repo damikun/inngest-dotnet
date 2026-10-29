@@ -135,8 +135,8 @@ new FunctionOptions
 ## How it works
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/how-it-works-dark.svg">
-  <img alt="An event reaches Inngest, which stores the state of every step. Inngest calls your ASP.NET Core app over HTTP, or sends executions to your Connect worker over a WebSocket the worker opened." src=".github/assets/how-it-works-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="site/src/assets/architecture-dark.svg">
+  <img alt="One run, animated. An event reaches Inngest, which calls your ASP.NET Core app at /api/inngest once per step. The charge step answers 206 with its result. Send-receipt fails, and Inngest retries it after a backoff. The last call answers 200 with the output. Inngest can also reach a Connect worker over a WebSocket the worker opened." src="site/src/assets/architecture-light.svg">
 </picture>
 
 Inngest stores the run and calls your app for each step. Your app keeps no state between calls. The SDK replays the
