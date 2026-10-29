@@ -236,6 +236,8 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. |
 | `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
+| `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
+| `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 
 ### Public API
 
@@ -341,13 +343,19 @@ per call.
 | Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |
 | Failure handlers (`inngest/function.failed`) | Supported |
 | Errors: non-retriable, retry-after, step failures | Supported |
-| Middleware: observer and wrap hooks | Supported |
+| Middleware: observer and wrap hooks, for the whole app or for one function | Supported |
 | `use_api` for large runs | Supported |
-| Checkpointing (running several steps per call) | Not yet; every call uses the classic protocol |
+| Checkpointing (running several steps per call and saving each to Inngest as it completes) | Supported, opt-in with `CheckpointingOptions`; off by default |
 | Connect (WebSocket workers): start, handshake, heartbeats, leases, reply buffering and flush, draining, reconnects, graceful shutdown | Supported (`Inngest.Connect`) |
-| `step.ai.*`, `step.fetch`, `step.waitForSignal`, realtime, `defer`, durable endpoints, streaming responses | Not yet |
-| Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) and `wrapRequest` | Not yet |
-| `group.parallel` race mode | Not yet |
+| Connect connection state and a readiness health check | Supported (`IInngestConnection`, `AddInngestConnect`) |
+| `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
+| `step.ai.wrap`, realtime, `defer`, durable endpoints, streaming responses | Not yet |
+| Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, step output and function output. The data an invoke sends is not transformed. |
+| `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
+| `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |
+| REST API for runs: get a run, list the runs of an event, cancel a run | Supported (`IInngestRunsClient`) |
+| OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
+| Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 
 
 ## Spec deviations
