@@ -111,6 +111,8 @@ public sealed class SmtpEmailSender : IEmailSender
     public Task<string> SendAsync(string to, string subject, CancellationToken cancellationToken) => Task.FromResult("message-id");
 }
 
+[Inngest.InngestFunction("onboard-user")]
+[Inngest.EventTrigger<UserSignedUp>]
 public sealed class OnboardUser(IEmailSender email) : Inngest.InngestFunction<UserSignedUp>
 {
     public override async Task<object?> ExecuteAsync(Inngest.FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)

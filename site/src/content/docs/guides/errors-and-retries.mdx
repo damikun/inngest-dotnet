@@ -11,12 +11,12 @@ Three exception types change that default, and a failure handler runs when every
 
 ## How many retries
 
-`Retries` in `FunctionOptions` is the number of retries after the first attempt, from 0 to 20. Without it, Inngest
-retries 4 times, so 5 attempts in all.
+`Retries` on `[InngestFunction]`, or in `FunctionOptions`, is the number of retries after the first attempt, from 0
+to 20. Without it, Inngest retries 4 times, so 5 attempts in all.
 
-{/* check: members FunctionOptions */}
+{/* check: attributes */}
 ```csharp
-Retries = 8,
+[InngestFunction("import-catalog", Retries = 8)]
 ```
 
 The count applies to each step separately, not to the run as a whole: with `Retries = 8`, every step gets up to 9

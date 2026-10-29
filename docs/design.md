@@ -241,17 +241,30 @@ binder, so it works trimmed and under Native AOT.
 
 The API follows .NET conventions rather than the shape of the TypeScript SDK:
 
-- `services.AddInngest(options => ...)` registers everything and returns an `IInngestBuilder` for
-  `AddFunction<TFunction>(FunctionOptions)`, `AddFunction<TEventData>(FunctionOptions, handler)` and
-  `AddMiddleware<TMiddleware>()`. `app.MapInngest("/api/inngest")` serves the endpoint.
-- Functions are classes deriving from `InngestFunction<TEventData>`, resolved from a DI scope per invocation, or
-  delegates. `FunctionOptions` and the flow control records (`ConcurrencyLimit`, `Throttle`, `RateLimit`,
-  `Debounce`, `BatchEvents`, `Priority`, `CancelOn`, `FunctionTimeouts`, `Singleton`) are immutable records with
-  `TimeSpan` durations.
+- `services.AddInngest(options => ...)`, or `services.AddInngest(configuration.GetSection("Inngest"))`, registers
+  everything and returns an `IInngestBuilder` for `AddFunction<TFunction>()`, `AddFunction<TFunction>(FunctionOptions)`,
+  `AddFunction<TEventData>(FunctionOptions, handler)` and `AddMiddleware<TMiddleware>()`.
+  `app.MapInngest("/api/inngest")` serves the endpoint.
+- Functions are classes deriving from `InngestFunction<TEventData>`, or `InngestFunction<TEventData, TResult>` for a
+  typed result, resolved from a DI scope per invocation, or delegates. `FunctionOptions` and the flow control records
+  (`ConcurrencyLimit`, `Throttle`, `RateLimit`, `Debounce`, `BatchEvents`, `Priority`, `CancelOn`,
+  `FunctionTimeouts`, `Singleton`) are immutable records with `TimeSpan` durations.
+- A function class can carry its options as attributes (`[InngestFunction]`, `[EventTrigger<T>]`, `[CronTrigger]`,
+  `[Concurrency]`, `[Throttle]`, `[CancelOn<T>]` and so on), one per `FunctionOptions` member, with durations as
+  time strings. `AddFunction<TFunction>()` reads them once at registration, with `GetCustomAttributes` on the type it
+  names, which stays trim and AOT safe; the result goes through the same startup validator. Explicit
+  `FunctionOptions` replace the attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no
+  assembly scanning.
+- Event data records implement `IInngestEventData`, whose static abstract `EventName` (and static virtual
+  `EventVersion`) let `SendAsync<T>`, `Trigger.Event<T>`, `WaitForEventAsync<T>`, `CancelOn.For<T>` and
+  `SendEventAsync<T>` take the name from the type without reflection. Every string form stays.
+- `step.InvokeAsync<TFunction, TResult>` finds the function's id in the registry by its class; `IReturns<TResult>`,
+  which `InngestFunction<TEventData, TResult>` implements, lets the compiler check the result type.
 - `FunctionContext<TEventData>` gives the typed event and batch, run id, attempt, step tools, a replay-safe
   `ILogger` and the invocation's `IServiceProvider`.
 - Step tools are an interface, `IStepTools`, so user code can be unit tested with a fake: `RunAsync`, `SleepAsync`,
-  `SleepUntilAsync`, `WaitForEventAsync`, `InvokeAsync`, `SendEventAsync`. Parallel steps are plain
+  `SleepUntilAsync`, `WaitForEventAsync`, `InvokeAsync`, `SendEventAsync`. Members added later have default
+  implementations, and convenience overloads are extension methods over those six. Parallel steps are plain
   `Task.WhenAll`/`Task.WhenAny`.
 - Errors are exceptions: `NonRetriableException`, `RetryAfterException`, and `StepFailedException` thrown at a
   step's call site when the step failed for good. `InngestException` covers failures talking to Inngest.
@@ -324,6 +337,8 @@ per call.
 | Dev mode and cloud mode, signing, signing key rotation, response signing | Supported |
 | Steps: run, sleep, sleepUntil, waitForEvent, invoke, sendEvent, parallel steps | Supported |
 | Flow control and function config: concurrency, throttle, rate limit, debounce, batching, priority, idempotency, retries, cancelOn, timeouts, singleton | Supported |
+| Function config as attributes on the class, typed events, typed results and invoke by class | Supported (.NET only) |
+| Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |
 | Failure handlers (`inngest/function.failed`) | Supported |
 | Errors: non-retriable, retry-after, step failures | Supported |
 | Middleware: observer and wrap hooks | Supported |

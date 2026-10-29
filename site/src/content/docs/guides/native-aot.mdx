@@ -68,7 +68,7 @@ List every type that the SDK serializes or deserializes for your code:
 - the event data type of every function, `TEventData`;
 - the result type of every `RunAsync`, the `T` in `Task<T>`;
 - the type each function returns as its output;
-- the `TData` of `WaitForEventAsync<TData>`, and the `TResult` and `Data` of `InvokeAsync`;
+- the `TData` of `WaitForEventAsync<TData>`, and the `TResult` and `data` of `InvokeAsync`;
 - the runtime types of `Data` and `User` in the events you send.
 
 The SDK covers its own public types, such as `FunctionFailure`, `SendEventsResult`, `JsonElement` and `object`, so a
@@ -82,6 +82,14 @@ that serializes it; the publish warnings will not catch it, so test the paths th
 
 `AddFunction<TFunction>` and `AddMiddleware<TMiddleware>` keep the constructors they need through
 `DynamicallyAccessedMembers`, so class-based functions and middleware work in AOT apps without extra configuration.
+
+Attribute classes work too: `AddFunction<TFunction>()` reads the attributes of the class it is given when the app
+starts, the generic ones such as `[EventTrigger<T>]` included, which needs no reflection beyond what trimming keeps.
+Typed events need nothing either, since their names are static members. The
+[AOT sample](https://github.com/damikun/inngest-dotnet/tree/main/samples/Inngest.AotSample) registers an attribute
+class, sends it a typed event and invokes another function by its class, and publishes without warnings. Settings
+from a configuration section, `AddInngest(builder.Configuration.GetSection("Inngest"))`, are read key by key, not
+through the configuration binder, so they work in AOT apps as well.
 
 Microsoft's [Native AOT deployment](https://learn.microsoft.com/dotnet/core/deploying/native-aot/) and
 [source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation)

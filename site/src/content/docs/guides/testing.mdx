@@ -14,15 +14,23 @@ happened. No Inngest server is involved, and the test runs in milliseconds.
 ```csharp title="OnboardUser.cs"
 using Inngest;
 
-public sealed record UserSignedUp(string UserId, string Email);
+public sealed record UserSignedUp(string UserId, string Email) : IInngestEventData
+{
+    public static string EventName => "user/signed-up";
+}
 
-public sealed record UserActivated(string UserId);
+public sealed record UserActivated(string UserId) : IInngestEventData
+{
+    public static string EventName => "user/activated";
+}
 
 public interface IEmailSender
 {
     Task SendAsync(string to, string subject, CancellationToken cancellationToken);
 }
 
+[InngestFunction("onboard-user")]
+[EventTrigger<UserSignedUp>]
 public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -32,7 +40,7 @@ public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSigned
         await context.Step.RunAsync("send-welcome", ct => email.SendAsync(user.Email, "Welcome!", ct));
 
         var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
-            new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+            TimeSpan.FromDays(3), match: "data.userId");
 
         if (activated is null)
         {
@@ -96,8 +104,11 @@ public sealed class InlineStepTools : IStepTools
 }
 ```
 
-The SDK's extension methods, such as `RunAsync` with a handler that takes no cancellation token, all end up in
-these six methods, so the fake covers every overload.
+The SDK's extension methods, such as `RunAsync` with a handler that takes no cancellation token or the typed
+`WaitForEventAsync<T>` and `SendEventAsync<T>`, all end up in these six methods, so the fake covers every overload.
+Invoking by class, with `InvokeAsync<TFunction, TResult>`, needs the app's registrations to find the function's id,
+so a fake has nothing to fall back on: implement that method too if the function under test uses it. The
+interface's default throws `NotSupportedException`.
 
 ## The tests
 
@@ -126,7 +137,7 @@ public sealed class OnboardUserTests
     [Fact]
     public async Task Skips_the_reminder_when_the_user_activates()
     {
-        _steps.Waits["wait-for-activation"] = new InngestEvent<UserActivated> { Name = "user/activated", Data = new("u_1") };
+        _steps.Waits["wait-for-activation"] = new InngestEvent<UserActivated> { Name = UserActivated.EventName, Data = new("u_1") };
 
         await new OnboardUser(_email).ExecuteAsync(Context(), TestContext.Current.CancellationToken);
 
@@ -135,7 +146,7 @@ public sealed class OnboardUserTests
 
     private FunctionContext<UserSignedUp> Context()
     {
-        var signedUp = new InngestEvent<UserSignedUp> { Name = "user/signed-up", Data = new("u_1", "ada@example.com") };
+        var signedUp = new InngestEvent<UserSignedUp> { Name = UserSignedUp.EventName, Data = new("u_1", "ada@example.com") };
         return new FunctionContext<UserSignedUp>
         {
             FunctionId = "onboard-user",
