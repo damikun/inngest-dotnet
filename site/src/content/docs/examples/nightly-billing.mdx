@@ -13,8 +13,14 @@ do and sends one event per account; a second function bills one account per run.
 using System.Text.Json;
 using Inngest;
 
-public sealed record AccountDue(string AccountId, string BillingDate);
+public sealed record AccountDue(string AccountId, string BillingDate) : IInngestEventData
+{
+    public static string EventName => "billing/account.due";
+}
 
+[InngestFunction("start-billing-run")]
+[CronTrigger("0 2 * * *", Timezone = "Europe/Prague")]
+[Singleton(SingletonMode.Skip)]
 public sealed class StartBillingRun(IAccounts accounts, TimeProvider time) : InngestFunction<JsonElement>
 {
     private const int ChunkSize = 500;
@@ -33,7 +39,7 @@ public sealed class StartBillingRun(IAccounts accounts, TimeProvider time) : Inn
         {
             InngestEvent[] events =
             [
-                .. chunks[i].Select(accountId => new InngestEvent("billing/account.due", new AccountDue(accountId, billingDate))
+                .. chunks[i].Select(accountId => new InngestEvent(AccountDue.EventName, new AccountDue(accountId, billingDate))
                 {
                     // One event per account and day, however often this function runs.
                     Id = $"billing-{billingDate}-{accountId}",
@@ -57,6 +63,10 @@ using Inngest;
 
 public sealed record Bill(string InvoiceId, decimal Amount);
 
+[InngestFunction("bill-account", Retries = 10, Idempotency = "event.data.accountId + '-' + event.data.billingDate")]
+[EventTrigger<AccountDue>]
+[Concurrency(20)]
+[Throttle(200, "1m")]
 public sealed class BillAccount(IBillingEngine billing) : InngestFunction<AccountDue>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<AccountDue> context, CancellationToken cancellationToken)
@@ -88,24 +98,13 @@ public interface IBillingEngine
 }
 ```
 
+`AddFunction` reads the attributes of both classes once at startup. Durations in them are time strings such as `"1m"`:
+
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest
-    .AddFunction<StartBillingRun>(new FunctionOptions
-    {
-        Id = "start-billing-run",
-        Triggers = [Trigger.Cron("0 2 * * *", timezone: "Europe/Prague")],
-        Singleton = new Singleton(SingletonMode.Skip),
-    })
-    .AddFunction<BillAccount>(new FunctionOptions
-    {
-        Id = "bill-account",
-        Triggers = [Trigger.Event("billing/account.due")],
-        Retries = 10,
-        Concurrency = [new ConcurrencyLimit(20)],
-        Throttle = new Throttle(200, TimeSpan.FromMinutes(1)),
-        Idempotency = "event.data.accountId + '-' + event.data.billingDate",
-    });
+    .AddFunction<StartBillingRun>()
+    .AddFunction<BillAccount>();
 ```
 
 `TimeProvider` is registered by `AddInngest` if the app has not registered one.
@@ -115,14 +114,15 @@ inngest
 - **Decide once, in steps.** The billing date and the list of accounts come from steps. If sending a batch fails and
   the function is retried, it sends the same accounts for the same date instead of reading the clock and the database
   again.
-- **Fan out with events.** Each batch of up to 500 events goes out in one `SendEventAsync` step, with ids derived
-  from the account and the date, so a repeated run produces duplicates that Inngest ignores. Inngest accepts up to
-  5,000 events per request.
+- **Fan out with events.** Each batch of up to 500 events goes out in one `SendEventAsync` step. The events are
+  built as `InngestEvent` so that each carries an id derived from the account and the date, and a repeated run
+  produces duplicates that Inngest ignores. Inngest accepts up to 5,000 events per request.
 - **One run per account.** `BillAccount` runs once per event, with its own ten retries. A failing account does not
   hold up the others, and its failure is visible on its own.
-- **Limits on the downstream system.** At most 20 accounts are billed at once and at most 200 start per minute,
-  whatever the size of the batch. `Idempotency` stops a second run for the same account and date within a day.
-- **No overlap.** The singleton option skips a scheduled run while the previous one is still going.
+- **Limits on the downstream system.** `[Concurrency(20)]` bills at most 20 accounts at once and
+  `[Throttle(200, "1m")]` starts at most 200 per minute, whatever the size of the batch. `Idempotency` on
+  `[InngestFunction]` stops a second run for the same account and date within a day.
+- **No overlap.** `[Singleton(SingletonMode.Skip)]` skips a scheduled run while the previous one is still going.
 
 The scheduled run's own event is `inngest/scheduled.timer`, which is why `StartBillingRun` reads its event as
 `JsonElement` and ignores it.

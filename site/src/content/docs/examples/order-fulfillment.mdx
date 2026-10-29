@@ -11,10 +11,22 @@ should run twice. Each is a step, so a retry repeats only the step that failed.
 ```csharp title="FulfillOrder.cs"
 using Inngest;
 
-public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total, string Email);
+public sealed record OrderPlaced(string OrderId, string CustomerId, decimal Total, string Email) : IInngestEventData
+{
+    public static string EventName => "shop/order.placed";
+}
+
+public sealed record OrderCancelled(string OrderId) : IInngestEventData
+{
+    public static string EventName => "shop/order.cancelled";
+}
 
 public sealed record Shipment(string TrackingNumber, string Carrier);
 
+[InngestFunction("fulfill-order", Name = "Fulfill an order", Retries = 5, Idempotency = "event.data.orderId")]
+[EventTrigger<OrderPlaced>]
+[Concurrency(1, Key = "event.data.customerId")]
+[CancelOn<OrderCancelled>(Match = "data.orderId", Timeout = "1h")]
 public sealed class FulfillOrder(IInventory inventory, IPayments payments, IShipping shipping, IMailer mailer, IAlerts alerts)
     : InngestFunction<OrderPlaced>, IFailureHandler
 {
@@ -86,6 +98,9 @@ public interface IAlerts
 }
 ```
 
+`AddFunction` reads the attributes once at startup. Durations in them are time strings such as `"1h"`, because attribute
+arguments must be constants:
+
 ```csharp title="Program.cs"
 using Inngest;
 
@@ -95,16 +110,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<FulfillOrder>(new FunctionOptions
-    {
-        Id = "fulfill-order",
-        Name = "Fulfill an order",
-        Triggers = [Trigger.Event("shop/order.placed")],
-        Retries = 5,
-        Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
-        CancelOn = [new CancelOn("shop/order.cancelled") { Match = "data.orderId", Timeout = TimeSpan.FromHours(1) }],
-        Idempotency = "event.data.orderId",
-    });
+    .AddFunction<FulfillOrder>();
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");
@@ -119,12 +125,12 @@ app.Run();
   the stock and tells the customer, both as steps, then fails the run with `NonRetriableException`, since retrying
   the run would not change the outcome.
 - **No double charges.** The charge passes the order id to the payment provider as an idempotency key. A step can
-  succeed and then lose its response, so the provider must recognize a repeat; Inngest cannot. `Idempotency` on the
-  function keeps a duplicated `shop/order.placed` event from starting a second run within 24 hours.
-- **One order per customer at a time.** The concurrency limit keyed on the customer stops two orders of one
+  succeed and then lose its response, so the provider must recognize a repeat; Inngest cannot. `Idempotency` on
+  `[InngestFunction]` keeps a duplicated `shop/order.placed` event from starting a second run within 24 hours.
+- **One order per customer at a time.** `[Concurrency]` with a key on the customer stops two orders of one
   customer from competing for the same stock, while orders of different customers run side by side.
-- **Cancellation.** A `shop/order.cancelled` event for the same order, within an hour, stops the run before its
-  next step.
+- **Cancellation.** With `[CancelOn<OrderCancelled>]`, a `shop/order.cancelled` event for the same order, within an
+  hour, stops the run before its next step.
 - **Alerting.** `IFailureHandler` runs once, after the run has failed for good, for example when a step keeps failing.
   The compensation path ends in that handler too, so operations hear about every failed order.
 

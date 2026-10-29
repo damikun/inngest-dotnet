@@ -11,10 +11,25 @@ not, and follow up a day after they do. The function sleeps and waits through al
 ```csharp title="OnboardUser.cs"
 using Inngest;
 
-public sealed record UserSignedUp(string UserId, string Email, string Name);
+public sealed record UserSignedUp(string UserId, string Email, string Name) : IInngestEventData
+{
+    public static string EventName => "user/signed-up";
+}
 
-public sealed record UserActivated(string UserId, string Plan);
+public sealed record UserActivated(string UserId, string Plan) : IInngestEventData
+{
+    public static string EventName => "user/activated";
+}
 
+public sealed record UserDeleted(string UserId) : IInngestEventData
+{
+    public static string EventName => "user/deleted";
+}
+
+[InngestFunction("onboard-user")]
+[EventTrigger<UserSignedUp>]
+[CancelOn<UserDeleted>(Match = "data.userId")]
+[RateLimit(1, "24h", Key = "event.data.userId")]
 public sealed class OnboardUser(IMailer mailer, ICrm crm) : InngestFunction<UserSignedUp>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -25,7 +40,7 @@ public sealed class OnboardUser(IMailer mailer, ICrm crm) : InngestFunction<User
             ct => mailer.SendAsync(user.Email, "welcome", new { user.Name }, ct));
 
         var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
-            new WaitForEventOptions("user/activated", TimeSpan.FromDays(3)) { Match = "data.userId" });
+            TimeSpan.FromDays(3), match: "data.userId");
 
         if (activated is null)
         {
@@ -33,7 +48,7 @@ public sealed class OnboardUser(IMailer mailer, ICrm crm) : InngestFunction<User
                 ct => mailer.SendAsync(user.Email, "activation-reminder", new { user.Name }, ct));
 
             activated = await context.Step.WaitForEventAsync<UserActivated>("wait-after-reminder",
-                new WaitForEventOptions("user/activated", TimeSpan.FromDays(4)) { Match = "data.userId" });
+                TimeSpan.FromDays(4), match: "data.userId");
 
             if (activated is null)
             {
@@ -62,33 +77,33 @@ public interface ICrm
 }
 ```
 
+Each event record names its event in `EventName`, so the trigger, the waits and the cancellation refer to the type. The
+attributes give the function its id, trigger, cancellation and rate limit; durations in them are time strings such as
+`"24h"`, because attribute arguments must be constants. `AddFunction` reads the attributes once at startup:
+
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
-inngest.AddFunction<OnboardUser>(new FunctionOptions
-{
-    Id = "onboard-user",
-    Triggers = [Trigger.Event("user/signed-up")],
-    CancelOn = [new CancelOn("user/deleted") { Match = "data.userId" }],
-    RateLimit = new RateLimit(1, TimeSpan.FromHours(24)) { Key = "event.data.userId" },
-});
+inngest.AddFunction<OnboardUser>();
 ```
 
-The app sends `user/activated` when the user confirms their email, with the same `userId`:
+When the user confirms their email, the app sends a `UserActivated` event, named `user/activated`, with the same
+`userId`:
 
 {/* check: statements; IInngestClient inngest; string userId; string plan; CancellationToken cancellationToken */}
 ```csharp
-await inngest.SendAsync(new InngestEvent("user/activated", new UserActivated(userId, plan)), cancellationToken);
+await inngest.SendAsync(new UserActivated(userId, plan), cancellationToken);
 ```
 
 ## How it works
 
-- **Waiting for a person.** `WaitForEventAsync` pauses the run for up to three days. `Match = "data.userId"` makes
+- **Waiting for a person.** `WaitForEventAsync` pauses the run for up to three days. `match: "data.userId"` makes
   only this user's activation resume it. On timeout it returns `null`, and the function sends a reminder and waits
   again.
 - **Branching on what happened.** The activation event is a step result, so code after the wait sees the same event
   on every call, and the plan decides which tips to send.
-- **Stopping early.** `CancelOn` ends the run when the account is deleted, even in the middle of a three-day wait.
-- **One onboarding per user.** The rate limit skips a second `user/signed-up` for the same user within a day, for
+- **Stopping early.** `[CancelOn<UserDeleted>]` ends the run when the account is deleted, even in the middle of a
+  three-day wait.
+- **One onboarding per user.** `[RateLimit]` skips a second `user/signed-up` for the same user within a day, for
   example from a double-clicked sign-up button.
 
 A wait only sees events that arrive after it starts. Here the welcome email goes out first, which takes a moment;

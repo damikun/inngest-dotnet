@@ -15,9 +15,12 @@ public sealed record RegionRequest(string Region, string Week);
 
 public sealed record RegionFigures(string Region, decimal Revenue, int Orders);
 
-public sealed class ComputeRegionFigures(IWarehouseQueries queries) : InngestFunction<RegionRequest>
+// Has no trigger of its own: other functions invoke it.
+[InngestFunction("compute-region-figures", Retries = 3)]
+[Concurrency(2)]
+public sealed class ComputeRegionFigures(IWarehouseQueries queries) : InngestFunction<RegionRequest, RegionFigures>
 {
-    public override async Task<object?> ExecuteAsync(FunctionContext<RegionRequest> context, CancellationToken cancellationToken)
+    public override async Task<RegionFigures> ExecuteAsync(FunctionContext<RegionRequest> context, CancellationToken cancellationToken)
     {
         var (region, week) = context.Event.Data;
         var revenue = await context.Step.RunAsync("revenue", ct => queries.RevenueAsync(region, week, ct));
@@ -37,8 +40,13 @@ public interface IWarehouseQueries
 ```csharp title="WeeklyReport.cs"
 using Inngest;
 
-public sealed record ReportRequested(string Week);
+public sealed record ReportRequested(string Week) : IInngestEventData
+{
+    public static string EventName => "reports/weekly.requested";
+}
 
+[InngestFunction("weekly-report")]
+[EventTrigger<ReportRequested>]
 public sealed class WeeklyReport(IReportMailer mailer) : InngestFunction<ReportRequested>
 {
     private static readonly string[] Regions = ["eu-west", "eu-central", "us-east", "us-west", "ap-south"];
@@ -61,12 +69,8 @@ public sealed class WeeklyReport(IReportMailer mailer) : InngestFunction<ReportR
     {
         try
         {
-            return await context.Step.InvokeAsync<RegionFigures>($"figures-{region}",
-                new InvokeOptions("compute-region-figures")
-                {
-                    Data = new RegionRequest(region, week),
-                    Timeout = TimeSpan.FromMinutes(30),
-                });
+            return await context.Step.InvokeAsync<ComputeRegionFigures, RegionFigures>($"figures-{region}",
+                new RegionRequest(region, week), timeout: TimeSpan.FromMinutes(30));
         }
         catch (StepFailedException exception)
         {
@@ -82,29 +86,24 @@ public interface IReportMailer
 }
 ```
 
+`AddFunction` reads the attributes of both classes once at startup:
+
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest
-    .AddFunction<WeeklyReport>(new FunctionOptions
-    {
-        Id = "weekly-report",
-        Triggers = [Trigger.Event("reports/weekly.requested")],
-    })
-    .AddFunction<ComputeRegionFigures>(new FunctionOptions
-    {
-        Id = "compute-region-figures",
-        Triggers = [],
-        Retries = 3,
-        Concurrency = [new ConcurrencyLimit(2)],
-    });
+    .AddFunction<WeeklyReport>()
+    .AddFunction<ComputeRegionFigures>();
 ```
 
 ## How it works
 
 - **Parallel invocations.** All five `InvokeAsync` steps start before any is awaited, so the SDK reports them
-  together and Inngest starts five runs of `compute-region-figures`. The concurrency limit lets two of them query the
+  together and Inngest starts five runs of `compute-region-figures`. `[Concurrency(2)]` lets two of them query the
   warehouse at once.
-- **Results come back typed.** Each invocation returns the region function's output, read as `RegionFigures`.
+- **Results come back typed.** `ComputeRegionFigures` derives from `InngestFunction<RegionRequest, RegionFigures>`, so
+  `InvokeAsync<ComputeRegionFigures, RegionFigures>` returns a `RegionFigures` and the compiler checks the result
+  type. The step takes the function's id from the class, so the id is written once, on `[InngestFunction]`. To invoke
+  a function of another app, or a delegate function, pass `InvokeOptions` with its id instead.
 - **Partial failure.** An invoke step fails when the invoked run fails for good or the timeout passes. Catching
   `StepFailedException` per region turns that into a gap in the report rather than a failed report. The helper takes
   the base `FunctionContext`, which has the step tools and the logger.

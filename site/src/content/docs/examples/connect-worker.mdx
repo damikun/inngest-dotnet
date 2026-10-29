@@ -9,6 +9,26 @@ This example splits an app in two: a public web app that accepts uploads and sen
 network that processes them. The worker has no inbound port at all. It connects out to Inngest with
 [Connect](/inngest-dotnet/guides/connect/) and receives its work over that connection.
 
+## The events
+
+The web app sends `ImageUploaded`, which triggers the worker, and the worker announces `ThumbnailsReady` when it is
+done. The records live in a small class library that both projects reference, so the name and the data of an event are
+written once. The library needs only the `Inngest` package:
+
+```csharp title="Contracts/Events.cs"
+using Inngest;
+
+public sealed record ImageUploaded(string ImageId, string BlobPath) : IInngestEventData
+{
+    public static string EventName => "media/image.uploaded";
+}
+
+public sealed record ThumbnailsReady(string ImageId, string[] Paths) : IInngestEventData
+{
+    public static string EventName => "media/thumbnails.ready";
+}
+```
+
 ## The worker
 
 ```csharp title="Worker/Program.cs"
@@ -20,12 +40,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
 builder.Services
     .AddInngest(options => options.AppId = "media-worker")
-    .AddFunction<MakeThumbnails>(new FunctionOptions
-    {
-        Id = "make-thumbnails",
-        Triggers = [Trigger.Event("media/image.uploaded")],
-        Concurrency = [new ConcurrencyLimit(8)],
-    })
+    .AddFunction<MakeThumbnails>()
     .AddConnect(connect =>
     {
         // Stable per container, unique between containers.
@@ -36,11 +51,14 @@ builder.Services
 await builder.Build().RunAsync();
 ```
 
+`AddFunction` reads the attributes once at startup:
+
 ```csharp title="Worker/MakeThumbnails.cs"
 using Inngest;
 
-public sealed record ImageUploaded(string ImageId, string BlobPath);
-
+[InngestFunction("make-thumbnails")]
+[EventTrigger<ImageUploaded>]
+[Concurrency(8)]
 public sealed class MakeThumbnails(IThumbnailer thumbnailer) : InngestFunction<ImageUploaded>
 {
     private static readonly int[] Widths = [160, 480, 1200];
@@ -52,8 +70,7 @@ public sealed class MakeThumbnails(IThumbnailer thumbnailer) : InngestFunction<I
         var paths = await Task.WhenAll(Widths.Select(width =>
             context.Step.RunAsync($"resize-{width}", ct => thumbnailer.ResizeAsync(image.BlobPath, width, ct))));
 
-        await context.Step.SendEventAsync("announce",
-            new InngestEvent("media/thumbnails.ready", new { image.ImageId, paths }));
+        await context.Step.SendEventAsync("announce", new ThumbnailsReady(image.ImageId, paths));
 
         return new { image.ImageId, thumbnails = paths.Length };
     }
@@ -65,7 +82,8 @@ public interface IThumbnailer
 }
 ```
 
-The worker's project uses the worker SDK and adds the `Inngest.Connect` package, which brings in `Inngest`:
+The worker's project uses the worker SDK, references the contracts library and adds the `Inngest.Connect` package, which
+brings in `Inngest`:
 
 ```xml title="Worker/Worker.csproj"
 <Project Sdk="Microsoft.NET.Sdk.Worker">
@@ -76,13 +94,15 @@ The worker's project uses the worker SDK and adds the `Inngest.Connect` package,
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Inngest.Connect" Version="0.1.0-preview.1" />
+    <ProjectReference Include="../Contracts/Contracts.csproj" />
   </ItemGroup>
 </Project>
 ```
 
 ## The web app
 
-The web app only sends events, so it needs `AddInngest` and an event key, but no functions and no `MapInngest`:
+The web app only sends events, so it needs `AddInngest`, an event key and the contracts library, but no functions and
+no `MapInngest`:
 
 ```csharp title="Web/Program.cs"
 using Inngest;
@@ -96,7 +116,7 @@ app.MapPost("/images/{imageId}", async (string imageId, IInngestClient inngest, 
 {
     // Store the upload first; then hand the processing to the worker.
     var blobPath = $"uploads/{imageId}";
-    await inngest.SendAsync(new InngestEvent("media/image.uploaded", new { imageId, blobPath }), cancellationToken);
+    await inngest.SendAsync(new ImageUploaded(imageId, blobPath), cancellationToken);
     return Results.Accepted();
 });
 
@@ -133,7 +153,7 @@ docker run -p 8080:8080 -e INNGEST_EVENT_KEY=... media-web:latest
 - **Two apps in Inngest.** The worker syncs itself as `media-worker` through its connection. The web app has no
   functions to sync; it only sends events.
 - **Capacity per worker.** `MaxWorkerConcurrency` caps how many calls Inngest sends one worker at a time, and
-  Inngest spreads the rest over other workers. The function's own concurrency limit caps all workers together.
+  Inngest spreads the rest over other workers. The function's own `[Concurrency(8)]` caps all workers together.
 - **Graceful shutdown.** When the container stops, the worker takes no new work and waits up to two minutes for
   running calls. Calls cut off after that are cancelled and retried elsewhere. Set the orchestrator's grace period a
   little longer than the shutdown timeout.

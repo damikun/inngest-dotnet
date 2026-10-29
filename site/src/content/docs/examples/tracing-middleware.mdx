@@ -80,16 +80,29 @@ builder.Services.AddOpenTelemetry()
 
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<SyncCatalog>(new FunctionOptions { Id = "sync-catalog", Triggers = [Trigger.Event("catalog/changed")] })
+    .AddFunction<SyncCatalog>()
     .AddMiddleware<TracingMiddleware>();
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");
 app.Run();
+```
 
-public sealed class SyncCatalog : InngestFunction<System.Text.Json.JsonElement>
+The `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore` and
+`OpenTelemetry.Exporter.OpenTelemetryProtocol` packages provide the registration.
+
+`SyncCatalog` is a function for the middleware to trace. Its attributes give `AddFunction<SyncCatalog>()` the id and the
+trigger. The function reads its event as `JsonElement`, so the trigger names the event with a string:
+
+```csharp title="SyncCatalog.cs"
+using System.Text.Json;
+using Inngest;
+
+[InngestFunction("sync-catalog")]
+[EventTrigger("catalog/changed")]
+public sealed class SyncCatalog : InngestFunction<JsonElement>
 {
-    public override async Task<object?> ExecuteAsync(FunctionContext<System.Text.Json.JsonElement> context, CancellationToken cancellationToken)
+    public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
     {
         var count = await context.Step.RunAsync("load-products", () => 42);
         await context.Step.RunAsync("publish", () => context.Logger.LogInformation("Published {Count} products", count));
@@ -97,9 +110,6 @@ public sealed class SyncCatalog : InngestFunction<System.Text.Json.JsonElement>
     }
 }
 ```
-
-The `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore` and
-`OpenTelemetry.Exporter.OpenTelemetryProtocol` packages provide the registration.
 
 ## How it works
 
