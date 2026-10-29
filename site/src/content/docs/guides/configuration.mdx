@@ -50,6 +50,47 @@ The SDK reads the variables through `IConfiguration` when the host has one, so t
 
 Without `IConfiguration`, for example in a plain `ServiceCollection`, it reads the process environment.
 
+## Settings in appsettings.json
+
+`AddInngest` can also read the options from a configuration section, so that they sit in `appsettings.json` with the
+rest of the app's settings:
+
+```json title="appsettings.json"
+{
+  "Inngest": {
+    "AppId": "billing",
+    "EventKey": "...",
+    "SigningKey": "..."
+  }
+}
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+builder.Services.AddInngest(builder.Configuration.GetSection("Inngest"));
+```
+
+Every option in the table above has a key of the same name, except `SerializerOptions`. `Checkpointing` is a
+subsection with the keys `Enabled`, `MaxRuntime`, `BufferedSteps` and `MaxInterval`. A duration is an Inngest time
+string such as `30s`, `5m` or `1h30m`, or the form .NET writes a `TimeSpan` in, such as `00:00:30`. Keys the SDK does
+not know are ignored. A value it cannot read stops the app with an error that names the key, such as
+`Inngest:IsDev must be true or false, but it is 'maybe'.`
+
+The section is the lowest layer. A setting comes from the first of these that has it:
+
+1. Options set in code, in the callback of `AddInngest` or in `Configure<InngestOptions>`.
+2. The `INNGEST_*` variables.
+3. The section.
+4. The default.
+
+So a container can still set `INNGEST_DEV` or `INNGEST_SIGNING_KEY` to override the file, and `AddInngest` and
+`Configure<InngestOptions>` can be called in any order. `AppId` may come from the section too; the startup check
+accepts it from either place.
+
+The SDK reads the keys one by one instead of binding the section to `InngestOptions`, so this works in trimmed and
+Native AOT apps. Keep the keys out of the file you commit: user secrets, or environment variables such as
+`Inngest__SigningKey`, reach the section like any other configuration source.
+
 ## Dev mode and cloud mode
 
 The SDK runs in one of two modes:

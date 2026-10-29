@@ -222,7 +222,10 @@ retried send creates the same event ids. Sends are retried up to 5 attempts with
 | `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
 
 Options set in code win over environment variables. Variables are read through `IConfiguration`, so they can
-also come from `appsettings.json` or any other configuration source.
+also come from `appsettings.json` or any other configuration source. `AddInngest(IConfiguration)` reads the options
+from a section such as `Inngest` as well, as the lowest layer: code wins over the `INNGEST_*` variables, which win
+over the section, which wins over the defaults. The section is read key by key rather than through the configuration
+binder, so it works trimmed and under Native AOT.
 
 ## .NET architecture
 
