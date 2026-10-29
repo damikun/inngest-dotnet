@@ -277,6 +277,20 @@ public sealed class InngestSettingsConfigurationTests
     }
 
     [Fact]
+    public void A_dev_server_from_code_or_INNGEST_DEV_wins_over_the_addresses_in_the_section()
+    {
+        (string, string?)[] section = [("BaseUrl", "https://self-hosted.example.com"), ("DevServerUrl", "http://section-box:1111")];
+
+        var fromVariable = Create(section, variables: [("INNGEST_DEV", "http://env-box:2222")]);
+        var fromOptions = Create(section, options => options.DevServerUrl = new Uri("http://code-box:3333"), [("INNGEST_DEV", "1")]);
+
+        fromVariable.ApiBaseUrl.Host.ShouldBe("env-box");
+        fromVariable.EventApiBaseUrl.Host.ShouldBe("env-box");
+        fromOptions.ApiBaseUrl.Host.ShouldBe("code-box");
+        fromOptions.EventApiBaseUrl.Host.ShouldBe("code-box");
+    }
+
+    [Fact]
     public void The_API_address_comes_from_the_first_of_these_that_is_set()
     {
         (string, string?)[] section =

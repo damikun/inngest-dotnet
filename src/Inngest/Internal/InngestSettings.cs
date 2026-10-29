@@ -90,27 +90,29 @@ internal sealed record InngestSettings
         var isDev = options.IsDev ?? devFlag ?? (devUrlVariable is not null || section?.IsDev == true);
 
         // The dev server address only applies in dev mode, so IsDev = false keeps an INNGEST_DEV URL from
-        // redirecting cloud traffic.
-        var devUrl = isDev
-            ? RequireHttpUrl(options.DevServerUrl, nameof(InngestOptions.DevServerUrl)) ?? devUrlVariable ?? section?.DevServerUrl
-            : null;
+        // redirecting cloud traffic. The one from code or INNGEST_DEV wins over every address in the section, and the
+        // section's own comes after its other addresses, as DevServerUrl does in the options.
+        var devUrl = isDev ? RequireHttpUrl(options.DevServerUrl, nameof(InngestOptions.DevServerUrl)) ?? devUrlVariable : null;
+        var sectionDevUrl = isDev ? section?.DevServerUrl : null;
 
         var apiBaseUrl = RequireHttpUrl(options.BaseUrl, nameof(InngestOptions.BaseUrl))
             ?? RequireHttpUrl(options.ApiBaseUrl, nameof(InngestOptions.ApiBaseUrl))
             ?? variables.GetUrl("INNGEST_API_BASE_URL")
             ?? variables.GetUrl("INNGEST_BASE_URL")
+            ?? devUrl
             ?? section?.BaseUrl
             ?? section?.ApiBaseUrl
-            ?? devUrl
+            ?? sectionDevUrl
             ?? (isDev ? DefaultDevServerUrl : DefaultApiBaseUrl);
 
         var eventApiBaseUrl = RequireHttpUrl(options.BaseUrl, nameof(InngestOptions.BaseUrl))
             ?? RequireHttpUrl(options.EventApiBaseUrl, nameof(InngestOptions.EventApiBaseUrl))
             ?? variables.GetUrl("INNGEST_EVENT_API_BASE_URL")
             ?? variables.GetUrl("INNGEST_BASE_URL")
+            ?? devUrl
             ?? section?.BaseUrl
             ?? section?.EventApiBaseUrl
-            ?? devUrl
+            ?? sectionDevUrl
             ?? (isDev ? DefaultDevServerUrl : DefaultEventApiBaseUrl);
 
         var serveOrigin = RequireHttpUrl(options.ServeOrigin, nameof(InngestOptions.ServeOrigin))
