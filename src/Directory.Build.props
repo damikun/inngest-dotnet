@@ -11,6 +11,7 @@
     <Authors>inngest-dotnet contributors</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>inngest;durable-execution;workflows;background-jobs;queues</PackageTags>
     <Copyright>Copyright 2026 the inngest-dotnet contributors. Portions copyright 2022 Inngest Inc.</Copyright>
     <PackageProjectUrl>https://damikun.github.io/inngest-dotnet/</PackageProjectUrl>
@@ -26,6 +27,8 @@
   <ItemGroup>
     <!-- nuget.org renders no HTML and no images from the repository, so the packages carry a plain README of their own. -->
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+    <!-- The site's mark (site/public/favicon.svg) at the 128 px nuget.org recommends, with transparent corners. -->
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="/" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)../LICENSE" Pack="true" PackagePath="/" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)../NOTICE" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
