@@ -1,6 +1,11 @@
 namespace Inngest.Sample.Functions;
 
-// Welcomes a new user, waits up to a day for them to activate their account and nudges them if they do not.
+// Welcomes a new user, waits up to a day for them to activate their account and nudges them if they do not. Deleting
+// the user cancels the run.
+[InngestFunction("onboard-user", Name = "Onboard a new user", Retries = 3)]
+[EventTrigger<UserSignedUp>]
+[Concurrency(10)]
+[CancelOn<UserDeleted>(Match = "data.userId")]
 public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>, IFailureHandler
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -11,7 +16,7 @@ public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSigned
             ct => email.SendAsync(user.Email, "Welcome!", ct));
 
         var activated = await context.Step.WaitForEventAsync<UserActivated>("wait-for-activation",
-            new WaitForEventOptions(Events.UserActivated, TimeSpan.FromDays(1)) { Match = "data.userId" });
+            TimeSpan.FromDays(1), match: "data.userId");
 
         if (activated is null)
         {
