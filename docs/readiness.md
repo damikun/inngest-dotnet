@@ -13,7 +13,7 @@ invocations. It passed every check, and the two bugs the checks turned up are fi
 | Load | 8,000 of 8,000 runs completed with the right output in dev mode, and 8,000 of 8,000 in cloud mode. The app stayed under 60 MiB of memory; the server, not the app, set the pace |
 | Memory | Flat over 8 million engine invocations and 1.6 million signed HTTP invocations; work abandoned on a pending step is collected |
 | Concurrency | 11 stress tests with up to 4,000 concurrent invocations each get their own answers |
-| Tests | 1,249 unit tests and 164 end-to-end tests against the Inngest server in Docker |
+| Tests | 1,596 unit tests and 196 end-to-end tests against the Inngest server in Docker |
 
 The checks ran on 2026-10-29 on an Apple M3 Max with Docker Desktop, the `mcr.microsoft.com/dotnet/aspnet:10.0`
 image and `inngest/inngest:v1.49.0`. The raw data of every check, from the flow results to the load and memory

@@ -1,30 +1,37 @@
 ---
 title: Roadmap
-description: What comes next for the Inngest .NET SDK, from a test host and OpenTelemetry tracing to race mode for parallel steps and checkpointing.
+description: What the first preview of the Inngest .NET SDK added, and what comes next, from guides for the new features to checkpointing by default and middleware packages.
 ---
 
-The SDK already covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
+The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
 control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
-under Native AOT. This is what comes next, roughly in order.
+under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest) as a preview.
+
+## New in 0.1.0-preview.1
+
+- **A test host, `Inngest.Testing`.** Unit-test a function the way Inngest runs it, call by call, with mocks for
+  steps, sleeps, waits and invokes.
+- **OpenTelemetry, `Inngest.OpenTelemetry`.** Traces for calls and steps, and metrics for runs, retries and
+  durations, without writing the middleware yourself.
+- **Connect health checks.** The worker's connection state and a health check for readiness probes.
+- **Race mode for parallel steps.** A race resumes as soon as its first step finishes, for races such as approved
+  or rejected.
+- **A runs client.** Read a run's status and output, list the runs of an event, and cancel runs from your own code.
+- **Signals, durable fetch and AI inference** as steps, and sending events or signals to another environment.
+- **Checkpointing, opt-in.** Consecutive steps run in one request and are saved to Inngest in the background, with
+  fewer requests per run.
+- **Smaller additions.** Event access in middleware, middleware for one function, payload transforms, typed system
+  events, the cause of a failed step, cron jitter and readable step names in the Inngest UI.
 
 ## Next
 
-- **A test host, `Inngest.Testing`.** Unit-test a function the way Inngest runs it, call by call, with mocks for sleeps
-  and waits.
-- **OpenTelemetry tracing, `Inngest.OpenTelemetry`.** Traces for runs and steps without writing the middleware
-  yourself.
-- **Connect health checks.** The worker's connection state and an `IHealthCheck` for readiness probes.
-- **Race mode for parallel steps.** Resume a run as soon as the first of several steps finishes, for races such as
-  approved or rejected.
-- **An admin client.** Read a run's status and output, and cancel runs, from your own code.
-- **Smaller additions.** Event access in middleware, typed system events, the cause of a failed step, cron jitter and
-  readable step names in the Inngest UI.
-- **More guides.** Versioning, idempotency, loops, expressions, local development and testing.
+- **Guides for the new features**, and for versioning, idempotency, loops, expressions, local development and
+  testing.
+- **Checkpointing on by default**, once it has more time against Inngest Cloud.
+- **Middleware packages** for Sentry, validation and encryption, built on the payload transforms.
 
 ## After that
 
-- **Checkpointing.** Several steps in one request, with their results reported in the background: lower latency
-  and fewer requests. It also opens the way to Inngest's durable endpoints.
-- Signals, Sentry and validation middleware packages, Roslyn analyzers, realtime and encryption.
+- Realtime publishing, Roslyn analyzers, and Inngest's durable endpoints, which build on checkpointing.
 
 Ideas and pull requests are welcome on [GitHub](https://github.com/damikun/inngest-dotnet/issues).

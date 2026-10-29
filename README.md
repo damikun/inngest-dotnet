@@ -24,10 +24,12 @@ TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js), and it foll
 injection, `IOptions`, `ILogger`, `CancellationToken`, `TimeSpan` and plain `Task`-based code. Serve your functions
 from ASP.NET Core, or from a worker that needs no public endpoint.
 
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/how-a-run-works-dark.svg">
   <img alt="CheckoutFunction as Inngest runs it, step by step. The charge runs and completes. Send-receipt fails, and Inngest retries that step alone while the charge stays completed; the retry succeeds. The run then sleeps for 30 minutes, and ship runs." src=".github/assets/how-a-run-works-light.svg">
 </picture>
+</p>
 
 Inngest runs each step once and keeps its result. When `send-receipt` fails, Inngest retries that step alone, so the
 card is not charged again, and a sleep holds no thread or worker while it waits.
@@ -269,9 +271,9 @@ The documentation has complete examples:
 
 ## Quality and testing
 
-- **1,249 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
+- **1,596 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
   invocations at once.
-- **164 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **196 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.

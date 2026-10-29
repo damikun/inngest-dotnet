@@ -78,6 +78,15 @@ requests there and logs a warning for each one.
 app.MapGet("/healthz", () => Results.Ok());
 ```
 
+A Connect worker has no endpoint for Inngest, but it can still report whether it is connected. The Connect health
+check is healthy only while the worker holds an active connection, so use it for the readiness probe, not for
+liveness: a worker that is reconnecting recovers by itself.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+builder.Services.AddHealthChecks().AddInngestConnect();
+```
+
 ## Scaling and restarts
 
 The app holds no state between calls: a run's state lives in Inngest, and any instance can serve any call, including

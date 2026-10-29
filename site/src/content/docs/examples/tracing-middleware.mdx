@@ -5,6 +5,12 @@ sidebar:
   label: Tracing middleware
 ---
 
+:::note
+The [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/) package does this for you: call
+`AddInstrumentation()` on the Inngest builder, and `AddInngestInstrumentation()` on your tracer and meter providers.
+This example shows how to write such a middleware yourself, for tags or spans of your own.
+:::
+
 Each call from Inngest runs only part of a function, so request traces alone show a series of short, unrelated
 requests. A middleware can add what the traces lack: an activity per call and per executed step, tagged with the
 function, the run and the step, so that one run can be followed across calls.

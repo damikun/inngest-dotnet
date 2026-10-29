@@ -162,8 +162,10 @@ The [tracing example](/inngest-dotnet/examples/tracing-middleware/) wraps steps 
 
 ## Compared with the TypeScript SDK
 
-The hooks follow inngest-js v4's middleware, with .NET names. The transform hooks of the TypeScript SDK
-(`transformFunctionInput`, `transformStepInput`) and `wrapRequest` are not available yet; constructor injection
-covers most of what they are used for in TypeScript. Inngest's
+The hooks follow inngest-js v4's middleware, with .NET names. The TypeScript SDK's transform hooks
+(`transformFunctionInput`, `transformStepInput`) have a .NET counterpart in `IPayloadTransform`: a middleware that
+implements it rewrites the raw JSON of events, step results, step output and the function's output, which is what
+encryption needs. There is no `wrapRequest`: ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a
+request, and constructor injection covers most other uses. Inngest's
 [middleware guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/middleware) describes the
 lifecycle in general.

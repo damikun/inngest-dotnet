@@ -66,9 +66,22 @@ var backup = context.Step.RunAsync("quote-backup", ct => backupCarrier.QuoteAsyn
 var quote = await await Task.WhenAny(primary, backup);
 ```
 
-Every planned step still runs to the end; the losing quote is recorded and simply not used. Inngest calls the
-function again after the planned steps have finished, so a race picks the first result but does not return it any
-sooner. The SDK replays results in the order they finished, so the same step wins on every later call.
+Every planned step still runs to the end; the losing quote is recorded and simply not used. By default Inngest calls
+the function again only after all the planned steps have finished, so a race picks the first result but does not
+return it any sooner. The SDK replays results in the order they finished, so the same step wins on every later call.
+
+To go on as soon as the first step finishes, run the race in race mode. Every step started inside `ParallelAsync`
+tells Inngest to call the function again after each of them finishes:
+
+{/* check: body JsonElement; ICarrier primaryCarrier; ICarrier backupCarrier; Shipment shipment */}
+```csharp
+var quote = await await context.Step.ParallelAsync(ParallelMode.Race, () => Task.WhenAny(
+    context.Step.RunAsync("quote-primary", ct => primaryCarrier.QuoteAsync(shipment, ct)),
+    context.Step.RunAsync("quote-backup", ct => backupCarrier.QuoteAsync(shipment, ct))));
+```
+
+The losing step still runs to the end. The first step after the race runs right away, but the steps after that wait
+for the losing step to finish, unless they run in race mode too.
 
 ## Things to watch
 

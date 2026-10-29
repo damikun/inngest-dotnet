@@ -3,8 +3,8 @@
 // readiness report. Keep them in step with docs/readiness.md when either changes.
 const base = '/inngest-dotnet/';
 const stats = [
-  { value: '1,249', label: 'unit tests, including concurrency stress tests with thousands of invocations at once' },
-  { value: '164', label: 'end-to-end tests against the Inngest server in Docker, in dev mode and signed cloud mode' },
+  { value: '1,596', label: 'unit tests, including concurrency stress tests with thousands of invocations at once' },
+  { value: '196', label: 'end-to-end tests against the Inngest server in Docker, in dev mode and signed cloud mode' },
   { value: '8,000 / 8,000', label: 'runs completed correctly under sustained load, in dev mode and again in cloud mode' },
   { value: 'Flat', label: 'memory over 8 million engine invocations and 1.6 million signed HTTP calls' },
 ];
@@ -27,8 +27,8 @@ const stats = [
     report</a>.
   </p>
   <p class="next">
-    <strong>Coming next:</strong> a test host, OpenTelemetry tracing and race mode for parallel steps, then
-    checkpointing. <a href={`${base}roadmap/`}>See the roadmap</a>.
+    <strong>Coming next:</strong> guides for the newest features, checkpointing on by default, and middleware
+    packages for Sentry, validation and encryption. <a href={`${base}roadmap/`}>See the roadmap</a>.
   </p>
 </div>
 
