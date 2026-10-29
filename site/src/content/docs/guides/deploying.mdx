@@ -59,9 +59,8 @@ EXPOSE 8080
 ENTRYPOINT ["dotnet", "Shop.dll"]
 ```
 
-While the SDK is not on NuGet, the build context has to contain the SDK projects the app references, for example
-with the repository added as a git submodule. For a [Native AOT](/inngest-dotnet/guides/native-aot/) app, publish
-with `-r linux-x64` and use `mcr.microsoft.com/dotnet/runtime-deps:10.0` as the final image.
+For a [Native AOT](/inngest-dotnet/guides/native-aot/) app, publish with `-r linux-x64` and use
+`mcr.microsoft.com/dotnet/runtime-deps:10.0` as the final image.
 
 Run it with the keys as environment variables:
 

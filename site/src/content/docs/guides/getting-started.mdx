@@ -26,15 +26,29 @@ only that one. The dev server shows every step as it happens.
 
 ## 1. Add the SDK
 
-The packages are not on NuGet yet. Clone [the repository](https://github.com/damikun/inngest-dotnet) next to your
-app and reference two projects:
+Install `Inngest.AspNetCore` from NuGet. It brings in `Inngest`. The version is a preview, so add `--prerelease`:
+
+```bash
+dotnet add package Inngest.AspNetCore --prerelease
+```
+
+Or reference it in the project file:
 
 ```xml title="Shop.csproj"
 <ItemGroup>
-  <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
-  <ProjectReference Include="../inngest-dotnet/src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+  <PackageReference Include="Inngest.AspNetCore" Version="0.1.0-preview.1" />
 </ItemGroup>
 ```
+
+The SDK has five packages in all:
+
+| Package | What it gives you |
+|---|---|
+| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. |
+| [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/) | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app. |
+| [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. See [Connect](/inngest-dotnet/guides/connect/). |
+| [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |
+| [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/) | Traces and metrics for function calls and steps. |
 
 ## 2. Write a function
 

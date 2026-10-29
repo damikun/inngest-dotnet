@@ -20,12 +20,17 @@ The functions are the same. Only the way they are served changes.
 
 ## Set up a worker
 
-Reference the `Inngest.Connect` project as well as `Inngest`:
+Install `Inngest.Connect` from NuGet. It brings in `Inngest`. The version is a preview, so add `--prerelease`:
+
+```bash
+dotnet add package Inngest.Connect --prerelease
+```
+
+Or reference it in the project file:
 
 ```xml title="Worker.csproj"
 <ItemGroup>
-  <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
-  <ProjectReference Include="../inngest-dotnet/src/Inngest.Connect/Inngest.Connect.csproj" />
+  <PackageReference Include="Inngest.Connect" Version="0.1.0-preview.1" />
 </ItemGroup>
 ```
 

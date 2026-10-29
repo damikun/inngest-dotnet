@@ -9,6 +9,7 @@ Write background jobs and workflows as plain C# methods. Inngest runs every step
 lets a run wait for days, so you ship reliable workflows without queues, state tables or cron glue.
 
 [![CI](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/vpre/Inngest)](https://www.nuget.org/packages/Inngest)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-f65c4f)](LICENSE)
 
 [Documentation](https://damikun.github.io/inngest-dotnet/) ·
@@ -155,23 +156,31 @@ socket and results go back over it, so the worker needs no public endpoint and c
 
 | Package | What it gives you |
 |---|---|
-| `Inngest` | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. Its only dependencies are `Microsoft.Extensions.*` packages. |
-| `Inngest.AspNetCore` | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app. |
-| `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
+| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. Its only dependencies are `Microsoft.Extensions.*` packages. |
+| [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/) | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app. |
+| [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
+| [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |
+| [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/) | Traces and metrics for function calls and steps. |
 
 Each package targets `net8.0` and `net10.0`.
 
 ## Quick start
 
-1. **Reference the SDK.** The packages are not on NuGet yet, so clone this repository next to your app and reference
-   its projects:
+1. **Install the SDK.** `Inngest.AspNetCore` brings in `Inngest`. The version is a preview, so add `--prerelease`:
+
+   ```bash
+   dotnet add package Inngest.AspNetCore --prerelease
+   ```
+
+   Or reference it in your project file:
 
    ```xml
    <ItemGroup>
-     <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
-     <ProjectReference Include="../inngest-dotnet/src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+     <PackageReference Include="Inngest.AspNetCore" Version="0.1.0-preview.1" />
    </ItemGroup>
    ```
+
+   For a worker with no public endpoint, install `Inngest.Connect` instead.
 
 2. **Register the function and map the endpoint.** `AddInngest` registers the SDK and your functions, and
    `MapInngest` maps the endpoint Inngest calls:

@@ -65,7 +65,7 @@ public interface IThumbnailer
 }
 ```
 
-The worker's project references `Inngest` and `Inngest.Connect` and uses the worker SDK:
+The worker's project uses the worker SDK and adds the `Inngest.Connect` package, which brings in `Inngest`:
 
 ```xml title="Worker/Worker.csproj"
 <Project Sdk="Microsoft.NET.Sdk.Worker">
@@ -75,8 +75,7 @@ The worker's project references `Inngest` and `Inngest.Connect` and uses the wor
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
-    <ProjectReference Include="../inngest-dotnet/src/Inngest.Connect/Inngest.Connect.csproj" />
+    <PackageReference Include="Inngest.Connect" Version="0.1.0-preview.1" />
   </ItemGroup>
 </Project>
 ```

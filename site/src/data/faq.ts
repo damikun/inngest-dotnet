@@ -32,7 +32,7 @@ export const faq: Faq[] = [
   },
   {
     question: 'Is it ready for production?',
-    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 1,249 unit tests, 164 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. NuGet packages come next; until then you reference the projects from the repository.`,
+    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 1,249 unit tests, 164 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. The packages are on NuGet as a preview.`,
   },
   {
     question: 'Does it work with Native AOT?',

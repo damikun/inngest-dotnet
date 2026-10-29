@@ -9,12 +9,27 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
 
 ## Packages
 
-- `Inngest`: functions, steps, triggers, flow control, middleware, the client that sends events, and request signing.
-- `Inngest.AspNetCore`: `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app.
-- `Inngest.Connect`: `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint
-  to expose.
+- [`Inngest`](https://www.nuget.org/packages/Inngest/): functions, steps, triggers, flow control, middleware, the
+  client that sends events, and request signing.
+- [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/): `MapInngest`, the endpoint Inngest calls
+  in an ASP.NET Core app.
+- [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/): `AddConnect`, a hosted worker that receives
+  calls over an outbound WebSocket, with no endpoint to expose.
+- [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/): an in-memory test host that runs your functions
+  on the real execution engine.
+- [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/): traces and metrics for function
+  calls and steps.
 
-Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`.
+Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`. The version is
+a preview, so add `--prerelease`:
+
+```bash
+dotnet add package Inngest.AspNetCore --prerelease
+```
+
+```bash
+dotnet add package Inngest.Connect --prerelease
+```
 
 ## A durable function
 

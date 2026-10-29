@@ -263,16 +263,15 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
 
 </Section>
 
-<Section id="quick-start" eyebrow="Quick start" title="Your first durable function in five minutes" lead="Reference the SDK, register a function, start the dev server, and watch a run go step by step on your machine.">
+<Section id="quick-start" eyebrow="Quick start" title="Your first durable function in five minutes" lead="Install the SDK, register a function, start the dev server, and watch a run go step by step on your machine.">
 
 <Steps>
 
-1. Reference the SDK. The packages are not on NuGet yet, so clone the
-   [repository](https://github.com/damikun/inngest-dotnet) and reference its projects:
+1. Install the SDK from NuGet. `Inngest.AspNetCore` brings in `Inngest`. The version is a preview, so add
+   `--prerelease`:
 
-   ```xml
-   <ProjectReference Include="../inngest-dotnet/src/Inngest/Inngest.csproj" />
-   <ProjectReference Include="../inngest-dotnet/src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
+   ```bash
+   dotnet add package Inngest.AspNetCore --prerelease
    ```
 
 2. Register the function and map the endpoint Inngest calls:
@@ -317,7 +316,7 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
 <div class="idn-grid idn-grid-2">
 <LinkCard title="Guides" description="Functions, steps, events, flow control, errors, middleware, Connect and deployment." href="/inngest-dotnet/guides/getting-started/" />
 <LinkCard title="Examples" description="Order fulfillment, onboarding, nightly billing, webhooks and more, complete and explained." href="/inngest-dotnet/examples/order-fulfillment/" />
-<LinkCard title="Roadmap" description="What comes next: NuGet packages, a test host, OpenTelemetry tracing, race mode and checkpointing." href="/inngest-dotnet/roadmap/" />
+<LinkCard title="Roadmap" description="What comes next: a test host, OpenTelemetry tracing, race mode and checkpointing." href="/inngest-dotnet/roadmap/" />
 <LinkCard title="Inngest documentation" description="The platform: events, flow control, deployment, self-hosting and the dashboard." href="https://www.inngest.com/docs" />
 </div>
 
