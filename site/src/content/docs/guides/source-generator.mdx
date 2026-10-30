@@ -203,9 +203,9 @@ warning INNGEST010: 'Receipt' is the result of function 'OnRefund', but no JsonS
 ```
 
 The code fix, in the IDE, adds `[JsonSerializable(typeof(Receipt))]` to a context of the project, and the `using`
-directive the type needs if the file lacks it. It offers one fix for each context the project has. It does not fix all
-the diagnostics of a project in one go, and it offers nothing when the project has no context: declare one first, as
-the Native AOT guide shows.
+directive the type needs if the file lacks it. It offers one fix for each context the project has. Fixing all
+occurrences in a document, a project or a solution adds every missing type to the chosen context in one edit, each type
+once. It offers nothing when the project has no context: declare one first, as the Native AOT guide shows.
 
 ### Why the generator does not list the types itself
 

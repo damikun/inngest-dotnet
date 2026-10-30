@@ -266,8 +266,105 @@ public sealed class AddJsonSerializableCodeFixTests
         test.AddUnchanged("FirstJson.Generated.cs", Sources.ContextImplementation("FirstJson"));
         test.AddUnchanged("SecondJson.Generated.cs", Sources.ContextImplementation("SecondJson"));
 
-        // The fixes are offered in the order the contexts are found, so the second one is chosen by what it says.
-        test.CodeActionEquivalenceKey = "AddJsonSerializableCodeFixProvider:SecondJson:global::Shop.Refund";
+        // One fix is offered for each context, so the second one is chosen by the context it says.
+        test.CodeActionEquivalenceKey = "AddJsonSerializableCodeFixProvider:Shop.SecondJson";
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Fixing_all_adds_each_type_once_in_a_single_edit()
+    {
+        // Refund is the event data of two functions, and Receipt is the result of one.
+        const string source = """
+            namespace Shop
+            {
+                public sealed record Order(string Id);
+
+                public sealed record Refund(string OrderId);
+
+                public sealed record Receipt(Guid Id);
+
+                [JsonSerializable(typeof(Order))]
+                internal sealed partial class AppJson : JsonSerializerContext;
+
+                [InngestFunction("refund")]
+                public sealed class OnRefund : InngestFunction<{|INNGEST010:Refund|}, {|INNGEST010:Receipt|}>
+                {
+                    public override Task<Receipt> ExecuteAsync(FunctionContext<Refund> context, CancellationToken cancellationToken) =>
+                        Task.FromResult(new Receipt(Guid.NewGuid()));
+                }
+
+                [InngestFunction("audit")]
+                public sealed class OnAudit : InngestFunction<{|INNGEST010:Refund|}>
+                {
+                    public override Task<object?> ExecuteAsync(FunctionContext<Refund> context, CancellationToken cancellationToken) =>
+                        Task.FromResult<object?>(null);
+                }
+            }
+            """;
+        var fixedSource = source
+            .Replace("{|INNGEST010:Refund|}", "Refund", StringComparison.Ordinal)
+            .Replace("{|INNGEST010:Receipt|}", "Receipt", StringComparison.Ordinal)
+            .Replace("    [JsonSerializable(typeof(Order))]\n", "    [JsonSerializable(typeof(Order))]\n    [JsonSerializable(typeof(Refund))]\n    [JsonSerializable(typeof(Receipt))]\n", StringComparison.Ordinal);
+        fixedSource.ShouldContain("typeof(Receipt)");
+
+        await Run(source, fixedSource);
+    }
+
+    [Fact]
+    public async Task Fixing_all_in_a_project_collects_the_types_of_every_file()
+    {
+        const string first = """
+            namespace Shop
+            {
+                public sealed record Refund(string OrderId);
+
+                [InngestFunction("refund")]
+                public sealed class OnRefund : InngestFunction<{|INNGEST010:Refund|}>
+                {
+                    public override Task<object?> ExecuteAsync(FunctionContext<Refund> context, CancellationToken cancellationToken) =>
+                        Task.FromResult<object?>(null);
+                }
+            }
+            """;
+        const string second = """
+            namespace Shop
+            {
+                public sealed record Invoice(string Id);
+
+                [InngestFunction("invoice")]
+                public sealed class OnInvoice : InngestFunction<{|INNGEST010:Invoice|}>
+                {
+                    public override Task<object?> ExecuteAsync(FunctionContext<Invoice> context, CancellationToken cancellationToken) =>
+                        Task.FromResult<object?>(null);
+                }
+            }
+            """;
+        const string context = """
+            using System.Text.Json.Serialization;
+
+            namespace Shop
+            {
+                internal sealed partial class AppJson : JsonSerializerContext;
+            }
+            """;
+        const string fixedContext = """
+            using System.Text.Json.Serialization;
+
+            namespace Shop
+            {
+                [JsonSerializable(typeof(Refund))]
+                [JsonSerializable(typeof(Invoice))]
+                internal sealed partial class AppJson : JsonSerializerContext;
+            }
+            """;
+
+        var test = NewTest(Sources.Usings + first, Sources.Usings + first.Replace("{|INNGEST010:Refund|}", "Refund", StringComparison.Ordinal));
+        test.TestState.Sources.Add(("Invoices.cs", Sources.Usings + second));
+        test.FixedState.Sources.Add(("Invoices.cs", Sources.Usings + second.Replace("{|INNGEST010:Invoice|}", "Invoice", StringComparison.Ordinal)));
+        test.TestState.Sources.Add(("AppJson.cs", context));
+        test.FixedState.Sources.Add(("AppJson.cs", fixedContext));
+        test.AddUnchanged("AppJson.Generated.cs", Sources.ContextImplementation("AppJson"));
         await test.RunAsync();
     }
 

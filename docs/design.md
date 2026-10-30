@@ -426,7 +426,9 @@ app does. `buildTransitive` and not `build`, because an app mostly reaches `Inng
   The set is computed when the first type needs it.
 - **The generator cannot fill the context.** Generators run on the same input and the output of one is not input to
   another, so `[JsonSerializable]` attributes written by Inngest's generator would never reach System.Text.Json's. The
-  code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives.
+  code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives. Its equivalence
+  key names the context and not the type, and its own `FixAllProvider` adds every type of the scope to that context in one
+  edit: the batch fixer merges text changes, which collide when several diagnostics edit the same class.
 
 ### Logging
 
