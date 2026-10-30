@@ -10,6 +10,8 @@
     <!-- ChatClientBuilder and FunctionInvokingChatClient live here, not in the abstractions, which this brings in. It has builds
          for net8.0 and net10.0. -->
     <PackageReference Include="Microsoft.Extensions.AI" />
+    <!-- The generator behind the log messages. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Inngest\Inngest.csproj" />

@@ -5,7 +5,7 @@ using System.Text.Json;
 using Inngest.Execution;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Extensions.AI;
 
@@ -15,7 +15,7 @@ namespace Inngest.Extensions.AI;
 //
 // The decision is made per call, from the invocation the calling code runs in, so one client serves any number of runs
 // and the same pipeline works in a function, a controller and a unit test.
-internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestStepsOptions options, ILogger logger) : DelegatingChatClient(innerClient)
+internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestStepsOptions options) : DelegatingChatClient(innerClient)
 {
     private const string DefaultStepId = "chat";
 
@@ -83,6 +83,9 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
         bool streaming,
         CancellationToken cancellationToken)
     {
+        // The logger of the function drops what is written while the run replays steps it has already memoized, so a
+        // warning about a step is written once per run and not once per call.
+        var logger = Invocation.AmbientContext?.Logger ?? NullLogger.Instance;
         var stepId = settings.StepId ?? DefaultStepId;
         var history = messages as IList<ChatMessage> ?? [.. messages];
         var realtime = streaming && settings.StreamTo is not null

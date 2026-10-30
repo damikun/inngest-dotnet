@@ -3,7 +3,7 @@
 using System.Text.Json;
 using Inngest.Execution;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Extensions.AI;
 
@@ -16,12 +16,11 @@ internal static class ToolSteps
     // tool is called, and the step only memoizes what it returned.
     public static Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> Wrap(
         Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>>? invoke,
-        InngestStepsOptions options,
-        ILogger logger)
+        InngestStepsOptions options)
     {
         invoke ??= static (context, cancellationToken) => context.Function.InvokeAsync(context.Arguments, cancellationToken);
         return (context, cancellationToken) => Invocation.AmbientSteps is { } steps
-            ? InvokeAsStepAsync(steps, invoke, context, options, logger, cancellationToken)
+            ? InvokeAsStepAsync(steps, invoke, context, options, cancellationToken)
             : invoke(context, cancellationToken);
     }
 
@@ -30,7 +29,6 @@ internal static class ToolSteps
         Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> invoke,
         FunctionInvocationContext context,
         InngestStepsOptions options,
-        ILogger logger,
         CancellationToken cancellationToken)
     {
         // The name of the tool, not of the call: the same tool called twice gets "tool get_weather" and "tool get_weather:1",
@@ -44,7 +42,8 @@ internal static class ToolSteps
             input = ToolJson.TryWriteInput(context, out var problem);
             if (problem is not null)
             {
-                Log.InputNotRecorded(logger, stepId, problem);
+                // The function's logger, which drops what is written while the run replays, so that this is written once.
+                Log.InputNotRecorded(Invocation.AmbientContext?.Logger ?? NullLogger.Instance, stepId, problem);
             }
         }
 

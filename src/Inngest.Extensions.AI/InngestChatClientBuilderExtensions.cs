@@ -4,7 +4,6 @@ using Inngest;
 using Inngest.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.Extensions.AI;
 
@@ -26,11 +25,11 @@ public static class InngestChatClientBuilderExtensions
     public static ChatClientBuilder UseInngestSteps(this ChatClientBuilder builder, Action<InngestStepsOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return builder.Use((innerClient, services) =>
+        return builder.Use(innerClient =>
         {
             var options = new InngestStepsOptions();
             configure?.Invoke(options);
-            return new InngestStepsChatClient(innerClient, options, LoggerOf(services));
+            return new InngestStepsChatClient(innerClient, options);
         });
     }
 
@@ -57,11 +56,8 @@ public static class InngestChatClientBuilderExtensions
             configure?.Invoke(client);
             var options = new InngestStepsOptions();
             configureSteps?.Invoke(options);
-            client.FunctionInvoker = ToolSteps.Wrap(client.FunctionInvoker, options, LoggerOf(services));
+            client.FunctionInvoker = ToolSteps.Wrap(client.FunctionInvoker, options);
             return client;
         });
     }
-
-    private static ILogger LoggerOf(IServiceProvider services) =>
-        services.GetService<ILoggerFactory>()?.CreateLogger<InngestStepsChatClient>() ?? NullLogger<InngestStepsChatClient>.Instance;
 }
