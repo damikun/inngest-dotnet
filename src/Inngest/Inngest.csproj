@@ -22,8 +22,10 @@
   </ItemGroup>
   <!-- The compiler loads whatever sits in analyzers/dotnet/cs of a package. -->
   <Target Name="IncludeCompilerExtensionsInPackage" BeforeTargets="_GetPackageFiles">
+    <!-- These target netstandard2.0 alone, whichever framework of this project is being packed. -->
     <MSBuild Projects="..\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj;..\Inngest.SourceGeneration.CodeFixes\Inngest.SourceGeneration.CodeFixes.csproj"
-             Targets="GetTargetPath">
+             Targets="GetTargetPath"
+             RemoveProperties="TargetFramework">
       <Output TaskParameter="TargetOutputs" ItemName="_CompilerExtension" />
     </MSBuild>
     <ItemGroup>

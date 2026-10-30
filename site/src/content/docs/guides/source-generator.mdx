@@ -148,8 +148,8 @@ A value the generator cannot use is reported as [`INNGEST006`](#inngest006), and
 - It registers the classes of the project it compiles, not those of the projects it references. Each of those has its
   own method, or none.
 - It leaves no class out on request. A class that has the attribute is registered by the method, and a second
-  registration by hand fails when the app starts, because the function id is used twice. A function that needs
-  `AddFunction<T>(configure)` is registered by hand, and so is every other function of the same app.
+  registration by hand fails when the app starts, because the function id is used twice. A project with a function that
+  needs `AddFunction<T>(configure)` does not call the generated method, and registers all its functions by hand.
 - It does not compute the options at compile time. They are read from the attributes when the app starts.
 
 ## Check the JSON of a Native AOT app

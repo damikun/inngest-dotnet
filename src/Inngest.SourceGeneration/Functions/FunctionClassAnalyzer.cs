@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -46,7 +47,7 @@ public sealed class FunctionClassAnalyzer : DiagnosticAnalyzer
 
         if (descriptor is not null)
         {
-            context.ReportDiagnostic(Diagnostic.Create(descriptor, type.Locations[0], type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)));
+            context.ReportDiagnostic(Diagnostic.Create(descriptor, type.Locations.FirstOrDefault() ?? Location.None, type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)));
         }
     }
 

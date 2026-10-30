@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using Inngest.SourceGeneration.Functions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -179,7 +180,7 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        return type.Locations[0];
+        return type.Locations.FirstOrDefault() ?? Location.None;
     }
 
     // The method name of the call, so that the squiggle does not cover the lambda that follows it.
