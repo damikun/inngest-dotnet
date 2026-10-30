@@ -203,9 +203,11 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
 
     private void Start(Subscription subscription)
     {
-        var generation = _generation;
         var stop = _stop = new CancellationTokenSource();
-        _loop = RunAsync(_loop, generation, subscription, stop.Token);
+
+        // A loop that is still ending, because its source is slow to notice it was cancelled, does not hold this one up;
+        // the generation keeps it from delivering anything. Disposing waits for both.
+        _loop = Task.WhenAll(_loop, RunAsync(_generation, subscription, stop.Token));
     }
 
     // Ends the running subscription, and makes whatever it still delivers count for nothing.
@@ -220,13 +222,10 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
 
     // Reads the subscription until it ends. It never faults, and it touches the component only through InvokeAsync, which
     // runs on the renderer's thread and is where a stale generation is told apart from the current one.
-    private async Task RunAsync(Task previous, int generation, Subscription subscription, CancellationToken cancellationToken)
+    private async Task RunAsync(int generation, Subscription subscription, CancellationToken cancellationToken)
     {
         try
         {
-            // One connection at a time: the loop this one replaces has ended first.
-            await previous.ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
             var messages = Open(subscription, state => _ = InvokeAsync(() => Report(generation, state)), cancellationToken);
             await foreach (var message in messages.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
