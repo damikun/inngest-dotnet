@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 
@@ -42,14 +43,23 @@ public abstract class InngestFixture : IAsyncLifetime
 
     protected abstract void AddFunctions(IInngestBuilder inngest);
 
+    // Middleware and endpoints of the app's own, such as durable endpoints, added before the Inngest endpoint.
+    protected virtual void ConfigureApp(WebApplication app)
+    {
+    }
+
+    // The port the app listens on, known before ConfigureInngest runs.
+    protected int AppPort { get; private set; }
+
     public async ValueTask InitializeAsync()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var ports = FreePorts.Pick(2);
         var serverUrl = new Uri($"http://localhost:{ports[1]}");
+        AppPort = ports[0];
         try
         {
-            App = await TestApp.StartAsync(ports[0], options => ConfigureInngest(options, serverUrl), AddFunctions, cancellationToken);
+            App = await TestApp.StartAsync(ports[0], options => ConfigureInngest(options, serverUrl), AddFunctions, cancellationToken, ConfigureApp);
             Server = CreateServer(ports[1], App.ServerFacingUrl);
             Api = new DevServerClient(serverUrl, EventKey, ApiKey, DescribeAsync);
             await Server.StartAsync(cancellationToken);

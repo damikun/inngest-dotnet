@@ -45,7 +45,8 @@ public sealed class TestApp : IAsyncDisposable
         int port,
         Action<InngestOptions> configure,
         Action<IInngestBuilder> addFunctions,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<WebApplication>? configureApp = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
 
@@ -65,6 +66,7 @@ public sealed class TestApp : IAsyncDisposable
 
         var app = builder.Build();
         app.Use(app.Services.GetRequiredService<RequestLog>().InvokeAsync);
+        configureApp?.Invoke(app);
         app.MapInngest(ServePath);
 
         try

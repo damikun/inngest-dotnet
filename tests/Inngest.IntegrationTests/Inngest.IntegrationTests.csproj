@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <IsTestProject>true</IsTestProject>
     <!-- Tests pass TestContext.Current.CancellationToken through IntegrationTest.Cancellation, which xUnit1069 cannot see. -->
-    <NoWarn>$(NoWarn);xUnit1051;xUnit1069</NoWarn>
+    <NoWarn>$(NoWarn);xUnit1051;xUnit1069;INNGEST001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
