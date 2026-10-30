@@ -9,6 +9,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 
 ## Coming in the next release
 
+- **A health check for apps that serve functions.** `AddInngest` on the health checks builder tells a readiness probe
+  whether the app has its keys and Inngest answers a request that carries the signing key. It keeps the answer for 30
+  seconds, and with `CheckSync` it also asks Inngest whether the app is synced. See
+  [Health checks](/inngest-dotnet/guides/deploying/#health-checks).
 - **AI calls as steps.** `AIWrapAsync` runs your own model call as a step that the Inngest UI shows with its input,
   and a rerun with an input edited there hands the handler the edited one. An input edited for `InferAsync` now
   reaches the request too.

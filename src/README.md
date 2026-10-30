@@ -12,7 +12,7 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
 - [`Inngest`](https://www.nuget.org/packages/Inngest/): functions, steps, triggers, flow control, middleware, the
   client that sends events, and request signing.
 - [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/): `MapInngest`, the endpoint Inngest calls
-  in an ASP.NET Core app.
+  in an ASP.NET Core app, and a health check for readiness probes.
 - [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/): `AddConnect`, a hosted worker that receives
   calls over an outbound WebSocket, with no endpoint to expose.
 - [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/): an in-memory test host that runs your functions

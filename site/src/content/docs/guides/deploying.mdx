@@ -23,6 +23,8 @@ to be synced after each deploy.
   `INNGEST_SERVE_ORIGIN` to the public origin so that syncs report the right URL. If the app cannot be reachable,
   use [Connect](/inngest-dotnet/guides/connect/) instead.
 - **A sync after every deploy.** See below.
+- **A readiness check.** Point the probe at a path of its own, and add the check that tells whether the app can work
+  with Inngest. See [Health checks](#health-checks).
 - **Time for long steps.** A step runs inside one request from Inngest, so proxy and platform request timeouts
   apply to it. Keep steps well under them, split long work into several steps, or use Connect.
 
@@ -71,12 +73,148 @@ docker run -p 8080:8080 -e INNGEST_SIGNING_KEY=signkey-prod-... -e INNGEST_EVENT
 ## Health checks
 
 Point health checks at an endpoint of their own, not at `/api/inngest`: in cloud mode the SDK answers unsigned
-requests there with `401 Unauthorized`, so a probe of it never passes.
+requests there with `401 Unauthorized`, so a probe of it never passes. A liveness endpoint that only shows the
+process is up is one line:
 
 {/* check: statements; WebApplication app */}
 ```csharp
 app.MapGet("/healthz", () => Results.Ok());
 ```
+
+### Whether the app can work with Inngest
+
+`AddInngest` on the health checks builder adds a check for an app that serves its functions with `MapInngest`. It
+is meant for the readiness probe: tag it, serve the tagged checks on a path of their own, and keep it out of the
+liveness probe, because restarting the app does not bring Inngest back.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+builder.Services.AddHealthChecks().AddInngest(tags: ["ready"]);
+```
+
+{/* check: statements; WebApplication app */}
+```csharp
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+});
+app.MapHealthChecks("/healthz/live", new HealthCheckOptions
+{
+    Predicate = _ => false,
+});
+```
+
+ASP.NET Core answers `200` for a healthy or degraded result and `503` for an unhealthy one, which is what a probe
+reads. In Kubernetes the two paths go into the probes of the container:
+
+```yaml
+readinessProbe:
+  httpGet: { path: /healthz/ready, port: 8080 }
+  periodSeconds: 10
+  timeoutSeconds: 5
+livenessProbe:
+  httpGet: { path: /healthz/live, port: 8080 }
+```
+
+The check reports what it found as entries in the data of its result, and names the first problem in the
+description. It checks two things:
+
+| Part | Healthy when | Entries in the data |
+|---|---|---|
+| Configuration | In cloud mode, a signing key is set. With `RequireEventKey`, an event key is set too; an app that only receives calls from Inngest needs none. | `signingKey`, `signingKeyFallback` and `eventKey`: `set`, `not set` or `missing` |
+| Inngest | Inngest answers a request with a `2xx`. In cloud mode the request carries the signing key, so a key that Inngest does not know fails it; if Inngest refuses the signing key, the fallback key is tried, as for every call to the API. | `mode`, `apiBaseUrl`, `api` (`ok`, `refused`, `unreachable`, `timed out`, `rate limited` or `unexpected response`), `apiStatusCode`, `acceptedKey` (`signingKey` or `signingKeyFallback`) and `checkedAt` |
+
+In cloud mode, and against a self-hosted server, the request is `GET /v2/apps?limit=1` on the API address
+(`https://api.inngest.com`, or `INNGEST_BASE_URL`). It lists at most one app and changes nothing. A self-hosted
+server needs Inngest v1.40.0 or later for it. The dev server holds no keys, so in dev mode the request is
+`GET /health`, which every version answers.
+
+The result never shows a key, the hashed token the SDK sends in its place, or the event key; the data says whether
+each is set. Nor does the address: only its scheme, host and port.
+
+A missing key fails the check without a request. A failed check reports `failureStatus`, `Unhealthy` unless you
+give another. Choose it for what an outage of Inngest should do to the app. `Unhealthy` takes the instance out of
+rotation, which suits an app that exists to run Inngest functions. An app that mostly serves its own users, and
+sends work to Inngest on the side, should stay in rotation: use `HealthStatus.Degraded`, which still answers `200`
+and still shows the problem in the report. When Inngest rate limits the request (`429`), the result is `Degraded`
+whatever `failureStatus` says, because the request proves nothing about the key, and taking every replica out of
+rotation because the probes ask too often would be an outage the probes made.
+
+### Cost and timeouts
+
+Every probe could send a request to Inngest, and a load balancer, a kubelet and a monitor may probe every few
+seconds, on every replica. The check keeps Inngest's answer instead: for `CacheDuration`, 30 seconds by default,
+and for `FailureCacheDuration`, 5 seconds, when the answer was a failure, so that an instance that was not ready
+is back in rotation soon after Inngest is reachable again. A rate limited answer is kept for the full
+`CacheDuration`. Probes that arrive while a request is out wait for it instead of sending their own. Each
+registration and each replica keeps its own answer, so N replicas send about N requests per interval.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+builder.Services.AddHealthChecks().AddInngest(
+    options =>
+    {
+        options.RequireEventKey = true;
+        options.CacheDuration = TimeSpan.FromMinutes(1);
+    },
+    failureStatus: HealthStatus.Degraded,
+    tags: ["ready"],
+    timeout: TimeSpan.FromSeconds(5));
+```
+
+A probe never waits on Inngest for long. The request is cancelled when the probe is, for example when the kubelet's
+`timeoutSeconds` has passed, and when the `timeout` of the check has, which is 10 seconds unless you give one.
+Give the probe itself a few seconds: the first request after a start opens a connection to Inngest.
+
+### What it does not check
+
+- **Whether Inngest can reach the app.** The check runs inside the app and calls Inngest, not the other way round. A
+  firewall, a wrong `INNGEST_SERVE_ORIGIN` or a proxy that blocks Inngest shows up as failed syncs and calls in the
+  Inngest dashboard.
+- **Whether the event key is valid.** Only that it is set: Inngest has no request that validates an event key without
+  sending an event. The address events go to is not probed either.
+- **Whether the app is synced**, unless you ask for it, as below.
+
+### Whether the app is synced
+
+Inngest keeps the functions an app reported at its last sync, and its Get app endpoint, which Inngest marks Beta,
+returns that record. With `CheckSync` the check asks for the app by its id, in addition to the request above, and
+fails while
+
+- Inngest has no app by that id,
+- the app is archived,
+- its latest sync failed, by the status of the sync or, as the dev server reports it, by an error,
+- Inngest synced another `AppVersion` than the one this instance has, when both have one, or
+- Inngest knows another number of functions than this instance serves.
+
+The data then holds `sync` (`synced`, `not registered`, `archived`, `failed`, `version mismatch` or `function count
+mismatch`), `functionsServed` and, as far as Inngest reports them, `functionsInInngest`, `syncStatus`, `syncedAt`,
+`appVersion` and `syncedAppVersion`. The endpoint is in Inngest v1.27.1 and later.
+
+The check compares counts and a version, not function ids or settings: a renamed function keeps the count. Set
+`AppVersion`, to a build number or a commit, and every deploy is compared. A flag kept in the process could not answer
+this question at all, because Inngest syncs through whichever instance the load balancer picks, so what one instance
+remembers says nothing about the others; this check asks Inngest.
+
+Do not use it for the readiness of a rollout. The sync usually comes after the new instances serve, as
+[above](#syncing), so a deploy that changes the functions fails the check until the sync, and a rollout that waits
+for readiness would wait for a sync that only comes after it. Give the check a registration of its own, with its own
+name and tag, for monitoring or for a step of the pipeline after the sync:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+builder.Services.AddHealthChecks()
+    .AddInngest(tags: ["ready"])
+    .AddInngest(options => options.CheckSync = true, "inngest-sync", HealthStatus.Degraded, ["sync"]);
+```
+
+### Connect workers
 
 A Connect worker has no endpoint for Inngest, but it can still report whether it is connected. The Connect health
 check is healthy only while the worker holds an active connection, so use it for the readiness probe, not for

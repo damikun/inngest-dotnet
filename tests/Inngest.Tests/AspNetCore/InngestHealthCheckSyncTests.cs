@@ -350,6 +350,24 @@ public sealed class InngestHealthCheckSyncTests
             ]);
     }
 
+    // Inngest holds a failure handler as a function of its own, and so does the registry that the count comes from.
+    [Fact]
+    public async Task Counts_a_failure_handler_as_a_function_like_Inngest_does()
+    {
+        await using var app = HealthHarness.Cloud(
+            WithSync(),
+            addFunctions: inngest => inngest.AddFunction(
+                new FunctionOptions { Id = "charge", Triggers = [Trigger.Event("tests/charge")] },
+                static (_, _) => Task.FromResult<object?>(null),
+                static (_, _) => Task.CompletedTask));
+        app.Handler.Respond(HttpStatusCode.OK, AppsList).Respond(HttpStatusCode.OK, AppBody(2));
+
+        var entry = await app.CheckAsync(cancellationToken: Cancellation);
+
+        entry.Status.ShouldBe(HealthStatus.Healthy);
+        entry.Data["functionsServed"].ShouldBe(2);
+    }
+
     [Fact]
     public async Task Escapes_the_app_id_in_the_path()
     {

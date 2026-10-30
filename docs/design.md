@@ -234,7 +234,7 @@ binder, so it works trimmed and under Native AOT.
 | Package | Contents |
 |---|---|
 | `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. |
-| `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler. |
+| `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler, and `AddInngest` on `IHealthChecksBuilder`, a readiness check for apps that serve functions. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
@@ -387,6 +387,7 @@ per call.
 | Checkpointing (running several steps per call and saving each to Inngest as it completes) | Supported, opt-in with `CheckpointingOptions`; off by default |
 | Connect (WebSocket workers): start, handshake, heartbeats, leases, reply buffering and flush, draining, reconnects, graceful shutdown | Supported (`Inngest.Connect`) |
 | Connect connection state and a readiness health check | Supported (`IInngestConnection`, `AddInngestConnect`) |
+| Serve health check: keys configured, the API answers a request that carries the signing key, optionally the app is synced | Supported (`AddInngest` on `IHealthChecksBuilder`, `InngestHealthCheckOptions`) |
 | `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
@@ -460,3 +461,45 @@ returned gateway with the `v0.connect.inngest.com` subprotocol and exchanges pro
 Each socket has a single writer fed by a channel and a reader that never runs user code, so a slow function cannot
 stall heartbeats or lease extensions.
 
+## Health check
+
+`AddInngest` on `IHealthChecksBuilder` (`Inngest.AspNetCore`) tells a readiness probe whether an app that serves
+functions can work with Inngest; `AddInngestConnect` does the same for a Connect worker. It lives in
+`Inngest.AspNetCore` because only apps that call `MapInngest` use it and that package already references ASP.NET
+Core, where the health checks are, so `Inngest` gets no new dependency. It sends its requests through
+`InngestApiTransport`, reached by `InternalsVisibleTo`, so they carry the SDK headers and the hashed signing key and are
+repeated with the fallback key on 401 or 403, like every call to the API. `SendKeyedAsync` also says which key was
+answered, which the result shows.
+
+**The request.** In cloud mode, and against a self-hosted server, `GET {api}/v2/apps?limit=1`: it needs the key, lists
+at most one app and changes nothing. `GET /v2/health` would be lighter, but Inngest Cloud answers it to anyone (an
+unauthenticated request gets a 200), so it would pass with a key Inngest has never seen. A self-hosted server does check
+the key there. In dev mode, `GET {dev server}/health`, which every dev server answers; `/v2/apps` came with Inngest
+v1.40.0 and `/v2/apps/{id}` with v1.27.1. A 2xx is healthy, 401 and 403 are a refused key, 429 is Degraded and
+anything else is a failure. The body of that request is not read, and no error text of Inngest's goes into a
+description, so a gateway's error page cannot reach one.
+
+**Sync.** With `CheckSync`, after the first request succeeded, `GET {api}/v2/apps/{app id}`, which Inngest marks Beta:
+`data.functionCount`, `data.isArchived` and `data.latestSync` (`status`, `syncedAt`, `error`, `appVersion`). The dev
+server leaves out zero and false values and reports no status or time. The order of the verdicts: 404 is not
+registered; archived; a status of `error`, or an error without a status; another app version than `AppVersion`, when
+both are set; another number of functions than the registry holds; else synced. The registry's count is the number of
+definitions, which includes failure handlers, as Inngest counts them. The status, time and version that reach the result
+are Inngest's own text for the app, cut to 64 characters. Nothing is kept in the process about syncs: Inngest syncs
+through whichever instance the load balancer picks.
+
+**Cost.** The answer is kept per registration: `CacheDuration` for a healthy or rate limited one, and the smaller of
+`FailureCacheDuration` and `CacheDuration` for a failure, so that an instance is not unready for long after a blip.
+Probes wait on one gate, and each takes the answer when it gets through, so overlapping probes send one request.
+The health check service builds the check for every run, in a scope of its own, so the answer lives in the registration,
+not in the check.
+
+**Cancellation.** The request ends with the probe's token and at 90 percent of the registration's timeout, so that the
+check can say Inngest was too slow with the registration's failure status before the health check service gives up on it
+with its own words and `Unhealthy`. A registration has no timeout unless it is given one, so then the request ends after
+10 seconds; HttpClient would wait for 100. A cancelled probe stores nothing, and a timeout is stored as a failure. One
+deadline covers both requests of a check.
+
+**What the result holds.** `signingKeyFallback`, `signingKey` and `eventKey` are `set`, `not set` or `missing`, never
+values. The address is shown as scheme, host and port. The tests look for the keys, the hashed token and the event
+key in the description, the data and the log of every kind of answer.

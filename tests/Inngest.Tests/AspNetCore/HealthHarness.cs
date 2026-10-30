@@ -18,7 +18,7 @@ internal sealed class HealthHarness : IAsyncDisposable
 
     public static readonly DateTimeOffset Start = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
 
-    private HealthHarness(Action<IHealthChecksBuilder> addChecks, Action<InngestOptions> configure, bool systemTime, int functions) =>
+    private HealthHarness(Action<IHealthChecksBuilder> addChecks, Action<InngestOptions> configure, bool systemTime, int functions, Action<IInngestBuilder>? addFunctions) =>
         Services = ClientServices.Build(
             Handler,
             Time,
@@ -30,6 +30,8 @@ internal sealed class HealthHarness : IAsyncDisposable
                         new FunctionOptions { Id = $"f{i}", Triggers = [Trigger.Event($"tests/f{i}")] },
                         static (_, _) => Task.FromResult<object?>(null));
                 }
+
+                addFunctions?.Invoke(inngest);
             },
             configureServices: services =>
             {
@@ -53,7 +55,12 @@ internal sealed class HealthHarness : IAsyncDisposable
 
     // Cloud mode with a signing key, the way an app runs in production. configure can take the key away or add others,
     // and functions is the number of functions the app serves.
-    public static HealthHarness Cloud(Action<IHealthChecksBuilder>? addChecks = null, Action<InngestOptions>? configure = null, bool systemTime = false, int functions = 0) =>
+    public static HealthHarness Cloud(
+        Action<IHealthChecksBuilder>? addChecks = null,
+        Action<InngestOptions>? configure = null,
+        bool systemTime = false,
+        int functions = 0,
+        Action<IInngestBuilder>? addFunctions = null) =>
         new(
             addChecks ?? (static checks => checks.AddInngest()),
             options =>
@@ -64,7 +71,8 @@ internal sealed class HealthHarness : IAsyncDisposable
                 configure?.Invoke(options);
             },
             systemTime,
-            functions);
+            functions,
+            addFunctions);
 
     public static HealthHarness Dev(Action<IHealthChecksBuilder>? addChecks = null, Action<InngestOptions>? configure = null, int functions = 0) =>
         new(
@@ -76,7 +84,8 @@ internal sealed class HealthHarness : IAsyncDisposable
                 configure?.Invoke(options);
             },
             systemTime: false,
-            functions);
+            functions,
+            addFunctions: null);
 
     // Runs every registered check once, as a probe would, and returns the entry of one.
     public async Task<HealthReportEntry> CheckAsync(string name = "inngest", CancellationToken cancellationToken = default)
