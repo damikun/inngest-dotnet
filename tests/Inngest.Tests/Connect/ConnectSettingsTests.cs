@@ -1,3 +1,4 @@
+using System.Net;
 using Inngest.Connect;
 
 namespace Inngest.Tests.Connect;
@@ -7,11 +8,11 @@ public sealed class ConnectSettingsTests
     private static readonly Dictionary<string, string?> NoVariables = [];
 
     [Fact]
-    public void Defaults_to_the_machine_name_and_no_limits()
+    public void Defaults_to_the_host_name_and_no_limits()
     {
         var settings = ConnectSettings.Create(new ConnectOptions(), Read(NoVariables));
 
-        settings.InstanceId.ShouldBe(Environment.MachineName);
+        settings.InstanceId.ShouldBe(Dns.GetHostName());
         settings.MaxWorkerConcurrency.ShouldBeNull();
         settings.GatewayUrl.ShouldBeNull();
     }
@@ -21,7 +22,7 @@ public sealed class ConnectSettingsTests
     [InlineData("  ")]
     public void A_blank_instance_id_counts_as_unset(string instanceId)
     {
-        ConnectSettings.Create(new ConnectOptions { InstanceId = instanceId }, Read(NoVariables)).InstanceId.ShouldBe(Environment.MachineName);
+        ConnectSettings.Create(new ConnectOptions { InstanceId = instanceId }, Read(NoVariables)).InstanceId.ShouldBe(Dns.GetHostName());
     }
 
     [Fact]

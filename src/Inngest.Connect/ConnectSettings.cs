@@ -2,6 +2,7 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Globalization;
+using System.Net;
 using Inngest.Configuration;
 
 namespace Inngest.Connect;
@@ -32,7 +33,9 @@ internal sealed record ConnectSettings
 
         return new ConnectSettings
         {
-            InstanceId = string.IsNullOrWhiteSpace(options.InstanceId) ? Environment.MachineName : options.InstanceId.Trim(),
+            // The full host name, as inngest-js uses: Environment.MachineName drops the domain on Linux and is the
+            // 15-character NetBIOS name on Windows, so different hosts could share it.
+            InstanceId = string.IsNullOrWhiteSpace(options.InstanceId) ? Dns.GetHostName() : options.InstanceId.Trim(),
             MaxWorkerConcurrency = options.MaxWorkerConcurrency ?? ReadConcurrency(variables.Get(MaxWorkerConcurrencyVariable)),
             GatewayUrl = options.GatewayUrl is { } url
                 ? RequireWebSocketUrl(url, $"ConnectOptions.{nameof(ConnectOptions.GatewayUrl)}")

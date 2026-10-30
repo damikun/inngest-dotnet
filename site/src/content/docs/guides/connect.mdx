@@ -66,7 +66,7 @@ its own endpoints; it then needs no `MapInngest`.
 
 | Option | Variable | Meaning |
 |---|---|---|
-| `InstanceId` | | Identifies this worker to Inngest, which tracks leases and capacity per instance. Keep it stable across restarts of one worker and unique between workers. Defaults to the machine name. |
+| `InstanceId` | | Identifies this worker to Inngest, which tracks leases and capacity per instance. Keep it stable across restarts of one worker and unique between workers. Defaults to the host name, as in the TypeScript SDK; workers that share a host, such as several processes, need an id each. |
 | `MaxWorkerConcurrency` | `INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` | The most executions Inngest sends to this worker at once. Unlimited by default. |
 | `GatewayUrl` | `INNGEST_CONNECT_GATEWAY_URL` | A `ws://` or `wss://` URL to dial instead of the gateway Inngest assigns, for when a proxy or port mapping sits in between. |
 
