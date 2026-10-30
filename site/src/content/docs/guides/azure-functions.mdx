@@ -242,8 +242,8 @@ Use `HttpRequestData` and `HttpResponseData`, as above, in both. In the ASP.NET 
 answer to the response of the request itself, and the `HttpResponseData` the function returns is the integration's
 wrapper of that response with nothing added to it.
 
-Inngest sends a `Content-Length` with every call and sync, so the built-in model's rule about the body does not matter
-to it. Behind a proxy that re-chunks requests, a call would arrive empty and the SDK would answer it with a 401.
+Inngest's calls and syncs declare the length of their body, so the built-in model's rule about the body does not
+affect them. Behind a proxy that re-chunks requests, a call would arrive empty and the SDK would answer it with a 401.
 
 ## What is not supported
 
