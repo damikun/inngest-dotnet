@@ -436,6 +436,7 @@ ${reference('Inngest.Testing')}
 ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}
 ${reference('Inngest.Encryption')}
+${reference('Inngest.Aspire.Hosting')}
 ${reference('Inngest.EntityFrameworkCore')}
 ${reference('Inngest.Extensions.AI')}
     <!-- The generator and the analyzers come with the Inngest package, and so does the file that tells the compiler the project
@@ -446,6 +447,9 @@ ${reference('Inngest.Extensions.AI')}
   <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>
     <Using Include="Docs.Support" />
+    <!-- The namespaces an AppHost project imports on its own, for the snippets of the Aspire guide. -->
+    <Using Include="Aspire.Hosting" />
+    <Using Include="Aspire.Hosting.ApplicationModel" />
   </ItemGroup>
 </Project>
 `;
@@ -492,6 +496,7 @@ write(join(out, 'Directory.Build.props'), props);
 write(join(out, 'Directory.Packages.props'), '<Project />\n');
 write(join(out, 'Docs', 'Docs.csproj'), docsProject);
 write(join(out, 'Docs', 'Support.cs'), readFileSync(join(harness, 'Support.cs'), 'utf8'));
+write(join(out, 'Docs', 'Projects.cs'), readFileSync(join(harness, 'Projects.cs'), 'utf8'));
 for (const snippet of all) {
   const code = generateSnippet(snippet);
   if (code) write(join(out, 'Docs', 'Pages', `${snippet.page.replace(/\//g, '.')}.${snippet.index}.cs`), code);

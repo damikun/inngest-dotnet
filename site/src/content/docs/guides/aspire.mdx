@@ -1,0 +1,202 @@
+---
+title: "Aspire: the Inngest server in your AppHost"
+description: Run the Inngest dev server or a self-hosted server as a container of an Aspire AppHost, link its UI in the dashboard, and give projects the settings the SDK reads, with Inngest.Aspire.Hosting.
+sidebar:
+  label: Aspire
+---
+
+[Aspire](https://aspire.dev) starts the parts of an app on a developer machine, which are projects and containers, and
+connects them. `Inngest.Aspire.Hosting` adds the Inngest server to that: the AppHost runs it as a container, links its
+UI in the Aspire dashboard, gives the projects the settings the SDK reads to find it, and tells it where the apps
+that serve functions are. There is no `docker run` and no port to copy between terminals.
+
+It is for local development. It starts the dev server, or optionally a self-hosted server that signs its requests,
+and nothing here deploys Inngest.
+
+## Install
+
+Add the package to the AppHost project, not to the apps. The version is a preview, so add `--prerelease`:
+
+```bash
+dotnet add package Inngest.Aspire.Hosting --prerelease
+```
+
+The package is built against Aspire 13.6 (`Aspire.Hosting` 13.6.4) and targets `net8.0` and `net10.0`. It has no
+dependency on the `Inngest` package, because the AppHost only has to know the names of the settings, not the SDK. nuget.org
+reserves the `Aspire.` prefix for the Aspire team and its partners, so a community package cannot be called
+`Aspire.Hosting.Inngest`; hence `Inngest.Aspire.Hosting`, like `CommunityToolkit.Aspire.Hosting.*`.
+
+## Add the server
+
+`AddInngest` adds the dev server. `WithReference` gives a project the settings that make its SDK use that server, and
+`WithApp` tells the server to sync the project, which serves its functions with `MapInngest`:
+
+```csharp title="AppHost/Program.cs"
+var builder = DistributedApplication.CreateBuilder(args);
+
+var inngest = builder.AddInngest("inngest");
+
+var shop = builder.AddProject<Projects.Shop>("shop")
+    .WithReference(inngest)
+    .WaitFor(inngest);
+
+inngest.WithApp(shop);
+
+builder.Build().Run();
+```
+
+Run the AppHost and the dashboard shows two resources. `inngest` is healthy once the server answers `GET /health`
+and its Connect gateway answers `GET /ready`, and its row links to the server's UI as **Inngest UI**. `shop` starts
+once the server is healthy, because of `WaitFor`. The server then syncs `shop` and lists its functions in the UI;
+sending an event runs them.
+
+What the three calls do:
+
+- **`AddInngest`** runs the `inngest/inngest` image at the tag `v1.49.0`, the Inngest CLI version the tests of this SDK
+  run against, as `inngest dev --no-discovery`. Discovery would only scan the container's own ports. It has two
+  endpoints: `http`, which is the REST API, the event API and the UI, and `connect`, which is the gateway of
+  [Connect](/inngest-dotnet/guides/connect/) workers. Aspire proxies both on ports it picks. Change the tag with
+  `WithImageTag`, and fix the ports with the `port` and `connectPort` arguments.
+- **`WithReference`** sets the environment variables below on the project. It does not make the project wait for the
+  server.
+- **`WithApp`** adds the project's URL to the arguments of the server (`-u`). The server calls it to sync the
+  functions, and again every 5 seconds, which is the dev server's polling interval, so a project that starts after the
+  server, or restarts with other functions, is found.
+
+Do not make the server wait for the project with `WaitFor`: the project would wait for the server and the server for
+the project.
+
+## What a project gets
+
+`WithReference(inngest)` sets these variables, which the SDK reads as described in
+[Configuration](/inngest-dotnet/guides/configuration/):
+
+| Variable | Dev server | Self-hosted server |
+|---|---|---|
+| `INNGEST_DEV` | the address of the server, which turns on dev mode and points the SDK at it | `0` |
+| `INNGEST_BASE_URL` | the address of the server | the address of the server |
+| `INNGEST_SIGNING_KEY` | | the signing key |
+| `INNGEST_EVENT_KEY` | | the event key |
+| `INNGEST_CONNECT_GATEWAY_URL` | the address of the gateway | the address of the gateway |
+
+The addresses are worked out when the project starts, for that project. A project on the host gets
+`http://localhost:<port>`, where the port is the one Aspire proxies the server on. A container gets the name of the
+server on the container network. The same `WithReference` is right for both, and nothing in the app has to know about
+Aspire: the app is an ordinary Inngest app that reads its settings from the environment.
+
+`INNGEST_DEV` is set to the address in dev mode so that any SDK that reads the address from it, such as the TypeScript
+one, finds the server too; `INNGEST_BASE_URL` has the same address for SDKs that read only that. A self-hosted server
+sets `INNGEST_DEV` to `0` on purpose. Projects inherit the environment of the AppHost, and an `INNGEST_DEV` left in
+it would otherwise switch off the checks of signatures.
+
+## How the server reaches an app
+
+The server runs in a container, where `localhost` is the container itself. `WithApp` does not write an address; it
+gives the server a reference to the endpoint of the project, and Aspire resolves that for the server's container when
+it starts:
+
+- A project that runs on the host is reached through the container tunnel that Aspire 13 starts, at an address like
+  `aspire.dev.internal:<port>`. The tunnel does not depend on `host.docker.internal`, so the integration adds no
+  `--add-host=host.docker.internal:host-gateway`, which the plain Docker command of
+  [Getting started](/inngest-dotnet/guides/getting-started/#4-run-it) needs on Linux. Where the tunnel is turned off, Aspire falls
+  back to the host name of the container runtime, which is `host.docker.internal` on Docker Desktop. The tests of this
+  repository have run on Docker Desktop for Mac only.
+- An app that is itself a container is reached by its name on the container network.
+
+The SDK registers the address that the server synced it through, so each step of a run calls the app at the same
+address, and the server needs no other.
+
+`WithApp` takes the path the app serves Inngest on and the name of its endpoint, `/api/inngest` and `http` by default:
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var inngest = builder.AddInngest("inngest");
+
+var billing = builder.AddProject<Projects.Billing>("billing")
+    .WithHttpEndpoint(name: "internal")
+    .WithReference(inngest);
+
+inngest.WithApp(billing, "/webhooks/inngest", endpointName: "internal");
+```
+
+Call it once for every app that serves functions. An app that only sends events needs no `WithApp`, and neither does
+a Connect worker.
+
+Use an `http` endpoint. An `https` endpoint of a project uses the ASP.NET Core development certificate, which the
+container does not trust unless you set that up with Aspire's certificate trust settings.
+
+## Connect workers
+
+A [Connect](/inngest-dotnet/guides/connect/) worker has no endpoint, so there is nothing to register with `WithApp`.
+It only needs `WithReference`:
+
+{/* check: statements; IDistributedApplicationBuilder builder; IResourceBuilder<InngestServerResource> inngest */}
+```csharp
+builder.AddProject<Projects.Worker>("worker")
+    .WithReference(inngest)
+    .WaitFor(inngest);
+```
+
+The worker calls the API of the server to start a connection, and the server answers with the address of its gateway.
+That address is made of the host the worker called and the port the gateway has inside the container, and Aspire
+publishes the gateway on another one, so a worker that used it would dial a port that nothing on the host listens on. That is why
+`WithReference` sets `INNGEST_CONNECT_GATEWAY_URL`, which the SDK dials instead. The address is that of the `connect`
+endpoint, resolved for the worker like the others. A worker that is started by other means than this reference gets
+the server's answer and has to set the variable itself.
+
+## A self-hosted server
+
+The dev server checks nothing: it does not sign its requests and accepts any event key. `AddInngestSelfHosted` runs
+`inngest start` instead, which signs every request to an app with a signing key, wants the key on its REST API and
+refuses events that do not carry its event key. A project that references it runs in cloud mode with the same keys, as it
+would in production:
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var signingKey = builder.AddParameter("inngest-signing-key", secret: true);
+var eventKey = builder.AddParameter("inngest-event-key", secret: true);
+
+var inngest = builder.AddInngestSelfHosted("inngest", signingKey, eventKey);
+
+var shop = builder.AddProject<Projects.Shop>("shop")
+    .WithReference(inngest)
+    .WaitFor(inngest);
+
+inngest.WithApp(shop);
+```
+
+The keys are secret parameters, which Aspire reads from the user secrets or the configuration of the AppHost, or
+asks for in the dashboard. The server takes them from `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` in its environment,
+so they are not in its command line. `inngest start` accepts only a signing key that is a hex string of even length,
+without a `signkey-` prefix. The SDK accepts that key as it is.
+
+Leave the keys out and the integration generates them, as Aspire does for the passwords of other containers:
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var inngest = builder.AddInngestSelfHosted("inngest");
+```
+
+A generated signing key has 64 digits, which are valid hex, and a generated event key is letters and digits. Both are
+kept in the user secrets of the AppHost, when it has them, as `Parameters:inngest-signing-key` and
+`Parameters:inngest-event-key`, so that they stay the same between runs, and a value you put there wins. Unlike the dev server, the self-hosted server polls
+for apps only when it is told to, so the integration starts it with a polling interval of 5 seconds.
+
+## What it does not do
+
+- **It keeps no state.** The dev server holds its runs and events in memory, and the self-hosted server writes its
+  database inside the container. Both lose them with the container. There is no volume, and no Postgres or Redis for
+  the self-hosted server; use `WithLifetime(ContainerLifetime.Persistent)` if the container should outlive a run of
+  the AppHost.
+- **It does not deploy anything.** Aspire writes the container into a manifest like any other, but Inngest in
+  production is Inngest Cloud or a server you run and size yourself. See [Deploying](/inngest-dotnet/guides/deploying/).
+- **It does not start the apps for you.** Projects are added to the AppHost as usual, and the integration only
+  references them.
+- **It cannot be called from an AppHost written in another language.** The methods are not exported for Aspire's
+  polyglot AppHosts.
+
+## Testing the AppHost
+
+The integration works under `Aspire.Hosting.Testing`, which is how this repository tests it. The tests start the dev
+server and a small app, wait for both to be healthy, and run a function through the server; the same tests cover a
+Connect worker and the self-hosted server. They need Docker.

@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -310,6 +310,24 @@ or `Closed`.
 `IHealthChecksBuilder.AddInngestConnect(string name = "inngest-connect", HealthStatus? failureStatus = null,
 IEnumerable<string>? tags = null)`, in `Microsoft.Extensions.DependencyInjection`, adds a health check that is healthy
 only while the connection is `Active`. See [Deploying](/inngest-dotnet/guides/deploying/).
+
+## Aspire
+
+Package `Inngest.Aspire.Hosting`, for the AppHost project. The resource type is in `Aspire.Hosting.ApplicationModel` and
+the extension methods, on `IDistributedApplicationBuilder` and `IResourceBuilder<T>`, are in `Aspire.Hosting`, the
+namespaces an AppHost imports. See [Aspire](/inngest-dotnet/guides/aspire/).
+
+| Member | Purpose |
+|---|---|
+| `AddInngest(string name, int? port = null, int? connectPort = null)` | Adds the dev server as a container running `inngest dev --no-discovery`, with health checks on `/health` and on the gateway's `/ready` and its UI linked in the dashboard. `port` and `connectPort` fix the host ports of the API and the gateway. Returns an `IResourceBuilder<InngestServerResource>`. |
+| `AddInngestSelfHosted(string name, IResourceBuilder<ParameterResource>? signingKey = null, IResourceBuilder<ParameterResource>? eventKey = null, int? port = null, int? connectPort = null)` | Adds a self-hosted server, `inngest start`, that signs its requests and wants an event key. Keys that are not given are generated and kept in the user secrets of the AppHost. |
+| `IResourceBuilder<InngestServerResource>.WithApp<TApp>(IResourceBuilder<TApp> app, string path = "/api/inngest", string endpointName = "http")` | Makes the server sync an app that serves functions, at the address its container reaches the endpoint on. Call it once for every app. |
+| `IResourceBuilder<TDestination>.WithReference(IResourceBuilder<InngestServerResource> inngest)` | Gives a project or container `INNGEST_DEV` and `INNGEST_BASE_URL` (the dev server) or `INNGEST_DEV=0`, `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` (the self-hosted server), and `INNGEST_CONNECT_GATEWAY_URL` for workers. |
+
+**`InngestServerResource`**, a `ContainerResource`: `IsSelfHosted`; `SigningKeyParameter` and `EventKeyParameter`, which are
+null for the dev server; `PrimaryEndpoint`, the endpoint named `http` that serves the REST API, the event API and the UI;
+and `ConnectEndpoint`, the endpoint named `connect` that is the gateway of Connect workers. Its constructor takes the
+name and, for a self-hosted server, both keys.
 
 ## OpenTelemetry
 

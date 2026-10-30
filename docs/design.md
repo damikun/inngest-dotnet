@@ -236,6 +236,7 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. It also carries a source generator, analyzers and a code fix (see [Source generator and analyzers](#source-generator-and-analyzers)), which are not packages of their own. |
 | `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler, and `AddInngest` on `IHealthChecksBuilder`, a readiness check for apps that serve functions. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
+| `Inngest.Aspire.Hosting` | `AddInngest` and `AddInngestSelfHosted`, which run the Inngest dev server or a self-hosted server as a container of an Aspire AppHost, `WithApp`, which tells the server where an app that serves functions is, and `WithReference`, which gives a project the `INNGEST_*` settings the SDK reads. Depends on `Aspire.Hosting` only, not on `Inngest`. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
@@ -266,13 +267,20 @@ are not `IsAotCompatible`, which every other package is: Testcontainers and `Mic
 on reflection, and the container packages are for test projects, which are neither trimmed nor compiled ahead of time;
 the constructors of EF Core's `DbContext` require unreferenced and dynamic code.
 
+`Inngest.Aspire.Hosting` is a different kind of package: it runs in the AppHost, not in the app, so it does not
+reference `Inngest` and is not pinned to its version. It is not `IsAotCompatible`, because `Aspire.Hosting` declares
+neither trimming nor Native AOT support and an AppHost is never published as a native binary. Its project file clears
+the baseline too. Aspire reserves the `Aspire.` prefix on nuget.org, hence the name.
+
 ### Code layout
 
 - **Namespaces.** Public types are in `Inngest`, whatever folder they live in, so one `using Inngest;` brings in the
   whole API. Internal types are in the namespace of their folder, such as `Inngest.Execution` or
   `Inngest.Registration`. Extension methods on a framework type are in that type's namespace
   (`Microsoft.Extensions.DependencyInjection`, `Microsoft.AspNetCore.Builder`, `OpenTelemetry.Trace`), and extension
-  methods on Inngest types are in `Inngest`.
+  methods on Inngest types are in `Inngest`. `Inngest.Aspire.Hosting` follows Aspire instead: its resource type is in
+  `Aspire.Hosting.ApplicationModel` and its extension methods are in `Aspire.Hosting`, the two namespaces an AppHost
+  imports.
 - **Files.** Every public type has a file named after it; the generic forms of a type share it or use `OfT`, as in
   `InngestEventOfT.cs`. Internal helper types may share the file of the type they serve. A class too large to read in
   one file is split into partial files named after their concern, such as `Invocation.Steps.cs`,
@@ -485,6 +493,7 @@ per call.
 | Connect (WebSocket workers): start, handshake, heartbeats, leases, reply buffering and flush, draining, reconnects, graceful shutdown | Supported (`Inngest.Connect`) |
 | Connect connection state and a readiness health check | Supported (`IInngestConnection`, `AddInngestConnect`) |
 | Serve health check: keys configured, the API answers a request that carries the signing key, optionally the app is synced | Supported (`AddInngest` on `IHealthChecksBuilder`, `InngestHealthCheckOptions`) |
+| Aspire AppHost: the dev server and a self-hosted server as containers, apps synced at the address the server's container reaches, `INNGEST_*` settings for projects and containers | Supported (`Inngest.Aspire.Hosting`), for local development. The servers keep no state outside their container. |
 | `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
@@ -814,3 +823,42 @@ container when the machine has no .NET 8 runtime). `tests/Inngest.IntegrationTes
 with Testcontainers, on net10.0 only, so with EF Core 10 and Npgsql 10: four dispatchers at once, the order of claims that would
 overwrite a token if the update did not repeat the test for "due", commit visibility and a `TransactionScope`. Against the dev
 server, an event saved through the outbox starts its function, and a resend under the same id starts nothing.
+
+## Aspire
+
+`Inngest.Aspire.Hosting` puts the Inngest server into an Aspire AppHost. The shape follows the container integrations
+of Aspire (`Seq`, `RabbitMQ`) and of the Community Toolkit (`MailPit`, `Ollama`): a `ContainerResource`, an `Add*`
+extension, an internal class that holds the image tag, health checks and a link for the UI. These decisions are
+specific to Inngest:
+
+- **The container.** The image is `inngest/inngest`, at the tag the integration tests of this repository use, and has
+  no entrypoint, so the resource sets `inngest` as the entrypoint. The dev server runs `dev --no-discovery`: discovery
+  scans ports inside the container, where the apps are not. Polling stays on, at the server's default of 5 seconds, so
+  that an app that starts after the server, or restarts with other functions, is found; the self-hosted server polls
+  only with `--poll-interval`, so it gets one.
+- **Addresses.** Nothing is written as text. `WithApp` and `WithReference` put `ReferenceExpression`s over endpoint
+  references into the arguments (`-u <address>`, once per app) and the environment, and Aspire resolves them for the
+  resource that receives them. For a server's container, an app that is a project on the host is `aspire.dev.internal`
+  with the port of the container tunnel (or `host.docker.internal` where the tunnel is off); for a project on the host
+  the server is `localhost` with the proxy's port; for a container it is the name on the container network. The SDK
+  registers the address it was synced through, so the step calls go to the same address.
+- **The Connect gateway.** `POST /v0/connect/start` answers a worker with the host it called and the port the gateway
+  listens on in the container (8289), which is not the port Aspire publishes it on, so a worker that used the answer
+  would log `Could not open a WebSocket to the gateway at ws://localhost:8289/v0/connect`. Publishing the gateway
+  on the same port is not an option: Aspire picks only the host port of a container endpoint and wants the container's
+  port in the model. So the gateway is an ordinary proxied endpoint, and `WithReference` gives the worker the address
+  of that endpoint as `INNGEST_CONNECT_GATEWAY_URL`, which the Connect worker prefers to the server's answer
+  (`ConnectOptions.GatewayUrl`). A worker that is started outside `WithReference` gets the server's answer. The tests
+  start a Connect worker against both servers.
+- **Dev and self-hosted.** The dev server's reference is `INNGEST_DEV=<address>`, as
+  `samples/Inngest.Sample/compose.yaml` has it for dev mode, and `INNGEST_BASE_URL` with the same address for SDKs that
+  read only that. The self-hosted server's reference is `INNGEST_DEV=0`, the base URL and the two keys, as the `cloud`
+  profile of that file has it; `0` is set because projects inherit the environment of the AppHost, and an inherited
+  `INNGEST_DEV=1` would turn off signature checks. The keys reach the server through `INNGEST_SIGNING_KEY` and
+  `INNGEST_EVENT_KEY`, which its CLI reads (flag, then variable, then file), so they are not in the command line.
+  `inngest start` takes a signing key only as hex of even length, so the generated one is 64 digits.
+- **Tests.** `tests/Inngest.Aspire.Hosting.Tests` is itself an AppHost project: `Aspire.Hosting.Testing` finds the
+  orchestrator and the dashboard through assembly attributes that `Aspire.AppHost.Sdk` writes, and has no other way to
+  find them. The `AppModel` tests resolve arguments and environments for endpoints that the test allocates. The
+  `Containers` tests run both servers in Docker next to a project and a Connect worker, through the real orchestrator.
+

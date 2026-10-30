@@ -16,6 +16,9 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   in an ASP.NET Core app, and a health check for readiness probes.
 - [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/): `AddConnect`, a hosted worker that receives
   calls over an outbound WebSocket, with no endpoint to expose.
+- [`Inngest.Aspire.Hosting`](https://www.nuget.org/packages/Inngest.Aspire.Hosting/): an Aspire hosting integration
+  that runs the Inngest dev server, or a self-hosted server, as a container of the AppHost, links its UI in the
+  dashboard and gives projects the settings the SDK reads.
 - [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/): an in-memory test host that runs your functions
   on the real execution engine.
 - [`Inngest.Testing.Containers`](https://www.nuget.org/packages/Inngest.Testing.Containers/): a Testcontainers module

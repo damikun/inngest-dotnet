@@ -80,6 +80,7 @@ export default defineConfig({
           items: [
             'guides/configuration',
             'guides/connect',
+            'guides/aspire',
             'guides/testing',
             'guides/testing-with-containers',
             'guides/native-aot',
