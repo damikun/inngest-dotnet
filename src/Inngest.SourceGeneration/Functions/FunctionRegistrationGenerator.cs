@@ -17,6 +17,7 @@ public sealed class FunctionRegistrationGenerator : IIncrementalGenerator
     // Names for the steps of the pipeline, which tests look up to see what ran again after an edit.
     internal static class StepNames
     {
+        public const string AttributedClasses = nameof(AttributedClasses);
         public const string FunctionClasses = nameof(FunctionClasses);
         public const string AssemblyName = nameof(AssemblyName);
         public const string Options = nameof(Options);
@@ -27,11 +28,14 @@ public sealed class FunctionRegistrationGenerator : IIncrementalGenerator
     {
         // The compiler finds the classes with the attribute from an index of the attribute names in each file, instead of
         // handing every syntax node to the generator, which is what makes this cheap enough to run on every keystroke.
-        var functionClasses = context.SyntaxProvider
+        var attributedClasses = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 InngestTypes.FunctionAttributeMetadataName,
                 static (node, _) => node is ClassDeclarationSyntax,
                 static (attribute, _) => Describe(attribute.TargetSymbol))
+            .WithTrackingName(StepNames.AttributedClasses);
+
+        var functionClasses = attributedClasses
             .Where(static typeName => typeName is not null)
             .Select(static (typeName, _) => typeName!)
             .WithTrackingName(StepNames.FunctionClasses);
