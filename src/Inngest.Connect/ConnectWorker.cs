@@ -161,10 +161,17 @@ internal sealed partial class ConnectWorker : BackgroundService, IGatewayListene
             }
             finally
             {
-                await TearDownAsync().ConfigureAwait(false);
-                _replies.Complete();
-                await flushing.ConfigureAwait(false);
-                _connection.MoveTo(InngestConnectionState.Closed);
+                try
+                {
+                    await TearDownAsync().ConfigureAwait(false);
+                    _replies.Complete();
+                    await flushing.ConfigureAwait(false);
+                }
+                finally
+                {
+                    // However the teardown went, the worker is done; otherwise the health check would report it closing forever.
+                    _connection.MoveTo(InngestConnectionState.Closed);
+                }
             }
         }
     }

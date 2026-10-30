@@ -158,7 +158,8 @@ internal sealed class ReplyBuffer
         }
     }
 
-    // Returns false at the first reply that does not get through, which stays first in line for the next round.
+    // Returns false at the first reply that does not get through, which stays first in line for the next round. A reply
+    // Inngest refuses for good is dropped instead, so that it does not hold up the replies behind it.
     private async Task<bool> TryFlushAllAsync(CancellationToken cancellationToken)
     {
         while (_unacknowledged.TryPeek(out var reply))
@@ -167,6 +168,13 @@ internal sealed class ReplyBuffer
             try
             {
                 var status = await _api.FlushAsync(_currentKey(), reply.Bytes, cancellationToken).ConfigureAwait(false);
+                if (IsRefusal(status))
+                {
+                    Log.ReplyRefused(_logger, reply.RequestId, (int)status);
+                    Take(reply);
+                    continue;
+                }
+
                 failure = status == HttpStatusCode.OK ? null : $"Inngest answered {(int)status}";
             }
             catch (HttpRequestException exception)
@@ -177,6 +185,12 @@ internal sealed class ReplyBuffer
             {
                 failure = "the request timed out";
             }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Handlers in the client's pipeline throw their own exceptions, such as a resilience handler's timeout
+                // or open circuit. Nothing may end the flush loop, or no reply would go over HTTP again.
+                failure = exception.Message;
+            }
 
             if (failure is not null)
             {
@@ -184,12 +198,22 @@ internal sealed class ReplyBuffer
                 return false;
             }
 
-            _unacknowledged.TryDequeue(out _);
+            Take(reply);
             Log.Flushed(_logger, reply.RequestId);
-            reply.Dispose();
         }
 
         return true;
+    }
+
+    // A client error other than one about the key, a timeout or a rate limit: sending the same bytes again cannot help.
+    private static bool IsRefusal(HttpStatusCode status) =>
+        (int)status is >= 400 and < 500
+        && status is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests);
+
+    private void Take(Reply reply)
+    {
+        _unacknowledged.TryDequeue(out _);
+        reply.Dispose();
     }
 }
 

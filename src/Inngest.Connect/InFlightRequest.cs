@@ -12,6 +12,11 @@ internal sealed class InFlightRequest
     private string? _leaseId;
     private int _released;
 
+    // How often the lease was renewed, and how often it had been when the latest extension went out. An answer comes
+    // with no lease id of its own, so this is how a late answer about an older lease is told apart.
+    private int _renewals;
+    private int _renewalsAtExtension;
+
     public InFlightRequest(GatewayExecutorRequestData data, GatewayConnection origin, TimeProvider time)
     {
         Data = data;
@@ -31,6 +36,12 @@ internal sealed class InFlightRequest
     // Null once the lease is given up or lost.
     public string? LeaseId => Volatile.Read(ref _leaseId);
 
+    public int Renewals => Volatile.Read(ref _renewals);
+
+    // An answer to the latest extension is about the current lease only if nothing renewed it after the extension
+    // went out, such as Inngest sending the running request again with a new lease.
+    public bool AnswerIsCurrent => Volatile.Read(ref _renewalsAtExtension) == Volatile.Read(ref _renewals);
+
     public void RenewLease(string leaseId)
     {
         var current = Volatile.Read(ref _leaseId);
@@ -39,12 +50,16 @@ internal sealed class InFlightRequest
             var seen = Interlocked.CompareExchange(ref _leaseId, leaseId, current);
             if (ReferenceEquals(seen, current))
             {
+                Interlocked.Increment(ref _renewals);
                 return;
             }
 
             current = seen;
         }
     }
+
+    // Records the renewals seen before the lease id of an extension was read.
+    public void ExtensionSent(int renewals) => Volatile.Write(ref _renewalsAtExtension, renewals);
 
     // Lets go of the lease, which stops the extensions. Returns true for the one call that did it.
     public bool Release()

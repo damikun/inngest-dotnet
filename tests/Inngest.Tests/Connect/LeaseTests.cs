@@ -145,6 +145,28 @@ public sealed class LeaseTests : IAsyncLifetime
         (await session.NextAsync(GatewayMessageType.WorkerRequestExtendLease, WorkerRequestExtendLeaseData.Parser)).LeaseId.ShouldBe("lease-9");
     }
 
+    [Fact]
+    public async Task A_late_refusal_of_an_older_lease_does_not_stop_a_request_that_was_leased_again()
+    {
+        await using var worker = new WorkerHost(_gateway, engine: _engine);
+        var session = await StartRequestAsync(worker, "lease-1");
+        await _engine.NextAsync();
+        worker.Time.Advance(Interval);
+        (await NextExtensionAsync(session, "req-1")).LeaseId.ShouldBe("lease-1");
+
+        // Before the gateway answers that extension it sends the running request again with a new lease, so the answer
+        // that follows refuses lease-1, which is no longer the current lease.
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1", leaseId: "lease-9"));
+        await session.NextAsync(GatewayMessageType.WorkerRequestAck);
+        await session.SendAsync(GatewayMessageType.WorkerRequestExtendLeaseAck, new WorkerRequestExtendLeaseAckData { RequestId = "req-1" });
+        await session.WaitForWorkerAsync();
+        worker.Time.Advance(Interval);
+
+        (await NextExtensionAsync(session, "req-1")).LeaseId.ShouldBe("lease-9");
+        worker.LogsWithId(518).ShouldBeEmpty();
+        worker.LogsWithId(535).ShouldHaveSingleItem().Message.ShouldContain("req-1");
+    }
+
     // The probes of WaitForWorkerAsync are requests too: when the clock moves while one still runs, it extends its own
     // lease. Tests that move the clock after a probe therefore look at the extensions of their own request only.
     private static async Task<WorkerRequestExtendLeaseData> NextExtensionAsync(GatewaySession session, string requestId)

@@ -28,7 +28,8 @@ internal sealed class WorkerHost : IAsyncDisposable
         Action<InngestOptions>? inngest = null,
         Action<ConnectOptions>? connect = null,
         Action<IInngestBuilder>? functions = null,
-        IExecutionEngine? engine = null)
+        IExecutionEngine? engine = null,
+        Action<IServiceCollection>? configure = null)
     {
         var services = new ServiceCollection();
 
@@ -66,6 +67,7 @@ internal sealed class WorkerHost : IAsyncDisposable
             services.Replace(ServiceDescriptor.Singleton(engine));
         }
 
+        configure?.Invoke(services);
         _provider = services.BuildServiceProvider();
         Logs = _provider.GetFakeLogCollector();
     }

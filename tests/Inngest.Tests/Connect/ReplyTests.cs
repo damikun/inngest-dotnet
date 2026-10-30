@@ -2,6 +2,7 @@ using System.Net;
 using Inngest.Connect.Protocol;
 using Inngest.Signing;
 using Inngest.Tests.Connect.Support;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.Connect;
 
@@ -129,9 +130,63 @@ public sealed class ReplyTests : IAsyncLifetime
         worker.LogsWithId(520).ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task A_flush_that_a_handler_fails_with_its_own_exception_is_tried_again()
+    {
+        _gateway.AcknowledgeReplies = false;
+        await using var worker = new WorkerHost(_gateway, configure: services => services
+            .AddHttpClient(InngestServiceCollectionExtensions.HttpClientName)
+            .AddHttpMessageHandler(() => new FirstFlushFails()));
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+
+        var backoff = worker.Time.NextTimerAsync(TimeSpan.FromSeconds(1));
+        worker.Time.Advance(Deadline);
+        await backoff;
+        worker.Time.Advance(TimeSpan.FromSeconds(1));
+
+        (await _gateway.NextFlushAsync()).Reply.RequestId.ShouldBe("req-1");
+        worker.LogsWithId(523).ShouldHaveSingleItem().Message.ShouldContain("circuit is open");
+    }
+
+    [Fact]
+    public async Task A_reply_Inngest_refuses_is_dropped_so_the_next_one_still_goes_out()
+    {
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = call => call.Reply.RequestId == "req-1" ? HttpStatusCode.BadRequest : null;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-2"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+
+        worker.Time.Advance(Deadline);
+
+        (await _gateway.NextFlushAsync()).Status.ShouldBe(HttpStatusCode.BadRequest);
+        var next = await _gateway.NextFlushAsync();
+        next.Reply.RequestId.ShouldBe("req-2");
+        next.Status.ShouldBe(HttpStatusCode.OK);
+        worker.LogsWithId(534).ShouldHaveSingleItem().Message.ShouldContain("req-1");
+    }
+
     private async Task<GatewaySession> ConnectAsync(WorkerHost worker)
     {
         await worker.StartAsync();
         return await _gateway.NextReadySessionAsync();
     }
+
+    // Stands in for a resilience handler: its timeouts and open circuits are not HttpRequestExceptions.
+    private sealed class FirstFlushFails : DelegatingHandler
+    {
+        private int _flushes;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            request.RequestUri!.AbsolutePath.EndsWith("/flush", StringComparison.Ordinal) && Interlocked.Increment(ref _flushes) == 1
+                ? throw new CircuitOpenException()
+                : base.SendAsync(request, cancellationToken);
+    }
+
+    private sealed class CircuitOpenException() : Exception("The circuit is open.");
 }

@@ -102,4 +102,12 @@ internal static partial class Log
 
     [LoggerMessage(EventId = 533, Level = LogLevel.Error, Message = "Writing to connection {ConnectionId} failed unexpectedly.")]
     public static partial void WriteLoopFailed(ILogger logger, string connectionId, Exception exception);
+
+    [LoggerMessage(EventId = 534, Level = LogLevel.Error,
+        Message = "Inngest refused the reply to request {RequestId} with status {StatusCode}, so it was dropped; Inngest retries the request once its lease runs out.")]
+    public static partial void ReplyRefused(ILogger logger, string requestId, int statusCode);
+
+    [LoggerMessage(EventId = 535, Level = LogLevel.Debug,
+        Message = "Ignored the answer to an earlier lease extension of request {RequestId}; Inngest has handed out a newer lease since.")]
+    public static partial void StaleLeaseAnswer(ILogger logger, string requestId);
 }

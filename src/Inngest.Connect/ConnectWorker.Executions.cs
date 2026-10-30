@@ -151,6 +151,8 @@ internal sealed partial class ConnectWorker
         var data = request.Data;
         while (await request.LeaseTimer.WaitForNextTickAsync().ConfigureAwait(false))
         {
+            // Read first: a renewal between the two reads makes the answer look stale, which only skips it.
+            var renewals = request.Renewals;
             if (request.LeaseId is not { } leaseId)
             {
                 return;
@@ -177,6 +179,7 @@ internal sealed partial class ConnectWorker
                 extension.StepId = data.StepId;
             }
 
+            request.ExtensionSent(renewals);
             if (connection is null || !connection.Send(GatewayMessageType.WorkerRequestExtendLease, extension))
             {
                 Log.CannotExtendLease(_logger, data.RequestId);
@@ -189,6 +192,14 @@ internal sealed partial class ConnectWorker
         // An answer can arrive after the execution is done.
         if (!_requests.TryGetValue(ack.RequestId, out var request))
         {
+            return;
+        }
+
+        // Inngest sent the request again with a new lease after this extension went out. Whether the answer grants or
+        // refuses the older lease, the newer one is what counts.
+        if (!request.AnswerIsCurrent)
+        {
+            Log.StaleLeaseAnswer(_logger, ack.RequestId);
             return;
         }
 
