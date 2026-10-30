@@ -26,7 +26,7 @@ public sealed class GatewaySettings
     public ConcurrentQueue<GatewayCall> Calls { get; } = new();
 }
 
-public sealed record GatewayCall(GatewayPayload Payload, string Method, string Path, bool IsBase64Encoded);
+public sealed record GatewayCall(GatewayPayload Payload, string Method, string Path, bool IsBase64Encoded, bool Signed, bool ResponseSigned);
 
 // API Gateway in front of a Lambda function, for a test: it runs ahead of the SDK's own endpoint and answers every
 // request to the serve path itself. Each request becomes an event of the chosen payload format, with the fields API
@@ -37,6 +37,8 @@ internal sealed class FakeApiGateway(InngestLambdaHandler handler, GatewaySettin
     // The first segment of the serve path is the stage of a REST API, so that its events show the stage in
     // requestContext.path and not in path.
     private const string Stage = "api";
+
+    private const string SignatureHeader = "X-Inngest-Signature";
 
     private static readonly TestLambdaContext Context = new() { RemainingTime = TimeSpan.FromMinutes(5) };
 
@@ -63,7 +65,7 @@ internal sealed class FakeApiGateway(InngestLambdaHandler handler, GatewaySettin
         var bytes = buffer.ToArray();
         var base64 = settings.Base64Bodies && bytes.Length > 0;
         var body = bytes.Length == 0 ? null : base64 ? Convert.ToBase64String(bytes) : Encoding.UTF8.GetString(bytes);
-        settings.Calls.Enqueue(new GatewayCall(settings.Payload, request.Method, request.Path.Value!, base64));
+        var payloadKind = settings.Payload;
 
         int status;
         IDictionary<string, string>? headers;
@@ -85,11 +87,19 @@ internal sealed class FakeApiGateway(InngestLambdaHandler handler, GatewaySettin
         catch (Exception)
         {
             // What API Gateway answers when the function fails.
+            settings.Calls.Enqueue(new GatewayCall(payloadKind, request.Method, request.Path.Value!, base64, request.Headers.ContainsKey(SignatureHeader), ResponseSigned: false));
             context.Response.StatusCode = StatusCodes.Status502BadGateway;
             await context.Response.WriteAsync("""{"message": "Internal server error"}""", context.RequestAborted);
             return;
         }
 
+        settings.Calls.Enqueue(new GatewayCall(
+            payloadKind,
+            request.Method,
+            request.Path.Value!,
+            base64,
+            request.Headers.ContainsKey(SignatureHeader),
+            headers?.Keys.Any(name => string.Equals(name, SignatureHeader, StringComparison.OrdinalIgnoreCase)) ?? false));
         context.Response.StatusCode = status;
         foreach (var (name, value) in headers ?? new Dictionary<string, string>())
         {
