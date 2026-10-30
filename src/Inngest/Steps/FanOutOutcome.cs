@@ -6,9 +6,9 @@ using System.Text.Json.Serialization;
 namespace Inngest;
 
 /// <summary>
-/// What became of one item of a fan-out: the result of its step, or the error of the step that failed for good. The
-/// chunked methods also use it as the output of the function that runs a chunk, which is why it serializes to JSON, with
-/// a default value and a missing error left out.
+/// What became of one item of a fan-out: the result of its step, or the error of the step that failed for good. It is
+/// also what the function of a chunk returns for each item, which is why it serializes to JSON, leaving out a default
+/// value and a missing error.
 /// </summary>
 /// <param name="Index">The position of the item in the list.</param>
 /// <param name="Value">The result of the item's step; default when it failed.</param>

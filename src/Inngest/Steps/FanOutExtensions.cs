@@ -12,22 +12,25 @@ namespace Inngest;
 /// <remarks>
 /// The list has to be the same on every replay, so take it from the event or from the result of a step. The ids of
 /// the steps come from the position of the items, "id[0]", "id[1]" and so on, so a list that changes between calls
-/// gives an item the result of another.
+/// gives an item the result of another. Give each fan-out of a function an id of its own.
 /// </remarks>
 public static class FanOutExtensions
 {
-    // Inngest allows this many steps in a run, those of parallel groups included.
+    // Inngest allows this many steps in a run, those of parallel groups included:
+    // https://www.inngest.com/docs/durable-execution/limits
     private const int StepsPerRun = 1_000;
 
     /// <summary>
     /// Runs the handler for each item as a step with the id "id[index]" and returns the results in the order of the
-    /// items. Items run at the same time, up to <see cref="FanOutOptions.MaxParallelism"/>. When an item's step fails for
-    /// good, no more items start and the call throws that StepFailedException, without waiting for the items in
-    /// flight: Inngest cannot recall a step it has planned, and the run keeps their results. A list of more than 1,000
-    /// items throws, since a run has at most that many steps; use MapInChunksAsync for such lists. When
-    /// the token is canceled while items are left, the next one is not started and the call throws
-    /// OperationCanceledException.
+    /// items. Up to <see cref="FanOutOptions.MaxParallelism"/> items run at the same time.
     /// </summary>
+    /// <remarks>
+    /// When an item's step fails for good, no more items start and the call throws that item's StepFailedException
+    /// without waiting for the items in flight, which the SDK cannot recall. If several failed, it throws the one
+    /// Inngest recorded first. When the token is canceled while items are left, the next one does not start and the
+    /// call throws OperationCanceledException. A list of more than 1,000 items is refused, since a run has at most
+    /// that many steps; MapInChunksAsync takes longer lists.
+    /// </remarks>
     public static Task<IReadOnlyList<TResult>> MapAsync<TItem, TResult>(
         this IStepTools step,
         string id,
@@ -43,8 +46,8 @@ public static class FanOutExtensions
     }
 
     /// <summary>
-    /// Runs the handler for each item as a step with the id "id[index]", with the limits and the failure behavior of
-    /// MapAsync.
+    /// Runs the handler for each item as a step with the id "id[index]", like MapAsync but for a handler without a
+    /// result. A failed item stops the list in the same way.
     /// </summary>
     public static Task ForEachAsync<TItem>(
         this IStepTools step,
@@ -68,9 +71,9 @@ public static class FanOutExtensions
     }
 
     /// <summary>
-    /// Runs the handler for each item as a step with the id "id[index]", like MapAsync, and returns the
-    /// outcome of every item in the order of the items instead of throwing when one fails: an item whose step failed
-    /// for good has its error in its outcome, and the other items still run.
+    /// Runs the handler for each item as a step with the id "id[index]", like MapAsync, and returns the outcome of
+    /// every item in the order of the items instead of throwing when one fails. An item whose step failed for good has
+    /// its error in its outcome, and the other items still run.
     /// </summary>
     public static Task<IReadOnlyList<FanOutOutcome<TResult>>> MapOutcomesAsync<TItem, TResult>(
         this IStepTools step,
@@ -87,15 +90,17 @@ public static class FanOutExtensions
     }
 
     /// <summary>
-    /// Runs a list in chunks of chunkSize items, each in a run of its own of the function TFunction, and returns the
-    /// results in the order of the items. For lists that do not fit in one run: a run has at most 1,000 steps, and a
-    /// chunk's run has a step per item. The parent's run has an invoke step per chunk, with the id "id[first-last]".
-    /// Chunks run at the same time up to <see cref="FanOutOptions.MaxParallelism"/>; the function decides how many items of
-    /// a chunk do. When an item fails for good, its chunk starts no more items, no more chunks start, and the call
-    /// throws a StepFailedException for that item, with the step id "id[index]". A chunk whose run fails or times out
-    /// throws a StepFailedException for the chunk. Every result ends up in the state of the parent's run, and every
-    /// chunk is the data of an event, so choose chunkSize with the limits of Inngest in mind.
+    /// Runs a list in chunks of chunkSize items, each chunk in a run of its own of the function TFunction, and returns
+    /// the results in the order of the items. For lists that do not fit in one run, which has at most 1,000 steps.
     /// </summary>
+    /// <remarks>
+    /// The parent's run has an invoke step per chunk, with the id "id[first-last]". Up to
+    /// <see cref="FanOutOptions.MaxParallelism"/> chunks run at the same time; the function decides how many items of a
+    /// chunk do. When an item fails for good, its chunk starts no more items, no more chunks start, and the call throws
+    /// a StepFailedException for that item, whose StepId is "id[index]". A chunk whose run fails or times out throws a
+    /// StepFailedException for the chunk's step. A chunk is the data of an event and all the results end up in the
+    /// state of the parent's run, so choose chunkSize with the limits of Inngest in mind.
+    /// </remarks>
     public static Task<IReadOnlyList<TResult>> MapInChunksAsync<TFunction, TItem, TResult>(
         this IStepTools step,
         string id,
