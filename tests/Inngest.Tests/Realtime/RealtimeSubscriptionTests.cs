@@ -80,6 +80,20 @@ public sealed class RealtimeSubscriptionTests
     }
 
     [Fact]
+    public async Task A_message_whose_data_is_not_the_topics_type_is_skipped()
+    {
+        var feed = new SseFeed();
+        _api.Answer(feed);
+        var status = new RealtimeTopic<Progress>("order:7", "status");
+
+        var first = FirstAsync(Realtime().SubscribeAsync(status, Cancel));
+        await feed.SendAsync("""{"kind":"data","data":"not a progress","channel":"order:7","topic":"status"}""");
+        await feed.SendAsync("""{"kind":"data","data":{"text":"Packed","percent":50},"channel":"order:7","topic":"status"}""");
+
+        (await first.WaitAsync(Wait, Cancel)).Data.ShouldBe(new Progress("Packed", 50));
+    }
+
+    [Fact]
     public async Task A_subscription_that_ends_is_opened_again_with_a_new_token()
     {
         var first = new SseFeed();
@@ -133,7 +147,7 @@ public sealed class RealtimeSubscriptionTests
         Should.Throw<ArgumentException>(() => Realtime().SubscribeAsync("", ["status"], Cancel));
 
     private InngestRealtime Realtime() =>
-        new(_api, new RealtimeSubscriber(_api, _time, NullLogger<RealtimeSubscriber>.Instance), EngineHost.Settings);
+        new(_api, new RealtimeSubscriber(_api, _time, NullLogger<RealtimeSubscriber>.Instance), EngineHost.Settings, NullLogger<InngestRealtime>.Instance);
 
     private static string Message(string text) => $$"""{"kind":"data","data":"{{text}}","channel":"order:7","topic":"status"}""";
 

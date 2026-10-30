@@ -6,10 +6,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Microsoft.Extensions.Logging;
 
 namespace Inngest.Realtime;
 
-internal sealed class InngestRealtime(IRealtimeApi api, RealtimeSubscriber subscriber, InngestSettings settings) : IInngestRealtime
+internal sealed class InngestRealtime(IRealtimeApi api, RealtimeSubscriber subscriber, InngestSettings settings, ILogger<InngestRealtime> logger) : IInngestRealtime
 {
     public Task PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken cancellationToken = default)
     {
@@ -59,7 +60,19 @@ internal sealed class InngestRealtime(IRealtimeApi api, RealtimeSubscriber subsc
     {
         await foreach (var payload in subscriber.ReadAsync(channel, topics, cancellationToken).ConfigureAwait(false))
         {
-            if (reader.Read(payload) is { } message)
+            // A message whose data is not a T, as another publisher may send, is skipped rather than ending the subscription.
+            RealtimeMessage<T>? message;
+            try
+            {
+                message = reader.Read(payload);
+            }
+            catch (JsonException exception)
+            {
+                Log.RealtimeMessageSkipped(logger, channel, typeof(T).Name, exception.Message);
+                continue;
+            }
+
+            if (message is not null)
             {
                 yield return message;
             }

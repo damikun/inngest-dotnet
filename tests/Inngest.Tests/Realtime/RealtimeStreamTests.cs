@@ -88,7 +88,7 @@ public sealed class RealtimeStreamTests
         var function = TestFunction.Define(async context => (await context.Step.PublishAsync("status", status, new Progress("Packed", 50))).Percent);
 
         var result = await host.CallAsync(function, Call.New());
-        var realtime = new InngestRealtime(api, new RealtimeSubscriber(api, TimeProvider.System, NullLogger<RealtimeSubscriber>.Instance), EngineHost.Settings);
+        var realtime = new InngestRealtime(api, new RealtimeSubscriber(api, TimeProvider.System, NullLogger<RealtimeSubscriber>.Instance), EngineHost.Settings, NullLogger<InngestRealtime>.Instance);
         await realtime.PublishAsync(status, new Progress("Shipped", 100), TestContext.Current.CancellationToken);
 
         result.Op().GetProperty("data").GetRawText().ShouldBe("""{"text":"Packed","percent":50}""");
