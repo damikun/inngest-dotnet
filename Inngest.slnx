@@ -11,6 +11,7 @@
     <Project Path="src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
     <Project Path="src/Inngest.Connect/Inngest.Connect.csproj" />
     <Project Path="src/Inngest.Encryption/Inngest.Encryption.csproj" />
+    <Project Path="src/Inngest.Extensions.AI/Inngest.Extensions.AI.csproj" />
     <Project Path="src/Inngest.OpenTelemetry/Inngest.OpenTelemetry.csproj" />
     <Project Path="src/Inngest.Sentry/Inngest.Sentry.csproj" />
     <Project Path="src/Inngest/Inngest.csproj" />

@@ -1,0 +1,144 @@
+// Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
+
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using Inngest.Execution;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace Inngest.Extensions.AI;
+
+// Inside a run, a call to the model is a step: the model is called once, the complete response is memoized, and a replay
+// gets it back without calling the model. Everywhere else, outside a run and inside a step's handler, where steps cannot be
+// nested, the call goes to the inner client as it is.
+//
+// The decision is made per call, from the invocation the calling code runs in, so one client serves any number of runs
+// and the same pipeline works in a function, a controller and a unit test.
+internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestStepsOptions options, ILogger logger) : DelegatingChatClient(innerClient)
+{
+    private const string DefaultStepId = "chat";
+
+    public override Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var callOptions = CallSettings.Take(chatOptions, out var settings);
+
+        // The step is registered before this returns, so that repeated calls claim their ids in the order they were made.
+        return Invocation.AmbientSteps is { } steps
+            ? CallAsStepAsync(steps, messages, callOptions, settings, streaming: false, cancellationToken)
+            : InnerClient.GetResponseAsync(messages, callOptions, cancellationToken);
+    }
+
+    public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var callOptions = CallSettings.Take(chatOptions, out var settings);
+        return Invocation.AmbientSteps is null
+            ? InnerClient.GetStreamingResponseAsync(messages, callOptions, cancellationToken)
+            : StreamAsStepAsync(messages, callOptions, settings, cancellationToken);
+    }
+
+    // Like every IChatClient stream, nothing happens until it is enumerated, so a stream nobody reads is not a model call.
+    // The step runs the model's whole stream inside its handler, because a step cannot hand out results as they arrive;
+    // what the caller gets is the memoized response, as the updates it was made of.
+    private async IAsyncEnumerable<ChatResponseUpdate> StreamAsStepAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? callOptions,
+        CallSettings settings,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        // Enumerated where a step handler runs, the stream is a plain one. It stays in the caller's synchronization context
+        // like the stages of Microsoft.Extensions.AI do, which the inner client may need.
+        if (Invocation.AmbientSteps is not { } steps)
+        {
+#pragma warning disable CA2007 // Consider calling ConfigureAwait on the awaited task
+            await foreach (var update in InnerClient.GetStreamingResponseAsync(messages, callOptions, cancellationToken))
+#pragma warning restore CA2007
+            {
+                yield return update;
+            }
+
+            yield break;
+        }
+
+        var response = await CallAsStepAsync(steps, messages, callOptions, settings, streaming: true, cancellationToken).ConfigureAwait(false);
+        foreach (var update in response.ToChatResponseUpdates())
+        {
+            yield return update;
+        }
+    }
+
+    private async Task<ChatResponse> CallAsStepAsync(
+        IStepTools steps,
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? callOptions,
+        CallSettings settings,
+        bool streaming,
+        CancellationToken cancellationToken)
+    {
+        var stepId = settings.StepId ?? DefaultStepId;
+        var history = messages as IList<ChatMessage> ?? [.. messages];
+        var realtime = streaming && settings.StreamTo is not null
+            ? Invocation.AmbientContext!.Services.GetRequiredService<IInngestRealtime>()
+            : null;
+
+        JsonElement? input = null;
+        if (options.RecordInput)
+        {
+            input = ChatJson.TryWriteInput(history, callOptions, out var problem);
+            if (problem is not null)
+            {
+                Log.InputNotRecorded(logger, stepId, problem);
+            }
+        }
+
+        // The handler gets the recorded input back, or an edit of it from the Inngest UI, which is then what the model is
+        // called with. Without an edit it calls the model with the messages and options as the caller passed them, which
+        // JSON would not carry whole (raw representations of the provider, additional properties of any type).
+        async Task<JsonElement> HandleAsync(JsonElement received, CancellationToken stepToken)
+        {
+            var (callMessages, optionsOfCall) = input is { } recorded && ChatJson.IsEdited(received, recorded)
+                ? ChatJson.ReadInput(received, callOptions)
+                : (history, callOptions);
+
+            using var linked = cancellationToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(stepToken, cancellationToken) : null;
+            var token = linked?.Token ?? stepToken;
+            if (!streaming)
+            {
+                return ChatJson.WriteResponse(await InnerClient.GetResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false));
+            }
+
+            var publisher = realtime is null ? null : new StreamPublisher(realtime, settings.StreamTo!, stepId, logger, token);
+            var updates = new List<ChatResponseUpdate>();
+            try
+            {
+                await foreach (var update in InnerClient.GetStreamingResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false))
+                {
+                    updates.Add(update);
+                    publisher?.Write(update.Text);
+                }
+            }
+            finally
+            {
+                if (publisher is not null)
+                {
+                    await publisher.CompleteAsync().ConfigureAwait(false);
+                }
+            }
+
+            return ChatJson.WriteResponse(updates.ToChatResponse());
+        }
+
+        var json = input is { } stepInput
+            ? await steps.AIWrapAsync(stepId, stepInput, HandleAsync).ConfigureAwait(false)
+            : await steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken)).ConfigureAwait(false);
+        return ChatJson.ReadResponse(json);
+    }
+}

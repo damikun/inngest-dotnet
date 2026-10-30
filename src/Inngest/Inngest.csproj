@@ -14,6 +14,7 @@
     <InternalsVisibleTo Include="Inngest.AspNetCore" />
     <InternalsVisibleTo Include="Inngest.Connect" />
     <InternalsVisibleTo Include="Inngest.Encryption" />
+    <InternalsVisibleTo Include="Inngest.Extensions.AI" />
     <InternalsVisibleTo Include="Inngest.Testing" />
     <InternalsVisibleTo Include="Inngest.Tests" />
     <InternalsVisibleTo Include="Inngest.IntegrationTests" />

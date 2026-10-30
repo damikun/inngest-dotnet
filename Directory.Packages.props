@@ -15,6 +15,8 @@
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+    <!-- The newest stable release, with builds for net8.0 and net10.0. It brings in Microsoft.Extensions.AI.Abstractions. -->
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
     <!-- XSalsa20, Poly1305 and BLAKE2b for Inngest.Encryption. -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- The first line built on System.Diagnostics.DiagnosticSource 10, which the SDK already depends on. -->
