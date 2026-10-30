@@ -1,0 +1,3 @@
+[*.cs]
+# src/.editorconfig requires the line about inngest-js in every file. This package is not ported from it.
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.

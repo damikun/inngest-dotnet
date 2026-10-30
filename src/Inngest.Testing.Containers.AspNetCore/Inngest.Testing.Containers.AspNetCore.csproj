@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Testing.Containers.AspNetCore</RootNamespace>
+    <Description>WebApplicationFactory for the Inngest .NET SDK: runs an ASP.NET Core app on a real socket, configured for the Inngest server of Inngest.Testing.Containers, which syncs it and calls its functions.</Description>
+    <PackageTags>$(PackageTags);testing;testcontainers;docker;aspnetcore;webapplicationfactory</PackageTags>
+    <!-- WebApplicationFactory can run Kestrel from .NET 10 on (UseKestrel). Before, a real socket needs a second host built
+         next to the in-memory one, which runs the app's hosted services twice and splits the app's state in two, so the
+         package does not offer that. -->
+    <TargetFrameworks>$(LatestTargetFramework)</TargetFrameworks>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+    <!-- Mvc.Testing finds the app by reflection and is not trim safe. The package is for test projects. -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest.Testing.Containers\Inngest.Testing.Containers.csproj" />
+  </ItemGroup>
+</Project>

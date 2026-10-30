@@ -27,6 +27,9 @@
     <!-- TestHost is versioned with ASP.NET Core and its 10.0 packages have no net8.0 build. -->
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <!-- Only the .NET 10 package has WebApplicationFactory.UseKestrel, which Inngest.Testing.Containers.AspNetCore needs, so
+         unlike TestHost there is no net8.0 version. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.11.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
