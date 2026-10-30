@@ -14,6 +14,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <IsPackable>false</IsPackable>
+    <!-- CI packs the whole solution, and the web SDK would warn about each sample it reaches. -->
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
     <!-- INNGEST_BUILD_SLOT builds into artifacts/slots/<slot> so that parallel builds do not collide. -->
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath Condition="'$(INNGEST_BUILD_SLOT)' != ''">$(MSBuildThisFileDirectory)artifacts/slots/$(INNGEST_BUILD_SLOT)</ArtifactsPath>

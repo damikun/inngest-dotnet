@@ -278,7 +278,7 @@ The documentation has complete examples:
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
-- **Native AOT**: the AOT sample publishes with zero warnings.
+- **Native AOT**: CI publishes the AOT sample with zero warnings and starts the native binary.
 - **Strict builds**: warnings are errors, code style is enforced in the build, and the packages include Source Link
   and symbol packages.
 

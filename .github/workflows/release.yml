@@ -21,9 +21,12 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
+# Every job has a time limit well above how long it takes, so a hang fails instead of holding up the next tag for six
+# hours.
 jobs:
   pack:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,10 +52,7 @@ jobs:
       - run: dotnet build Inngest.slnx -c Release -p:Version="$VERSION"
       # Packed straight after the build: the .NET 8 tests below build again, and the packages must hold these assemblies.
       - name: Pack
-        run: |
-          for project in src/Inngest src/Inngest.AspNetCore src/Inngest.Connect src/Inngest.OpenTelemetry src/Inngest.Testing; do
-            dotnet pack "$project" -c Release --no-build -p:Version="$VERSION" -o packages
-          done
+        run: dotnet pack Inngest.slnx -c Release --no-build -p:Version="$VERSION" -o packages
       - run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release --no-build
       - name: Unit tests on .NET 8
         run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release -p:Version="$VERSION" -p:TestAllFrameworks=true --framework net8.0
@@ -65,6 +65,7 @@ jobs:
   publish:
     needs: pack
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Only this job may ask GitHub for an identity token, so nothing that runs during the build can publish.
     permissions:
       id-token: write

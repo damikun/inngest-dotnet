@@ -1,7 +1,7 @@
 name: CI
 
-# Builds everything, runs the unit tests on every supported runtime and packs the NuGet packages as a build
-# artifact. Nothing is published to NuGet from here.
+# Builds everything, runs the unit tests on every supported runtime, packs the NuGet packages as a build artifact and
+# checks the Native AOT sample. Nothing is published to NuGet from here.
 on:
   push:
     branches: [main]
@@ -19,9 +19,11 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
+# Every job has a time limit well above how long it takes, so a hang fails instead of running for six hours.
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,11 +38,9 @@ jobs:
       - run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release --no-build
       - name: Unit tests on .NET 8
         run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release -p:TestAllFrameworks=true --framework net8.0
+      # Only the projects in src/ are packable, so a package added to the solution is packed without a change here.
       - name: Pack
-        run: |
-          for project in src/Inngest src/Inngest.AspNetCore src/Inngest.Connect src/Inngest.OpenTelemetry src/Inngest.Testing; do
-            dotnet pack "$project" -c Release --no-build -o packages
-          done
+        run: dotnet pack Inngest.slnx -c Release --no-build -o packages
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
@@ -48,6 +48,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # The suite starts Inngest servers with Testcontainers and reaches the test app through host-gateway. That path
     # is verified on Docker Desktop for Mac; until it is proven on Linux runners, a failure here does not fail CI.
     continue-on-error: true
@@ -57,3 +58,32 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
+
+  # The analyzers behind IsAotCompatible cannot see what only happens in a native binary, such as reading the function
+  # attributes at startup, so the sample is published and started. Warnings are errors, so a trimming or AOT warning
+  # fails the publish.
+  aot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish samples/Inngest.AotSample/Inngest.AotSample.csproj -c Release -r linux-x64 -o aot
+      - name: Start the binary and count its functions
+        # The sample reads appsettings.json from the folder it runs in. Dev mode needs no keys, and the app contacts no
+        # dev server until one syncs it.
+        working-directory: aot
+        env:
+          INNGEST_DEV: '1'
+          ASPNETCORE_URLS: http://127.0.0.1:5080
+        run: |
+          ./Inngest.AotSample &
+          for _ in $(seq 30); do
+            body=$(curl -sf http://127.0.0.1:5080/api/inngest) && break
+            sleep 1
+          done
+          echo "$body"
+          # The sample registers greet, welcome-member and score-member.
+          jq -e '.function_count == 3' <<< "$body"
