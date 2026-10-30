@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Blazor</RootNamespace>
+    <Description>Blazor for the Inngest .NET SDK: a component and a service that show realtime messages in Blazor Server, WebAssembly and Auto, read from Inngest on the server and from the app's realtime relay in the browser.</Description>
+    <PackageTags>$(PackageTags);blazor;realtime;webassembly;components</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The component runs in the browser, so the platform analyzer flags every API used here that the browser lacks. -->
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- A package, not the ASP.NET Core shared framework, which a WebAssembly app does not have. -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

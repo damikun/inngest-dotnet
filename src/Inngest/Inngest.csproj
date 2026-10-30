@@ -36,6 +36,7 @@
     <InternalsVisibleTo Include="Inngest.AspNetCore" />
     <InternalsVisibleTo Include="Inngest.AwsLambda" />
     <InternalsVisibleTo Include="Inngest.AzureFunctions" />
+    <InternalsVisibleTo Include="Inngest.Blazor" />
     <InternalsVisibleTo Include="Inngest.Connect" />
     <InternalsVisibleTo Include="Inngest.Encryption" />
     <InternalsVisibleTo Include="Inngest.EntityFrameworkCore" />

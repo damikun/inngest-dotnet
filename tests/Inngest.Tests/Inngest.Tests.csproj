@@ -17,6 +17,7 @@
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
     <PackageReference Include="Amazon.Lambda.TestUtilities" />
+    <PackageReference Include="bunit" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
@@ -39,6 +40,7 @@
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AwsLambda\Inngest.AwsLambda.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AzureFunctions\Inngest.AzureFunctions.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Blazor\Inngest.Blazor.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Encryption\Inngest.Encryption.csproj" />
     <ProjectReference Include="..\..\src\Inngest.OpenTelemetry\Inngest.OpenTelemetry.csproj" />

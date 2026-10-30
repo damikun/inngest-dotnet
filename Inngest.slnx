@@ -14,6 +14,7 @@
     <Project Path="src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
     <Project Path="src/Inngest.AwsLambda/Inngest.AwsLambda.csproj" />
     <Project Path="src/Inngest.AzureFunctions/Inngest.AzureFunctions.csproj" />
+    <Project Path="src/Inngest.Blazor/Inngest.Blazor.csproj" />
     <Project Path="src/Inngest.Connect/Inngest.Connect.csproj" />
     <Project Path="src/Inngest.Encryption/Inngest.Encryption.csproj" />
     <Project Path="src/Inngest.EntityFrameworkCore/Inngest.EntityFrameworkCore.csproj" />
