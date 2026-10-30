@@ -104,7 +104,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Errors and retries** | Every step retries on its own. `NonRetriableException` stops, `RetryAfterException` sets the delay, and a failure handler runs when a function fails for good. |
 | **Cancellation and timeouts** | `CancelOn` stops a run when a matching event arrives. `Timeouts` cancel a run that waits too long to start or takes too long to finish. |
 | **Middleware** | `InngestMiddleware` observes or wraps runs, steps and event sends, with dependencies from DI. |
-| **AI calls** | `InferAsync` has Inngest make the model call; `AIWrapAsync` runs your own call as a step that the Inngest UI shows with its input. |
+| **AI calls** | `InferAsync` has Inngest make the model call; `AIWrapAsync` runs your own call as a step that the Inngest UI shows with its input. `Inngest.Extensions.AI` makes the model calls and tool calls of a Microsoft.Extensions.AI `IChatClient` steps. |
 | **Realtime** | `PublishAsync` and `PublishStreamAsync` send updates and model output from a run, `SubscribeAsync` receives them in .NET, and `MapInngestRealtime` relays them to browsers as server-sent events. |
 | **Sessions** | Events name the sessions they belong to, and what a run sends or invokes inherits them, so related runs group together. |
 | **Durable endpoints** | `WithDurableEndpoint` or `[DurableEndpoint]` makes an ASP.NET Core endpoint run steps like a function. The caller gets the response directly, and Inngest takes the run over when a step has to wait or fails. Beta in Inngest, so the .NET API is marked experimental. |

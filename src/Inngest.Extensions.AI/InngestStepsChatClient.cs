@@ -107,8 +107,8 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
         }
 
         // The handler gets the recorded input back, or an edit of it from the Inngest UI, which is then what the model is
-        // called with. Without an edit it calls the model with the messages and options as the caller passed them, which
-        // JSON would not carry whole (raw representations of the provider, additional properties of any type).
+        // called with. Without an edit it calls the model with the copies it holds of the caller's messages and options,
+        // which carry what JSON would not (raw representations of the provider, additional properties of any type).
         async Task<JsonElement> HandleAsync(JsonElement received, CancellationToken stepToken)
         {
             var (callMessages, optionsOfCall) = input is { } recorded && ChatJson.IsEdited(received, recorded)
