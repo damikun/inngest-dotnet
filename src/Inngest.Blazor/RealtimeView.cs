@@ -54,8 +54,8 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
     public int MaxMessages { get; set; } = 100;
 
     /// <summary>
-    /// Hands a failed subscription to the nearest ErrorBoundary, which is the circuit's end when there is none. By
-    /// default the view stays on screen with Connection Failed and Error set.
+    /// Hands a failed subscription to the nearest ErrorBoundary; without one it is an unhandled exception, which ends
+    /// a Blazor Server circuit. By default the view stays on screen with Connection Failed and Error set.
     /// </summary>
     [Parameter]
     public bool ThrowOnError { get; set; }
@@ -81,8 +81,8 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
     private IServiceProvider Services { get; set; } = default!;
 
     /// <summary>
-    /// Subscribes again from now on, with the messages cleared. It tries again after a failed subscription, which
-    /// only a change of parameters otherwise does. Call it from an event handler.
+    /// Subscribes again from now on, with the messages cleared, such as to try again after a failure; otherwise only a
+    /// change of the parameters subscribes again. Call it from an event handler.
     /// </summary>
     public void Restart()
     {

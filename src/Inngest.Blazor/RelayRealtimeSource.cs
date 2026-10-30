@@ -95,8 +95,7 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
         Action<RealtimeConnectionState>? onConnectionChanged,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var client = _httpClients.CreateClient(HttpClientName);
-        var url = ResolveUrl(client, channel, topics);
+        var url = ResolveUrl(_httpClients.CreateClient(HttpClientName), channel, topics);
         var failures = 0;
         var opened = false;
         onConnectionChanged?.Invoke(RealtimeConnectionState.Connecting);
@@ -104,6 +103,9 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
         {
             cancellationToken.ThrowIfCancellationRequested();
             var connectedAt = _time.GetTimestamp();
+
+            // A client for each connection, which is how the factory keeps the handlers it pools fresh.
+            var client = _httpClients.CreateClient(HttpClientName);
 
             // The ids of a stream mean nothing to the next connection.
             var reader = createReader();
@@ -201,7 +203,7 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
                     continue;
                 }
 
-                failure ??= new IOException("The relay closed the subscription right after opening it.");
+                failure ??= new IOException("The relay ended the connection within five seconds.");
             }
 
             failures++;

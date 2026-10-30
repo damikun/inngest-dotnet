@@ -38,6 +38,9 @@ public static class InngestBlazorServiceCollectionExtensions
 
         // Scoped, for the page's NavigationManager, which is scoped on the server and a singleton in the browser.
         services.Replace(ServiceDescriptor.Scoped<IRealtimeSource, RelayRealtimeSource>());
-        return services.AddHttpClient(RelayRealtimeSource.HttpClientName);
+
+        // The default logging of an HttpClient writes four lines to the browser's console for each connection, and the
+        // source logs what goes wrong itself. An app that wants them adds a logger to the builder.
+        return services.AddHttpClient(RelayRealtimeSource.HttpClientName).RemoveAllLoggers();
     }
 }
