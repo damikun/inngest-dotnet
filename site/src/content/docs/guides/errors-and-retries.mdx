@@ -42,6 +42,10 @@ current step or call, and `context.MaxAttempts` the total, when Inngest sends it
 [retries](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/retries) in the Inngest
 docs.
 
+A retry can repeat work that succeeded, when the call that did it is lost before Inngest records the result, so a
+step that writes to a database or calls a service should be safe to run twice.
+[Scoped steps](/inngest-dotnet/guides/scoped-steps/#idempotency-keys) shows how for Entity Framework Core.
+
 ## Fail without retrying
 
 Throw `NonRetriableException` when another attempt cannot help, such as for invalid input:

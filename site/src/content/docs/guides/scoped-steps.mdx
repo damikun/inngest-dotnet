@@ -167,8 +167,9 @@ reports one, with the same id rules, retries and results. What differs is the sc
 ## Results are plain data
 
 The result is serialized to JSON after the scope has been disposed, and every replay reads it back
-([Results are JSON](/inngest-dotnet/guides/steps/#results-are-json)). Return records, lists and ids, never tracked
-entities. An entity with navigation properties usually refers back to itself, which `System.Text.Json` refuses, and a
+([Results are JSON](/inngest-dotnet/guides/steps/#results-are-json)); it also counts toward Inngest's
+[limits](https://www.inngest.com/docs/durable-execution/limits) on the size of a step's result. Return records, lists
+and ids, never tracked entities. An entity with navigation properties usually refers back to itself, which `System.Text.Json` refuses, and a
 query that has not run yet, such as an `IQueryable` or a lazy `Select`, would need the context that is gone. Project
 in the query and return what the function needs next:
 
@@ -326,10 +327,12 @@ var recorded = await context.Step.RunScopedAsync("record-payment", async (ShopDb
 A step id used in a loop is numbered (`record-payment:1`), so build the id from the item, as in
 `$"record-payment-{invoice.Id}"`, and key by that. Other steps need other shapes:
 
-- A step that creates a row can put the key on the row itself, as above, or use a natural key such as the order id.
-- A step that sets a status is safe to repeat as it is, as long as it does not depend on the previous value.
-- A step that changes a number relative to its old value, such as a stock count, is not. Add a row keyed by run and
-  step in the same save, so the second save fails, or make the update conditional.
+- A step that creates a row keys it by the run and the step, as above, or by a natural key such as the order id, behind
+  a unique index.
+- A step that sets a value is safe to repeat as it is: an update to a fixed value, or an upsert by the entity's key,
+  which the provider spells `ON CONFLICT` or `MERGE` in SQL.
+- A step that changes a value relative to its old one, such as a stock count, is not. Add a row keyed by the run and
+  the step in the same save, so that the second save fails, or make the update conditional.
 
 Keep the keys as long as the run can still retry the step. A function triggered by `inngest/function.finished` can
 delete them when the run ends.
