@@ -147,11 +147,11 @@ internal sealed record InngestSettings
 
             // The option defaults to true, so only false can be told apart from "not set" and win over the variable.
             AllowInBandSync = options.AllowInBandSync
-                ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ALLOW_IN_BAND_SYNC"))
+                ?? VariableSource.ParseFlag(variables.Get("INNGEST_ALLOW_IN_BAND_SYNC"))
                 ?? section?.AllowInBandSync
                 ?? true,
             AllowUnsignedSync = options.AllowUnsignedSync
-                ?? VariableSource.ParseBoolean(variables.Get("INNGEST_ENABLE_UNAUTHED_SYNC"))
+                ?? VariableSource.ParseFlag(variables.Get("INNGEST_ENABLE_UNAUTHED_SYNC"))
                 ?? section?.AllowUnsignedSync
                 ?? true,
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
@@ -177,7 +177,7 @@ internal sealed record InngestSettings
         }
 
         // The dev server speaks plain http wherever it runs.
-        return VariableSource.ParseBoolean(value) is { } flag ? (flag, null) : (null, VariableSource.ParseUrl(DevVariableName, value, assumeHttp: true));
+        return VariableSource.ParseFlag(value) is { } flag ? (flag, null) : (null, VariableSource.ParseUrl(DevVariableName, value, assumeHttp: true));
     }
 
     private static Uri? RequireHttpUrl(Uri? url, string optionName)

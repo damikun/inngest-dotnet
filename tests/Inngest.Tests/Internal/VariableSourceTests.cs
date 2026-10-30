@@ -26,6 +26,22 @@ public sealed class VariableSourceTests
     public void A_flag_is_true_false_or_neither(string? value, bool? expected) =>
         VariableSource.ParseBoolean(value).ShouldBe(expected);
 
+    // Environment variables also take on/off and yes/no, so that "off" is never taken for a dev server's address.
+    [Theory]
+    [InlineData("on", true)]
+    [InlineData("Yes", true)]
+    [InlineData("true", true)]
+    [InlineData("1", true)]
+    [InlineData("off", false)]
+    [InlineData("NO", false)]
+    [InlineData(" off ", false)]
+    [InlineData("0", false)]
+    [InlineData("localhost:9000", null)]
+    [InlineData("random string", null)]
+    [InlineData(null, null)]
+    public void A_variable_flag_also_reads_on_off_yes_and_no(string? value, bool? expected) =>
+        VariableSource.ParseFlag(value).ShouldBe(expected);
+
     [Fact]
     public void Blank_values_count_as_unset_and_the_rest_is_trimmed()
     {

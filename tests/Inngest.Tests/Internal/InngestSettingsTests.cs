@@ -74,6 +74,8 @@ public sealed class InngestSettingsTests
     [InlineData("TRUE")]
     [InlineData("True")]
     [InlineData("  true  ")]
+    [InlineData("on")]
+    [InlineData("yes")]
     public void Truthy_INNGEST_DEV_selects_dev_mode_with_the_local_dev_server(string value)
     {
         var settings = Create(null, ("INNGEST_DEV", value));
@@ -87,6 +89,8 @@ public sealed class InngestSettingsTests
     [InlineData("0")]
     [InlineData("false")]
     [InlineData("FALSE")]
+    [InlineData("off")]
+    [InlineData("No")]
     public void Falsy_INNGEST_DEV_selects_cloud_mode(string value)
     {
         var settings = Create(null, ("INNGEST_DEV", value));

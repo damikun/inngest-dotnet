@@ -399,6 +399,17 @@ public sealed class InngestSettingsConfigurationTests
         fromOptions.AllowUnsignedSync.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData("off")]
+    [InlineData("no")]
+    public void Off_and_no_turn_the_sync_variables_off(string value)
+    {
+        var settings = Create([], variables: [("INNGEST_ALLOW_IN_BAND_SYNC", value), ("INNGEST_ENABLE_UNAUTHED_SYNC", value)]);
+
+        settings.AllowInBandSync.ShouldBeFalse();
+        settings.AllowUnsignedSync.ShouldBeFalse();
+    }
+
     [Fact]
     public void A_sync_variable_that_is_no_flag_does_not_hide_the_section() =>
         Create([("AllowInBandSync", "false")], variables: [("INNGEST_ALLOW_IN_BAND_SYNC", "garbage")]).AllowInBandSync.ShouldBeFalse();

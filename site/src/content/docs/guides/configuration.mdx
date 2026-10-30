@@ -104,8 +104,8 @@ The SDK runs in one of two modes:
 - **Dev mode** talks to a local [dev server](https://www.inngest.com/docs/local-development), checks no signatures
   and needs no keys.
 
-`INNGEST_DEV` selects the mode: `1` or `true` for dev mode, `0` or `false` for cloud mode, or the dev server's URL,
-which also means dev mode. `IsDev` in code overrides it, and `DevServerUrl` sets the dev server's address. A value
+`INNGEST_DEV` selects the mode: `1`, `true`, `on` or `yes` for dev mode, `0`, `false`, `off` or `no` for cloud mode,
+or the dev server's URL, which also means dev mode. `IsDev` in code overrides it, and `DevServerUrl` sets the dev server's address. A value
 the SDK cannot read stops the app with an error rather than silently falling back to cloud mode.
 
 ## Keys

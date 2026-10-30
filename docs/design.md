@@ -414,6 +414,7 @@ Behaviour that differs on purpose, beyond the API shape:
 | Failure handlers | Always registered with runtime type `http` | Same runtime type as the function they belong to |
 | Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |
 | `INNGEST_DEV` URL | Redirects the APIs even when `isDev` is false | Only used in dev mode |
+| Flags in variables | `1`/`true` and `0`/`false`; any other `INNGEST_DEV` is a dev server address | Also `on`/`yes` and `off`/`no`, so `INNGEST_DEV=off` is cloud mode, not a dev server at `http://off` that turns off signature checks |
 | Error names | JavaScript error names, with a `__serialized` marker | .NET exception type names, no marker |
 | Planned run steps | `opts` is `{}` | `opts.type` is `"step.run"` |
 | Targeted call whose step was started but not awaited | Answers 200 and drops the step | Runs the step |

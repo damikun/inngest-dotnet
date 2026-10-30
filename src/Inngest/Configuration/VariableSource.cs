@@ -69,4 +69,13 @@ internal readonly struct VariableSource(Func<string, string?> read)
         { } text when bool.TryParse(text, out var flag) => flag,
         _ => null,
     };
+
+    // A flag in an environment variable, where on/off and yes/no are common too. INNGEST_DEV takes anything else as
+    // the dev server's address, and dev mode checks no signatures, so "off" must not be taken for one.
+    public static bool? ParseFlag(string? value) => ParseBoolean(value) ?? value?.Trim().ToLowerInvariant() switch
+    {
+        "on" or "yes" => true,
+        "off" or "no" => false,
+        _ => null,
+    };
 }
