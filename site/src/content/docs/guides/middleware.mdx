@@ -401,7 +401,9 @@ A step that fails for good and reaches a function that does not catch it is repo
 Sentry's scope follows the async flow. The middleware pushes one around the function and around every step handler,
 with the tags of the call, so that what your code reports there carries them too: a `SentrySdk.CaptureException` in a
 step, or an error logged through Sentry's logging integration. Sentry.AspNetCore locks the scope of a request, so a
-push there creates nothing, and the tags go on the request's scope, which only this call uses.
+push there creates nothing, and the tags go on the request's scope, which only this call uses. In Sentry's global
+mode, which is meant for desktop and mobile apps, the whole app has one scope and a push creates nothing either, so
+the tags go on it, and calls that run at the same time mix them.
 
 All calls of a run report to one trace. A run id is a ULID, which holds 128 bits, as a trace id does, and the
 middleware makes it the trace id the way the TypeScript middleware does. The events it reports are in that trace,
