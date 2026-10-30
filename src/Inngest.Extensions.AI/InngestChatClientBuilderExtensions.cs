@@ -52,7 +52,7 @@ public static class InngestChatClientBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         return builder.Use((innerClient, services) =>
         {
-            var client = new FunctionInvokingChatClient(innerClient, services.GetService<ILoggerFactory>(), services);
+            var client = new StepFunctionInvokingChatClient(innerClient, services.GetService<ILoggerFactory>(), services);
             configure?.Invoke(client);
             var options = new InngestStepsOptions();
             configureSteps?.Invoke(options);

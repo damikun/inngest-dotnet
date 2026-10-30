@@ -54,6 +54,7 @@ internal static class ToolSteps
                 context.Arguments = ToolJson.ReadArguments(received, context.Arguments);
             }
 
+            StepFunctionInvokingChatClient.Enter(context);
             using var linked = cancellationToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(stepToken, cancellationToken) : null;
             object? result;
             try

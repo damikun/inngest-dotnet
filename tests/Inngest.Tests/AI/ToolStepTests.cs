@@ -192,6 +192,37 @@ public sealed class ToolStepTests
     }
 
     [Fact]
+    public async Task A_tool_can_reach_the_context_of_its_call_and_stop_the_model_calls_with_it()
+    {
+        string? called = null;
+        var model = new FakeChatClient((_, _) => Calls(Call("call_1", "finish", "Prague")));
+        var chat = Pipeline(model);
+        var finish = AIFunctionFactory.Create(
+            (string city) =>
+            {
+                var context = FunctionInvokingChatClient.CurrentContext!;
+                called = context.Function.Name;
+                context.Terminate = true;
+                return $"Done with {city}";
+            },
+            "finish",
+            "Ends the conversation");
+        await using var host = For(async context =>
+        {
+            await chat.GetResponseAsync("Finish up", new ChatOptions { Tools = [finish] });
+            await context.Step.SleepAsync("pause", TimeSpan.FromMinutes(1));
+            return null;
+        });
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Sleep("pause"), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        called.ShouldBe("finish");
+        model.CallCount.ShouldBe(1);
+        run.Steps.Select(step => step.Id).ShouldBe(["chat", "tool finish", "pause"]);
+    }
+
+    [Fact]
     public async Task A_function_invoker_of_the_app_runs_inside_the_step()
     {
         var invoked = new List<string>();
