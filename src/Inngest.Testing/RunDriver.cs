@@ -45,6 +45,7 @@ internal sealed partial class RunDriver
     private readonly PriorityQueue<Work, (DateTimeOffset At, long Sequence)> _queue = new();
     private readonly ConcurrentQueue<InngestEvent> _sent = new();
     private readonly ConcurrentQueue<InngestSignal<JsonElement>> _signals = new();
+    private readonly ConcurrentQueue<PublishedMessage> _published = new();
 
     // What the host's middleware saw during the call in progress.
     private readonly Dictionary<string, Exception> _stepErrors = new(StringComparer.Ordinal);
@@ -145,6 +146,8 @@ internal sealed partial class RunDriver
     public void Sent(InngestEvent @event) => _sent.Enqueue(@event);
 
     public void Signaled(InngestSignal<JsonElement> signal) => _signals.Enqueue(signal);
+
+    public void Published(PublishedMessage message) => _published.Enqueue(message);
 
     private async Task<TestRun?> DiscoverAsync(Work work, CancellationToken cancellationToken)
     {

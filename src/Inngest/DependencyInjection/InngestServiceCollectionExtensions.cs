@@ -6,6 +6,7 @@ using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.DependencyInjection;
 using Inngest.Execution;
+using Inngest.Realtime;
 using Inngest.Registration;
 using Inngest.Rest;
 using Inngest.Serving;
@@ -56,6 +57,8 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<InngestClient>();
         services.TryAddSingleton<IInngestClient>(static provider => provider.GetRequiredService<InngestClient>());
         services.TryAddSingleton<IInngestRunsClient, InngestRunsClient>();
+        services.TryAddSingleton<IRealtimeApi, RealtimeApi>();
+        services.TryAddSingleton<IInngestRealtime, InngestRealtime>();
         services.TryAddSingleton<IFunctionRegistry, FunctionRegistry>();
         services.TryAddSingleton<IExecutionEngine, ExecutionEngine>();
         services.TryAddSingleton<InngestCommHandler>();

@@ -21,6 +21,7 @@ public sealed class TestRun
         IReadOnlyList<TestStep> waitingOn,
         IReadOnlyList<InngestEvent> sentEvents,
         IReadOnlyList<InngestSignal<JsonElement>> sentSignals,
+        IReadOnlyList<PublishedMessage> published,
         JsonSerializerOptions serializerOptions)
     {
         RunId = runId;
@@ -32,6 +33,7 @@ public sealed class TestRun
         WaitingOn = waitingOn;
         SentEvents = sentEvents;
         SentSignals = sentSignals;
+        Published = published;
         _serializerOptions = serializerOptions;
     }
 
@@ -64,6 +66,9 @@ public sealed class TestRun
     /// sent them. None of them resumed a run.
     /// </summary>
     public IReadOnlyList<InngestSignal<JsonElement>> SentSignals { get; }
+
+    /// <summary>Every realtime message the run published, from publish steps and from IInngestRealtime, in order.</summary>
+    public IReadOnlyList<PublishedMessage> Published { get; }
 
     /// <summary>
     /// The run of the function's failure handler, which the host starts when the function fails for good, as

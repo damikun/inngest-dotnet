@@ -52,6 +52,13 @@ public interface IStepTools
     Task<TResult> AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
         throw new NotSupportedException($"{GetType().Name} does not implement AIWrapAsync.");
 
+    /// <summary>
+    /// Publishes data to a realtime topic, tagged with the run, and returns it. The step publishes once: a replay
+    /// returns the memoized data without publishing again.
+    /// </summary>
+    Task<T> PublishAsync<T>(string id, RealtimeTopic topic, T data) =>
+        throw new NotSupportedException($"{GetType().Name} does not implement PublishAsync.");
+
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
@@ -99,6 +106,12 @@ public interface IStepTools
     /// </summary>
     Task<TResult> AIWrapAsync<TInput, TResult>(StepOptions stepOptions, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
         AIWrapAsync(IdOf(stepOptions), input, handler);
+
+    /// <summary>
+    /// Publishes data to a realtime topic, tagged with the run, and returns it. The step publishes once: a replay
+    /// returns the memoized data without publishing again.
+    /// </summary>
+    Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => PublishAsync(IdOf(stepOptions), topic, data);
 
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(StepOptions stepOptions, object? data = null, TimeSpan? timeout = null)

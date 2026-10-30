@@ -4,6 +4,7 @@
 using Inngest.Events;
 using Inngest.Execution;
 using Inngest.Json;
+using Inngest.Realtime;
 
 namespace Inngest.Steps;
 
@@ -64,6 +65,10 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
 
     public Task<TResult> AIWrapAsync<TInput, TResult>(StepOptions stepOptions, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
         AIWrap(IdOf(stepOptions), stepOptions, input, handler);
+
+    public Task<T> PublishAsync<T>(string id, RealtimeTopic topic, T data) => Publish(id, null, topic, data);
+
+    public Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => Publish(IdOf(stepOptions), stepOptions, topic, data);
 
     public Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
@@ -198,6 +203,13 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentNullException.ThrowIfNull(handler);
         return Register(new AIWrapStep<TInput, TResult>(id, input, handler), stepOptions);
+    }
+
+    private Task<T> Publish<T>(string id, StepOptions? stepOptions, RealtimeTopic topic, T data)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        RealtimeMessage.Check(topic);
+        return Register(new RealtimePublishStep<T>(id, topic, data), stepOptions);
     }
 
     // The registry knows the id of every class it registered, whether the class has attributes or not.

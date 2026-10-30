@@ -47,6 +47,7 @@ internal readonly record struct ReportedOp(
                 "step.sendEvent" => StepType.SendEvent,
                 "step.sendSignal" => StepType.SendSignal,
                 "step.ai.wrap" => StepType.AIWrap,
+                "step.realtime.publish" => StepType.RealtimePublish,
                 _ => StepType.Run,
             },
             Sleep => StepType.Sleep,

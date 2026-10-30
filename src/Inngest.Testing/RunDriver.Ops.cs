@@ -216,6 +216,7 @@ internal sealed partial class RunDriver
         StepType.Fetch => "fetch",
         StepType.AIInfer => "call to an AI model",
         StepType.AIWrap => "AI wrap step",
+        StepType.RealtimePublish => "realtime publish",
         _ => type.ToString(),
     };
 

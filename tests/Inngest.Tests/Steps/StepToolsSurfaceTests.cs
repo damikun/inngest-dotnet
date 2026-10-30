@@ -45,6 +45,8 @@ public sealed class StepToolsSurfaceTests
             .Message.ShouldBe("UnusedStepTools does not implement InferAsync.");
         Should.Throw<NotSupportedException>(() => step.AIWrapAsync<string, string>("s", "prompt", (prompt, _) => Task.FromResult(prompt)))
             .Message.ShouldBe("UnusedStepTools does not implement AIWrapAsync.");
+        Should.Throw<NotSupportedException>(() => step.PublishAsync("s", new RealtimeTopic("chat", "tokens"), "Hel"))
+            .Message.ShouldBe("UnusedStepTools does not implement PublishAsync.");
     }
 
     private sealed class TypeRecorder(List<StepType> types) : InngestMiddleware

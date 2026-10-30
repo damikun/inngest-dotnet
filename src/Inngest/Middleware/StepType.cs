@@ -15,4 +15,5 @@ public enum StepType
     Fetch,
     AIInfer,
     AIWrap,
+    RealtimePublish,
 }

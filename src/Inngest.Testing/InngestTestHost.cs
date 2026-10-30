@@ -8,6 +8,7 @@ using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Functions;
+using Inngest.Realtime;
 using Inngest.Registration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,6 +33,7 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     private readonly InngestSettings _settings;
     private readonly ConcurrentQueue<InngestEvent> _sent = new();
     private readonly ConcurrentQueue<InngestSignal<JsonElement>> _signals = new();
+    private readonly ConcurrentQueue<PublishedMessage> _published = new();
 
     /// <summary>
     /// Takes the app's registrations: AddInngest, the functions and middleware, and the services they use. The
@@ -71,6 +73,7 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
             InngestSettings.Create(provider.GetRequiredService<IOptions<InngestOptions>>().Value, static _ => null)));
         copy.AddHttpClient(InngestServiceCollectionExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(static () => new OfflineHandler());
         copy.Replace(ServiceDescriptor.Singleton<ISignalApi>(new RecordingSignalApi(this)));
+        copy.Replace(ServiceDescriptor.Singleton<IRealtimeApi>(new RecordingRealtimeApi(this)));
 
         // Registered last, so the app's middleware wraps it.
         copy.AddSingleton<InngestMiddleware>(new TestHostMiddleware(this));
@@ -105,6 +108,12 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     /// resumes a run: the host runs one function at a time, so the client reports that no run waits for them.
     /// </summary>
     public IReadOnlyList<InngestSignal<JsonElement>> SentSignals => [.. _signals];
+
+    /// <summary>
+    /// Every realtime message published through the app's IInngestRealtime or a publish step since the host started.
+    /// Subscription tokens the host mints are placeholders that no Inngest accepts.
+    /// </summary>
+    public IReadOnlyList<PublishedMessage> Published => [.. _published];
 
     internal TimeProvider Time { get; }
 
@@ -206,6 +215,12 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     {
         _signals.Enqueue(signal);
         run?.Signaled(signal);
+    }
+
+    internal void RecordPublished(PublishedMessage message, RunDriver? run)
+    {
+        _published.Enqueue(message);
+        run?.Published(message);
     }
 
     private async Task<TestRun> StartAsync(

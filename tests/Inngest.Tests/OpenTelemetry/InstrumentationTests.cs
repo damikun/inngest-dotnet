@@ -257,6 +257,7 @@ public sealed class InstrumentationTests
     [InlineData(StepType.Fetch, "fetch")]
     [InlineData(StepType.AIInfer, "ai_infer")]
     [InlineData(StepType.AIWrap, "ai_wrap")]
+    [InlineData(StepType.RealtimePublish, "realtime_publish")]
     public void Spans_and_metrics_name_each_step_type(StepType type, string name) =>
         InngestTelemetry.TypeName(type).ShouldBe(name);
 
