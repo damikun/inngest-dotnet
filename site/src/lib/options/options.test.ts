@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { className, csString, functionOptionsCode, registrationCode } from './csharp.ts';
+import { attributesCode, className, csString, functionAttributes, functionOptionsCode, registrationCode } from './csharp.ts';
 import type { AppModel, FunctionOptionsModel } from './model.ts';
+import { presets } from './presets.ts';
 import { registrationBody, registrationFunctions, serveUrls } from './registration.ts';
 import { formatSeconds } from './time.ts';
 import { validate } from './validate.ts';
@@ -220,11 +221,106 @@ describe('C# code', () => {
   });
 });
 
+describe('C# attributes', () => {
+  it('writes every option as the attribute that sets it, with durations as time strings', () => {
+    expect(
+      functionAttributes({
+        id: 'sync-user',
+        name: 'Sync user',
+        triggers: [
+          { kind: 'event', event: 'app/user.created', if: "event.data.plan == 'pro'" },
+          { kind: 'cron', schedule: '0 9 * * 1-5', timezone: 'Europe/Prague' },
+        ],
+        retries: 5,
+        concurrency: [
+          { limit: 10, scope: 'Function' },
+          { limit: 1, key: 'event.data.user_id', scope: 'Environment' },
+        ],
+        throttle: { limit: 5, period: { value: 90, unit: 'm' }, burst: 2, key: 'event.data.user_id' },
+        rateLimit: { limit: 1, period: { value: 4, unit: 'h' }, key: 'event.data.user_id' },
+        idempotency: 'event.data.user_id',
+        debounce: { period: { value: 5, unit: 's' }, key: 'event.data.user_id', timeout: { value: 1, unit: 'm' } },
+        priority: { run: "event.data.plan == 'pro' ? 120 : 0" },
+        timeouts: { start: { value: 10, unit: 'm' }, finish: { value: 1, unit: 'h' } },
+        singleton: { mode: 'Skip', key: 'event.data.user_id' },
+        cancelOn: [
+          { event: 'app/user.deleted', match: 'data.user_id', timeout: { value: 1, unit: 'h' } },
+          { event: 'app/user.paused', if: 'async.data.id == event.data.id' },
+        ],
+      }),
+    ).toEqual([
+      '[InngestFunction("sync-user", Name = "Sync user", Retries = 5, Idempotency = "event.data.user_id")]',
+      `[EventTrigger("app/user.created", If = "event.data.plan == 'pro'")]`,
+      '[CronTrigger("0 9 * * 1-5", Timezone = "Europe/Prague")]',
+      '[Concurrency(10)]',
+      '[Concurrency(1, Key = "event.data.user_id", Scope = ConcurrencyScope.Environment)]',
+      '[Throttle(5, "1h30m", Burst = 2, Key = "event.data.user_id")]',
+      '[RateLimit(1, "4h", Key = "event.data.user_id")]',
+      '[Debounce("5s", Key = "event.data.user_id", Timeout = "1m")]',
+      `[Priority("event.data.plan == 'pro' ? 120 : 0")]`,
+      '[CancelOn("app/user.deleted", Match = "data.user_id", Timeout = "1h")]',
+      '[CancelOn("app/user.paused", If = "async.data.id == event.data.id")]',
+      '[Timeouts(Start = "10m", Finish = "1h")]',
+      '[Singleton(SingletonMode.Skip, Key = "event.data.user_id")]',
+    ]);
+  });
+
+  it('writes batching with its key and condition', () => {
+    expect(
+      functionAttributes({
+        id: 'import-rows',
+        triggers: [],
+        batchEvents: { maxSize: 100, timeout: { value: 10, unit: 's' }, key: 'event.data.importId', if: 'event.data.valid' },
+      }),
+    ).toEqual(['[InngestFunction("import-rows")]', '[BatchEvents(100, "10s", Key = "event.data.importId", If = "event.data.valid")]']);
+  });
+
+  it('sets Retries and Burst when they are 0, and leaves out timeouts that are not set', () => {
+    expect(
+      functionAttributes({ id: 'orders', triggers: [], retries: 0, throttle: { limit: 1, period: { value: 1, unit: 's' }, burst: 0 }, timeouts: {} }),
+    ).toEqual(['[InngestFunction("orders", Retries = 0)]', '[Throttle(1, "1s", Burst = 0)]']);
+  });
+
+  it('escapes strings', () => {
+    expect(functionAttributes({ id: 'greet', name: 'Say "hi"', triggers: [] })).toEqual(['[InngestFunction("greet", Name = "Say \\"hi\\"")]']);
+  });
+
+  it('puts the attributes on the class and registers it without options', () => {
+    const code = attributesCode(
+      { id: 'charge-card', triggers: [{ kind: 'event', event: 'shop/order.placed' }] },
+      { ...app, appVersion: ' 1.4.0 ', failureHandler: true },
+    );
+    expect(code).toBe(
+      [
+        '// ChargeCard implements IFailureHandler, so the SDK also registers "charge-card-failure".',
+        '[InngestFunction("charge-card")]',
+        '[EventTrigger("shop/order.placed")]',
+        'public sealed class ChargeCard : InngestFunction<JsonElement>, IFailureHandler',
+        '{',
+        '    // ...',
+        '}',
+        '',
+        'builder.Services',
+        '    .AddInngest(options =>',
+        '    {',
+        '        options.AppId = "my-app";',
+        '        options.AppVersion = "1.4.0";',
+        '    })',
+        '    .AddFunction<ChargeCard>();',
+      ].join('\n'),
+    );
+  });
+});
+
 describe('validation', () => {
   const base: FunctionOptionsModel = { id: 'orders', triggers: [{ kind: 'event', event: 'order/created' }] };
 
   it('accepts valid options', () => {
     expect(validate(base)).toEqual([]);
+  });
+
+  it('accepts every preset', () => {
+    for (const preset of presets) expect(validate(preset.options), preset.id).toEqual([]);
   });
 
   it('uses the messages of FunctionOptionsValidator', () => {

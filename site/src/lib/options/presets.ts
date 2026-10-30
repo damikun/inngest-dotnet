@@ -11,7 +11,7 @@ export interface Preset {
 const app: AppModel = { appId: 'shop', serveUrl: 'https://shop.example.com/api/inngest', failureHandler: false };
 
 // Starting points for the function options builder. Every preset is valid; the tests check that, and the snippet
-// check compiles their C# and compares their JSON with what the SDK registers.
+// check compiles their C#, as attributes and in code, and compares their JSON with what the SDK registers for each.
 export const presets: Preset[] = [
   {
     id: 'per-customer',

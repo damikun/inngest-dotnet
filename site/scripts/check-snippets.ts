@@ -1,6 +1,6 @@
 // Compiles every C# code block of the docs against the SDK in this repository, checks the JSON the function
-// options builder shows against what the SDK registers, and checks the replay visualizer's data against what the
-// SDK answers.
+// options builder shows against what the SDK registers for both forms of its C#, attributes and code first, and
+// checks the replay visualizer's data against what the SDK answers.
 //
 //   node scripts/check-snippets.ts [--out <dir>] [--write-replay]
 //
@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { className, registrationCode } from '../src/lib/options/csharp.ts';
+import { attributeRegistrationCode, className, functionClassCode, registrationCode } from '../src/lib/options/csharp.ts';
 import type { AppModel, FunctionOptionsModel } from '../src/lib/options/model.ts';
 import { presets } from '../src/lib/options/presets.ts';
 import { registrationBody } from '../src/lib/options/registration.ts';
@@ -309,37 +309,52 @@ function parityCases(): { name: string; app: AppModel; options: FunctionOptionsM
   ];
 }
 
+function indent(code: string, by: string): string {
+  return code
+    .split('\n')
+    .map((line) => (line === '' ? '' : `${by}${line}`))
+    .join('\n');
+}
+
+// Every case registers twice, with the code first C# and with the attributes C# of the builder, and both
+// registrations must sync to the JSON the builder shows.
 function generateParityCases(): string {
   const cases = parityCases();
   const entries = cases.map((c, i) => {
     const expected = JSON.stringify(registrationBody(c.options, c.app), null, 2);
-    return `        new(${JSON.stringify(c.name)}, ${JSON.stringify(c.app.serveUrl)}, Case${i}.Registration.Register, """\n${expected}\n"""),`;
+    const forms = `Case${i}.CodeFirst.Registration.Register, Case${i}.Attributes.Registration.Register`;
+    return `        new(${JSON.stringify(c.name)}, ${JSON.stringify(c.app.serveUrl)}, ${forms}, """\n${expected}\n"""),`;
   });
   const namespaces = cases.map((c, i) => {
-    const name = className(c.options.id);
-    const handler = c.app.failureHandler
-      ? `, IFailureHandler\n    {\n        public Task OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken) => Task.CompletedTask;\n`
-      : '\n    {\n';
-    const indented = registrationCode(c.options, c.app)
-      .split('\n')
-      .map((line) => `            ${line}`)
-      .join('\n');
+    const members = [
+      '    public override Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken) =>',
+      '        Task.FromResult<object?>(null);',
+      ...(c.app.failureHandler
+        ? ['', '    public Task OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken) => Task.CompletedTask;']
+        : []),
+    ];
+    const bases = c.app.failureHandler ? 'InngestFunction<JsonElement>, IFailureHandler' : 'InngestFunction<JsonElement>';
+    const plainClass = [`public sealed class ${className(c.options.id)} : ${bases}`, '{', ...members, '}'].join('\n');
+    const form = (name: string, type: string, registration: string) =>
+      [
+        `namespace Parity.Case${i}.${name}`,
+        '{',
+        indent(type, '    '),
+        '',
+        '    internal static class Registration',
+        '    {',
+        '        public static void Register(WebApplicationBuilder builder)',
+        '        {',
+        indent(registration, '            '),
+        '        }',
+        '    }',
+        '}',
+      ].join('\n');
     return [
-      `namespace Parity.Case${i}`,
-      '{',
-      `    public sealed class ${name} : InngestFunction<JsonElement>${handler}`,
-      '        public override Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken) =>',
-      '            Task.FromResult<object?>(null);',
-      '    }',
+      form('CodeFirst', plainClass, registrationCode(c.options, c.app)),
       '',
-      '    internal static class Registration',
-      '    {',
-      '        public static void Register(WebApplicationBuilder builder)',
-      '        {',
-      indented,
-      '        }',
-      '    }',
-      '}',
+      // The class as the builder shows it, with members where the builder leaves them out.
+      form('Attributes', functionClassCode(c.options, c.app, members), attributeRegistrationCode(c.options, c.app)),
     ].join('\n');
   });
   return [

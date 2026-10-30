@@ -1,5 +1,5 @@
 import { type ReactNode, useId, useMemo, useState } from 'react';
-import { registrationCode } from '../../lib/options/csharp';
+import { attributesCode, registrationCode } from '../../lib/options/csharp';
 import type {
   AppModel,
   CancelOnModel,
@@ -15,6 +15,7 @@ import { validate } from '../../lib/options/validate';
 import CodeOutput from './CodeOutput';
 import Tabs from './Tabs';
 import { useEnhanced } from './useEnhanced';
+import { useFunctionStyle } from './useFunctionStyle';
 
 const DOCS = 'https://www.inngest.com/docs';
 
@@ -25,12 +26,23 @@ export default function OptionsBuilder() {
   const [presetId, setPresetId] = useState(presets[0].id);
   const [app, setApp] = useState<AppModel>(presets[0].app);
   const [options, setOptions] = useState<FunctionOptionsModel>(presets[0].options);
+  const [style, setStyle] = useFunctionStyle();
+  const [jsonShown, setJsonShown] = useState(false);
 
   const problems = useMemo(() => validate(options), [options]);
   const json = useMemo(() => JSON.stringify(registrationBody(options, app), null, 2), [options, app]);
+  const attributes = useMemo(() => attributesCode(options, app), [options, app]);
   const code = useMemo(() => registrationCode(options, app), [options, app]);
 
   const update: Update = (key, value) => setOptions((current) => ({ ...current, [key]: value }));
+
+  // The C# tabs carry the labels of the docs' synced tabs, so the output opens on the form the reader picked there,
+  // and picking one here picks it there too.
+  function chooseOutput(id: string) {
+    setJsonShown(id === 'json');
+    if (id === 'attributes') setStyle('Attributes');
+    if (id === 'code') setStyle('Code first');
+  }
 
   function choosePreset(id: string) {
     const preset = presets.find((p) => p.id === id);
@@ -269,8 +281,27 @@ export default function OptionsBuilder() {
           </div>
           <Tabs
             label="Generated output"
+            selected={jsonShown ? 'json' : style === 'Code first' ? 'code' : 'attributes'}
+            onSelect={chooseOutput}
             tabs={[
-              { id: 'csharp', label: 'C#', content: <CodeOutput code={code} language="csharp" label="C# registration" canCopy /> },
+              {
+                id: 'attributes',
+                label: 'Attributes',
+                content: (
+                  <>
+                    <CodeOutput code={attributes} language="csharp" label="C# attributes and registration" canCopy />
+                    <p className="mt-2 mb-0 text-sm text-muted">
+                      Middleware and checkpointing have no attributes. Pass them to <code>AddFunction</code> in a
+                      callback, <code>{'options => options with { ... }'}</code>, which{' '}
+                      <a className="text-link" href="/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes">
+                        starts from the attributes
+                      </a>
+                      .
+                    </p>
+                  </>
+                ),
+              },
+              { id: 'code', label: 'Code first', content: <CodeOutput code={code} language="csharp" label="C# registration with FunctionOptions" canCopy /> },
               { id: 'json', label: 'Registration JSON', content: <CodeOutput code={json} language="json" label="Registration JSON" canCopy /> },
             ]}
           />

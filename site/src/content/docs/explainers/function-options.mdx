@@ -1,14 +1,15 @@
 ---
 title: Function options builder
-description: Build a FunctionOptions value in the browser and see the C# that registers it and the JSON the SDK sends to Inngest when the app syncs, and which attribute sets each option.
+description: Build a function's options in the browser and see them as attributes and in code, the JSON the SDK sends to Inngest when the app syncs, and which attribute sets each option.
 tableOfContents: false
 ---
 
 import OptionsBuilder from '../../../components/islands/OptionsBuilder';
 
-Everything Inngest controls about a function, from its triggers to flow control, goes in `FunctionOptions`. When
-Inngest syncs the app, the SDK turns those options into JSON. Pick a preset or change the options, and the output
-shows the C# registration and that JSON side by side.
+Everything Inngest controls about a function, from its triggers to flow control, goes in `FunctionOptions`, which
+the function class can also carry as attributes. When Inngest syncs the app, the SDK turns those options into JSON.
+Pick a preset or change the options, and the output shows the C# in both forms and that JSON. Like the other pages,
+it shows attributes first unless you picked **Code first** in one of their tabs.
 
 <OptionsBuilder client:visible />
 
@@ -31,9 +32,9 @@ all the problems at once.
 
 ## Attributes
 
-The builder writes the options in code. A function class can carry the same options as attributes instead, which
-`AddFunction<TFunction>()` reads into `FunctionOptions` when the app starts, so they sync to the same JSON and go
-through the same checks. Each attribute sets one member:
+As attributes, the options sit on the function class, and `AddFunction<TFunction>()` reads them into
+`FunctionOptions` when the app starts, so both forms sync to the same JSON and go through the same checks. Each
+attribute sets one member:
 
 | Attribute | Sets |
 |---|---|
@@ -57,8 +58,8 @@ The trigger, concurrency and cancellation attributes can be repeated. Durations 
 `FunctionOptionsAttribute`, as all of these but `[InngestFunction]` do;
 [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/#attributes-of-your-own) shows how.
 
-The site's build checks this page against the SDK: the snippet check compiles the C# of every preset, registers
-it in a real app and compares the JSON the SDK sends with the JSON shown here.
+The site's build checks this page against the SDK: the snippet check compiles both forms of every preset,
+registers each in a real app and compares the JSON the SDK sends with the JSON shown here.
 
 [Flow control](/inngest-dotnet/guides/flow-control/) explains each option, and
 [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/) covers ids, names and triggers.

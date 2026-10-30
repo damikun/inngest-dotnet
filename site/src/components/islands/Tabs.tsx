@@ -9,15 +9,26 @@ export interface TabDefinition {
 interface Props {
   tabs: TabDefinition[];
   label: string;
+  // The id of the selected tab, for a parent that keeps the selection itself and changes it in onSelect. Without it
+  // the tabs keep their own, starting with the first.
+  selected?: string;
+  onSelect?: (id: string) => void;
 }
 
 // WAI-ARIA tabs with automatic activation: arrow keys, Home and End move between tabs. The server renders the same
 // markup the island keeps after hydrating; site CSS hides the inactive panels when scripts run and hides the tab list
 // when they do not, so without JavaScript every panel shows under its own label.
-export default function Tabs({ tabs, label }: Props) {
-  const [selected, setSelected] = useState(0);
+export default function Tabs({ tabs, label, selected: selectedId, onSelect }: Props) {
+  const [own, setOwn] = useState(0);
+  const chosen = tabs.findIndex((tab) => tab.id === selectedId);
+  const selected = chosen >= 0 ? chosen : own;
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const prefix = useId();
+
+  function select(index: number) {
+    setOwn(index);
+    onSelect?.(tabs[index].id);
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const last = tabs.length - 1;
@@ -29,7 +40,7 @@ export default function Tabs({ tabs, label }: Props) {
       : undefined;
     if (next === undefined) return;
     event.preventDefault();
-    setSelected(next);
+    select(next);
     buttons.current[next]?.focus();
   }
 
@@ -48,7 +59,7 @@ export default function Tabs({ tabs, label }: Props) {
             aria-selected={i === selected}
             aria-controls={`${prefix}-panel-${tab.id}`}
             tabIndex={i === selected ? 0 : -1}
-            onClick={() => setSelected(i)}
+            onClick={() => select(i)}
             onKeyDown={onKeyDown}
           >
             {tab.label}
