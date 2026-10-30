@@ -312,6 +312,11 @@ data.
 - **Reference:** [API overview](https://damikun.github.io/inngest-dotnet/reference/api/) ·
   [Design and wire protocol](https://damikun.github.io/inngest-dotnet/internals/design/) ·
   [Benchmarks](https://damikun.github.io/inngest-dotnet/internals/benchmarks/)
+- **For AI coding assistants:** [AI coding assistants](https://damikun.github.io/inngest-dotnet/guides/ai-assistants/)
+  lists the names that differ from the TypeScript SDK and the rules of replay, with a block to paste into
+  `AGENTS.md`, `CLAUDE.md` or Cursor rules. [`llms.txt`](https://damikun.github.io/inngest-dotnet/llms.txt) links every
+  page as Markdown, and [`llms-full.txt`](https://damikun.github.io/inngest-dotnet/llms-full.txt) holds them all in one
+  file. Every page also has a Markdown copy at its address with `.md` in place of the trailing slash.
 - **Inngest itself:** the [Inngest documentation](https://www.inngest.com/docs) covers the platform, the dashboard
   and self-hosting.
 
