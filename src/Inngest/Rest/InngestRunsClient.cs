@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Client;
 using Inngest.Configuration;
+using Inngest.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Rest;
@@ -14,10 +15,14 @@ internal sealed class InngestRunsClient : IInngestRunsClient
     private readonly InngestApiTransport _transport;
     private readonly JsonSerializerOptions _serializerOptions;
 
+    // A run's output sits two levels down in the reply, so replies are read with room for whatever the serializer wrote.
+    private readonly RestJsonContext _json;
+
     public InngestRunsClient(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<InngestRunsClient> logger)
     {
         _transport = new InngestApiTransport(httpClientFactory, settings, logger);
         _serializerOptions = settings.SerializerOptions;
+        _json = new RestJsonContext(new JsonSerializerOptions { MaxDepth = JsonPayload.DocumentOptions(settings.SerializerOptions).MaxDepth });
     }
 
     public async Task<FunctionRun> GetRunAsync(string runId, CancellationToken cancellationToken = default)
@@ -25,7 +30,7 @@ internal sealed class InngestRunsClient : IInngestRunsClient
         ArgumentException.ThrowIfNullOrEmpty(runId);
 
         var action = $"get run {runId}";
-        var reply = await GetAsync($"/v1/runs/{Uri.EscapeDataString(runId)}", RestJsonContext.Default.RunReply, action, cancellationToken)
+        var reply = await GetAsync($"/v1/runs/{Uri.EscapeDataString(runId)}", _json.RunReply, action, cancellationToken)
             .ConfigureAwait(false);
         return reply.Data is { } run ? ToRun(run) : throw new InngestException($"Failed to {action}: Inngest's reply has no run.");
     }
@@ -36,7 +41,7 @@ internal sealed class InngestRunsClient : IInngestRunsClient
 
         var reply = await GetAsync(
             $"/v1/events/{Uri.EscapeDataString(eventId)}/runs",
-            RestJsonContext.Default.RunListReply,
+            _json.RunListReply,
             $"list the runs of event {eventId}",
             cancellationToken).ConfigureAwait(false);
         return reply.Data is { Length: > 0 } runs ? Array.ConvertAll(runs, ToRun) : [];

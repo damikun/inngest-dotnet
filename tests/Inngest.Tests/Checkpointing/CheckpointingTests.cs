@@ -32,6 +32,27 @@ public sealed class CheckpointingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_step_result_as_deep_as_the_serializer_reads_is_checkpointed()
+    {
+        // It sits one level deeper in the op that is buffered.
+        var deep = new string('[', 64) + "1" + new string(']', 64);
+        var function = Define(async context =>
+        {
+            using var document = JsonDocument.Parse(deep);
+            var output = await context.Step.RunAsync("A", () => document.RootElement.Clone());
+            return output.GetRawText() == deep;
+        });
+
+        // A host without a timeline: the timeline reads the saved steps back at the default depth.
+        using var host = new EngineHost();
+        var result = await host.CallCheckpointedAsync(function, Call.New());
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("true");
+        host.Checkpoints.Checkpoints.ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public async Task A_checkpoint_names_the_run_the_function_the_queue_item_and_the_call()
     {
         await _host.CallCheckpointedAsync(Sequence("A"), Call.New());

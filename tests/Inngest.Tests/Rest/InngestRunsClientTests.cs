@@ -56,6 +56,19 @@ public sealed class InngestRunsClientTests
     }
 
     [Fact]
+    public async Task Reads_an_output_as_deep_as_the_serializer_reads()
+    {
+        // The output sits two levels down in the reply.
+        var deep = new string('[', 64) + "1" + new string(']', 64);
+        var completed = CompletedRun.Replace("""{"greeting":"hi dalibor"}""", deep, StringComparison.Ordinal);
+        _handler.Respond(HttpStatusCode.OK, $$"""{"data":{{completed}},{{Metadata}}}""");
+
+        var run = await Create().GetRunAsync("01M61VV20X89FZAW14GA30NNNN", Cancellation);
+
+        run.Output.GetRawText().ShouldBe(deep);
+    }
+
+    [Fact]
     public async Task Authenticates_with_the_hashed_signing_key_and_names_the_environment()
     {
         _handler.Respond(HttpStatusCode.OK, $$"""{"data":{{CompletedRun}}}""");

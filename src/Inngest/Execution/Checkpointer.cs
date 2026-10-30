@@ -5,6 +5,7 @@ using System.Text.Json;
 using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Execution;
 
@@ -25,12 +26,21 @@ internal sealed class Checkpointer : IDisposable
     private readonly TimeSpan? _maxInterval;
     private readonly long _started;
 
+    // A step's output sits one level down in its op, so the op is read with room for whatever the serializer wrote.
+    private readonly JsonReaderOptions _readerOptions;
+
     // The buffered StepRun ops as a JSON array, without its closing bracket until it is sent.
     private PooledBufferWriter? _steps;
     private bool _closed;
     private long _oldest;
 
-    private Checkpointer(ICheckpointApi api, TimeProvider time, AsyncCheckpoint call, CheckpointingOptions options, TimeSpan maxRuntime)
+    private Checkpointer(
+        ICheckpointApi api,
+        TimeProvider time,
+        AsyncCheckpoint call,
+        CheckpointingOptions options,
+        TimeSpan maxRuntime,
+        JsonSerializerOptions serializerOptions)
     {
         _api = api;
         _time = time;
@@ -39,6 +49,7 @@ internal sealed class Checkpointer : IDisposable
         _maxRuntime = maxRuntime;
         _maxInterval = options.MaxInterval;
         _started = time.GetTimestamp();
+        _readerOptions = new JsonReaderOptions { MaxDepth = JsonPayload.DocumentOptions(serializerOptions).MaxDepth };
     }
 
     public int Count { get; private set; }
@@ -78,14 +89,14 @@ internal sealed class Checkpointer : IDisposable
         }
 
         var call = new AsyncCheckpoint(run.RunId, functionId, queueItemId, request.RequestId, request.GenerationId, time.GetUtcNow(), default);
-        return new Checkpointer(api, time, call, options, options.MaxRuntime ?? request.DefaultCheckpointMaxRuntime);
+        return new Checkpointer(api, time, call, options, options.MaxRuntime ?? request.DefaultCheckpointMaxRuntime, settings.SerializerOptions);
     }
 
     // Buffers a StepRun op and returns its data as a later call reads it from Inngest, so the function sees the same
     // value now as on every replay. The copy outlives the buffer, which is reused once the op is sent.
     public JsonElement Add(ReadOnlySpan<byte> op)
     {
-        var reader = new Utf8JsonReader(op);
+        var reader = new Utf8JsonReader(op, _readerOptions);
         var data = JsonElement.ParseValue(ref reader).GetProperty("data");
 
         var steps = _steps ??= new PooledBufferWriter(op.Length + 2);
