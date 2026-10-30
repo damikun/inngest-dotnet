@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Microsoft.AspNetCore.Builder;
 
+/// <summary>Maps the SignalR hub of Inngest realtime messages.</summary>
 public static class InngestSignalREndpointRouteBuilderExtensions
 {
     /// <summary>

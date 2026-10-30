@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
+/// <summary>Registers the bridge that forwards Inngest realtime messages to SignalR clients.</summary>
 public static class InngestSignalRServiceCollectionExtensions
 {
     /// <summary>

@@ -212,7 +212,8 @@ subscriptions when SignalR aborts the connection, whichever hub it belongs to. M
 - **Every connection has a queue of its own** and a loop that sends it to the client, one message at a time and in
   order. A client that reads slowly delays only itself. One that falls 512 messages behind is disconnected, as a page
   is by the server-sent events relay, and its client reconnects and joins again. A send that fails disconnects the
-  client too, for it would otherwise miss a message without knowing.
+  client too, for it would otherwise miss a message without knowing. Sends that a backplane or service stops accepting
+  fill the queues of all the clients in the same way.
 - **A subscription Inngest refuses**, such as one with a signing key it does not accept, is logged. Every client that had
   joined it hears of it in `RealtimeError(channel, text)` and is out of it, and joining again tries anew.
 - **A subscription that drops** is opened again with a new token, as `SubscribeAsync` does, and what is published
