@@ -189,4 +189,75 @@ public sealed class ThreadingTests : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(() => pending);
     }
+
+    [Fact]
+    public async Task A_step_can_await_a_task_the_function_started()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var loading = LoadAsync();
+            return await context.Step.RunAsync("use", async () => await loading + "!");
+        });
+
+        // Without the scheduler running during the step, the call never answers.
+        var result = await _host.CallAsync(function, Call.New()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        result.OpCodes.ShouldBe(["StepRun"]);
+        result.Op().GetProperty("data").GetString().ShouldBe("loaded!");
+
+        // Resumes on the invocation's scheduler, as app code without ConfigureAwait(false) does.
+        static async Task<string> LoadAsync()
+        {
+            await Task.Delay(5);
+            return "loaded";
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_the_call_stops_waiting_for_a_step_that_ignores_the_token()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource<string>();
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("stuck", async () =>
+        {
+            started.SetResult();
+            return await never.Task;
+        }));
+
+        var pending = _host.Engine.ExecuteAsync(
+            new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = _host.Services },
+            cancellation.Token);
+        await started.Task;
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => pending);
+    }
+
+    [Fact]
+    public async Task Work_the_function_started_still_finishes_after_the_call_answered()
+    {
+        var release = new TaskCompletionSource();
+        var shared = new TaskCompletionSource<Task<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var function = TestFunction.Define(async context =>
+        {
+            // Like a task a singleton caches: started here, awaited by whoever needs it later.
+            shared.SetResult(LoadAsync(release.Task));
+            await context.Step.SleepAsync("wait", TimeSpan.FromHours(1));
+            return null;
+        });
+
+        var result = await _host.CallAsync(function, Call.New());
+        release.SetResult();
+        var loaded = await (await shared.Task).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        result.OpCodes.ShouldBe(["Sleep"]);
+        loaded.ShouldBe("loaded");
+
+        static async Task<string> LoadAsync(Task release)
+        {
+            await release;
+            return "loaded";
+        }
+    }
 }

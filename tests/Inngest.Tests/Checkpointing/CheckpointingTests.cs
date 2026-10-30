@@ -436,6 +436,44 @@ public sealed class CheckpointingTests : IDisposable
         _host.Checkpoints.Checkpoints.Select(checkpoint => string.Join(",", checkpoint.DisplayNames)).ShouldBe(["A", "B", "A,B"]);
     }
 
+    [Fact]
+    public async Task A_loop_whose_steps_all_run_in_one_call_is_not_taken_for_a_reused_id()
+    {
+        const int StepIdReusedEventId = 101;
+        var function = Define(async context =>
+        {
+            var total = 0;
+            for (var i = 1; i <= 3; i++)
+            {
+                var n = i;
+                total += await context.Step.RunAsync("square", () => n * n);
+            }
+
+            return total;
+        }, new CheckpointingOptions { BufferedSteps = 10 });
+
+        var result = await _host.CallCheckpointedAsync(function, Call.New());
+
+        result.Body.ShouldBe("14");
+        _host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == StepIdReusedEventId);
+    }
+
+    [Fact]
+    public async Task A_MaxInterval_longer_than_a_timer_can_wait_does_not_fail_the_call()
+    {
+        var function = Define(async context =>
+        {
+            var a = await context.Step.RunAsync("A", () => "A");
+            await Task.Delay(5);
+            return a + await context.Step.RunAsync("B", () => "B");
+        }, new CheckpointingOptions { BufferedSteps = 10, MaxInterval = TimeSpan.FromDays(60) });
+
+        var result = await _host.CallCheckpointedAsync(function, Call.New());
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"AB\"");
+    }
+
     private Task<string> Run(FunctionContext context, string id) => context.Step.RunAsync(id, () =>
     {
         _timeline.Add($"run {id}");

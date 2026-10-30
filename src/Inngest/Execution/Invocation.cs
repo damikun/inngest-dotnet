@@ -25,6 +25,9 @@ internal sealed partial class Invocation
     // Inngest has no op for a step that is not found, so a targeted call fails with a 500 after this long.
     public static readonly TimeSpan StepNotFoundTimeout = TimeSpan.FromSeconds(10);
 
+    // The longest Task.Delay waits; it throws for anything longer.
+    private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     private const int MaxContinuationsPerTick = 100_000;
     private const int MaxStepsInNotFoundReport = 25;
 
@@ -149,7 +152,9 @@ internal sealed partial class Invocation
                 await EndMemoizationAsync().ConfigureAwait(false);
             }
 
-            if (_pipeline is not null && _run.Memo.Count == 0 && _run.Attempt == 0)
+            // Only the first call of a run: the calls Inngest makes for steps the first call planned also arrive with
+            // no memoized steps on attempt 0, but they are targeted.
+            if (_pipeline is not null && _target is null && _run.Memo.Count == 0 && _run.Attempt == 0)
             {
                 await _pipeline.OnRunStartAsync().ConfigureAwait(false);
             }

@@ -53,6 +53,24 @@ public sealed class MiddlewareHookTests
     }
 
     [Fact]
+    public async Task Run_start_is_not_reported_again_for_the_steps_the_first_call_planned()
+    {
+        using var host = Host(new Recorder(_log));
+        var function = TestFunction.Define(async context =>
+        {
+            await Task.WhenAll(context.Step.RunAsync("a", () => "a"), context.Step.RunAsync("b", () => "b"));
+            return null;
+        });
+
+        // The calls for the planned steps carry no memoized steps and attempt 0, like the first call.
+        await host.CallAsync(function, Call.New());
+        await host.CallAsync(function, Call.New().DisableImmediateExecution(), stepId: Call.Hash("a"));
+        await host.CallAsync(function, Call.New().DisableImmediateExecution(), stepId: Call.Hash("b"));
+
+        _log.Count(entry => entry == "OnRunStart").ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Run_complete_is_not_reported_when_the_function_throws()
     {
         using var host = Host(new Recorder(_log));

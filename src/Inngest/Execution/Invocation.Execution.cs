@@ -124,7 +124,8 @@ internal sealed partial class Invocation
         return !expired;
     }
 
-    // Waits for more work, the end of the function or the delay; true when the delay ran out first.
+    // Waits for more work, the end of the function or the delay; true when the delay ran out first. A delay longer than
+    // a timer allows, such as a MaxInterval of months, is cut short, and the caller then simply checks again.
     private async Task<bool> WaitAtMostAsync(Task work, Task function, TimeSpan delay)
     {
         // Under checkpointing the result of a step is usually queued already, and then no timer is needed.
@@ -134,7 +135,7 @@ internal sealed partial class Invocation
         }
 
         using var timer = new CancellationTokenSource();
-        var deadline = Task.Delay(delay, _time, timer.Token);
+        var deadline = Task.Delay(delay < MaxTimerDelay ? delay : MaxTimerDelay, _time, timer.Token);
         var completed = await Task.WhenAny(work, function, deadline).ConfigureAwait(false);
         await timer.CancelAsync().ConfigureAwait(false);
         return completed == deadline;
@@ -147,6 +148,8 @@ internal sealed partial class Invocation
     // goes on in this call. A step error, and a call that retries an earlier one, are answered as without checkpointing.
     private async Task<ExecutionResult?> ExecuteAndContinueAsync(FoundStep step)
     {
+        // The steps this decision was about. Steps the function finds while the handler runs come after them.
+        var decided = _window.Count;
         var outcome = await RunStepAsync(step).ConfigureAwait(false);
 
         // A retry answers after its first successful step, as inngest-js does, so that Inngest counts the attempts of
@@ -169,7 +172,10 @@ internal sealed partial class Invocation
         // The function gets the result once the step is saved, or straight away while the buffer fills.
         step.Handled = true;
         _scheduler.Post(static state => ((FoundStep)state!).Owner.HandBack((FoundStep)state), step);
-        ClearWindow();
+
+        // Steps found meanwhile wait for the next decision. The window keeps its version, as during a replay, so that a
+        // loop whose steps all run in this call does not look like parallel branches sharing an id.
+        _window.RemoveRange(0, decided);
         return _checkpoint!.IsDue ? await SaveAsync().ConfigureAwait(false) : null;
     }
 
@@ -189,7 +195,7 @@ internal sealed partial class Invocation
         Exception? error = null;
         try
         {
-            output = await RunHandler(step, info).ConfigureAwait(false);
+            output = await AwaitHandlerAsync(RunHandler(step, info)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_cancellationToken.IsCancellationRequested)
         {
@@ -201,6 +207,30 @@ internal sealed partial class Invocation
         }
 
         return new StepOutcome(info, output, error, new Timing(startedAt, _time.GetElapsedTime(started)));
+    }
+
+    // The function's own continuations keep running while the handler runs, as on the JavaScript event loop: the
+    // handler may await a task the function started, and that task resumes on the scheduler. Nothing is decided
+    // meanwhile. A cancelled call stops waiting even for a handler that ignores the token.
+    private async Task<object?> AwaitHandlerAsync(Task<object?> handler)
+    {
+        while (!handler.IsCompleted)
+        {
+            var work = _scheduler.WaitForWorkAsync(_cancellationToken).AsTask();
+            await Task.WhenAny(handler, work).ConfigureAwait(false);
+            _cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                _scheduler.RunPending(MaxContinuationsPerTick);
+            }
+            catch (Exception)
+            {
+                // An async void method threw. RunPending throws it again each time it runs, so the loop fails the run
+                // with it once the step is done, or the next call does.
+            }
+        }
+
+        return await handler.ConfigureAwait(false);
     }
 
     // Answers with the step's op: StepRun, or StepError or StepFailed when it threw.

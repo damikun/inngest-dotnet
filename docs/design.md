@@ -343,6 +343,14 @@ threads are posted back to the scheduler, so engine state is only touched by one
 Such code can only make the SDK report fewer steps at once, never wrong ones. Blocking on a step task (`.Result`)
 deadlocks the invocation, as it would on any single-threaded context.
 
+Two rules keep tasks the function starts from hanging, as they would not on the JavaScript event loop:
+
+- While a step handler runs, the engine keeps running what is queued on the scheduler, without deciding anything,
+  so a handler can await a task the function started before the step.
+- Once the call has answered, work posted to the scheduler, and work still queued, runs on the thread pool instead
+  of being dropped. A task the function started may outlive the call, such as one a singleton caches, or a
+  `SemaphoreSlim` wait whose `finally` releases it. The abandoned function's own steps still never complete.
+
 ### Serialization
 
 The SDK's own wire types use System.Text.Json source generation, one `JsonSerializerContext` per area. User types

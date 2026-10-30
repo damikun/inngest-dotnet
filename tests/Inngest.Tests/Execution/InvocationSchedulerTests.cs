@@ -113,15 +113,41 @@ public sealed class InvocationSchedulerTests
     }
 
     [Fact]
-    public void Work_posted_after_close_is_dropped()
+    public async Task Work_posted_after_close_runs_on_the_thread_pool()
     {
         var scheduler = new InvocationScheduler();
         scheduler.Close();
-        var ran = false;
+        var ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        scheduler.Post(_ => ran = true, null);
+        scheduler.Post(_ => ran.SetResult(Thread.CurrentThread.IsThreadPoolThread), null);
 
         scheduler.RunPending().ShouldBe(0);
-        ran.ShouldBeFalse();
+        (await ran.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Work_still_queued_at_close_runs_on_the_thread_pool()
+    {
+        var scheduler = new InvocationScheduler();
+        var ran = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        scheduler.Post(_ => ran.SetResult(), null);
+
+        scheduler.Close();
+
+        await ran.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Late_work_that_throws_is_dropped()
+    {
+        var scheduler = new InvocationScheduler();
+        scheduler.Close();
+        var after = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // On the thread pool an exception from a work item would end the test process.
+        scheduler.Post(_ => throw new InvalidOperationException("late"), null);
+        scheduler.Post(_ => after.SetResult(), null);
+
+        await after.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
 }

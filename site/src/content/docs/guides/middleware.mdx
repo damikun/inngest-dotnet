@@ -88,6 +88,11 @@ hooks.
 Middleware can call step tools from `WrapFunctionAsync` and `WrapStepAsync`. A step created inside a middleware's
 `WrapStepAsync` is not wrapped by that same middleware again.
 
+Memoized results go back to the function in the order the steps finished, which is how a race replays the way it
+first went. A `WrapStepAsync` that awaits real I/O for a memoized step, such as a call to a key vault, lets the next
+result overtake it, and then a `Task.WhenAny` can pick a different winner than the first time. Keep that work out
+of the memoized path, or rewrite payloads in a payload transform, which runs synchronously.
+
 ## Examples
 
 ### Map errors to non-retriable ones

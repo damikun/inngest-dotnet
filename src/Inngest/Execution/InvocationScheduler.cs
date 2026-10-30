@@ -20,7 +20,16 @@ internal sealed class InvocationScheduler : SynchronizationContext
 
     public bool IsCurrent => Current == this;
 
-    public override void Post(SendOrPostCallback d, object? state) => _queue.Writer.TryWrite(new WorkItem(d, state));
+    // Once the invocation has answered, work goes to the thread pool, as it would without this context. It may complete
+    // a task that outlives the call, such as one a singleton caches, or release a semaphore; dropped, it would leave
+    // everything that waits on those waiting forever.
+    public override void Post(SendOrPostCallback d, object? state)
+    {
+        if (!_queue.Writer.TryWrite(new WorkItem(d, state)))
+        {
+            RunLater(new WorkItem(d, state));
+        }
+    }
 
     // Blocking the user code until a callback runs would deadlock the single logical thread.
     public override void Send(SendOrPostCallback d, object? state) =>
@@ -79,8 +88,34 @@ internal sealed class InvocationScheduler : SynchronizationContext
     public ValueTask<bool> WaitForWorkAsync(CancellationToken cancellationToken) =>
         _queue.Reader.WaitToReadAsync(cancellationToken);
 
-    // Stops accepting work once the invocation has responded; late continuations are dropped.
-    public void Close() => _queue.Writer.TryComplete();
+    // Stops taking work once the invocation has responded. Work still queued, such as I/O that finished as the call
+    // answered, and work posted later run on the thread pool. Steps the abandoned function calls still never complete.
+    public void Close()
+    {
+        _queue.Writer.TryComplete();
+        while (_queue.Reader.TryRead(out var item))
+        {
+            RunLater(item);
+        }
+    }
+
+    // Nothing can observe a failure of late work any more, and on the thread pool it would end the process. Only async
+    // void code throws here, so the exception is dropped.
+    private static void RunLater(WorkItem item) =>
+        ThreadPool.QueueUserWorkItem(
+            static item =>
+            {
+                try
+                {
+                    item.Callback(item.State);
+                }
+                catch (Exception)
+                {
+                    // Dropped, see above.
+                }
+            },
+            item,
+            preferLocal: false);
 
     private readonly record struct WorkItem(SendOrPostCallback Callback, object? State);
 }
