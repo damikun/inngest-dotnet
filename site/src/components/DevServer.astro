@@ -1,57 +1,26 @@
 ---
-// The ways to start the Inngest dev server, as tabs that remember the reader's pick across pages. The order follows
-// Inngest's local development docs (install script, Homebrew, npx, Docker); Compose is added for teams. Every command
-// is one line, so it pastes into any shell; long lines wrap on screen.
+// The ways to start the Inngest dev server, as tabs that remember the reader's pick across pages. The commands are in
+// src/data/dev-server.ts, where the Markdown copies of the pages take them from too.
 import { Code, TabItem, Tabs } from '@astrojs/starlight/components';
+import { devServerTabs } from '../data/dev-server';
 
 interface Props {
   // For a Connect worker: the dev server stops looking for HTTP apps, and the worker dials in on port 8289.
   connect?: boolean;
 }
 const { connect = false } = Astro.props;
-
-const image = 'inngest/inngest:v1.49.0';
-const app = (host: string) => (connect ? '--no-discovery' : `-u http://${host}:5280/api/inngest`);
-const compose = [
-  'services:',
-  '  inngest:',
-  `    image: ${image}`,
-  `    command: inngest dev ${app('host.docker.internal')}`,
-  '    ports:',
-  '      - "8288:8288"',
-  '      - "8289:8289"',
-  ...(connect ? [] : ['    extra_hosts:', '      - "host.docker.internal:host-gateway"']),
-].join('\n');
+const tabs = devServerTabs(connect);
 ---
 
 <Tabs syncKey="devserver">
-  <TabItem label="Install script">
-    <Code lang="bash" wrap code={`curl -sSfL https://cli.inngest.com/install.sh | sh\ninngest dev ${app('localhost')}`} />
-  </TabItem>
-  <TabItem label="Homebrew">
-    <Code lang="bash" wrap code={`brew install inngest/tap/inngest\ninngest dev ${app('localhost')}`} />
-  </TabItem>
-  <TabItem label="npx">
-    <Code lang="bash" wrap code={`npx --ignore-scripts=false inngest-cli@latest dev ${app('localhost')}`} />
-  </TabItem>
-  <TabItem label="Docker">
-    <Code
-      lang="bash"
-      wrap
-      code={`docker run --rm -p 8288:8288 -p 8289:8289 ${image} inngest dev ${app('host.docker.internal')}`}
-    />
-    {
-      !connect && (
-        <p>
-          The container reaches the app at <code>host.docker.internal</code>, since <code>localhost</code> inside it is
-          the container itself. On Linux without Docker Desktop, add
-          <code>--add-host=host.docker.internal:host-gateway</code>.
-        </p>
-      )
-    }
-  </TabItem>
-  <TabItem label="Compose">
-    <Code lang="yaml" title="compose.yaml" code={compose} />
-    <Code lang="bash" code="docker compose up" />
-  </TabItem>
+  {
+    tabs.map((tab) => (
+      <TabItem label={tab.label}>
+        {tab.blocks.map((block) => (
+          <Code lang={block.lang} title={block.title} wrap={block.wrap} code={block.code} />
+        ))}
+        {tab.note && <p set:html={tab.note} />}
+      </TabItem>
+    ))
+  }
 </Tabs>
