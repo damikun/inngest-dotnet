@@ -11,23 +11,15 @@ namespace Inngest.Sentry;
 // Reports the errors of one call to Sentry. Middleware is scoped to the call, so the instance keeps the steps the call
 // executed, as breadcrumbs for the events it reports, until its scope ends, and flushes then.
 //
-// Sentry's scope follows the async flow, so one is pushed around the function and around every step handler, which
-// tags what the app reports there itself. The hooks that see the errors run outside those flows. A report therefore
-// pushes a scope of its own, and the event takes a copy of it.
+// Sentry's scope follows the async flow. One is pushed around the function and around every step handler, which tags
+// what the app reports there itself. The hooks that see the errors run outside those flows, so a report pushes a scope
+// of its own, and the event takes a copy of it.
 internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryReportingOptions> options, IHub? hub = null)
     : InngestMiddleware, IAsyncDisposable, IDisposable
 {
-    private const string ClientId = "inngest.client.id";
-    private const string FunctionId = "inngest.function.id";
-    private const string RunId = "inngest.run.id";
-    private const string Attempt = "inngest.attempt";
-    private const string EventName = "inngest.event.name";
-    private const string EventId = "inngest.event.id";
-    private const string ErrorSource = "inngest.error.source";
-    private const string StepName = "inngest.step.name";
     private const string StepCategory = "inngest.step";
 
-    // As many as Sentry keeps by default, so that a call with many steps does not outgrow what a scope holds.
+    // As many breadcrumbs as Sentry keeps by default, so that a call with many steps does not outgrow a scope.
     private const int MaxBreadcrumbs = 100;
 
     private readonly SentryReportingOptions _options = options.Value;
@@ -90,8 +82,8 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
 
     private bool IsReported(bool isFinalAttempt) => !_options.OnlyCaptureFinalAttempt || isFinalAttempt;
 
-    // Tags the scope with the call and puts it in the trace of the run. In a scope that Sentry.AspNetCore locks for the
-    // request, a push creates nothing and this tags the request's scope, which is the call's as well.
+    // Tags the scope with the call and puts it in the trace of the run. Sentry.AspNetCore locks the scope of a request,
+    // and a push there creates nothing, so this tags the request's scope, which is the call's as well.
     private IDisposable Enter(FunctionContext context)
     {
         var hub = Hub;
@@ -107,14 +99,14 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
 
     private void Tag(Scope scope, FunctionContext context)
     {
-        scope.SetTag(ClientId, client.AppId);
-        scope.SetTag(FunctionId, $"{client.AppId}-{context.FunctionId}");
-        scope.SetTag(RunId, context.RunId);
-        scope.SetTag(Attempt, context.Attempt.ToString(CultureInfo.InvariantCulture));
-        scope.SetTag(EventName, context.EventName);
+        scope.SetTag(Tags.ClientId, client.AppId);
+        scope.SetTag(Tags.FunctionId, $"{client.AppId}-{context.FunctionId}");
+        scope.SetTag(Tags.RunId, context.RunId);
+        scope.SetTag(Tags.Attempt, context.Attempt.ToString(CultureInfo.InvariantCulture));
+        scope.SetTag(Tags.EventName, context.EventName);
         if (context.EventId is { } eventId)
         {
-            scope.SetTag(EventId, eventId);
+            scope.SetTag(Tags.EventId, eventId);
         }
     }
 
@@ -132,10 +124,10 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
             // The request that carries the call has a transaction of its own, whose trace the event would join.
             copy.Transaction = null;
             copy.TransactionName = $"inngest:{context.FunctionId}";
-            copy.SetTag(ErrorSource, source);
+            copy.SetTag(Tags.ErrorSource, source);
             if (step is not null)
             {
-                copy.SetTag(StepName, step.Name ?? step.Id);
+                copy.SetTag(Tags.StepName, step.Name ?? step.Id);
             }
 
             foreach (var breadcrumb in _breadcrumbs)
@@ -154,5 +146,18 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
 
         var data = new Dictionary<string, string> { ["type"] = step.Type.ToString() };
         _breadcrumbs.Enqueue(new Breadcrumb(step.Name ?? step.Id, "default", data, StepCategory, level));
+    }
+
+    // The tag names are the TypeScript middleware's, with the attempt added.
+    private static class Tags
+    {
+        public const string ClientId = "inngest.client.id";
+        public const string FunctionId = "inngest.function.id";
+        public const string RunId = "inngest.run.id";
+        public const string Attempt = "inngest.attempt";
+        public const string EventName = "inngest.event.name";
+        public const string EventId = "inngest.event.id";
+        public const string ErrorSource = "inngest.error.source";
+        public const string StepName = "inngest.step.name";
     }
 }

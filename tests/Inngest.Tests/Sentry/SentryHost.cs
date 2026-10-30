@@ -86,7 +86,14 @@ internal sealed class SentryHost : IAsyncDisposable
     // The events that reached the transport, which is what a flush waits for.
     public IReadOnlyList<SentryId> Sent => [.. _sent];
 
-    public async Task<int> CallAsync(FunctionDefinition function, Call call, string? stepId = null, string? queueItemId = null, string runId = RunId)
+    // disposeSynchronously ends the call's scope with Dispose, as a host that does not know IAsyncDisposable would.
+    public async Task<int> CallAsync(
+        FunctionDefinition function,
+        Call call,
+        string? stepId = null,
+        string? queueItemId = null,
+        string runId = RunId,
+        bool disposeSynchronously = false)
     {
         var body = Encoding.UTF8.GetString(call.ToBytes()).Replace("\"run_id\":\"01JRUN\"", $"\"run_id\":\"{runId}\"", StringComparison.Ordinal);
         if (queueItemId is not null)
@@ -95,7 +102,7 @@ internal sealed class SentryHost : IAsyncDisposable
         }
 
         var scope = _provider.CreateAsyncScope();
-        await using (scope)
+        try
         {
             using var result = await Engine.ExecuteAsync(
                 new ExecutionRequest
@@ -107,6 +114,17 @@ internal sealed class SentryHost : IAsyncDisposable
                 },
                 TestContext.Current.CancellationToken);
             return result.StatusCode;
+        }
+        finally
+        {
+            if (disposeSynchronously)
+            {
+                scope.Dispose();
+            }
+            else
+            {
+                await scope.DisposeAsync();
+            }
         }
     }
 

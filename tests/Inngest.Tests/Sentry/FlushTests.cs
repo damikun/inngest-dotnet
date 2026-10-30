@@ -34,6 +34,18 @@ public sealed class FlushTests
     }
 
     [Fact]
+    public async Task A_scope_that_is_disposed_synchronously_is_flushed_as_well()
+    {
+        await using var host = new SentryHost(registerHub: true);
+        var function = TestFunction.Define(_ => throw new NonRetriableException("no"));
+
+        await host.CallAsync(function, Call.New(), disposeSynchronously: true);
+
+        host.Sent.Count.ShouldBe(1);
+        host.Spy!.Methods.Count(method => method == "FlushAsync").ShouldBe(1);
+    }
+
+    [Fact]
     public async Task The_flush_waits_as_long_as_the_options_say()
     {
         await using var host = new SentryHost(options => options.FlushTimeout = TimeSpan.FromSeconds(7), registerHub: true);
