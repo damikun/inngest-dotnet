@@ -22,8 +22,11 @@ dotnet add package Inngest.Aspire.Hosting --prerelease
 ```
 
 The package is built against Aspire 13.6 (`Aspire.Hosting` 13.6.4) and targets `net8.0` and `net10.0`. It has no
-dependency on the `Inngest` package, because the AppHost only has to know the names of the settings, not the SDK. nuget.org
-reserves the `Aspire.` prefix for the Aspire team and its partners, so a community package cannot be called
+dependency on the `Inngest` package, because the AppHost only has to know the names of the settings, not the SDK. It
+runs in the AppHost, which is never trimmed or published as a native binary, so unlike the other packages it is not
+marked as trim or Native AOT compatible; `Aspire.Hosting` is not either.
+
+nuget.org reserves the `Aspire.` prefix for the Aspire team and its partners, so a community package cannot be called
 `Aspire.Hosting.Inngest`; hence `Inngest.Aspire.Hosting`, like `CommunityToolkit.Aspire.Hosting.*`.
 
 ## Add the server
