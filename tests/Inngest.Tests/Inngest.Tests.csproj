@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Encryption\Inngest.Encryption.csproj" />
     <ProjectReference Include="..\..\src\Inngest.OpenTelemetry\Inngest.OpenTelemetry.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Sentry\Inngest.Sentry.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing\Inngest.Testing.csproj" />
   </ItemGroup>
 </Project>
