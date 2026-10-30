@@ -18,9 +18,9 @@ that nobody waits for, or that takes longer, belongs in a function.
 ## Beta
 
 Inngest calls durable endpoints beta, so the protocol and the .NET API may still change. The API is marked
-`[Experimental("INNGEST001")]`. Code that names one of its types, such as `DurableEndpointOptions` or the
-`[DurableEndpoint]` attribute, is a compile error until the app suppresses that diagnostic. Suppress it in the project
-file:
+`[Experimental("INNGEST001")]`. Code that uses it, from `UseInngestDurableEndpoints` and `WithDurableEndpoint` to
+`DurableEndpointOptions` and the `[DurableEndpoint]` attribute, is a compile error until the app suppresses that
+diagnostic. Suppress it in the project file:
 
 ```xml title="Shop.csproj"
 <PropertyGroup>
