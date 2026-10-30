@@ -9,10 +9,12 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static class InngestConnectHealthChecksBuilderExtensions
 {
-    // Adds a check that is healthy while the Connect worker of AddConnect holds an active connection, and reports
-    // failureStatus (Unhealthy unless given) while it connects, reconnects or stops. It is meant for readiness probes:
-    // tag it and keep it out of the liveness probe, because a reconnecting worker recovers on its own and a restart
-    // would cancel the executions it is finishing.
+    /// <summary>
+    /// Adds a check that is healthy while the Connect worker of AddConnect holds an active connection, and reports
+    /// failureStatus (Unhealthy unless given) while it connects, reconnects or stops. It is meant for readiness probes:
+    /// tag it and keep it out of the liveness probe, because a reconnecting worker recovers on its own and a restart
+    /// would cancel the executions it is finishing.
+    /// </summary>
     public static IHealthChecksBuilder AddInngestConnect(
         this IHealthChecksBuilder builder,
         string name = "inngest-connect",

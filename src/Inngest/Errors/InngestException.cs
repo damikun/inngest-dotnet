@@ -3,7 +3,7 @@
 
 namespace Inngest;
 
-// Raised when the SDK cannot talk to Inngest, for example when sending events or syncing fails.
+/// <summary>Raised when the SDK cannot talk to Inngest, for example when sending events or syncing fails.</summary>
 public class InngestException : Exception
 {
     public InngestException(string message)

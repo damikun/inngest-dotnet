@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Inngest.Client;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;

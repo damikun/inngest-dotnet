@@ -5,9 +5,11 @@ using System.Text;
 
 namespace Inngest;
 
-// An error Inngest recorded, such as the cause of a failed step, rebuilt as an exception. It reports the recorded
-// type name, message and stack trace, which may come from another process or language, and its inner exception is
-// the recorded cause.
+/// <summary>
+/// An error Inngest recorded, such as the cause of a failed step, rebuilt as an exception. It reports the recorded
+/// type name, message and stack trace, which may come from another process or language, and its inner exception is
+/// the recorded cause.
+/// </summary>
 public sealed class FunctionErrorException : Exception
 {
     public FunctionErrorException(FunctionError error)
@@ -21,7 +23,7 @@ public sealed class FunctionErrorException : Exception
 
     public override string? StackTrace => Error.Stack;
 
-    // Formatted like Exception.ToString, with the recorded type name in place of this type's.
+    /// <summary>Formatted like Exception.ToString, with the recorded type name in place of this type's.</summary>
     public override string ToString()
     {
         var text = new StringBuilder(Error.Name);

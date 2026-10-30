@@ -3,7 +3,7 @@
 
 namespace Inngest;
 
-// Throw from a function or step to retry it, but not before the given delay or time.
+/// <summary>Throw from a function or step to retry it, but not before the given delay or time.</summary>
 public class RetryAfterException : Exception
 {
     public RetryAfterException(string message, TimeSpan delay, Exception? innerException = null)

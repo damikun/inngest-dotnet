@@ -1,5 +1,5 @@
 using Inngest.Client;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.Logging.Testing;
 
 namespace Inngest.Tests.Client;

@@ -3,8 +3,10 @@
 
 namespace Inngest;
 
-// What to pass to AddSource and AddMeter when OpenTelemetry is set up without AddInngestInstrumentation, or to an
-// ActivityListener or MeterListener. The source is named like the TypeScript SDK's tracer.
+/// <summary>
+/// What to pass to AddSource and AddMeter when OpenTelemetry is set up without AddInngestInstrumentation, or to an
+/// ActivityListener or MeterListener. The source is named like the TypeScript SDK's tracer.
+/// </summary>
 public static class InngestInstrumentation
 {
     public const string ActivitySourceName = "inngest";

@@ -12,7 +12,9 @@ namespace Microsoft.AspNetCore.Builder;
 
 public static class InngestEndpointRouteBuilderExtensions
 {
-    // Serves the Inngest endpoint: GET for introspection, PUT to sync the app and POST to run functions.
+    /// <summary>
+    /// Serves the Inngest endpoint: GET for introspection, PUT to sync the app and POST to run functions.
+    /// </summary>
     public static IEndpointConventionBuilder MapInngest(this IEndpointRouteBuilder endpoints, [StringSyntax("Route")] string pattern = "/api/inngest")
     {
         ArgumentNullException.ThrowIfNull(endpoints);

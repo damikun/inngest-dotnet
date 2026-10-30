@@ -4,8 +4,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Execution;
-using Inngest.Internal;
 
 namespace Inngest.Steps;
 

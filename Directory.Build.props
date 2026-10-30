@@ -9,7 +9,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <!-- Needed for IDE0005 to run during build. Members are not XML-documented, so CS1591 stays off. -->
+    <!-- Needed for IDE0005 to run during build, and for the XML docs of the public API. Not every public member has
+         one, so CS1591 stays off. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <IsPackable>false</IsPackable>

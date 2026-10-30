@@ -3,15 +3,19 @@
 
 namespace Inngest;
 
-// An event to send. Data and User are serialized with InngestOptions.SerializerOptions using their runtime type.
+/// <summary>
+/// An event to send. Data and User are serialized with InngestOptions.SerializerOptions using their runtime type.
+/// </summary>
 public sealed record InngestEvent(string Name, object? Data = null)
 {
-    // Inngest drops a second event with the same id inside its deduplication window.
+    /// <summary>Inngest drops a second event with the same id inside its deduplication window.</summary>
     public string? Id { get; init; }
 
     public object? User { get; init; }
 
-    // Defaults to the time Inngest receives the event. A future value delays functions that it triggers.
+    /// <summary>
+    /// Defaults to the time Inngest receives the event. A future value delays functions that it triggers.
+    /// </summary>
     public DateTimeOffset? Timestamp { get; init; }
 
     public string? Version { get; init; }

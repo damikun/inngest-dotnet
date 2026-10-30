@@ -3,7 +3,9 @@
 
 namespace Inngest;
 
-// Options for a single send. Environment sends to another branch environment than the app's, for this call only.
+/// <summary>
+/// Options for a single send. Environment sends to another branch environment than the app's, for this call only.
+/// </summary>
 public sealed record SendOptions
 {
     public string? Environment { get; init; }

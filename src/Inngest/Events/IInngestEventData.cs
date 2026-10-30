@@ -3,9 +3,11 @@
 
 namespace Inngest;
 
-// Puts the event's name on the type of its data, so that code sends, triggers on and waits for the type instead of
-// repeating a string that can drift from the data it carries. The members are static, so reading them needs no
-// reflection.
+/// <summary>
+/// Puts the event's name on the type of its data, so that code sends, triggers on and waits for the type instead of
+/// repeating a string that can drift from the data it carries. The members are static, so reading them needs no
+/// reflection.
+/// </summary>
 public interface IInngestEventData
 {
     /// <summary>The name the event is sent and triggered under, such as "shop/order.paid".</summary>

@@ -3,9 +3,11 @@
 
 namespace Inngest;
 
-// Function runs through the Inngest REST API, authenticated with the app's signing key. Inngest caches these
-// answers for a few seconds (a run for 3, the runs of an event for 15), so a run can look a little behind; one that
-// was just started may not be listed yet. Failures throw InngestException with Inngest's message.
+/// <summary>
+/// Function runs through the Inngest REST API, authenticated with the app's signing key. Inngest caches these
+/// answers for a few seconds (a run for 3, the runs of an event for 15), so a run can look a little behind; one that
+/// was just started may not be listed yet. Failures throw InngestException with Inngest's message.
+/// </summary>
 public interface IInngestRunsClient
 {
     /// <summary>Gets a run with its status and, once it has ended, its output.</summary>

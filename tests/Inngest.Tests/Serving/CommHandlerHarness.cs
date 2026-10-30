@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Inngest.Serving;
 using Inngest.Signing;
 using Inngest.Tests.Serving.Fakes;

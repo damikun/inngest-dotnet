@@ -3,22 +3,24 @@
 
 namespace Inngest;
 
-// The events Inngest itself sends about function runs. A function triggered by one of them, filtered on
-// event.data.function_id, can react to how the runs of another function end.
+/// <summary>
+/// The events Inngest itself sends about function runs. A function triggered by one of them, filtered on
+/// event.data.function_id, can react to how the runs of another function end.
+/// </summary>
 public static class SystemEvents
 {
-    // A run failed after its last attempt. The data is FunctionFailure.
+    /// <summary>A run failed after its last attempt. The data is FunctionFailure.</summary>
     public const string FunctionFailed = "inngest/function.failed";
 
-    // A run ended: it completed, failed or was cancelled. The data is FunctionFinished.
+    /// <summary>A run ended: it completed, failed or was cancelled. The data is FunctionFinished.</summary>
     public const string FunctionFinished = "inngest/function.finished";
 
-    // A run was cancelled. The data is FunctionCancelled.
+    /// <summary>A run was cancelled. The data is FunctionCancelled.</summary>
     public const string FunctionCancelled = "inngest/function.cancelled";
 
-    // What an invoked function receives as its event.
+    /// <summary>What an invoked function receives as its event.</summary>
     public const string FunctionInvoked = "inngest/function.invoked";
 
-    // What a function receives as its event when its cron schedule fires.
+    /// <summary>What a function receives as its event when its cron schedule fires.</summary>
     public const string ScheduledTimer = "inngest/scheduled.timer";
 }

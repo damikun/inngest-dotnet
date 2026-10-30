@@ -4,6 +4,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Google.Protobuf;
+using Inngest.Configuration;
 using Inngest.Connect.Protocol;
 using Inngest.Internal;
 using Inngest.Registration;

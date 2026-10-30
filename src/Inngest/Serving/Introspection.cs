@@ -3,6 +3,7 @@
 
 using System.Security.Cryptography;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Internal;
 using Inngest.Registration;
 using Inngest.Signing;

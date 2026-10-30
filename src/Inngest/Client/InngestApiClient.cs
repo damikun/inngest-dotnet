@@ -3,7 +3,7 @@
 
 using System.Net;
 using System.Text.Json;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Client;
@@ -87,8 +87,11 @@ internal sealed class InngestApiClient : IInngestApi
                 throw new InngestException($"Failed to retrieve the {description} of run {runId}: {ApiHttp.DescribeError(status, content)}", status);
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException)
         {

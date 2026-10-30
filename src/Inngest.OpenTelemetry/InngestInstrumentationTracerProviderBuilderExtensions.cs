@@ -7,8 +7,10 @@ namespace OpenTelemetry.Trace;
 
 public static class InngestInstrumentationTracerProviderBuilderExtensions
 {
-    // Collects the spans of the Inngest SDK: those of AddInstrumentation on the Inngest builder, and the Connect worker's
-    // spans for the requests it receives.
+    /// <summary>
+    /// Collects the spans of the Inngest SDK: those of AddInstrumentation on the Inngest builder, and the Connect
+    /// worker's spans for the requests it receives.
+    /// </summary>
     public static TracerProviderBuilder AddInngestInstrumentation(this TracerProviderBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

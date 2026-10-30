@@ -6,22 +6,24 @@ using System.Text.Json.Serialization;
 
 namespace Inngest;
 
-// The data of the inngest/function.cancelled event, which Inngest sends when a run is cancelled, for example by a
-// CancelOn event, so that another function can clean up after it.
+/// <summary>
+/// The data of the inngest/function.cancelled event, which Inngest sends when a run is cancelled, for example by a
+/// CancelOn event, so that another function can clean up after it.
+/// </summary>
 public sealed record FunctionCancelled
 {
-    // The cancelled function's composite id, "<app id>-<function id>".
+    /// <summary>The cancelled function's composite id, "&lt;app id&gt;-&lt;function id&gt;".</summary>
     [JsonPropertyName("function_id")]
     public required string FunctionId { get; init; }
 
     [JsonPropertyName("run_id")]
     public required string RunId { get; init; }
 
-    // The event that triggered the cancelled run.
+    /// <summary>The event that triggered the cancelled run.</summary>
     [JsonPropertyName("event")]
     public JsonElement Event { get; init; }
 
-    // Set when another function started the run with step.invoke.
+    /// <summary>Set when another function started the run with step.invoke.</summary>
     [JsonPropertyName("correlation_id")]
     public string? CorrelationId { get; init; }
 }

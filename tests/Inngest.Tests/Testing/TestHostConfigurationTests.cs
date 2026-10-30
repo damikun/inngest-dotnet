@@ -1,4 +1,4 @@
-using Inngest.Internal;
+using Inngest.Configuration;
 using Inngest.Testing;
 using Inngest.Tests.Internal;
 using Microsoft.Extensions.DependencyInjection;

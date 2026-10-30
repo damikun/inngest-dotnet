@@ -1,4 +1,4 @@
-using Inngest.Internal;
+using Inngest.Configuration;
 
 namespace Inngest.Tests.Client;
 

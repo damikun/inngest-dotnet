@@ -5,12 +5,14 @@ using System.Text.Json;
 
 namespace Inngest;
 
-// Implemented by middleware that rewrites the JSON passing between Inngest and the function, before it is read into
-// .NET types and after they are written, which is what encryption and serialization of one's own need. JSON coming
-// in reaches the transforms in registration order and JSON going out in reverse order, so the first registered
-// middleware is the outermost layer both ways. Each method either writes one replacement value to the writer and
-// returns true, or writes nothing and returns false to keep the value; implement only the ones you need, the others
-// keep every value. Calls whose middleware does not implement this interface never serialize anything twice.
+/// <summary>
+/// Implemented by middleware that rewrites the JSON passing between Inngest and the function, before it is read into
+/// .NET types and after they are written, which is what encryption and serialization of one's own need. JSON coming
+/// in reaches the transforms in registration order and JSON going out in reverse order, so the first registered
+/// middleware is the outermost layer both ways. Each method either writes one replacement value to the writer and
+/// returns true, or writes nothing and returns false to keep the value; implement only the ones you need, the others
+/// keep every value. Calls whose middleware does not implement this interface never serialize anything twice.
+/// </summary>
 public interface IPayloadTransform
 {
     /// <summary>Rewrites a triggering event before the function's event type is read from it, which happens before the function's context exists.</summary>

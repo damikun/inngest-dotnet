@@ -5,25 +5,35 @@ using System.Globalization;
 
 namespace Inngest;
 
-// Runs the steps of a function one after another in the same call from Inngest and saves each to Inngest as it
-// completes, instead of ending the call after every step. The run goes back to one call per step at sleeps, waits,
-// invokes, parallel steps and step errors, and once MaxRuntime has passed.
+/// <summary>
+/// Runs the steps of a function one after another in the same call from Inngest and saves each to Inngest as it
+/// completes, instead of ending the call after every step. The run goes back to one call per step at sleeps, waits,
+/// invokes, parallel steps and step errors, and once MaxRuntime has passed.
+/// </summary>
 public sealed record CheckpointingOptions
 {
-    // False turns checkpointing off for one function when InngestOptions turns it on for all of them.
+    /// <summary>
+    /// False turns checkpointing off for one function when InngestOptions turns it on for all of them.
+    /// </summary>
     public bool Enabled { get; init; } = true;
 
-    // How long one call may keep running steps before it leaves the next step to Inngest. Null means 10 seconds for
-    // the serve endpoint and 5 minutes for Connect workers; Timeout.InfiniteTimeSpan removes the limit. Keep it well
-    // below the request timeout of the host and of any proxy in front of it.
+    /// <summary>
+    /// How long one call may keep running steps before it leaves the next step to Inngest. Null means 10 seconds for
+    /// the serve endpoint and 5 minutes for Connect workers; Timeout.InfiniteTimeSpan removes the limit. Keep it well
+    /// below the request timeout of the host and of any proxy in front of it.
+    /// </summary>
     public TimeSpan? MaxRuntime { get; init; }
 
-    // How many completed steps are saved to Inngest together. With 1, each step is saved before the next one runs;
-    // more saves requests, but steps not yet saved run again if the call is lost.
+    /// <summary>
+    /// How many completed steps are saved to Inngest together. With 1, each step is saved before the next one runs;
+    /// more saves requests, but steps not yet saved run again if the call is lost.
+    /// </summary>
     public int BufferedSteps { get; init; } = 1;
 
-    // The longest a completed step waits to be saved while BufferedSteps is not reached. Null waits until the buffer
-    // is full or the call ends.
+    /// <summary>
+    /// The longest a completed step waits to be saved while BufferedSteps is not reached. Null waits until the buffer
+    /// is full or the call ends.
+    /// </summary>
     public TimeSpan? MaxInterval { get; init; }
 
     // The first setting Inngest cannot work with, named after the property, or null when all are valid.

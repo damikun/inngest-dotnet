@@ -3,5 +3,5 @@
 
 namespace Inngest;
 
-// The ids Inngest assigned to the sent events, in the order they were sent.
+/// <summary>The ids Inngest assigned to the sent events, in the order they were sent.</summary>
 public sealed record SendEventsResult(IReadOnlyList<string> Ids);

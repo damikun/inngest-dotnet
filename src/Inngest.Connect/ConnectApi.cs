@@ -5,8 +5,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using Google.Protobuf;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.Connect.Protocol;
-using Inngest.Internal;
 using Inngest.Signing;
 using Microsoft.Extensions.DependencyInjection;
 

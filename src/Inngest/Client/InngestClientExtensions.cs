@@ -5,7 +5,9 @@ namespace Inngest;
 
 public static class InngestClientExtensions
 {
-    // Sends the data as an event named T.EventName. Build an InngestEvent instead to set its id, user or timestamp.
+    /// <summary>
+    /// Sends the data as an event named T.EventName. Build an InngestEvent instead to set its id, user or timestamp.
+    /// </summary>
     public static Task<SendEventsResult> SendAsync<T>(this IInngestClient client, T data, CancellationToken cancellationToken = default)
         where T : IInngestEventData
     {

@@ -7,7 +7,7 @@ namespace OpenTelemetry.Metrics;
 
 public static class InngestInstrumentationMeterProviderBuilderExtensions
 {
-    // Collects the metrics of AddInstrumentation on the Inngest builder.
+    /// <summary>Collects the metrics of AddInstrumentation on the Inngest builder.</summary>
     public static MeterProviderBuilder AddInngestInstrumentation(this MeterProviderBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

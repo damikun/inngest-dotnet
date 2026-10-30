@@ -2,8 +2,8 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Errors;
-using Inngest.Internal;
 using Inngest.Middleware;
 using Inngest.Steps;
 

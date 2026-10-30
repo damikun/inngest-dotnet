@@ -1,4 +1,4 @@
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.Configuration;
 
 namespace Inngest.Tests.Internal;

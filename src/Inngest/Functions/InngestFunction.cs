@@ -5,12 +5,16 @@ using Inngest.Functions;
 
 namespace Inngest;
 
-// Base class for functions defined as classes. Instances are resolved from a DI scope per invocation, so
-// constructor injection works as usual. Return null when the function has no output.
+/// <summary>
+/// Base class for functions defined as classes. Instances are resolved from a DI scope per invocation, so
+/// constructor injection works as usual. Return null when the function has no output.
+/// </summary>
 public abstract class InngestFunction<TEventData> : InngestFunction<TEventData, object?>;
 
-// A function class whose output is a TResult. A function that invokes it by its class receives the result as a
-// TResult, and the compiler checks that both sides agree on the type.
+/// <summary>
+/// A function class whose output is a TResult. A function that invokes it by its class receives the result as a
+/// TResult, and the compiler checks that both sides agree on the type.
+/// </summary>
 public abstract class InngestFunction<TEventData, TResult> : InngestFunction, IReturns<TResult>
 {
     public abstract Task<TResult> ExecuteAsync(FunctionContext<TEventData> context, CancellationToken cancellationToken);

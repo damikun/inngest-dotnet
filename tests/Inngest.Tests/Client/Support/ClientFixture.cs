@@ -1,5 +1,5 @@
 using Inngest.Client;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;

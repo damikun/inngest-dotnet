@@ -239,6 +239,30 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 
+`Inngest.AspNetCore`, `Inngest.Connect` and `Inngest.Testing` use internals of `Inngest` through `InternalsVisibleTo`:
+the serve handler, the execution engine, the registry and the resolved settings. Internals can change in any release,
+so the packages ship together and each depends on exactly the `Inngest` of its own version (a target in
+`src/Directory.Build.targets` writes the exact range). `Inngest.OpenTelemetry` uses only the public middleware API.
+Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
+would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
+each release.
+
+### Code layout
+
+- **Namespaces.** Public types are in `Inngest`, whatever folder they live in, so one `using Inngest;` brings in the
+  whole API. Internal types are in the namespace of their folder, such as `Inngest.Execution` or
+  `Inngest.Registration`. Extension methods on a framework type are in that type's namespace
+  (`Microsoft.Extensions.DependencyInjection`, `Microsoft.AspNetCore.Builder`, `OpenTelemetry.Trace`), and extension
+  methods on Inngest types are in `Inngest`.
+- **Files.** Every public type has a file named after it; the generic forms of a type share it or use `OfT`, as in
+  `InngestEventOfT.cs`. Internal helper types may share the file of the type they serve. A class too large to read in
+  one file is split into partial files named after their concern, such as `Invocation.Steps.cs`,
+  `Invocation.Execution.cs` and `Invocation.Answers.cs`.
+- **Comments.** Public types and members carry a `/// <summary>`, which IDEs show. Everything else has `//` comments
+  that say why, not what.
+- **Tests.** The folders of `tests/Inngest.Tests` follow the areas of the source (`Steps`, `Functions`, `Middleware`,
+  `Registration` and so on), and the integration tests are grouped by the Inngest server fixture they run against.
+
 ### Public API
 
 The API follows .NET conventions rather than the shape of the TypeScript SDK:

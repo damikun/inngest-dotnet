@@ -3,25 +3,18 @@
 
 namespace Inngest;
 
-// A request that Inngest sends to an AI provider for the run. Body is the provider's request body, serialized with
-// InngestOptions.SerializerOptions. Inngest stores these options with the run, AuthKey included.
+/// <summary>
+/// A request that Inngest sends to an AI provider for the run. Body is the provider's request body, serialized with
+/// InngestOptions.SerializerOptions. Inngest stores these options with the run, AuthKey included.
+/// </summary>
 public sealed record InferOptions(AIFormat Format, Uri Url, object Body)
 {
-    // Inngest sends it as the format expects: "Authorization: Bearer" for the OpenAI formats, Grok and Azure OpenAI,
-    // "x-api-key" for Anthropic and the "key" query parameter for Gemini.
+    /// <summary>
+    /// Inngest sends it as the format expects: "Authorization: Bearer" for the OpenAI formats, Grok and Azure OpenAI,
+    /// "x-api-key" for Anthropic and the "key" query parameter for Gemini.
+    /// </summary>
     public string? AuthKey { get; init; }
 
-    // Sent as they are, for example the "anthropic-version" header that Anthropic requires.
+    /// <summary>Sent as they are, for example the "anthropic-version" header that Anthropic requires.</summary>
     public IReadOnlyDictionary<string, string>? Headers { get; init; }
-}
-
-// The provider APIs Inngest can call, as inngest-js names them.
-public enum AIFormat
-{
-    OpenAIChat,
-    OpenAIResponses,
-    Anthropic,
-    Gemini,
-    Grok,
-    AzureOpenAI,
 }

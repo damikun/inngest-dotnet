@@ -3,7 +3,7 @@
 
 namespace Inngest;
 
-// Throw from a function or step to fail it immediately instead of retrying.
+/// <summary>Throw from a function or step to fail it immediately instead of retrying.</summary>
 public class NonRetriableException : Exception
 {
     public NonRetriableException()

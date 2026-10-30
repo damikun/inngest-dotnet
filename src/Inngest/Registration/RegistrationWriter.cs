@@ -3,6 +3,7 @@
 
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Internal;
 
 namespace Inngest.Registration;

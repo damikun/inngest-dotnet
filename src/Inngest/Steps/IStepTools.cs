@@ -5,8 +5,10 @@ using Inngest.Steps;
 
 namespace Inngest;
 
-// Every step id must be unique within a run and stable across replays. Reusing an id in a loop is allowed;
-// later uses get a ":<n>" suffix in the order they are called.
+/// <summary>
+/// Every step id must be unique within a run and stable across replays. Reusing an id in a loop is allowed;
+/// later uses get a ":&lt;n&gt;" suffix in the order they are called.
+/// </summary>
 public interface IStepTools
 {
     /// <summary>Runs the handler once, retrying it on failure, and returns its memoized result on every replay.</summary>

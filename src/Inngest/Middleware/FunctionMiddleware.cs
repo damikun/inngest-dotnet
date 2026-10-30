@@ -7,8 +7,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Inngest;
 
-// Middleware for one function, listed in FunctionOptions.Middleware. It runs inside the app's middleware, which wraps
-// it, and like app middleware it is resolved from the call's scope, so one instance serves a whole call.
+/// <summary>
+/// Middleware for one function, listed in FunctionOptions.Middleware. It runs inside the app's middleware, which wraps
+/// it, and like app middleware it is resolved from the call's scope, so one instance serves a whole call.
+/// </summary>
 public sealed class FunctionMiddleware
 {
     private readonly Action<IServiceCollection>? _register;
@@ -21,7 +23,9 @@ public sealed class FunctionMiddleware
         _resolve = resolve;
     }
 
-    // Registering the function adds TMiddleware as a scoped service, unless the app registered it already.
+    /// <summary>
+    /// Registering the function adds TMiddleware as a scoped service, unless the app registered it already.
+    /// </summary>
     public static FunctionMiddleware Of<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TMiddleware>()
         where TMiddleware : InngestMiddleware =>
         new(
@@ -29,7 +33,7 @@ public sealed class FunctionMiddleware
             static services => services.TryAddScoped<TMiddleware>(),
             static services => services.GetRequiredService<TMiddleware>());
 
-    // Calls the factory with the call's scope on every call.
+    /// <summary>Calls the factory with the call's scope on every call.</summary>
     public static FunctionMiddleware Of(Func<IServiceProvider, InngestMiddleware> factory)
     {
         ArgumentNullException.ThrowIfNull(factory);

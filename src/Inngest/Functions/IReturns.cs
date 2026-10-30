@@ -3,6 +3,8 @@
 
 namespace Inngest;
 
-// What a function class returns, so that a constraint can check it: InngestFunction<TEventData, TResult> implements
-// it, and InvokeAsync<TFunction, TResult> requires it.
+/// <summary>
+/// What a function class returns, so that a constraint can check it: InngestFunction&lt;TEventData, TResult&gt;
+/// implements it, and InvokeAsync&lt;TFunction, TResult&gt; requires it.
+/// </summary>
 public interface IReturns<out TResult>;

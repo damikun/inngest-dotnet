@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Inngest.Benchmarks.Support;
+using Inngest.Configuration;
 using Inngest.Functions;
 using Inngest.Internal;
 using Inngest.Registration;

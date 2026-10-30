@@ -1,6 +1,6 @@
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Execution;
-using Inngest.Internal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 

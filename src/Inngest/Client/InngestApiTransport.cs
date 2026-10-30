@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Net.Http.Headers;
+using Inngest.Configuration;
 using Inngest.Internal;
 using Inngest.Signing;
 using Microsoft.Extensions.DependencyInjection;

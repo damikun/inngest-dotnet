@@ -6,19 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Inngest.Testing;
 
-public enum TestStepStatus
-{
-    // Inngest has the step but no result: it is planned, or waits on something the test did not mock.
-    Pending,
-
-    // The step has a result, which the function receives on every replay.
-    Completed,
-
-    // The step failed for good, and the function receives a StepFailedException where it awaits it.
-    Failed,
-}
-
-// A step of a test run, as Inngest recorded it.
+/// <summary>A step of a test run, as Inngest recorded it.</summary>
 public sealed class TestStep
 {
     private readonly JsonSerializerOptions _serializerOptions;
@@ -51,41 +39,49 @@ public sealed class TestStep
         _serializerOptions = serializerOptions;
     }
 
-    // The id the code passed, with ":<n>" for a repeated id.
+    /// <summary>The id the code passed, with ":&lt;n&gt;" for a repeated id.</summary>
     public string Id { get; }
 
-    // What Inngest stores the step under.
+    /// <summary>What Inngest stores the step under.</summary>
     public string HashedId { get; }
 
-    // Null for a step the test host does not know, such as one added by a newer SDK; Op names it.
+    /// <summary>Null for a step the test host does not know, such as one added by a newer SDK; Op names it.</summary>
     public StepType? Type { get; }
 
-    // The last operation the SDK sent Inngest for the step, such as StepRun, StepFailed, Sleep or WaitForEvent.
+    /// <summary>
+    /// The last operation the SDK sent Inngest for the step, such as StepRun, StepFailed, Sleep or WaitForEvent.
+    /// </summary>
     public string Op { get; }
 
-    // The operation's opts as sent, such as the event and timeout of a wait or the duration of a sleep.
+    /// <summary>
+    /// The operation's opts as sent, such as the event and timeout of a wait or the duration of a sleep.
+    /// </summary>
     public JsonElement Options { get; }
 
     public TestStepStatus Status { get; }
 
-    // How many times the step's handler, or its mock, ran: once per attempt. Zero for a sleep, wait or invoke,
-    // which Inngest carries out.
+    /// <summary>
+    /// How many times the step's handler, or its mock, ran: once per attempt. Zero for a sleep, wait or invoke,
+    /// which Inngest carries out.
+    /// </summary>
     public int Attempts { get; }
 
-    // Whether a mock answered the step instead of its handler or Inngest.
+    /// <summary>Whether a mock answered the step instead of its handler or Inngest.</summary>
     public bool Mocked { get; }
 
-    // The result the function receives, as the JSON Inngest stores: the value of a run step or an invoke, the
-    // event a wait received or null when it timed out, null for a sleep. Null unless the step completed.
+    /// <summary>
+    /// The result the function receives, as the JSON Inngest stores: the value of a run step or an invoke, the
+    /// event a wait received or null when it timed out, null for a sleep. Null unless the step completed.
+    /// </summary>
     public JsonElement? Output { get; }
 
-    // What the step failed with for good; null unless it failed.
+    /// <summary>What the step failed with for good; null unless it failed.</summary>
     public Exception? Error { get; }
 
-    // What each failed attempt threw, in order, including attempts that a retry made up for.
+    /// <summary>What each failed attempt threw, in order, including attempts that a retry made up for.</summary>
     public IReadOnlyList<Exception> Errors { get; }
 
-    // Reads the output with the app's serializer options, as the function does on replay.
+    /// <summary>Reads the output with the app's serializer options, as the function does on replay.</summary>
     public T? GetOutput<T>()
     {
         if (Output is not { } output)

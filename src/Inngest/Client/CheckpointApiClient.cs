@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Internal;
 using Microsoft.Extensions.Logging;
 

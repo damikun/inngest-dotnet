@@ -6,22 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Inngest.Testing;
 
-public enum TestRunStatus
-{
-    // The function returned; Output holds what it returned.
-    Completed,
-
-    // The function failed for good; Error holds what it failed with.
-    Failed,
-
-    // The run waits on steps the test did not mock, or that the test host does not support; see WaitingOn.
-    Waiting,
-
-    // ExecuteStepAsync reached its step and stopped the run there.
-    Stopped,
-}
-
-// A run as the test host left it: its outcome, every step it reached and the events it sent.
+/// <summary>A run as the test host left it: its outcome, every step it reached and the events it sent.</summary>
 public sealed class TestRun
 {
     private readonly JsonSerializerOptions _serializerOptions;
@@ -50,34 +35,40 @@ public sealed class TestRun
 
     public string RunId { get; }
 
-    // The function id as registered, without the app prefix.
+    /// <summary>The function id as registered, without the app prefix.</summary>
     public string FunctionId { get; }
 
     public TestRunStatus Status { get; }
 
-    // What the function returned, as the JSON Inngest stores; null unless the run completed.
+    /// <summary>What the function returned, as the JSON Inngest stores; null unless the run completed.</summary>
     public JsonElement? Output { get; }
 
-    // The exception the run failed with, as the function or the SDK threw it; null unless the run failed.
+    /// <summary>
+    /// The exception the run failed with, as the function or the SDK threw it; null unless the run failed.
+    /// </summary>
     public Exception? Error { get; }
 
-    // Every step the run reached, in the order Inngest heard of them.
+    /// <summary>Every step the run reached, in the order Inngest heard of them.</summary>
     public IReadOnlyList<TestStep> Steps { get; }
 
-    // The steps a waiting run waits on; empty unless the run is waiting.
+    /// <summary>The steps a waiting run waits on; empty unless the run is waiting.</summary>
     public IReadOnlyList<TestStep> WaitingOn { get; }
 
-    // Every event the run sent, from send steps and from the client, in the order it sent them.
+    /// <summary>Every event the run sent, from send steps and from the client, in the order it sent them.</summary>
     public IReadOnlyList<InngestEvent> SentEvents { get; }
 
-    // The run of the function's failure handler, which the host starts when the function fails for good, as
-    // Inngest does.
+    /// <summary>
+    /// The run of the function's failure handler, which the host starts when the function fails for good, as
+    /// Inngest does.
+    /// </summary>
     public TestRun? FailureHandler { get; internal set; }
 
     // The error as Inngest records it, which a failure handler receives.
     internal ReadOnlyMemory<byte> ErrorJson { get; init; }
 
-    // Reads the output with the app's serializer options, the way a function invoking this one would.
+    /// <summary>
+    /// Reads the output with the app's serializer options, the way a function invoking this one would.
+    /// </summary>
     public T? GetOutput<T>()
     {
         if (Output is not { } output)
@@ -88,7 +79,7 @@ public sealed class TestRun
         return output.Deserialize((JsonTypeInfo<T>)_serializerOptions.GetTypeInfo(typeof(T)));
     }
 
-    // Finds a step by the id the code passed, with ":<n>" for a repeated id.
+    /// <summary>Finds a step by the id the code passed, with ":&lt;n&gt;" for a repeated id.</summary>
     public TestStep GetStep(string id)
     {
         ArgumentNullException.ThrowIfNull(id);

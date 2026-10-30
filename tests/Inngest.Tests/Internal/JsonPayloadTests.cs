@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Tests.Internal;
 

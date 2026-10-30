@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Inngest;
 
-// An event as a function receives it, with its data deserialized into TData.
+/// <summary>An event as a function receives it, with its data deserialized into TData.</summary>
 public sealed record InngestEvent<TData>
 {
     public required string Name { get; init; }

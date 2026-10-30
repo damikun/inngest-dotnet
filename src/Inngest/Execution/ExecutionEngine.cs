@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.Errors;
 using Inngest.Internal;
 using Microsoft.Extensions.Logging;

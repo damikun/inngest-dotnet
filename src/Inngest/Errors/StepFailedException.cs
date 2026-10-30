@@ -3,9 +3,11 @@
 
 namespace Inngest;
 
-// Thrown at a step's call site when the step failed all of its attempts, during that run and every later replay.
-// Catch it to recover; left uncaught, the function fails without further retries. The inner exception is the
-// recorded cause of the failure, as a FunctionErrorException.
+/// <summary>
+/// Thrown at a step's call site when the step failed all of its attempts, during that run and every later replay.
+/// Catch it to recover; left uncaught, the function fails without further retries. The inner exception is the
+/// recorded cause of the failure, as a FunctionErrorException.
+/// </summary>
 public sealed class StepFailedException : Exception
 {
     public StepFailedException(string stepId, FunctionError error)
@@ -18,6 +20,8 @@ public sealed class StepFailedException : Exception
 
     public string StepId { get; }
 
-    // The original failure as Inngest recorded it, including the exception type name, stack trace and cause.
+    /// <summary>
+    /// The original failure as Inngest recorded it, including the exception type name, stack trace and cause.
+    /// </summary>
     public FunctionError Error { get; }
 }

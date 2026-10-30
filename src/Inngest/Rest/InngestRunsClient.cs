@@ -4,7 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Client;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Rest;
@@ -84,9 +84,12 @@ internal sealed class InngestRunsClient : IInngestRunsClient
         using var response = await SendAsync(HttpMethod.Get, path, action, cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            return await JsonSerializer.DeserializeAsync(body, typeInfo, cancellationToken).ConfigureAwait(false)
-                ?? throw new InngestException($"Failed to {action}: Inngest's reply is empty.");
+            var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await using (body.ConfigureAwait(false))
+            {
+                return await JsonSerializer.DeserializeAsync(body, typeInfo, cancellationToken).ConfigureAwait(false)
+                    ?? throw new InngestException($"Failed to {action}: Inngest's reply is empty.");
+            }
         }
         catch (JsonException exception)
         {

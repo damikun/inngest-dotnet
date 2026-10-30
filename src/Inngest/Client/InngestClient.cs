@@ -4,7 +4,9 @@
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Internal;
+using Inngest.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -143,8 +145,11 @@ internal sealed class InngestClient : IInngestClient
             return await RunMiddlewareAsync(services, context, url, environment, events, now, seed, cancellationToken).ConfigureAwait(false);
         }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        return await RunMiddlewareAsync(scope.ServiceProvider, context, url, environment, events, now, seed, cancellationToken).ConfigureAwait(false);
+        var scope = _scopeFactory.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
+        {
+            return await RunMiddlewareAsync(scope.ServiceProvider, context, url, environment, events, now, seed, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     // 100 ms, 200 ms, 400 ms and so on after each failed attempt, plus up to 100 ms of jitter so that clients that

@@ -3,8 +3,8 @@
 
 using System.Text.Json;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.Execution;
-using Inngest.Internal;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Steps;

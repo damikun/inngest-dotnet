@@ -1,6 +1,6 @@
 using System.Net;
 using Inngest.Client;
-using Inngest.Internal;
+using Inngest.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;

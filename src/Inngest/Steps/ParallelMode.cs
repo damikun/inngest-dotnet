@@ -3,13 +3,15 @@
 
 namespace Inngest;
 
-// When Inngest calls the function again while steps started together are still running.
+/// <summary>When Inngest calls the function again while steps started together are still running.</summary>
 public enum ParallelMode
 {
-    // Once all of them have finished, which takes the fewest calls. The default.
+    /// <summary>Once all of them have finished, which takes the fewest calls. The default.</summary>
     Wait,
 
-    // Each time one of them finishes, so that a race goes on with its first result and a branch of steps in
-    // sequence does not wait for the other branches. A step of a race is never run in the call that finds it.
+    /// <summary>
+    /// Each time one of them finishes, so that a race goes on with its first result and a branch of steps in
+    /// sequence does not wait for the other branches. A step of a race is never run in the call that finds it.
+    /// </summary>
     Race,
 }

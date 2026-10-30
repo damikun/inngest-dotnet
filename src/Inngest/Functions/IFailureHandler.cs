@@ -3,8 +3,10 @@
 
 namespace Inngest;
 
-// Implement on a function class to run code once the function has failed all of its attempts. The SDK registers
-// it as a second function, "<function id>-failure", triggered by inngest/function.failed for this function.
+/// <summary>
+/// Implement on a function class to run code once the function has failed all of its attempts. The SDK registers
+/// it as a second function, "&lt;function id&gt;-failure", triggered by inngest/function.failed for this function.
+/// </summary>
 public interface IFailureHandler
 {
     /// <summary>Runs once after the function has failed all of its attempts.</summary>

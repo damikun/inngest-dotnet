@@ -11,8 +11,10 @@ namespace Inngest;
 
 public static class InngestBuilderExtensions
 {
-    // Registers a function class configured by its [InngestFunction], trigger and flow control attributes, which are
-    // read once, here.
+    /// <summary>
+    /// Registers a function class configured by its [InngestFunction], trigger and flow control attributes, which are
+    /// read once, here.
+    /// </summary>
     public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
         this IInngestBuilder builder)
         where TFunction : InngestFunction
@@ -21,8 +23,10 @@ public static class InngestBuilderExtensions
         return builder.AddFunction<TFunction>(FunctionAttributes.Read(typeof(TFunction)));
     }
 
-    // Registers a function class with the options its attributes give, as changed by configure, for example to apply
-    // a limit read from configuration: options => options with { Concurrency = [new ConcurrencyLimit(limit)] }.
+    /// <summary>
+    /// Registers a function class with the options its attributes give, as changed by configure, for example to apply
+    /// a limit read from configuration: options =&gt; options with { Concurrency = [new ConcurrencyLimit(limit)] }.
+    /// </summary>
     public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
         this IInngestBuilder builder,
         Func<FunctionOptions, FunctionOptions> configure)
@@ -36,8 +40,10 @@ public static class InngestBuilderExtensions
         return builder.AddFunction<TFunction>(options);
     }
 
-    // Registers a class-based function with these options; attributes on the class are ignored. A new instance is
-    // resolved from the invocation's scope every time.
+    /// <summary>
+    /// Registers a class-based function with these options; attributes on the class are ignored. A new instance is
+    /// resolved from the invocation's scope every time.
+    /// </summary>
     public static IInngestBuilder AddFunction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFunction>(
         this IInngestBuilder builder,
         FunctionOptions options)
@@ -95,8 +101,10 @@ public static class InngestBuilderExtensions
         Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure = null) =>
         builder.AddFunction<JsonElement>(options, handler, onFailure);
 
-    // Middleware runs in registration order. It is scoped: one instance serves a whole invocation, including the
-    // events its steps send, so it can keep per-run state.
+    /// <summary>
+    /// Middleware runs in registration order. It is scoped: one instance serves a whole invocation, including the
+    /// events its steps send, so it can keep per-run state.
+    /// </summary>
     public static IInngestBuilder AddMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TMiddleware>(
         this IInngestBuilder builder)
         where TMiddleware : InngestMiddleware

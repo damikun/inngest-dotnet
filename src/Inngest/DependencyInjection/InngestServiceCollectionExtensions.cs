@@ -3,9 +3,9 @@
 
 using Inngest;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.DependencyInjection;
 using Inngest.Execution;
-using Inngest.Internal;
 using Inngest.Registration;
 using Inngest.Rest;
 using Inngest.Serving;
@@ -61,9 +61,11 @@ public static class InngestServiceCollectionExtensions
         return new InngestBuilder(services);
     }
 
-    // Takes the settings from a section such as builder.Configuration.GetSection("Inngest"). It is the lowest layer,
-    // below options set in code and the INNGEST_* variables, so the order of the calls that configure the options
-    // never matters.
+    /// <summary>
+    /// Takes the settings from a section such as builder.Configuration.GetSection("Inngest"). It is the lowest layer,
+    /// below options set in code and the INNGEST_* variables, so the order of the calls that configure the options
+    /// never matters.
+    /// </summary>
     public static IInngestBuilder AddInngest(this IServiceCollection services, IConfiguration configuration, Action<InngestOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);

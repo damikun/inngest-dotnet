@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.Internal;
 
 namespace Inngest.Execution;

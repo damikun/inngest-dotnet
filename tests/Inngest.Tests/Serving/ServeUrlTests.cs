@@ -1,4 +1,4 @@
-using Inngest.Serving;
+using Inngest.Registration;
 
 namespace Inngest.Tests.Serving;
 

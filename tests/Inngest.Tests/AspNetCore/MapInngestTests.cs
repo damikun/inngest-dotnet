@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Inngest.Client;
+using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Internal;
 using Inngest.Registration;

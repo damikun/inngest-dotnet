@@ -52,7 +52,7 @@ public static class StepToolsExtensions
     public static Task<SendEventsResult> SendEventAsync(this IStepTools step, string id, InngestEvent @event) =>
         step.SendEventAsync(id, [@event]);
 
-    // Waits for an event of type T. Match and If work as on WaitForEventOptions.
+    /// <summary>Waits for an event of type T. Match and If work as on WaitForEventOptions.</summary>
     public static Task<InngestEvent<T>?> WaitForEventAsync<T>(
         this IStepTools step,
         string id,

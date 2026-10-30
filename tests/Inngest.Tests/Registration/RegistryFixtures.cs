@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Functions;
 using Inngest.Internal;
 using Inngest.Registration;

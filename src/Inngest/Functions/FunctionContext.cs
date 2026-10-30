@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Inngest;
 
-// The run-level part of a function context, which middleware sees without knowing the event type.
+/// <summary>The run-level part of a function context, which middleware sees without knowing the event type.</summary>
 public abstract class FunctionContext
 {
     private readonly JsonElement _eventSource;
@@ -17,41 +17,51 @@ public abstract class FunctionContext
     {
     }
 
-    // The function id as registered, without the app prefix.
+    /// <summary>The function id as registered, without the app prefix.</summary>
     public required string FunctionId { get; init; }
 
     public required string RunId { get; init; }
 
-    // Zero for the first attempt of the current step or function, incremented on every retry.
+    /// <summary>Zero for the first attempt of the current step or function, incremented on every retry.</summary>
     public required int Attempt { get; init; }
 
     public int? MaxAttempts { get; init; }
 
     public required IStepTools Step { get; init; }
 
-    // Suppresses messages while the run replays memoized steps, so each message is written once per run.
+    /// <summary>
+    /// Suppresses messages while the run replays memoized steps, so each message is written once per run.
+    /// </summary>
     public required ILogger Logger { get; init; }
 
-    // Scoped to this invocation.
+    /// <summary>Scoped to this invocation.</summary>
     public required IServiceProvider Services { get; init; }
 
-    // Canceled when Inngest abandons the call or the app shuts down. Middleware uses it; functions also get it as a
-    // parameter.
+    /// <summary>
+    /// Canceled when Inngest abandons the call or the app shuts down. Middleware uses it; functions also get it as a
+    /// parameter.
+    /// </summary>
     public CancellationToken CancellationToken { get; init; }
 
-    // Identifies this one call from Inngest; every call of a run has its own. Null when Inngest sent none.
+    /// <summary>
+    /// Identifies this one call from Inngest; every call of a run has its own. Null when Inngest sent none.
+    /// </summary>
     public string? RequestId { get; init; }
 
-    // The queue job this call belongs to. Null when Inngest sent none.
+    /// <summary>The queue job this call belongs to. Null when Inngest sent none.</summary>
     public string? JobId { get; init; }
 
-    // The triggering event, or the first event of a batch, for code that does not know the event type.
+    /// <summary>
+    /// The triggering event, or the first event of a batch, for code that does not know the event type.
+    /// </summary>
     public abstract string EventName { get; }
 
     public abstract string? EventId { get; }
 
-    // The triggering event as Inngest sent it. It is copied out of the request on first use, so the value stays
-    // valid after the call; read it during the call. Undefined when the context was not created by the engine.
+    /// <summary>
+    /// The triggering event as Inngest sent it. It is copied out of the request on first use, so the value stays
+    /// valid after the call; read it during the call. Undefined when the context was not created by the engine.
+    /// </summary>
     public JsonElement RawEvent
     {
         get
@@ -86,7 +96,7 @@ public sealed class FunctionContext<TEventData> : FunctionContext
 {
     public required InngestEvent<TEventData> Event { get; init; }
 
-    // All events of a batch when the function uses BatchEvents, otherwise just Event.
+    /// <summary>All events of a batch when the function uses BatchEvents, otherwise just Event.</summary>
     public required IReadOnlyList<InngestEvent<TEventData>> Events { get; init; }
 
     public override string EventName => Event.Name;

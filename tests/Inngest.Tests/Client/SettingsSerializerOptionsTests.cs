@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using Inngest.Internal;
+using Inngest.Configuration;
 
 namespace Inngest.Tests.Client;
 

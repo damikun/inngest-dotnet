@@ -4,9 +4,9 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Functions;
-using Inngest.Internal;
 using Inngest.Registration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,10 +14,12 @@ using Microsoft.Extensions.Options;
 
 namespace Inngest.Testing;
 
-// Runs the app's Inngest functions in memory on the real execution engine, playing Inngest's part: it calls the
-// function again after every step, runs planned steps, retries failures, answers sleeps, waits and invokes from
-// mocks and keeps the events the app sends. Nothing leaves the process, and INNGEST_* environment variables are
-// ignored. Runs are independent and may run concurrently.
+/// <summary>
+/// Runs the app's Inngest functions in memory on the real execution engine, playing Inngest's part: it calls the
+/// function again after every step, runs planned steps, retries failures, answers sleeps, waits and invokes from
+/// mocks and keeps the events the app sends. Nothing leaves the process, and INNGEST_* environment variables are
+/// ignored. Runs are independent and may run concurrently.
+/// </summary>
 public sealed class InngestTestHost : IAsyncDisposable, IDisposable
 {
     private const string FunctionFailedEvent = "inngest/function.failed";
@@ -29,8 +31,10 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     private readonly InngestSettings _settings;
     private readonly ConcurrentQueue<InngestEvent> _sent = new();
 
-    // Takes the app's registrations: AddInngest, the functions and middleware, and the services they use. The
-    // collection is copied, so a test can reuse it.
+    /// <summary>
+    /// Takes the app's registrations: AddInngest, the functions and middleware, and the services they use. The
+    /// collection is copied, so a test can reuse it.
+    /// </summary>
     public InngestTestHost(IServiceCollection services)
         : this(services, static engine => engine)
     {
@@ -87,10 +91,10 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         }
     }
 
-    // The app's services, as functions resolve them.
+    /// <summary>The app's services, as functions resolve them.</summary>
     public IServiceProvider Services => _provider;
 
-    // Every event sent through the app's Inngest client since the host started, from runs or not.
+    /// <summary>Every event sent through the app's Inngest client since the host started, from runs or not.</summary>
     public IReadOnlyList<InngestEvent> SentEvents => [.. _sent];
 
     internal TimeProvider Time { get; }
@@ -99,8 +103,10 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
 
     internal JsonSerializerOptions SerializerOptions => _settings.SerializerOptions;
 
-    // Runs the function registered under functionId with the event until it completes, fails for good, or waits
-    // on a step the test did not mock.
+    /// <summary>
+    /// Runs the function registered under functionId with the event until it completes, fails for good, or waits
+    /// on a step the test did not mock.
+    /// </summary>
     public Task<TestRun> RunAsync(string functionId, InngestEvent @event, CancellationToken cancellationToken = default) =>
         RunAsync(functionId, @event, NoMocks, cancellationToken);
 
@@ -110,15 +116,17 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         return StartAsync(functionId, [@event], mocks, stopAt: null, cancellationToken);
     }
 
-    // Runs a function that takes batches with all of the events at once.
+    /// <summary>Runs a function that takes batches with all of the events at once.</summary>
     public Task<TestRun> RunAsync(string functionId, IReadOnlyList<InngestEvent> events, CancellationToken cancellationToken = default) =>
         RunAsync(functionId, events, NoMocks, cancellationToken);
 
     public Task<TestRun> RunAsync(string functionId, IReadOnlyList<InngestEvent> events, StepMocks mocks, CancellationToken cancellationToken = default) =>
         StartAsync(functionId, events, mocks, stopAt: null, cancellationToken);
 
-    // Runs the function until step stepId has run for good, or has been reached when Inngest carries it out, such
-    // as a sleep or a wait. The run then ends as Stopped, unless it completed, failed or waited before that.
+    /// <summary>
+    /// Runs the function until step stepId has run for good, or has been reached when Inngest carries it out, such
+    /// as a sleep or a wait. The run then ends as Stopped, unless it completed, failed or waited before that.
+    /// </summary>
     public Task<TestRun> ExecuteStepAsync(string functionId, string stepId, InngestEvent @event, CancellationToken cancellationToken = default) =>
         ExecuteStepAsync(functionId, stepId, @event, NoMocks, cancellationToken);
 
@@ -134,8 +142,10 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         return StartAsync(functionId, [@event], mocks, stepId, cancellationToken);
     }
 
-    // The overloads above, for the function registered as TFunction, so a test of an attribute class does not repeat
-    // the id the attribute gives it.
+    /// <summary>
+    /// Runs the function registered as TFunction, as the overloads that take an id do, so a test of an attribute class
+    /// does not repeat the id the attribute gives it.
+    /// </summary>
     public Task<TestRun> RunAsync<TFunction>(InngestEvent @event, CancellationToken cancellationToken = default)
         where TFunction : InngestFunction =>
         RunAsync(FunctionIdOf(typeof(TFunction)), @event, cancellationToken);
