@@ -4,3 +4,7 @@ dotnet_diagnostic.IDE0073.severity = warning
 
 # Library code never needs the caller's synchronization context, so every await says so.
 dotnet_diagnostic.CA2007.severity = warning
+
+# The serve health check is not ported from inngest-js, so its files carry the license line only.
+[Inngest.AspNetCore/InngestHealth*.cs]
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
