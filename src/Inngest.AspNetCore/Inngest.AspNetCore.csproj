@@ -10,6 +10,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Inngest\Inngest.csproj" />
+    <!-- MapInngestWebhook is the ASP.NET Core host of the verifiers and the receiver, which know nothing of ASP.NET Core. -->
+    <ProjectReference Include="..\Inngest.Webhooks\Inngest.Webhooks.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Inngest.AzureFunctions" />

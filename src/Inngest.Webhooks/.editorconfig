@@ -1,0 +1,3 @@
+[*.cs]
+# Nothing in this package is ported from inngest-js, so the files say only that they are licensed.
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.

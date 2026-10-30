@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Webhooks</RootNamespace>
+    <Description>Webhooks for the Inngest .NET SDK: verifies the signatures of Standard Webhooks (Svix, Clerk, Resend), Stripe, GitHub, Shopify and other HMAC-signed deliveries without a provider SDK, and turns each into an event whose id is the delivery id, so that a redelivery is not run twice.</Description>
+    <PackageTags>$(PackageTags);webhooks;stripe;github;shopify;hmac;standard-webhooks</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.AspNetCore" />
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

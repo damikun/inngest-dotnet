@@ -1,0 +1,3 @@
+# The webhook endpoint is new to this SDK and not ported from inngest-js, so these files say only that they are licensed.
+[{HttpWebhookRequest,WebhookEndpoint,InngestWebhookEndpointRouteBuilderExtensions}.cs]
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
