@@ -202,6 +202,86 @@ public sealed class JsonSerializableAnalyzerTests
     }
 
     [Fact]
+    public async Task Reports_the_types_that_the_other_typed_steps_save_and_read_back()
+    {
+        const string source = Types + """
+                public sealed record Paid(string OrderId) : IInngestEventData
+                {
+                    public static string EventName => "shop/order.paid";
+                }
+
+                public sealed record Approval(string Id);
+
+                public sealed record Score(int Value);
+
+                public sealed record Prompt(string Text);
+
+                public sealed record Reply(string Text);
+
+                [InngestFunction("scorer")]
+                public sealed class Scorer : InngestFunction<Order, {|#0:Score|}>
+                {
+                    public override Task<Score> ExecuteAsync(FunctionContext<Order> context, CancellationToken cancellationToken) =>
+                        Task.FromResult(new Score(1));
+                }
+
+                [InngestFunction("steps")]
+                public sealed class Steps : InngestFunction<Order>
+                {
+                    public override async Task<object?> ExecuteAsync(FunctionContext<Order> context, CancellationToken cancellationToken)
+                    {
+                        await context.Step.{|#1:WaitForEventAsync|}<Paid>("paid", TimeSpan.FromMinutes(5));
+                        await context.Step.{|#2:WaitForSignalAsync|}<Approval>("approval", new WaitForSignalOptions("approval", TimeSpan.FromMinutes(5)));
+                        await context.Step.{|#3:InvokeAsync|}<Score>("score", new InvokeOptions("shop-scorer"));
+                        await context.Step.{|#4:InvokeAsync|}<Scorer, Score>("typed");
+                        await context.Step.{|#5:InferAsync|}<Reply>("infer", new InferOptions(AIFormat.OpenAIChat, new Uri("https://api.example.com"), new object()));
+                        await context.Step.{|#6:AIWrapAsync|}<Prompt, Reply>("wrap", new Prompt("hi"), (prompt, token) => Task.FromResult(new Reply(prompt.Text)));
+
+                        // The untyped forms read a JsonElement.
+                        await context.Step.WaitForEventAsync("untyped", new WaitForEventOptions("shop/order.paid", TimeSpan.FromMinutes(5)));
+                        await context.Step.InferAsync("untyped-infer", new InferOptions(AIFormat.OpenAIChat, new Uri("https://api.example.com"), new object()));
+                        return null;
+                    }
+                }
+            }
+            """;
+
+        await Verify(
+            source,
+            Sources.PublishAot,
+            Missing(0, "Shop.Score", "the result of function 'Shop.Scorer'"),
+            Missing(1, "Shop.Paid", "the data of an event that a step waits for"),
+            Missing(2, "Shop.Approval", "the data of a signal that a step waits for"),
+            Missing(3, "Shop.Score", "the result of an invoked function"),
+            Missing(4, "Shop.Score", "the result of an invoked function"),
+            Missing(5, "Shop.Reply", "the response of an inference step"),
+            Missing(6, "Shop.Prompt", "the input of a step"),
+            Missing(6, "Shop.Reply", "the result of a step"));
+    }
+
+    [Fact]
+    public async Task The_other_typed_steps_are_fine_with_listed_types()
+    {
+        const string source = Types + """
+                [InngestFunction("steps")]
+                public sealed class Steps : InngestFunction<Order>
+                {
+                    public override async Task<object?> ExecuteAsync(FunctionContext<Order> context, CancellationToken cancellationToken)
+                    {
+                        await context.Step.WaitForSignalAsync<Order>("approval", new WaitForSignalOptions("approval", TimeSpan.FromMinutes(5)));
+                        await context.Step.InvokeAsync<Order>("order", new InvokeOptions("shop-order"));
+                        await context.Step.InferAsync<Line>("infer", new InferOptions(AIFormat.OpenAIChat, new Uri("https://api.example.com"), new object()));
+                        await context.Step.AIWrapAsync<Line, Order>("wrap", context.Event.Data.Line, (line, token) => Task.FromResult(context.Event.Data));
+                        return null;
+                    }
+                }
+            }
+            """;
+
+        await Verify(source, Sources.PublishAot);
+    }
+
+    [Fact]
     public async Task Reports_the_event_data_of_a_function_registered_with_a_delegate()
     {
         const string source = Types + """

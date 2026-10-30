@@ -419,7 +419,9 @@ app does. `buildTransitive` and not `build`, because an app mostly reaches `Inng
 - **JSON analyzer.** It registers nothing unless `PublishAot`, `PublishTrimmed` or
   `JsonSerializerIsReflectionEnabledByDefault` (read through `CompilerVisibleProperty`) say that reflection-based JSON is
   off; the SDK only flips the switch while publishing, so the properties it flips it from are read. It checks the
-  type arguments of the function base class, `AddFunction<TEventData>(options, handler)` and `RunAsync<T>`. A type is
+  type arguments of the function base class, `AddFunction<TEventData>(options, handler)` and the typed steps (`RunAsync<T>`,
+  `AIWrapAsync`, `WaitForEventAsync<T>`, `WaitForSignalAsync<T>`, `InvokeAsync` and `InferAsync<T>`, which read their type
+  back through the app's serializer options). A type is
   covered when a `JsonSerializerContext` of the project, or of a referenced assembly that uses System.Text.Json and is
   not part of the framework, lists it, or when a listed type reaches it through its members, constructor parameters,
   type arguments or `[JsonDerivedType]`, because the generator of System.Text.Json writes metadata for that whole graph.
@@ -473,7 +475,7 @@ per call.
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
 | Registering function classes without listing them | Supported (.NET only): the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
-| Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and `RunAsync<T>`; other steps and events sent by the app are not checked |
+| Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and the typed steps; values whose type is known only at run time, such as the data of an invoke or an event the app sends, are not checked |
 
 
 ## Spec deviations

@@ -408,7 +408,7 @@ The diagnostics:
 | [`INNGEST004`](/inngest-dotnet/guides/source-generator/#inngest004) | Warning | A private, protected or file-local class, or one inside such a type, has `[InngestFunction]`; it is not registered. |
 | [`INNGEST005`](/inngest-dotnet/guides/source-generator/#inngest005) | Warning | A function class has no public constructor; it is not registered. |
 | [`INNGEST006`](/inngest-dotnet/guides/source-generator/#inngest006) | Warning | `InngestFunctionsMethodName` or `InngestFunctionsAccessibility` has a value the generator cannot use. |
-| [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or the result of a `RunAsync<T>` step, is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
+| [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or a type a typed step saves (`RunAsync<T>`, `WaitForEventAsync<T>`, `InvokeAsync` and the others), is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
 | [`INNGEST011`](/inngest-dotnet/guides/source-generator/#inngest011) | Warning | The same type is anonymous, which no context can list. |
 
 ## Test host

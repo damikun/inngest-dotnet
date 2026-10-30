@@ -84,10 +84,41 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        // RunAsync<T> saves what the handler returns with the run, and reads it back when the run continues.
-        if (InngestTypes.IsStepTools(method.ContainingType) && method.Name == "RunAsync" && method.TypeArguments.Length == 1)
+        if (InngestTypes.IsStepTools(method.ContainingType))
         {
-            Check(method.TypeArguments[0], NameLocation(invocation), "the result of a step", coverage, context.ReportDiagnostic);
+            CheckStep(method, NameLocation(invocation), coverage, context.ReportDiagnostic);
+        }
+    }
+
+    // A step saves what it returns with the run, and reads it back when the run continues, through the serializer options
+    // of the app, so the type argument that names it must be in the context: RunAsync<T> and AIWrapAsync, the data
+    // WaitForEventAsync and WaitForSignalAsync wait for, the result of InvokeAsync and the response of InferAsync. The data
+    // that InvokeAsync and SendEventAsync send are values of whatever type the code gives them, and are left to the app.
+    private static void CheckStep(IMethodSymbol method, Location location, Lazy<JsonCoverage> coverage, Action<Diagnostic> report)
+    {
+        var arguments = method.TypeArguments;
+        switch (method.Name)
+        {
+            case "RunAsync" when arguments.Length == 1:
+                Check(arguments[0], location, "the result of a step", coverage, report);
+                break;
+            case "AIWrapAsync" when arguments.Length == 2:
+                Check(arguments[0], location, "the input of a step", coverage, report);
+                Check(arguments[1], location, "the result of a step", coverage, report);
+                break;
+            case "WaitForEventAsync" when arguments.Length == 1:
+                Check(arguments[0], location, "the data of an event that a step waits for", coverage, report);
+                break;
+            case "WaitForSignalAsync" when arguments.Length == 1:
+                Check(arguments[0], location, "the data of a signal that a step waits for", coverage, report);
+                break;
+            case "InvokeAsync" when arguments.Length is 1 or 2:
+                // InvokeAsync<TResult> and InvokeAsync<TFunction, TResult>.
+                Check(arguments[arguments.Length - 1], location, "the result of an invoked function", coverage, report);
+                break;
+            case "InferAsync" when arguments.Length == 1:
+                Check(arguments[0], location, "the response of an inference step", coverage, report);
+                break;
         }
     }
 

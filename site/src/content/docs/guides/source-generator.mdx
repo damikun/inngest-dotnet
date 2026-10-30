@@ -167,7 +167,9 @@ It looks at:
 
 - the event data and the result type of every function class, that is, the `TEventData` and `TResult` of its base class;
 - the event data type of a function registered with `AddFunction<TEventData>(options, handler)`;
-- the result type of every `RunAsync<T>` step.
+- the type that a step saves with the run and reads back: the `T` of `RunAsync<T>`, the input and result of
+  `AIWrapAsync`, the data that `WaitForEventAsync<T>` and `WaitForSignalAsync<T>` wait for, the result of
+  `InvokeAsync` and the response of `InferAsync<T>`.
 
 A type counts as listed when a context lists it with `[JsonSerializable]`, or when a type that a context lists has it
 as a property, a field, a constructor parameter, a type argument or a derived type, because the generator of
@@ -216,9 +218,9 @@ your own file instead.
 
 ### What the analyzer does not check
 
-- Values of a type that is only known at run time, such as an `object` that holds a record.
-- Events your code sends, and the types of `WaitForEventAsync`, `InvokeAsync`, `InferAsync` and the other steps. List
-  those yourself, as the [Native AOT guide](/inngest-dotnet/guides/native-aot/#which-types-to-list) says.
+- Values whose type is only known at run time, such as an `object` that holds a record. That includes the data that
+  `InvokeAsync` sends, the events your code sends and the body of an `InferAsync` request. List those types yourself, as
+  the [Native AOT guide](/inngest-dotnet/guides/native-aot/#which-types-to-list) says.
 - Contexts that are built in code, and options whose resolver chain does not contain the context. Test the paths that
   matter after you publish.
 
