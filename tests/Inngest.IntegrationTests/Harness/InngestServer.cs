@@ -1,4 +1,5 @@
 using System.Globalization;
+using Docker.DotNet.Models;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 
@@ -68,6 +69,13 @@ public sealed class InngestServer : IAsyncDisposable
             // The server is up about 0.25 s after start; polling once a second would add most of a second.
             wait => wait.WithInterval(TimeSpan.FromMilliseconds(100)).WithTimeout(TimeSpan.FromSeconds(60)));
 
+        // The server binds its connect gRPC ports and the gateway port only after it has opened connections, and the
+        // kernel may give one of those connections such a port as its source port; the start then fails with "address
+        // already in use". The kernel never gives out a reserved port.
+        var reservedPorts = gatewayPort is { } gateway
+            ? $"50052-50053,{gateway.ToString(CultureInfo.InvariantCulture)}"
+            : "50052-50053";
+
         var builder = new ContainerBuilder(Image)
             .WithName($"inngest-itests-{Guid.NewGuid():N}")
             .WithLabel(Label, "true")
@@ -75,7 +83,13 @@ public sealed class InngestServer : IAsyncDisposable
             .WithPortBinding(hostPort, ApiPort)
             // Docker Desktop resolves host.docker.internal on its own; Linux needs it mapped to the host gateway.
             .WithExtraHost("host.docker.internal", "host-gateway")
-            .WithEnvironment("DO_NOT_TRACK", "1");
+            .WithEnvironment("DO_NOT_TRACK", "1")
+            .WithCreateParameterModifier(parameters =>
+            {
+                var hostConfig = parameters.HostConfig ??= new HostConfig();
+                hostConfig.Sysctls ??= new Dictionary<string, string>();
+                hostConfig.Sysctls["net.ipv4.ip_local_reserved_ports"] = reservedPorts;
+            });
 
         if (gatewayPort is { } port)
         {
