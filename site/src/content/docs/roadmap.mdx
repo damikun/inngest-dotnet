@@ -7,6 +7,26 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
 under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest) as a preview.
 
+## New in 0.1.0-preview.3
+
+- **Fixes from a code review.** A step that awaits a task the function started before it no longer hangs the call,
+  and a task the function started, such as one a singleton caches, completes even after the call has answered.
+  Connect keeps flushing replies over HTTP whatever the HTTP client throws, and no longer gives up a lease Inngest
+  has just renewed. Deeply nested step results read back, and the endpoint gets past an app's fallback
+  authorization policy.
+- **Safer defaults.** The event key stays out of the HttpClient logs, an address without a scheme gets `https`
+  outside a private network, and an unsigned sync that takes its URL from the request logs a warning.
+- **Every configuration problem at once.** The SDK checks every function at startup and lists all problems, each
+  naming its function. It also refuses duplicate triggers, as Inngest does, and accepts a concurrency limit of 0,
+  which means no limit.
+- **Attributes of your own.** The trigger and flow control attributes derive from `FunctionOptionsAttribute`, so an
+  app can write an attribute that bundles options several functions share.
+- **Every step type in telemetry**, with names for signal, fetch and AI steps too.
+- **A test host closer to Inngest.** A function's own middleware runs around mocked steps and recorded sends, the
+  ids of one send sort in send order, and calls carry a job id.
+- **Checked packages.** Each package is validated against the previous release, so a breaking API change fails the
+  build, and the packages depend on exactly the Inngest of their own version.
+
 ## New in 0.1.0-preview.2
 
 - **Typed events.** An event's data record implements `IInngestEventData` and carries the event's name, so sends,

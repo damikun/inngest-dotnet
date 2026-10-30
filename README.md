@@ -175,7 +175,7 @@ Each package targets `net8.0` and `net10.0`.
    ```
 
    Or reference it in your project file. `*-*` restores the newest version, previews included; put a version
-   such as `0.1.0-preview.2` there instead to pin it:
+   such as `0.1.0-preview.3` there instead to pin it:
 
    ```xml
    <ItemGroup>
