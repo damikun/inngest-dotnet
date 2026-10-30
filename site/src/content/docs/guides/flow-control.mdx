@@ -116,7 +116,7 @@ Concurrency =
 
 Limits how many steps of the function execute at the same time. Runs over the limit wait in a queue and start in
 order. A function can have up to two limits; a step starts when it fits both. Concurrency counts executing
-steps, not runs: a run that sleeps or waits for an event holds no slot.
+steps, not runs: a run that sleeps or waits for an event holds no slot. A limit of 0 means no limit, as in Inngest.
 
 `Scope` widens a keyed limit beyond the function. `ConcurrencyScope.Environment` shares it with every function in
 the environment that uses the same key, and `ConcurrencyScope.Account` with every environment of the account.
@@ -229,7 +229,8 @@ var batch = context.Events.Select(e => e.Data).ToList();
 await context.Step.RunAsync("write-rows", ct => rows.WriteAsync(batch, ct));
 ```
 
-`MaxSize` must be at least 2 and the timeout between one and 60 seconds. Inngest does not allow batching together
+`MaxSize` must be at least 2 and the timeout at least one second; how long it can be depends on your Inngest plan,
+which the SDK leaves to Inngest. Inngest does not allow batching together
 with cancellation, debounce, singletons or priority, and the SDK rejects those combinations at startup. See
 [batching](https://www.inngest.com/docs/durable-execution/flow-control/batching).
 

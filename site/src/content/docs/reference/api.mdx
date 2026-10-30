@@ -57,7 +57,7 @@ The flow control records and their constructor arguments and properties:
 
 | Record | Constructor | Properties |
 |---|---|---|
-| `ConcurrencyLimit` | `(int Limit)` | `Key`, `Scope` (`ConcurrencyScope.Function`, `Environment`, `Account`) |
+| `ConcurrencyLimit` | `(int Limit)`; 0 means no limit | `Key`, `Scope` (`ConcurrencyScope.Function`, `Environment`, `Account`) |
 | `Throttle` | `(int Limit, TimeSpan Period)` | `Burst`, `Key` |
 | `RateLimit` | `(int Limit, TimeSpan Period)` | `Key` |
 | `Debounce` | `(TimeSpan Period)` | `Key`, `Timeout` |
@@ -280,7 +280,7 @@ Package `Inngest.Testing`, namespace `Inngest.Testing`. See [Testing functions](
 | `ExecuteStepAsync(string functionId, string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | Runs the function until the step has run, or has been reached when Inngest carries it out. Also without `mocks`. |
 | `ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | The same for the function registered as `TFunction`. Also without `mocks`. |
 | `SentEvents` | Every event sent through the app's client since the host was created. |
-| `Services` | The app's services, as functions resolve them. Disposing the host, which is `IAsyncDisposable`, disposes them. |
+| `Services` | The app's services, as functions resolve them. Disposing the host, which is `IAsyncDisposable` and `IDisposable`, disposes them. |
 
 **`StepMocks`** answers steps by id, and every method returns a new set: `Run<T>(id, T result)`,
 `Run<T>(id, Func<int, T> handler)`, `RunThrows(id, exception)`, `Sleep(id)`, `AllSleeps()`,

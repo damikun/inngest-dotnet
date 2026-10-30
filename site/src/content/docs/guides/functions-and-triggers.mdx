@@ -257,7 +257,9 @@ Triggers =
 </TabItem>
 </Tabs>
 
-A function can have up to ten triggers and runs for any of them. Event names are free text, but Inngest suggests a
+A function can have up to ten triggers and runs for any of them. Inngest refuses a sync with the same trigger twice,
+or the same cron schedule twice even with different jitter, so the SDK refuses both at startup. Event names are free
+text, but Inngest suggests a
 `domain/noun.verb` style in the past tense, such as `billing/invoice.paid`. Names that start with `inngest/` belong
 to Inngest; the SDK refuses to send them. The
 [event and trigger concepts](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/event-and-trigger-concepts)

@@ -22,7 +22,7 @@ await context.Step.SleepAsync("wait-three-days", TimeSpan.FromDays(3));
 await context.Step.RunAsync("send-check-in", ct => email.SendAsync(context.Event.Data.Email, "How is it going?", ct));
 ```
 
-Durations are sent to Inngest in whole seconds; anything shorter than a second becomes one second. A single sleep
+Durations are sent to Inngest in whole seconds, rounded down; one under a second, other than zero, becomes one second. A single sleep
 can last up to a year, within your plan's maximum run length; see Inngest's
 [limits](https://www.inngest.com/docs/durable-execution/limits) and
 [sleep](https://www.inngest.com/docs/durable-execution/primitives/step-sleep) pages.

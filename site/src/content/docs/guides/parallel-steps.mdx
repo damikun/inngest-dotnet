@@ -94,7 +94,7 @@ for the losing step to finish, unless they run in race mode too.
 - **Unawaited steps still run.** A step that is started and never awaited is reported to Inngest like the others.
   If the function returns while such steps are new, the SDK reports the steps instead of the output and returns the
   output on a later call.
-- **Inngest's limits.** A run can have up to 1,000 steps, parallel ones included. See the
+- **Inngest's limits.** A run can have up to 1,000 steps by default, parallel ones included. See the
   [limits](https://www.inngest.com/docs/durable-execution/limits) page.
 
 The Inngest docs describe [parallel steps](https://www.inngest.com/docs/durable-execution/primitives/group-parallel)

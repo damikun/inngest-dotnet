@@ -46,6 +46,11 @@ state.
 
 Middleware runs in registration order. For wrapping hooks, the first one registered is the outermost.
 
+Middleware for one function goes in its `FunctionOptions.Middleware` instead. It runs inside the app's middleware,
+for the function's failure handler too. `FunctionMiddleware.Of<TMiddleware>()` resolves the class from the call's
+scope, and registers it as scoped unless the app registered it; `FunctionMiddleware.Of(factory)` calls a factory
+with the call's scope on every call.
+
 ## Observing hooks
 
 These run at points of a call and return nothing. An exception thrown in one is logged and the other middleware
@@ -75,7 +80,7 @@ These receive a `next` delegate and decide what happens around it. Exceptions th
 | `WrapSendEventAsync(context, events, next, cancellationToken)` | Every event send, from `IInngestClient` or a step. Pass changed events to `next` to change what is sent. `context` is `null` outside a run. |
 
 `StepInfo` describes the step: `Id` as the code wrote it, with the `:n` suffix of a repeated id; `HashedId`, which is
-what Inngest stores; `Type`; and `Memoized`.
+what Inngest stores; `Type`; `Memoized`; and `Name`, the display name the code gave the step, if any.
 
 ### When next never returns
 

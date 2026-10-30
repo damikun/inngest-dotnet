@@ -70,8 +70,8 @@ docker run -p 8080:8080 -e INNGEST_SIGNING_KEY=signkey-prod-... -e INNGEST_EVENT
 
 ## Health checks
 
-Point health checks at an endpoint of their own, not at `/api/inngest`: in cloud mode the SDK refuses unsigned
-requests there and logs a warning for each one.
+Point health checks at an endpoint of their own, not at `/api/inngest`: in cloud mode the SDK answers unsigned
+requests there with `401 Unauthorized`, so a probe of it never passes.
 
 {/* check: statements; WebApplication app */}
 ```csharp

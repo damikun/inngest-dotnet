@@ -159,7 +159,7 @@ The handler is a function of its own. The SDK registers it as `<function id>-fai
 |---|---|
 | `FunctionId` | The failed function as Inngest knows it, `<app id>-<function id>`. |
 | `RunId` | The failed run. `context.RunId` is the failure handler's own run. |
-| `Error` | The error the run failed with: `Name`, `Message` and `Stack`. |
+| `Error` | The error the run failed with: `Name`, `Message`, `Stack` and `Cause`, the error that caused it. |
 | `Event` | The event that triggered the failed run, as a `JsonElement`. |
 
 A delegate function takes its failure handler as `onFailure`:
