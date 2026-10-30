@@ -1,7 +1,7 @@
 using System.Net;
 using System.Runtime.InteropServices;
 using Inngest.Tool;
-using Inngest.Tool.Release;
+using Inngest.Tool.Download;
 
 namespace Inngest.Tests.Tool;
 

@@ -1,6 +1,6 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 
-using Inngest.Tool.Release;
+using Inngest.Tool.Download;
 
 namespace Inngest.Tool;
 
