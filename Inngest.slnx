@@ -15,6 +15,8 @@
     <Project Path="src/Inngest.OpenTelemetry/Inngest.OpenTelemetry.csproj" />
     <Project Path="src/Inngest.Sentry/Inngest.Sentry.csproj" />
     <Project Path="src/Inngest.Templates/Inngest.Templates.csproj" />
+    <Project Path="src/Inngest.SourceGeneration/Inngest.SourceGeneration.csproj" />
+    <Project Path="src/Inngest.SourceGeneration.CodeFixes/Inngest.SourceGeneration.CodeFixes.csproj" />
     <Project Path="src/Inngest/Inngest.csproj" />
     <Project Path="src/Inngest.Testing/Inngest.Testing.csproj" />
     <Project Path="src/Inngest.Testing.Containers/Inngest.Testing.Containers.csproj" />
@@ -25,6 +27,7 @@
     <Project Path="tests/Inngest.Extensions.AI.Tests/Inngest.Extensions.AI.Tests.csproj" />
     <Project Path="tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj" />
     <Project Path="tests/Inngest.Templates.Tests/Inngest.Templates.Tests.csproj" />
+    <Project Path="tests/Inngest.SourceGeneration.Tests/Inngest.SourceGeneration.Tests.csproj" />
     <Project Path="tests/Inngest.Tests/Inngest.Tests.csproj" />
   </Folder>
 </Solution>
