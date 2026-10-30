@@ -143,6 +143,48 @@ public sealed class WrapHookTests
         Counting.Seen.ShouldBe([2]);
     }
 
+    [Fact]
+    public async Task A_wrapper_that_finishes_after_the_call_answered_leaves_the_engine_alone()
+    {
+        var decrypted = new TaskCompletionSource();
+        var returned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var switches = 0;
+
+        // Counts the times a thread takes up the async flow of the call. Whatever the engine queues for the step after
+        // the call carries that flow, so the count settles once the engine stops queuing.
+        var marker = new AsyncLocal<bool>(change =>
+        {
+            if (change.ThreadContextChanged)
+            {
+                Interlocked.Increment(ref switches);
+            }
+        });
+        using var host = new EngineHost(services => services.AddSingleton<InngestMiddleware>(new DecryptsLate(decrypted.Task, returned)));
+        var function = TestFunction.Define(async context =>
+        {
+            await Task.WhenAll(context.Step.RunAsync("a", () => "A"), context.Step.SleepAsync("b", TimeSpan.FromHours(1)));
+            return null;
+        });
+
+        // The memoized step's wrapper is still decrypting when the call answers with the sleep.
+        var result = await CallMarkedAsync();
+        decrypted.SetResult();
+        await returned.Task;
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        var settled = Volatile.Read(ref switches);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+
+        result.OpCodes.ShouldBe(["Sleep"]);
+        Volatile.Read(ref switches).ShouldBe(settled);
+
+        // The marker is set in this method's flow only, so the test's own awaits are not counted.
+        async Task<CallResult> CallMarkedAsync()
+        {
+            marker.Value = true;
+            return await host.CallAsync(function, Call.New().Data("a", "\"A\""));
+        }
+    }
+
     private sealed class Bookends : InngestMiddleware
     {
         public override async Task<object?> WrapFunctionAsync(FunctionContext context, Func<Task<object?>> next)
@@ -256,6 +298,22 @@ public sealed class WrapHookTests
             lock (Seen)
             {
                 Seen.Add(_hooks);
+            }
+
+            return output;
+        }
+    }
+
+    // Does real I/O on a memoized step's output after reading it, as a KMS decrypt or a claim-check fetch would.
+    private sealed class DecryptsLate(Task decrypted, TaskCompletionSource returned) : InngestMiddleware
+    {
+        public override async Task<object?> WrapStepAsync(FunctionContext context, StepInfo step, Func<Task<object?>> next)
+        {
+            var output = await next();
+            if (step.Memoized)
+            {
+                await decrypted;
+                returned.SetResult();
             }
 
             return output;

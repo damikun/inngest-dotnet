@@ -105,7 +105,7 @@ internal sealed partial class Invocation
         {
             if (_pipeline is not null)
             {
-                await _pipeline.OnRunCompleteAsync(output).ConfigureAwait(false);
+                await AwaitHookAsync(_pipeline.OnRunCompleteAsync(output)).ConfigureAwait(false);
             }
 
             return requested is null
@@ -127,7 +127,15 @@ internal sealed partial class Invocation
 
         if (_pipeline is not null)
         {
-            await _pipeline.OnRunCompleteAsync(output).ConfigureAwait(false);
+            try
+            {
+                await AwaitHookAsync(_pipeline.OnRunCompleteAsync(output)).ConfigureAwait(false);
+            }
+            catch
+            {
+                body.Dispose();
+                throw;
+            }
         }
 
         return new ExecutionResult(200, body);
@@ -139,7 +147,7 @@ internal sealed partial class Invocation
         ReportRunError(exception, retriable);
         if (_pipeline is not null)
         {
-            await _pipeline.OnRunErrorAsync(exception, isFinalAttempt: !retriable).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnRunErrorAsync(exception, isFinalAttempt: !retriable)).ConfigureAwait(false);
         }
 
         var body = new PooledBufferWriter();

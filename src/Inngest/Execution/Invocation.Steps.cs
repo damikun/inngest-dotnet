@@ -293,13 +293,20 @@ internal sealed partial class Invocation
 
     private void OnChainCompleted(FoundStep step)
     {
-        if (!_scheduler.IsCurrent)
+        // Checked first: once the call has answered, posted work runs on the thread pool, where the scheduler is never
+        // current, so a chain that completes after the answer would post itself forever.
+        if (_finished)
         {
-            _scheduler.Post(static state => ((FoundStep)state!).Owner.OnChainCompleted((FoundStep)state), step);
+            return;
         }
-        else if (!_finished)
+
+        if (_scheduler.IsCurrent)
         {
             step.CompleteFromChain();
+        }
+        else
+        {
+            _scheduler.Post(static state => ((FoundStep)state!).Owner.OnChainCompleted((FoundStep)state), step);
         }
     }
 
@@ -321,7 +328,7 @@ internal sealed partial class Invocation
         if (_memoizationObserversPending)
         {
             _memoizationObserversPending = false;
-            await _pipeline!.OnMemoizationEndAsync().ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline!.OnMemoizationEndAsync()).ConfigureAwait(false);
         }
     }
 }

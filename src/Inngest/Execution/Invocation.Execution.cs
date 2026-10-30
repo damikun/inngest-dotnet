@@ -166,7 +166,7 @@ internal sealed partial class Invocation
 
         if (_pipeline is not null)
         {
-            await _pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output)).ConfigureAwait(false);
         }
 
         // The function gets the result once the step is saved, or straight away while the buffer fills.
@@ -186,7 +186,7 @@ internal sealed partial class Invocation
         var info = _pipeline is null ? null : step.CreateInfo(memoized: false);
         if (_pipeline is not null)
         {
-            await _pipeline.OnStepStartAsync(info!).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnStepStartAsync(info!)).ConfigureAwait(false);
         }
 
         var startedAt = _time.GetUtcNow();
@@ -209,15 +209,36 @@ internal sealed partial class Invocation
         return new StepOutcome(info, output, error, new Timing(startedAt, _time.GetElapsedTime(started)));
     }
 
-    // The function's own continuations keep running while the handler runs, as on the JavaScript event loop: the
-    // handler may await a task the function started, and that task resumes on the scheduler. Nothing is decided
-    // meanwhile. A cancelled call stops waiting even for a handler that ignores the token.
     private async Task<object?> AwaitHandlerAsync(Task<object?> handler)
     {
-        while (!handler.IsCompleted)
+        await RunPendingUntilAsync(handler).ConfigureAwait(false);
+        return await handler.ConfigureAwait(false);
+    }
+
+    // A middleware hook may wait on the same tasks as a handler, such as a token a singleton caches that the function
+    // started loading, so it is awaited the same way.
+    private async ValueTask AwaitHookAsync(ValueTask hook)
+    {
+        if (hook.IsCompleted)
+        {
+            await hook.ConfigureAwait(false);
+            return;
+        }
+
+        var task = hook.AsTask();
+        await RunPendingUntilAsync(task).ConfigureAwait(false);
+        await task.ConfigureAwait(false);
+    }
+
+    // The function's own continuations keep running while a handler or a hook runs, as on the JavaScript event loop:
+    // that code may await a task the function started, and that task resumes on the scheduler. Nothing is decided
+    // meanwhile. A cancelled call stops waiting even for code that ignores the token.
+    private async Task RunPendingUntilAsync(Task task)
+    {
+        while (!task.IsCompleted)
         {
             var work = _scheduler.WaitForWorkAsync(_cancellationToken).AsTask();
-            await Task.WhenAny(handler, work).ConfigureAwait(false);
+            await Task.WhenAny(task, work).ConfigureAwait(false);
             _cancellationToken.ThrowIfCancellationRequested();
             try
             {
@@ -229,8 +250,6 @@ internal sealed partial class Invocation
                 // with it once the step is done, or the next call does.
             }
         }
-
-        return await handler.ConfigureAwait(false);
     }
 
     // Answers with the step's op: StepRun, or StepError or StepFailed when it threw.
@@ -244,7 +263,7 @@ internal sealed partial class Invocation
             {
                 if (_pipeline is not null)
                 {
-                    await _pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output).ConfigureAwait(false);
+                    await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output)).ConfigureAwait(false);
                 }
 
                 return new ExecutionResult(206, body);
@@ -254,7 +273,7 @@ internal sealed partial class Invocation
             ReportStepError(step, error, retriable);
             if (_pipeline is not null)
             {
-                await _pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable).ConfigureAwait(false);
+                await AwaitHookAsync(_pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable)).ConfigureAwait(false);
             }
 
             WriteStepError(body, step, error, final: !retriable, outcome.Timing);

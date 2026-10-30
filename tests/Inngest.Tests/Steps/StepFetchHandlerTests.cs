@@ -153,6 +153,33 @@ public sealed class StepFetchHandlerTests : IDisposable
         _network.Single.Uri.ShouldBe(new Uri("http://localhost:8288/e/key"));
     }
 
+    [Fact]
+    public async Task Code_the_function_started_makes_ordinary_requests_once_the_call_answered()
+    {
+        _network.Respond(HttpStatusCode.OK, "{}");
+        var release = new TaskCompletionSource();
+        Task<HttpStatusCode>? later = null;
+        var function = TestFunction.Define(async context =>
+        {
+            // Like a refresh loop a singleton starts: it goes on after the call, in the call's async flow.
+            later = Task.Run(async () =>
+            {
+                await release.Task;
+                using var response = await Http(_host.Services).GetAsync(Url);
+                return response.StatusCode;
+            });
+            await context.Step.SleepAsync("wait", TimeSpan.FromHours(1));
+            return null;
+        });
+
+        var result = await _host.CallAsync(function, Call.New());
+        release.SetResult();
+
+        result.OpCodes.ShouldBe(["Sleep"]);
+        (await later!.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).ShouldBe(HttpStatusCode.OK);
+        _network.Single.Uri.ShouldBe(new Uri(Url));
+    }
+
     private static HttpClient Http(IServiceProvider services) => services.GetRequiredService<IHttpClientFactory>().CreateClient("api");
 
     private void AddClient(IServiceCollection services) =>

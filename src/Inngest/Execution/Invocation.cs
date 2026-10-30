@@ -135,9 +135,10 @@ internal sealed partial class Invocation
     public PayloadTransforms? Transforms { get; }
 
     // The steps of the invocation running in the current async flow, or null where steps cannot be called: outside an
-    // invocation, inside a step handler and in observer hooks.
+    // invocation, inside a step handler and in observer hooks. Code the function started that outlives the call, such
+    // as a loop or a task a singleton caches, still flows the invocation, which then no longer takes steps.
     public static IStepTools? AmbientSteps =>
-        Running.Value is { } invocation && ExecutingStep.Value is null && MiddlewarePipeline.RunningObserver is null
+        Running.Value is { _finished: false } invocation && ExecutingStep.Value is null && MiddlewarePipeline.RunningObserver is null
             ? invocation._context.Step
             : null;
 

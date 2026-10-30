@@ -251,6 +251,33 @@ public sealed class MiddlewareHookTests
         ]);
     }
 
+    [Fact]
+    public async Task A_hook_can_await_a_task_the_function_started()
+    {
+        var token = new SharedToken();
+        using var host = Host(new NeedsToken(token));
+        var function = TestFunction.Define(async context =>
+        {
+            // Like a token a singleton caches: the function starts loading it, and a hook needs it too. It finishes only
+            // once the hook has started waiting for it.
+            token.Loading = LoadAsync(token.Requested.Task);
+            return await context.Step.RunAsync("use", async () => await token.Loading + "!");
+        });
+
+        // Without the scheduler running during the hook, the call never answers.
+        var result = await host.CallAsync(function, Call.New()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        result.OpCodes.ShouldBe(["StepRun"]);
+        result.Op().GetProperty("data").GetString().ShouldBe("token!");
+
+        // Resumes on the invocation's scheduler, as app code without ConfigureAwait(false) does.
+        static async Task<string> LoadAsync(Task requested)
+        {
+            await requested;
+            return "token";
+        }
+    }
+
     private sealed class Recorder(List<string> log, bool timeline = false) : InngestMiddleware
     {
         public override ValueTask OnMemoizationEndAsync(FunctionContext context) => Add(timeline ? "onMemoizationEnd" : "OnMemoizationEnd");
@@ -291,5 +318,21 @@ public sealed class MiddlewareHookTests
 
         public override ValueTask OnStepErrorAsync(FunctionContext context, StepInfo step, Exception exception, bool isFinalAttempt) =>
             throw new InvalidOperationException("observer");
+    }
+
+    private sealed class SharedToken
+    {
+        public TaskCompletionSource Requested { get; } = new();
+
+        public Task<string>? Loading { get; set; }
+    }
+
+    private sealed class NeedsToken(SharedToken token) : InngestMiddleware
+    {
+        public override async ValueTask OnStepStartAsync(FunctionContext context, StepInfo step)
+        {
+            token.Requested.TrySetResult();
+            await token.Loading!;
+        }
     }
 }
