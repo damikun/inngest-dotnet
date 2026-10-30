@@ -151,9 +151,9 @@ least once.
 
 That is safe because an event keeps the id it was added with, on every attempt, and Inngest starts the functions of an
 event once per id. Against the dev server (`inngest/inngest:v1.49.0`) a send that repeated an id was answered with a
-success and an event id of its own, the event was stored again, and the function it triggers started no run. Inngest
-documents 24 hours as the time it remembers an id, and the server's source keeps the key of a run for that long; only a
-repeat within seconds was tried, and only against the dev server. A resend that comes later than 24 hours, which takes a
+success and an event id of its own, and the function it triggers started no run. Inngest documents 24 hours as the time
+it remembers an id, and the server's source keeps the key of a run for that long; only a repeat within seconds was
+tried, and only against the dev server. A resend that comes later than 24 hours, which takes a
 dispatcher that was down for as long, would start runs again. What was checked is the starting of runs; whether a repeat
 can also resume a run that waits for the event was not.
 

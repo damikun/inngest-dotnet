@@ -764,8 +764,9 @@ afterwards. Delivery is at least once; what makes a resend harmless is that ever
 - **Cleanup.** Sent rows older than `Retention` (a day, as long as Inngest remembers ids) are deleted with `ExecuteDelete` in
   batches, on a loop of its own so that a long cleanup never delays a send.
 - **Event ids.** Inngest takes any string as an event id. The dev server (v1.49.0) starts a function's run once per id: a
-  second send under the same id is answered 200 with a new internal event id, the event is stored again, and no run starts.
-  The server's source says the id is enforced when scheduling runs and keeps the run's idempotency key for 24 hours
+  second send under the same id is answered 200 with a new internal event id, and no run starts. The server's source says
+  that a repeated event can exist in its event store, because the id is enforced when scheduling runs, and keeps the run's
+  idempotency key for 24 hours
   (`FunctionIdempotencyPeriod`), which is what Inngest's documentation gives for Inngest Cloud; only a repeat within seconds was
   tested, and only against the dev server.
 
