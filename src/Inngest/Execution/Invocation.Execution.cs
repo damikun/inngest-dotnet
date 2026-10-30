@@ -420,10 +420,10 @@ internal sealed partial class Invocation
         }
     }
 
-    // Runs the handler of a scoped run step in a scope of its own, made from the call's services as a second scope, not
-    // a child of the call's. It lives exactly as long as the handler does: an attempt, a step of a parallel group and
-    // a step of a checkpointed call each get a new one. A scoped service that throws when it is disposed must neither
-    // fail a step that has done its work, which a retry would do again, nor hide the exception that failed it.
+    // Runs the handler of a scoped run step in a scope of its own. The call's scope factory makes it, so it sits next to
+    // the call's scope, not inside it. It lives as long as the handler does: every attempt, every step of a checkpointed
+    // call and every step of a parallel group gets a new one. A scoped service that throws when it is disposed must
+    // neither fail a step that has done its work, which a retry would do again, nor hide the exception that failed it.
     public async Task<T> RunInScopeAsync<T>(
         string stepId,
         Func<IServiceProvider, CancellationToken, Task<T>> handler,

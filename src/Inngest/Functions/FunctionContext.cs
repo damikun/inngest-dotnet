@@ -36,9 +36,10 @@ public abstract class FunctionContext
     public required ILogger Logger { get; init; }
 
     /// <summary>
-    /// Scoped to this invocation, which is one call from Inngest. The function class and the middleware come from it, so
-    /// a scoped service injected into them is shared by everything the call runs, and the call replays the function's own
-    /// code. Step.RunScopedAsync gives a step a scope of its own.
+    /// Scoped to this invocation, which is one call from Inngest. The function class and the middleware are resolved from
+    /// it, so a scoped service they inject, such as a DbContext, is one instance for the whole call: the function's own
+    /// code, which runs again on every call, and every step the call runs. Step.RunScopedAsync gives a step a scope of its
+    /// own.
     /// </summary>
     public required IServiceProvider Services { get; init; }
 
