@@ -120,7 +120,7 @@ public sealed class EditedInputTests : IDisposable
 
         result.OpCodes.ShouldBe(["StepRun"]);
         result.Op().GetProperty("opts").GetProperty("input").GetRawText().ShouldBe(Edited);
-        result.Op().GetProperty("data").GetRawText().ShouldBe("""{"result":"Sunny in Brno"}""");
+        result.Op().GetProperty("data").GetProperty("result").GetString().ShouldBe("Sunny in Brno");
         asked.ShouldBe(["Brno"]);
         model.CallCount.ShouldBe(0);
     }

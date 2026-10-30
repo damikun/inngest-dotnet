@@ -5,7 +5,6 @@ using System.Text.Json;
 using Inngest.Execution;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Extensions.AI;
 
@@ -18,6 +17,9 @@ namespace Inngest.Extensions.AI;
 internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestStepsOptions options) : DelegatingChatClient(innerClient)
 {
     private const string DefaultStepId = "chat";
+
+    // How long the text of a stream waits to fill a chunk before it is published as it is.
+    private static readonly TimeSpan FlushInterval = TimeSpan.FromMilliseconds(100);
 
     public override Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -85,26 +87,26 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
     {
         // The logger of the function drops what is written while the run replays steps it has already memoized, so a
         // warning about a step is written once per run and not once per call.
-        var logger = Invocation.AmbientContext?.Logger ?? NullLogger.Instance;
+        var context = Invocation.AmbientContext!;
+        var logger = context.Logger;
         var stepId = settings.StepId ?? DefaultStepId;
 
         // Copies, because the handler may run after the caller has changed its messages and options for the next call, and
         // what the model is called with has to be what the step recorded.
         List<ChatMessage> history = [.. messages];
         callOptions = callOptions?.Clone();
-        var realtime = streaming && settings.StreamTo is not null
-            ? Invocation.AmbientContext!.Services.GetRequiredService<IInngestRealtime>()
-            : null;
+        var realtime = streaming && settings.StreamTo is not null ? context.Services.GetRequiredService<IInngestRealtime>() : null;
+        var time = context.Services.GetService<TimeProvider>() ?? TimeProvider.System;
 
-        JsonElement? input = null;
-        if (options.RecordInput)
+        // The digest goes with the saved response whether the input is recorded or not.
+        var serialized = ChatJson.TryWriteInput(history, callOptions, out var problem);
+        if (problem is not null && options.RecordInput)
         {
-            input = ChatJson.TryWriteInput(history, callOptions, out var problem);
-            if (problem is not null)
-            {
-                Log.InputNotRecorded(logger, stepId, problem);
-            }
+            Log.InputNotRecorded(logger, stepId, problem);
         }
+
+        var input = options.RecordInput ? serialized?.Json : null;
+        var digest = serialized?.Digest;
 
         // The handler gets the recorded input back, or an edit of it from the Inngest UI, which is then what the model is
         // called with. Without an edit it calls the model with the copies it holds of the caller's messages and options,
@@ -117,35 +119,55 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
 
             using var linked = cancellationToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(stepToken, cancellationToken) : null;
             var token = linked?.Token ?? stepToken;
+            ChatResponse response;
             if (!streaming)
             {
-                return ChatJson.WriteResponse(await InnerClient.GetResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false));
+                response = await InnerClient.GetResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false);
             }
-
-            var publisher = realtime is null ? null : new StreamPublisher(realtime, settings.StreamTo!, stepId, logger, token);
-            var updates = new List<ChatResponseUpdate>();
-            try
+            else
             {
-                await foreach (var update in InnerClient.GetStreamingResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false))
+                var publisher = realtime is null ? null : new StreamPublisher(realtime, settings.StreamTo!, stepId, logger, time, FlushInterval, token);
+                var updates = new List<ChatResponseUpdate>();
+                try
                 {
-                    updates.Add(update);
-                    publisher?.Write(update.Text);
+                    await foreach (var update in InnerClient.GetStreamingResponseAsync(callMessages, optionsOfCall, token).ConfigureAwait(false))
+                    {
+                        updates.Add(update);
+                        publisher?.Write(update.Text);
+                    }
                 }
-            }
-            finally
-            {
+                catch (Exception exception)
+                {
+                    // The stream ends as failed, and the retry of the step streams again from the start.
+                    if (publisher is not null)
+                    {
+                        await publisher.CompleteAsync(exception).ConfigureAwait(false);
+                    }
+
+                    throw;
+                }
+
                 if (publisher is not null)
                 {
                     await publisher.CompleteAsync().ConfigureAwait(false);
                 }
+
+                response = updates.ToChatResponse();
             }
 
-            return ChatJson.WriteResponse(updates.ToChatResponse());
+            var written = ChatJson.WriteResponse(response, digest, out var dropped);
+            if (dropped is not null)
+            {
+                Log.AdditionalPropertiesLeftOut(logger, stepId, dropped);
+            }
+
+            return written;
         }
 
         var json = input is { } stepInput
             ? await steps.AIWrapAsync(stepId, stepInput, HandleAsync).ConfigureAwait(false)
             : await steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken)).ConfigureAwait(false);
+        InputChecks.Check(stepId, ChatJson.InputDigestOf(json), digest);
         return ChatJson.ReadResponse(json);
     }
 }

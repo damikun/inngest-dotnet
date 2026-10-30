@@ -11,6 +11,8 @@ namespace Inngest.Extensions.AI;
 // an inference step, and its response as a ChatResponse. Written and read by hand, so that it needs no reflection.
 internal static class OpenAIChatJson
 {
+    private const string RefusalCode = "Refusal";
+
     public static JsonElement WriteRequest(string model, IEnumerable<ChatMessage> messages, ChatOptions? options)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -38,14 +40,26 @@ internal static class OpenAIChatJson
         return ChatJson.Parse(buffer);
     }
 
+    // The answer of the provider as a response. One that is an error, or has no choices, is no response, and is the same on
+    // every replay, so it fails for good.
     public static ChatResponse ReadResponse(JsonElement json)
     {
-        var response = new ChatResponse();
         if (json.ValueKind != JsonValueKind.Object)
         {
-            return response;
+            throw new NonRetriableException($"The provider answered with {Excerpt(json)}, not with a chat completion.");
         }
 
+        if (json.TryGetProperty("error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            throw new NonRetriableException($"The provider answered with an error: {Describe(error)}");
+        }
+
+        if (!json.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
+        {
+            throw new NonRetriableException($"The provider answered without choices: {Excerpt(json)}");
+        }
+
+        var response = new ChatResponse();
         response.ResponseId = String(json, "id");
         response.ModelId = String(json, "model");
         if (json.TryGetProperty("created", out var created) && created.ValueKind == JsonValueKind.Number && created.TryGetInt64(out var seconds))
@@ -53,20 +67,17 @@ internal static class OpenAIChatJson
             response.CreatedAt = DateTimeOffset.FromUnixTimeSeconds(seconds);
         }
 
-        if (json.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+        var choice = choices[0];
+        response.Messages.Add(ReadMessage(choice.TryGetProperty("message", out var message) ? message : default));
+        response.FinishReason = String(choice, "finish_reason") switch
         {
-            var choice = choices[0];
-            response.Messages.Add(ReadMessage(choice.TryGetProperty("message", out var message) ? message : default));
-            response.FinishReason = String(choice, "finish_reason") switch
-            {
-                "stop" => ChatFinishReason.Stop,
-                "length" => ChatFinishReason.Length,
-                "tool_calls" or "function_call" => ChatFinishReason.ToolCalls,
-                "content_filter" => ChatFinishReason.ContentFilter,
-                { } other => new ChatFinishReason(other),
-                null => null,
-            };
-        }
+            "stop" => ChatFinishReason.Stop,
+            "length" => ChatFinishReason.Length,
+            "tool_calls" or "function_call" => ChatFinishReason.ToolCalls,
+            "content_filter" => ChatFinishReason.ContentFilter,
+            { } other => new ChatFinishReason(other),
+            null => null,
+        };
 
         if (json.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
         {
@@ -103,6 +114,7 @@ internal static class OpenAIChatJson
         var calls = message.Contents.OfType<FunctionCallContent>().ToArray();
         var images = message.Contents.Where(content => content is UriContent uri && uri.HasTopLevelMediaType("image") || content is DataContent data && data.HasTopLevelMediaType("image")).ToArray();
         var text = string.Concat(message.Contents.OfType<TextContent>().Select(content => content.Text));
+        var refusal = message.Role == ChatRole.Assistant ? message.Contents.OfType<ErrorContent>().FirstOrDefault(content => content.ErrorCode == RefusalCode)?.Message : null;
         if (images.Length > 0)
         {
             writer.WriteStartArray("content");
@@ -126,13 +138,18 @@ internal static class OpenAIChatJson
 
             writer.WriteEndArray();
         }
-        else if (text.Length > 0 || calls.Length == 0)
+        else if (text.Length > 0 || (calls.Length == 0 && refusal is null))
         {
             writer.WriteString("content", text);
         }
         else
         {
             writer.WriteNull("content");
+        }
+
+        if (refusal is not null)
+        {
+            writer.WriteString("refusal", refusal);
         }
 
         if (calls.Length > 0)
@@ -198,17 +215,29 @@ internal static class OpenAIChatJson
             writer.WriteEndArray();
         }
 
+        // Strict mode is the caller's to ask for, with the "strict" additional property, as for Microsoft's OpenAI adapter. Left
+        // out, it is left out of the request too; asked for, the schemas are changed into the dialect it takes.
+        var strict = HasStrict(options.AdditionalProperties);
         if (options.ResponseFormat is ChatResponseFormatJson format)
         {
-            if (format.Schema is { } schema)
+            if ((strict is true ? StrictSchemas.Of(format) : format.Schema) is { } schema)
             {
                 writer.WriteStartObject("response_format");
                 writer.WriteString("type", "json_schema");
                 writer.WriteStartObject("json_schema");
-                writer.WriteString("name", format.SchemaName ?? "response");
+                writer.WriteString("name", format.SchemaName ?? "json_schema");
+                if (format.SchemaDescription is { } schemaDescription)
+                {
+                    writer.WriteString("description", schemaDescription);
+                }
+
                 writer.WritePropertyName("schema");
                 schema.WriteTo(writer);
-                writer.WriteBoolean("strict", true);
+                if (strict is { } strictSchema)
+                {
+                    writer.WriteBoolean("strict", strictSchema);
+                }
+
                 writer.WriteEndObject();
                 writer.WriteEndObject();
             }
@@ -232,7 +261,13 @@ internal static class OpenAIChatJson
                 writer.WriteString("name", function.Name);
                 writer.WriteString("description", function.Description);
                 writer.WritePropertyName("parameters");
-                function.JsonSchema.WriteTo(writer);
+                var functionStrict = HasStrict(function.AdditionalProperties) ?? strict;
+                (functionStrict is true ? StrictSchemas.Of(function) : function.JsonSchema).WriteTo(writer);
+                if (functionStrict is { } strictFunction)
+                {
+                    writer.WriteBoolean("strict", strictFunction);
+                }
+
                 writer.WriteEndObject();
                 writer.WriteEndObject();
             }
@@ -266,6 +301,9 @@ internal static class OpenAIChatJson
         }
     }
 
+    private static bool? HasStrict(IReadOnlyDictionary<string, object?>? properties) =>
+        properties is not null && properties.TryGetValue("strict", out var value) && value is bool strict ? strict : null;
+
     private static void WriteNumber(Utf8JsonWriter writer, string name, float? value)
     {
         if (value is { } number)
@@ -298,6 +336,12 @@ internal static class OpenAIChatJson
             chat.Contents.Add(new TextContent(text));
         }
 
+        // As Microsoft's OpenAI adapter hands it on: a refusal is an error content with this code.
+        if (String(message, "refusal") is { Length: > 0 } refusal)
+        {
+            chat.Contents.Add(new ErrorContent(refusal) { ErrorCode = RefusalCode });
+        }
+
         if (message.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
         {
             foreach (var call in calls.EnumerateArray())
@@ -325,6 +369,19 @@ internal static class OpenAIChatJson
         }
 
         return chat;
+    }
+
+    private static string Describe(JsonElement error) => error.ValueKind switch
+    {
+        JsonValueKind.String => error.GetString() ?? string.Empty,
+        JsonValueKind.Object when String(error, "message") is { } message => message,
+        _ => Excerpt(error),
+    };
+
+    private static string Excerpt(JsonElement element)
+    {
+        var text = element.GetRawText();
+        return text.Length <= 200 ? text : $"{text[..200]}...";
     }
 
     private static string? String(JsonElement element, string name) =>

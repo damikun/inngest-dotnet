@@ -51,8 +51,11 @@ public sealed class PassThroughTests
         model.Options.Count.ShouldBe(2);
         model.Options.ShouldAllBe(received => received!.AdditionalProperties!.Count == 1 && (string?)received.AdditionalProperties["provider_option"] == "kept");
 
-        // The caller's options are not changed: they still carry the settings for its next call.
-        options.AdditionalProperties.ShouldNotBeNull().Count.ShouldBe(2);
+        // The caller's options are not changed: they still carry the settings for its next call, as plain strings, which a cache or a
+        // logger outside the client can write as JSON, also under Native AOT.
+        var settings = CallSettings.Of(options);
+        (settings.StepId, settings.StreamTo).ShouldBe(("summarize", new RealtimeTopic("chat:1", "tokens")));
+        options.AdditionalProperties!.Where(property => property.Key != "provider_option").ShouldAllBe(property => property.Value is string);
     }
 
     [Fact]

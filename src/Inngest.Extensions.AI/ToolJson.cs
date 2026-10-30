@@ -12,7 +12,7 @@ internal static class ToolJson
 {
     // {"name": ..., "callId": ..., "arguments": {...}}: the input the Inngest UI shows, of which an edit keeps the arguments.
     // Null, with the reason, when an argument is not JSON.
-    public static JsonElement? TryWriteInput(FunctionInvocationContext context, out string? problem)
+    public static RecordedInput? TryWriteInput(FunctionInvocationContext context, out string? problem)
     {
         try
         {
@@ -28,7 +28,7 @@ internal static class ToolJson
             }
 
             problem = null;
-            return ChatJson.Parse(buffer);
+            return new RecordedInput(ChatJson.Parse(buffer), ChatJson.Digest(buffer.WrittenSpan));
         }
         catch (Exception exception) when (exception is NotSupportedException or JsonException or InvalidOperationException)
         {
@@ -37,23 +37,31 @@ internal static class ToolJson
         }
     }
 
-    // The arguments of an input edited in the Inngest UI. The services and context of the call are not JSON and stay.
+    // The arguments of an input edited in the Inngest UI. The services and context of the call are not JSON and stay. An edit
+    // that cannot be read fails the step for good, as retrying it would read it the same way.
     public static AIFunctionArguments ReadArguments(JsonElement edited, AIFunctionArguments live)
     {
-        if (edited.ValueKind != JsonValueKind.Object
-            || !edited.TryGetProperty("arguments", out var argumentsJson)
-            || argumentsJson.Deserialize(ChatJson.Info<IDictionary<string, object?>>()) is not { } arguments)
+        try
         {
-            throw new NonRetriableException("The edited input of a tool call has to be an object with an \"arguments\" object.");
-        }
+            if (edited.ValueKind != JsonValueKind.Object
+                || !edited.TryGetProperty("arguments", out var argumentsJson)
+                || argumentsJson.Deserialize(ChatJson.Info<IDictionary<string, object?>>()) is not { } arguments)
+            {
+                throw new NonRetriableException("The edited input of a tool call has to be an object with an \"arguments\" object.");
+            }
 
-        return new AIFunctionArguments(arguments) { Services = live.Services, Context = live.Context };
+            return new AIFunctionArguments(arguments) { Services = live.Services, Context = live.Context };
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            throw new NonRetriableException($"The edited input of a tool call could not be read: {exception.Message}", exception);
+        }
     }
 
-    // {"result": ..., "terminate": true}: the result as JSON, and whether the tool asked the function invoking client to stop
-    // calling the model, which a replay has to do as the run did. A function made with AIFunctionFactory already returns
-    // JsonElement; anything else is written with the options of its function.
-    public static JsonElement WriteResult(object? result, bool terminate, JsonSerializerOptions options)
+    // {"result": ..., "terminate": true, "inputDigest": ...}: the result as JSON, and whether the tool asked the function
+    // invoking client to stop calling the model, which a replay has to do as the run did. A function made with
+    // AIFunctionFactory already returns JsonElement; anything else is written with the options of its function.
+    public static JsonElement WriteResult(object? result, bool terminate, string? inputDigest, JsonSerializerOptions options)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -79,6 +87,11 @@ internal static class ToolJson
                 writer.WriteBoolean("terminate", true);
             }
 
+            if (inputDigest is not null)
+            {
+                writer.WriteString("inputDigest", inputDigest);
+            }
+
             writer.WriteEndObject();
         }
 
@@ -86,11 +99,14 @@ internal static class ToolJson
     }
 
     // The result goes back as the JsonElement a function made with AIFunctionFactory returns, and a result that was null as null.
-    public static (object? Result, bool Terminate) ReadResult(JsonElement stored)
+    public static (object? Result, bool Terminate, string? InputDigest) ReadResult(JsonElement stored)
     {
         var result = stored.TryGetProperty("result", out var value) && value.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
             ? (object)value
             : null;
-        return (result, stored.TryGetProperty("terminate", out var terminate) && terminate.ValueKind == JsonValueKind.True);
+        return (
+            result,
+            stored.TryGetProperty("terminate", out var terminate) && terminate.ValueKind == JsonValueKind.True,
+            stored.TryGetProperty("inputDigest", out var digest) && digest.ValueKind == JsonValueKind.String ? digest.GetString() : null);
     }
 }
