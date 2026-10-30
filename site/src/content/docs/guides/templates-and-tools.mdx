@@ -42,6 +42,8 @@ The options of both templates:
 | `--http-port` | The port in `Properties/launchSettings.json`. Only `inngest-web`. | A free port from 5000 to 5300 |
 | `--no-restore` | Does not restore the packages after making the project. | Restores |
 
+The default framework needs the .NET 10 SDK. With the .NET 8 SDK, make the project with `-f net8.0`.
+
 ### The web app
 
 `inngest-web` makes a project with an event, a function, a `Program.cs`, its settings and a launch profile. The event is
