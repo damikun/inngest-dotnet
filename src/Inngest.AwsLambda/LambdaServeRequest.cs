@@ -93,16 +93,16 @@ internal sealed class LambdaServeRequest : IServeRequest
         // The path of an HTTP API starts with the stage unless the stage is $default, so it is already the public path.
         return new LambdaServeRequest(
             method,
-            Normalize(request.RawPath ?? http!.Path),
+            Normalize(string.IsNullOrEmpty(request.RawPath) ? http!.Path : request.RawPath),
             query,
             Headers(request.Headers, multiValues: null),
             request.RequestContext!.DomainName,
             body);
     }
 
-    // requestContext.path is the whole public path of a REST API request: it starts with the stage on the execute-api
-    // domain and with the base path mapping on a custom domain, while path is the path inside the API. Where the event
-    // holds anything else there, path stays in charge.
+    // requestContext.path is the path the client called, which starts with the stage on the execute-api domain, while
+    // path is the path inside the API. Where the event holds anything else there, such as a console test event without
+    // it or a payload format 1.0 event of an HTTP API that has the stage in path, path stays in charge.
     private static string RestPath(APIGatewayProxyRequest request)
     {
         var path = Normalize(request.Path);
