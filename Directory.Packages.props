@@ -19,7 +19,7 @@
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- The first line built on System.Diagnostics.DiagnosticSource 10, which the SDK already depends on. -->
     <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />
-    <!-- The newest stable line, with builds for net8.0 and net10.0 and no dependencies of its own on them. -->
+    <!-- The newest stable release. It has builds for net8.0 and net10.0, and needs no other packages on either. -->
     <PackageVersion Include="Sentry" Version="6.12.1" />
     <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
   </ItemGroup>

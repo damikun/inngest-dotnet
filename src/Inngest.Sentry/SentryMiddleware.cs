@@ -14,7 +14,7 @@ namespace Inngest.Sentry;
 // Sentry's scope follows the async flow. One is pushed around the function and around every step handler, which tags
 // what the app reports there itself. The hooks that see the errors run outside those flows, so a report pushes a scope
 // of its own, and the event takes a copy of it.
-internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryReportingOptions> options, IHub? hub = null)
+internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryReportingOptions> options, IHub? registeredHub = null)
     : InngestMiddleware, IAsyncDisposable, IDisposable
 {
     private const string StepCategory = "inngest.step";
@@ -25,7 +25,7 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
     private readonly SentryReportingOptions _options = options.Value;
     private readonly Queue<Breadcrumb> _breadcrumbs = new();
 
-    private IHub Hub => hub ?? HubAdapter.Instance;
+    private IHub Hub => registeredHub ?? HubAdapter.Instance;
 
     // The scope ends with this method for the engine, which goes on in the flow it called from. The function started
     // inside keeps the one it started in.
