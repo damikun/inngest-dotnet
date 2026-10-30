@@ -7,7 +7,8 @@ namespace Inngest;
 /// Encrypts and decrypts values for the encryption middleware in place of its default strategy, for example to keep
 /// the keys in a vault. Values are handed over as UTF-8 JSON. An encrypted value travels in an envelope that names
 /// the service by <see cref="Identifier"/>, so a service in another SDK or language can only read it with the same
-/// identifier and algorithm. Both methods run synchronously on the call's path, so they should not wait on I/O.
+/// identifier and algorithm. One instance serves every call, including calls that run at the same time, so it must be
+/// thread-safe. Both methods run synchronously on the call's path, so they should not wait on I/O.
 /// </summary>
 public abstract class EncryptionService
 {

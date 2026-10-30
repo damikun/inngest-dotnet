@@ -69,7 +69,7 @@ public sealed class LibSodiumStrategyTests
     }
 
     [Fact]
-    public void It_encrypts_into_a_nonce_followed_by_a_box_and_a_nonce_is_never_used_twice()
+    public void It_encrypts_into_a_nonce_followed_by_a_box_and_uses_a_new_nonce_every_time()
     {
         var service = Service(JsVectors.Key);
         var json = Encoding.UTF8.GetBytes("""{"hello":"world"}""");
@@ -105,6 +105,26 @@ public sealed class LibSodiumStrategyTests
 
             service.Decrypt(service.Encrypt(json)).ShouldBe(json, $"for {length} bytes");
         }
+    }
+
+    [Fact]
+    public async Task It_serves_many_threads_at_once()
+    {
+        var service = Service(JsVectors.Key, JsVectors.SecondKey);
+        var vector = JsVectors.LibSodium[0];
+        var data = EncryptionHarness.DataOf(vector.Envelope);
+
+        await Task.WhenAll(Enumerable.Range(0, 16).Select(worker => Task.Run(
+            () =>
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    var json = Encoding.UTF8.GetBytes($$"""{"worker":{{worker}},"i":{{i}}}""");
+                    service.Decrypt(service.Encrypt(json)).ShouldBe(json);
+                    Encoding.UTF8.GetString(service.Decrypt(data)).ShouldBe(vector.Plaintext);
+                }
+            },
+            TestContext.Current.CancellationToken)));
     }
 
     private static LibSodiumEncryptionService Service(string key, params string[] fallbacks) =>

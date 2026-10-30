@@ -70,7 +70,14 @@ internal sealed class ReversingService : EncryptionService
 
     public override string Identifier => Name;
 
-    public override string Encrypt(ReadOnlySpan<byte> json) => Convert.ToBase64String(json.ToArray().Reverse().ToArray());
+    public override string Encrypt(ReadOnlySpan<byte> json) => Convert.ToBase64String(Reversed(json));
 
-    public override byte[] Decrypt(string data) => Convert.FromBase64String(data).Reverse().ToArray();
+    public override byte[] Decrypt(string data) => Reversed(Convert.FromBase64String(data));
+
+    private static byte[] Reversed(ReadOnlySpan<byte> bytes)
+    {
+        var copy = bytes.ToArray();
+        Array.Reverse(copy);
+        return copy;
+    }
 }

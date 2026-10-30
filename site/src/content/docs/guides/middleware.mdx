@@ -347,6 +347,8 @@ that the default strategies wrote are still decrypted, so data can move from one
 - A value grows by a third and by about 120 bytes of envelope, which counts against the size limits Inngest puts on
   events and step results.
 - It works under Native AOT. Event data types go in the serializer context as for any event.
+- The test host reports what is stored, so `Output` and `SentEvents` show encrypted values when encryption is added to
+  the services it runs. Tests of functions usually leave it out.
 
 ## Compared with the TypeScript SDK
 

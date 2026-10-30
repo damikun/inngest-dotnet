@@ -107,11 +107,12 @@ internal sealed class AesDecryptor
         CryptographicOperations.ZeroMemory(input);
     }
 
+    // Nested as deeply as the writer accepts the value, which is where it goes next.
     private static bool IsJson(ReadOnlySpan<byte> text)
     {
         try
         {
-            var reader = new Utf8JsonReader(text);
+            var reader = new Utf8JsonReader(text, new JsonReaderOptions { MaxDepth = 1000 });
             while (reader.Read())
             {
             }
