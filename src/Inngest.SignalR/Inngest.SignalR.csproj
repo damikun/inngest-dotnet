@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.SignalR</RootNamespace>
+    <Description>SignalR for the Inngest .NET SDK: forwards Inngest realtime messages to SignalR clients through IHubContext, with one subscription to Inngest shared by all the clients of a channel.</Description>
+    <PackageTags>$(PackageTags);signalr;realtime;websockets</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- RealtimeSubscription, what a client may receive, is the type MapInngestRealtime takes as well. -->
+    <ProjectReference Include="..\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

@@ -41,6 +41,7 @@
     <InternalsVisibleTo Include="Inngest.EntityFrameworkCore" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI.Tests" />
+    <InternalsVisibleTo Include="Inngest.SignalR" />
     <InternalsVisibleTo Include="Inngest.Testing" />
     <InternalsVisibleTo Include="Inngest.SourceGeneration.Tests" />
     <InternalsVisibleTo Include="Inngest.Tests" />
