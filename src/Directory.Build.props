@@ -26,7 +26,7 @@
     <!-- dotnet pack fails on a change that would break code built against the last release on nuget.org. Raise the
          baseline to each new release once it is published. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>0.1.0-preview.2</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>0.1.0-preview.3</PackageValidationBaselineVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- nuget.org renders no HTML and no images from the repository, so the packages carry a plain README of their own. -->
