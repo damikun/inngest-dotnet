@@ -11,6 +11,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.TestUtilities" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
@@ -40,6 +42,7 @@
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
     <ProjectReference Include="..\..\src\Inngest.EntityFrameworkCore\Inngest.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.SignalR\Inngest.SignalR.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers\Inngest.Testing.Containers.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers.AspNetCore\Inngest.Testing.Containers.AspNetCore.csproj" />
     <!-- The app that the WebApplicationFactory tests of Inngest.Testing.Containers.AspNetCore run. -->

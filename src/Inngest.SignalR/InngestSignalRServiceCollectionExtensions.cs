@@ -1,8 +1,10 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Text.Json;
 using Inngest;
 using Inngest.Realtime;
+using Inngest.SignalR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -35,6 +37,20 @@ public static class InngestSignalRServiceCollectionExtensions
         var options = new InngestSignalROptions();
         configure(options);
         Validate(options);
+
+        // A trimmed or Native AOT app has no reflection for SignalR's JSON protocol to read the topics of Subscribe and
+        // write the text of a message with. The app's own context comes first when it registers one.
+        if (!JsonSerializer.IsReflectionEnabledByDefault)
+        {
+            services.Configure<JsonHubProtocolOptions>(protocol =>
+            {
+                var resolvers = protocol.PayloadSerializerOptions.TypeInfoResolverChain;
+                if (!resolvers.Contains(SignalRJsonContext.Default))
+                {
+                    resolvers.Add(SignalRJsonContext.Default);
+                }
+            });
+        }
 
         services.TryAddSingleton(provider => new InngestRealtimeBridge<THub>(
             provider.GetService<RealtimeSubscriber>()
