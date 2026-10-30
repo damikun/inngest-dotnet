@@ -9,7 +9,8 @@ A function's services come from a dependency injection scope that lives for one 
 such as an Entity Framework `DbContext` work as they do in a controller. A call is not a step, though. Inngest calls
 the function again for every step, the function's own code runs again each time, and with
 [checkpointing](/inngest-dotnet/reference/api/#options) one call runs several steps. A `DbContext` injected into the
-function is a single instance for all of that.
+function is a single instance for all of that. Entity Framework describes a `DbContext` as a unit of work, and a step
+is the natural boundary for one.
 
 `context.Step.RunScopedAsync` runs a step in a scope of its own instead. The handler resolves what it needs from that
 scope, and the scope is disposed when the handler ends, so nothing a step tracks or leaves open reaches the next step,
@@ -273,12 +274,12 @@ is the same problem the next section solves for the step as a whole. See Microso
 
 ### Idempotency keys
 
-A step's handler can run again after its work has been committed. Inngest records a step's result only when the
-call that ran it answers with the result. If that call is lost first, because the process stops, a proxy times out or
-the connection drops, Inngest retries the step, and the handler finds its rows already written. The same happens when
-the result cannot be serialized, and under [checkpointing](/inngest-dotnet/reference/api/#options) with a
-`BufferedSteps` above 1, where steps that were not yet saved run again after a lost call. Inngest's own page on
-[idempotency](https://www.inngest.com/docs/guides/handling-idempotency) makes the same point about external services.
+A step's handler can run again after its work has been committed. Inngest records a step's result when the call that
+ran the step answers with it, or when [checkpointing](/inngest-dotnet/reference/api/#options) saves it. If the call is
+lost before then, because the process stops, a proxy times out or the connection drops, Inngest retries the step, and
+the handler finds its rows already written. With checkpointing and a `BufferedSteps` above 1, every step that was not
+saved yet runs again. The same happens when the result cannot be serialized. Inngest's own page on
+[idempotency](https://www.inngest.com/docs/guides/handling-idempotency) makes the point about external services.
 Deduplicating the event or the function, as [flow control](/inngest-dotnet/guides/flow-control/#idempotency) does,
 decides whether a run starts, not whether a step runs twice.
 
