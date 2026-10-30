@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Inngest.Client;
 using Inngest.Functions;
 using Inngest.OpenTelemetry;
@@ -243,6 +244,29 @@ public sealed class InstrumentationTests
 
         services.Count(descriptor => descriptor.ServiceType == typeof(InngestMiddleware)).ShouldBe(1);
         services.Count(descriptor => descriptor.ServiceType == typeof(InngestTelemetry)).ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(StepType.Run, "run")]
+    [InlineData(StepType.Sleep, "sleep")]
+    [InlineData(StepType.WaitForEvent, "wait_for_event")]
+    [InlineData(StepType.Invoke, "invoke")]
+    [InlineData(StepType.SendEvent, "send_event")]
+    [InlineData(StepType.WaitForSignal, "wait_for_signal")]
+    [InlineData(StepType.SendSignal, "send_signal")]
+    [InlineData(StepType.Fetch, "fetch")]
+    [InlineData(StepType.AIInfer, "ai_infer")]
+    public void Spans_and_metrics_name_each_step_type(StepType type, string name) =>
+        InngestTelemetry.TypeName(type).ShouldBe(name);
+
+    // A step type added later fails here until it has a name, instead of reaching dashboards as its C# name.
+    [Fact]
+    public void Every_step_type_has_a_snake_case_name_of_its_own()
+    {
+        var names = Enum.GetValues<StepType>().Select(InngestTelemetry.TypeName).ToArray();
+
+        names.ShouldAllBe(name => Regex.IsMatch(name, "^[a-z]+(_[a-z]+)*$"));
+        names.ShouldBeUnique();
     }
 
     private static Dictionary<string, object?> TagsOf(Activity activity) =>

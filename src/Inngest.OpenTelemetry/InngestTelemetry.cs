@@ -115,6 +115,7 @@ internal sealed class InngestTelemetry : IDisposable
         activity.AddException(exception);
     }
 
+    // Dashboards and alerts key on these names, so a test checks that every step type has one of its own.
     public static string TypeName(StepType type) => type switch
     {
         StepType.Run => "run",
@@ -122,6 +123,10 @@ internal sealed class InngestTelemetry : IDisposable
         StepType.WaitForEvent => "wait_for_event",
         StepType.Invoke => "invoke",
         StepType.SendEvent => "send_event",
+        StepType.WaitForSignal => "wait_for_signal",
+        StepType.SendSignal => "send_signal",
+        StepType.Fetch => "fetch",
+        StepType.AIInfer => "ai_infer",
         _ => type.ToString(),
     };
 

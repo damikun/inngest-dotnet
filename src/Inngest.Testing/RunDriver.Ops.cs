@@ -187,13 +187,18 @@ internal sealed partial class RunDriver
         return step;
     }
 
-    private static string Describe(StepType type) => type switch
+    // Covers every step type, not just the supported ones, so a type the host learns to mock already reads well.
+    internal static string Describe(StepType type) => type switch
     {
         StepType.Run => "run step",
         StepType.Sleep => "sleep",
         StepType.WaitForEvent => "wait for an event",
         StepType.Invoke => "invoke",
         StepType.SendEvent => "send step, whose events the host records",
+        StepType.WaitForSignal => "wait for a signal",
+        StepType.SendSignal => "send-signal step",
+        StepType.Fetch => "fetch",
+        StepType.AIInfer => "call to an AI model",
         _ => type.ToString(),
     };
 

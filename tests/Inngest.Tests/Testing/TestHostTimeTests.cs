@@ -225,5 +225,10 @@ public sealed class TestHostTimeTests
         exception.Message.ShouldBe("The mock for step \"cool-down\" answers a run step, but the step is a sleep.");
     }
 
+    // Otherwise a mismatch would name the step type as it is spelled in C#.
+    [Fact]
+    public void Every_step_type_has_a_description_for_mock_errors() =>
+        Enum.GetValues<StepType>().ShouldAllBe(type => RunDriver.Describe(type) != type.ToString());
+
     public sealed record Approval(string OrderId, string By);
 }
