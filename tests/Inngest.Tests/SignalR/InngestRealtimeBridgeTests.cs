@@ -394,12 +394,18 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         await app.Bridge.SubscribeAsync(quick, Order, ["status"], Cancel);
         string[] expected = [.. Enumerable.Range(0, 700).Select(n => $$"""{"n":{{n}}}""")];
 
-        foreach (var message in expected)
+        // A batch at a time, so that the quick client is never more than a batch behind, whatever the machine is doing.
+        for (var sent = 0; sent < expected.Length; sent += 50)
         {
-            await feed.SendAsync(message);
+            var end = Math.Min(sent + 50, expected.Length);
+            foreach (var message in expected[sent..end])
+            {
+                await feed.SendAsync(message);
+            }
+
+            await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == end);
         }
 
-        await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == expected.Length);
         _rig.Hubs.Messages("quick").ShouldBe(expected);
         await Wait.UntilAsync(() => slow.Aborted);
         _rig.Hubs.Messages("slow").ShouldBeEmpty();
@@ -530,9 +536,15 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         var sender = Task.Run(
             async () =>
             {
-                foreach (var message in expected)
+                for (var sent = 0; sent < expected.Length; sent += 100)
                 {
-                    await feed.SendAsync(message);
+                    foreach (var message in expected[sent..(sent + 100)])
+                    {
+                        await feed.SendAsync(message);
+                    }
+
+                    // The anchor stays within a batch of the feed, as only a client that falls 512 behind is disconnected.
+                    await Wait.UntilAsync(() => _rig.Hubs.Messages("anchor").Count == sent + 100);
                 }
             },
             Cancel);

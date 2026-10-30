@@ -54,8 +54,8 @@ callback returns. The callback returns the subscription to join:
 - `request.Requested` lets the client in as it asked.
 - The same channel with fewer topics narrows the request.
 - Another channel gives the client something it did not name, such as one derived from its user.
-- `null` refuses, and the client gets a `HubException` saying so. Throw a `HubException` yourself to say why; SignalR
-  sends its message to the client.
+- `null` refuses, and so does a subscription with no topics. The client gets a `HubException` saying so. Throw a
+  `HubException` yourself to say why; SignalR sends its message to the client.
 
 {/* check: file */}
 ```csharp
@@ -120,7 +120,7 @@ connection.on("Realtime", (json) => {
   if (message.kind === "chunk") appendText(message.data);
 });
 
-// Inngest ended the subscription. The client is out of it and joins again to try anew.
+// Inngest refused or ended the subscription. The client is out of it, and joins again to try anew.
 connection.on("RealtimeError", (channel, text) => showProblem(channel, text));
 
 const join = () => connection.invoke("Subscribe", `order:${orderId}`, ["status", "tokens"]);
@@ -133,9 +133,9 @@ await join();
 ```
 
 `Subscribe` resolves once the client has joined, and rejects with an error that holds the message of the `HubException`
-when it may not. A client that leaves a page calls `connection.invoke("Unsubscribe", channel, topics)` with the arguments it joined with,
-and a connection that closes leaves everything at once. Joining what a client is in already, and leaving what it is not
-in, change nothing.
+when it may not. A client that leaves a page calls `connection.invoke("Unsubscribe", channel, topics)` with the
+arguments it joined with, and a connection that closes leaves everything at once. Joining what a client is in already,
+and leaving what it is not in, change nothing.
 
 Inngest keeps no messages for later and delivers only to subscribers that are connected. `Subscribe` returns when the
 client has joined, a moment before the app's subscription to Inngest is open, so join before the function starts
@@ -223,7 +223,7 @@ subscriptions when SignalR aborts the connection, whichever hub it belongs to. M
 
 ## Scale out
 
-SignalR keeps a connection on one app instance. With several instances, a backplane lets one instance send to a
+SignalR serves a connection from one app instance. With several instances, a backplane lets one instance send to a
 connection, a user or a group that is on another: Redis, or Azure SignalR Service, which holds the client connections
 itself. See [Microsoft's guide](https://learn.microsoft.com/aspnet/core/signalr/scale). Every instance of the app
 subscribes to Inngest for the clients it has, so a bridge that sent each message to a group would deliver it again and
@@ -246,18 +246,19 @@ however many instances there are, on Redis and on Azure SignalR Service. What th
   group. The bridge sends to connections so that it can disconnect that one client and no other.
 - **Each instance opens its own subscription to Inngest** for each channel its clients joined, so a channel that clients
   of three instances watch has three subscriptions, not one.
-- **A reconnect** can land on another instance with a new connection id. The client joins again, which opens a
-  subscription on that instance if it has none, and the old instance has already dropped the old connection.
+- **A reconnect** can land on another instance, with a new connection id. The client joins again, which opens a
+  subscription on that instance if it has none. The instance of the old connection leaves its subscriptions when
+  SignalR ends that connection.
 
 If thousands of clients watch one channel, consider letting their browsers subscribe to Inngest themselves with a token
 and `useRealtime`: Inngest does the fan-out, and no instance of your app sends a message for each client.
 
 ## Trimming and Native AOT
 
-The package's own code is trim and Native AOT compatible. SignalR's support is narrower, and it is SignalR's:
+The package's own code is trim and Native AOT compatible. SignalR's own support is narrower:
 
-- On .NET 8, Microsoft lists SignalR as not supported with Native AOT. .NET 9 added trimming and Native AOT for the
-  SignalR server and client.
+- The ASP.NET Core documentation lists SignalR as not supported with Native AOT on .NET 8. .NET 9 added trimming and
+  Native AOT for the SignalR server and client.
 - Only the JSON protocol, with a `System.Text.Json` source-generated context. MessagePack is not supported.
 - No strongly typed hubs with Native AOT, and the asynchronous return types of hub methods are limited to `Task`,
   `Task<T>`, `ValueTask` and `ValueTask<T>`.
@@ -313,5 +314,4 @@ fan-out to Inngest.
   `MaximumReceiveMessageSize` applies to what clients send, such as the topics of `Subscribe`.
 - Delivery follows Inngest's: to the clients that have joined, from the moment the subscription to Inngest is open, and
   nothing is kept for later.
-- `Authorize` runs when a client joins.
 - A client that joined through one instance of the app is served by that instance until its connection ends.
