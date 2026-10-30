@@ -43,6 +43,11 @@ internal static class SecretBox
     // Decrypts into message, which is TagSize bytes shorter than the box. Nothing is decrypted unless the tag matches.
     public static bool TryOpen(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> box, Span<byte> message)
     {
+        if (box.Length < TagSize)
+        {
+            return false;
+        }
+
         Span<byte> tagKey = stackalloc byte[KeySize];
         var stream = StartStream(key, nonce, tagKey);
         var encrypted = box[TagSize..];
