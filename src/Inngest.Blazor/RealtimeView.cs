@@ -73,9 +73,6 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
     public RenderFragment<RealtimeState<TData>>? ChildContent { get; set; }
 
     [Inject]
-    private IRealtimeSource Source { get; set; } = default!;
-
-    [Inject]
     private ILogger<RealtimeView<TData>> Logger { get; set; } = default!;
 
     [Inject]
@@ -234,7 +231,10 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
     {
         try
         {
-            var messages = Open(subscription, state => _ = InvokeAsync(() => Report(generation, state)), cancellationToken);
+            // Asked for here and not injected, so that a server that only prerenders the view, ahead of WebAssembly, needs no
+            // source, and so that a missing one fails the view rather than the page.
+            var source = Services.GetRequiredService<IRealtimeSource>();
+            var messages = Open(source, subscription, state => _ = InvokeAsync(() => Report(generation, state)), cancellationToken);
             await foreach (var message in messages.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
                 await InvokeAsync(() => ApplyAsync(generation, message)).ConfigureAwait(false);
@@ -252,12 +252,12 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
         }
     }
 
-    private IAsyncEnumerable<RealtimeMessage<TData>> Open(Subscription subscription, Action<RealtimeConnectionState> report, CancellationToken cancellationToken) =>
+    private static IAsyncEnumerable<RealtimeMessage<TData>> Open(IRealtimeSource source, Subscription subscription, Action<RealtimeConnectionState> report, CancellationToken cancellationToken) =>
         subscription.Typed
-            ? Source.SubscribeAsync(new RealtimeTopic<TData>(subscription.Channel, subscription.Topics[0]), cancellationToken, report)
+            ? source.SubscribeAsync(new RealtimeTopic<TData>(subscription.Channel, subscription.Topics[0]), cancellationToken, report)
 
             // Resolve checked that TData is JsonElement, which this is then.
-            : (IAsyncEnumerable<RealtimeMessage<TData>>)(object)Source.SubscribeAsync(subscription.Channel, subscription.Topics, cancellationToken, report);
+            : (IAsyncEnumerable<RealtimeMessage<TData>>)(object)source.SubscribeAsync(subscription.Channel, subscription.Topics, cancellationToken, report);
 
     private bool IsCurrent(int generation) => !_disposed && generation == _generation;
 

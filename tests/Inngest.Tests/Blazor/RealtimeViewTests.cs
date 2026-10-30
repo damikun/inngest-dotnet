@@ -4,6 +4,7 @@ using Inngest.Tests.Execution;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Tests.Blazor;
@@ -50,8 +51,8 @@ public sealed class RealtimeViewTests : BunitContext
     public async Task A_view_that_was_prerendered_is_disposed_after_the_scope_of_its_request()
     {
         // The end of a request disposes its scope, which holds the renderer, so the renderer disposes its components
-        // when the services are already gone.
-        var provider = new ServiceCollection().AddLogging().AddSingleton<IRealtimeSource>(_source).BuildServiceProvider();
+        // when the services are already gone. This server only prerenders the view, so it registers no source for it.
+        var provider = new ServiceCollection().AddLogging().BuildServiceProvider();
         var scope = provider.CreateAsyncScope();
         var renderer = new HtmlRenderer(scope.ServiceProvider, scope.ServiceProvider.GetRequiredService<ILoggerFactory>());
         await renderer.Dispatcher.InvokeAsync(async () =>
@@ -67,6 +68,18 @@ public sealed class RealtimeViewTests : BunitContext
         await renderer.DisposeAsync();
 
         await provider.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_view_without_a_registered_source_fails_instead_of_failing_the_page()
+    {
+        Services.RemoveAll<IRealtimeSource>();
+
+        var cut = RenderStatus();
+
+        cut.WaitForAssertion(() => cut.Find(".connection").TextContent.ShouldBe("Failed"), Wait);
+        cut.Find(".error").TextContent.ShouldContain(nameof(IRealtimeSource));
+        await Task.CompletedTask;
     }
 
     [Fact]

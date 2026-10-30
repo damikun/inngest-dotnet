@@ -269,6 +269,10 @@ A view subscribes after its first interactive render and never before, so a page
 statically does not subscribe, and neither does the prerendered copy of an interactive one. The view's `Connection`
 reads `Idle` in the prerendered HTML. The view does not depend on `RendererInfo`, which .NET 8 lacks.
 
+A view asks for its `IRealtimeSource` when it subscribes, not when it is created. A server that only prerenders a page
+for WebAssembly therefore needs no source of its own, and a missing registration shows as a failed view with the
+missing service in `Error`, not as a page that does not render.
+
 ## Errors
 
 A subscription that is refused, such as one with a wrong signing key or a 403 from the relay, does not end the
