@@ -14,8 +14,9 @@
     <!-- Versioned with ASP.NET Core, whose 10.0 packages have no net8.0 build; net8.0 gets the version its framework ships. -->
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <!-- Entity Framework Core has one major version per runtime, like ASP.NET Core. The 8.0 line is the oldest that has ExecuteUpdate
-         and ExecuteDelete, and the 10.0 packages have no net8.0 build. -->
+    <!-- Entity Framework Core has one major version per runtime, like ASP.NET Core, and its 10.0 packages have no net8.0 build. Each
+         build of Inngest.EntityFrameworkCore stays on the line it is compiled against, because ExecuteUpdate moved from the Relational
+         assembly to the core assembly in EF Core 9. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
