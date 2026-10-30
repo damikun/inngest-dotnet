@@ -61,6 +61,7 @@ export default defineConfig({
           items: [
             'guides/functions-and-triggers',
             'guides/steps',
+            'guides/scoped-steps',
             'guides/parallel-steps',
             'guides/sleep-and-wait-for-events',
             'guides/invoking-functions',

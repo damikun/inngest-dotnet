@@ -158,13 +158,14 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `FetchAsync(string id, HttpRequestMessage request)` | `Task<HttpResponseMessage>`; Inngest makes the request, and the response is memoized |
 | `InferAsync<TResponse>(string id, InferOptions options)` | `Task<TResponse>`; Inngest sends the request to the AI provider, and the response is memoized |
 | `AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler)` | `Task<TResult>`; runs your own model call like a run step that the Inngest UI shows as one, with the input; a rerun with an input edited there passes the edited input |
+| `RunScopedAsync<T>(string id, Func<IServiceProvider, CancellationToken, Task<T>> handler)` | `Task<T>`; runs the handler once like a run step, in a dependency injection scope of its own that is created when the handler starts and disposed when it ends. See [Scoped steps](/inngest-dotnet/guides/scoped-steps/) |
 | `PublishAsync<T>(string id, RealtimeTopic topic, T data)` | `Task<T>`; publishes a [realtime](#realtime) message once, tagged with the run; also for a `RealtimeTopic<T>` |
 | `PublishStreamAsync(string id, RealtimeTopic topic, IAsyncEnumerable<string> chunks)` | `Task<string>`; streams the text to the topic as it arrives and memoizes all of it, so a replay does not read the chunks again |
 | `ParallelAsync<T>(ParallelMode mode, Func<Task<T>> steps)` | `Task<T>`; runs the callback with the mode applied to every step it creates |
 
 The members after the first six have default implementations, so a fake only has to implement the six. The defaults
 of `InvokeAsync<TFunction, TResult>`, `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`, `InferAsync`,
-`AIWrapAsync`, `PublishAsync` and `PublishStreamAsync` throw `NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
+`AIWrapAsync`, `RunScopedAsync`, `PublishAsync` and `PublishStreamAsync` throw `NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
 the id.
 
 `StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
@@ -172,7 +173,9 @@ synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, 
 event. For a typed event `T` it adds `WaitForEventAsync<T>(string id, TimeSpan timeout, string? match = null,
 string? @if = null)` and `SendEventAsync<T>` for one `T` or several. It also adds a non-generic `WaitForSignalAsync`
 with `JsonElement` data, an `InferAsync` that returns `JsonElement`, an `AIWrapAsync` whose handler takes no token,
-and `ParallelAsync(ParallelMode, Func<Task>)` for steps without a result. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
+and `ParallelAsync(ParallelMode, Func<Task>)` for steps without a result. For scoped steps it adds a `RunScopedAsync`
+whose handler returns no result, and `RunScopedAsync<TService, T>` and `RunScopedAsync<TService>`, whose handler takes
+the `TService` that the SDK resolves from the step's scope with `GetRequiredService`. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
 
 | Record | Constructor | Properties |
 |---|---|---|

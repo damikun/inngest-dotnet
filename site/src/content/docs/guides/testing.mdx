@@ -172,7 +172,8 @@ once.
 - It calls the function again after every step, as Inngest does, so code outside steps runs once per call, and every
   step result reaches the function through JSON written with the app's serializer options.
 - It resolves the function, its middleware and the services they use from a new scope for every call, and the app's
-  middleware runs around every call and step.
+  middleware runs around every call and step. A [scoped step](/inngest-dotnet/guides/scoped-steps/) runs its handler
+  in a scope of its own on top of that.
 - It runs steps that start together in calls of their own, one per step, and calls the function again once all of
   them have finished, or after each one in [race mode](/inngest-dotnet/guides/parallel-steps/).
 - It retries a failing step or function at once, with the attempt numbers Inngest would send, until the function's
@@ -236,7 +237,7 @@ share a set and add to it.
 
 | Method | What the step does |
 |---|---|
-| `Run<T>(id, T result)` | Returns `result` instead of running its handler. An `AIWrapAsync` step is mocked the same way, and so is a model call or tool call of an [AI chat client](/inngest-dotnet/guides/ai/#testing). |
+| `Run<T>(id, T result)` | Returns `result` instead of running its handler. An `AIWrapAsync` step and a `RunScopedAsync` step are mocked the same way, the latter then making no scope, and so is a model call or tool call of an [AI chat client](/inngest-dotnet/guides/ai/#testing). |
 | `Run<T>(id, Func<int, T> handler)` | Calls `handler` in place of the step's own handler on every attempt, with the attempt number from 0. Throw from it to fail the attempt. |
 | `RunThrows(id, exception)` | Throws on every attempt, so the step is retried and then fails for good, at once for a `NonRetriableException`. |
 | `Sleep(id)` | The sleep ends. |
@@ -364,8 +365,9 @@ The SDK's extension methods for these steps, such as `RunAsync` with a handler t
 the typed `WaitForEventAsync<T>` and `SendEventAsync<T>`, end up in these six methods, and so do their overloads that
 take a `StepOptions` in place of the id. `ParallelAsync` needs nothing from the fake. The other members of
 `IStepTools` have defaults that throw `NotSupportedException`: `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`,
-`InferAsync`, `AIWrapAsync`, `PublishAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by class and needs
-the app's registrations to find the function's id. Implement the ones the function under test calls.
+`InferAsync`, `AIWrapAsync`, `RunScopedAsync`, `PublishAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by
+class and needs the app's registrations to find the function's id. Implement the ones the function under test calls;
+[Scoped steps](/inngest-dotnet/guides/scoped-steps/#testing) shows `RunScopedAsync`.
 
 `FunctionContext<T>` has public `init` properties, so a test builds one directly:
 

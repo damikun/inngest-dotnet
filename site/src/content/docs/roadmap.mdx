@@ -31,6 +31,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   requests, as a container of an Aspire AppHost. It links the server's UI in the dashboard, syncs the apps of the
   AppHost and gives projects, containers and Connect workers the settings they need. See
   [Aspire](/inngest-dotnet/guides/aspire/).
+- **A scope per step.** `RunScopedAsync` runs a step in a dependency injection scope of its own, created when the
+  handler starts and disposed when it ends, so a `DbContext` is new for every step and attempt and nothing it tracks
+  reaches the next one. The guide covers one `SaveChangesAsync` per step, transactions and execution strategies, and
+  idempotency keys for steps that can run again. See [Scoped steps](/inngest-dotnet/guides/scoped-steps/).
 - **Sentry and encryption packages.** `Inngest.Sentry` reports the errors of functions and steps to Sentry, tagged
   with the app, the function, the run and the event. `Inngest.Encryption` encrypts event data, step results and
   function output in the format of the TypeScript SDK's encryption middleware, so .NET and TypeScript services read

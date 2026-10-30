@@ -44,6 +44,10 @@ including the events its steps send, so it can take scoped dependencies and keep
 `AddMiddleware(instance)` registers one instance for every call instead; keep such an instance free of per-call
 state.
 
+`context.Services` is the call's scope for every hook. A [scoped step](/inngest-dotnet/guides/scoped-steps/) runs its
+handler in a scope of its own that middleware does not see: `WrapStepHandlerAsync` wraps the handler together with
+that scope, which exists only inside `next()`.
+
 Middleware runs in registration order. For wrapping hooks, the first one registered is the outermost.
 
 Middleware for one function goes in its `FunctionOptions.Middleware` instead. It runs inside the app's middleware,

@@ -1,0 +1,394 @@
+---
+title: Scoped steps and Entity Framework Core
+description: Run a step in a dependency injection scope of its own with RunScopedAsync, so a DbContext never carries state from one step or call to the next, and write database steps that are safe to retry and replay.
+sidebar:
+  label: Scoped steps
+---
+
+A function's services come from a dependency injection scope that lives for one call from Inngest, and scoped services
+such as an Entity Framework `DbContext` work as they do in a controller. A call is not a step, though. Inngest calls
+the function again for every step, the function's own code runs again each time, and with
+[checkpointing](/inngest-dotnet/reference/api/#options) one call runs several steps. A `DbContext` injected into the
+function is a single instance for all of that.
+
+`context.Step.RunScopedAsync` runs a step in a scope of its own instead. The handler resolves what it needs from that
+scope, and the scope is disposed when the handler ends, so nothing a step tracks or leaves open reaches the next step,
+the next attempt or the next replay. It is part of the `Inngest` package and knows nothing about Entity Framework;
+this page uses `DbContext` because it is the service that needs it most.
+
+The examples use this model:
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+public sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.Entity<Payment>().HasIndex(payment => new { payment.RunId, payment.StepId }).IsUnique();
+}
+
+public sealed class Order
+{
+    public required string Id { get; init; }
+
+    public decimal Total { get; init; }
+
+    public string Status { get; set; } = "placed";
+
+    public string? Note { get; set; }
+
+    public List<OrderLine> Lines { get; } = [];
+}
+
+public sealed class OrderLine
+{
+    public int Id { get; set; }
+
+    public required string Sku { get; init; }
+
+    public int Quantity { get; init; }
+
+    public Order? Order { get; set; }
+}
+
+public sealed class Payment
+{
+    public int Id { get; set; }
+
+    public required string RunId { get; init; }
+
+    public required string StepId { get; init; }
+
+    public required string OrderId { get; init; }
+
+    public decimal Amount { get; init; }
+}
+
+public sealed record PaymentRecorded(int PaymentId);
+
+public sealed record LineSummary(string Sku, int Quantity);
+
+public sealed record OrderSummary(string Id, string Status, List<LineSummary> Lines);
+```
+
+## What the call's scope shares
+
+A `DbContext` tracks every entity it loads or changes, and `SaveChangesAsync` saves all of them. The context injected
+into the function belongs to the call, so a step that saves also saves whatever the rest of the call left in it:
+
+{/* check: body OrderPlaced; ShopDbContext db */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+// A read and an unsaved change made outside a step, so they happen again on every call.
+var order = await db.Orders.SingleAsync(o => o.Id == context.Event.Data.OrderId, cancellationToken);
+order.Note = $"Seen at {DateTimeOffset.UtcNow:O}";
+
+await context.Step.RunAsync("record-payment", async ct =>
+{
+    db.Payments.Add(new Payment { RunId = context.RunId, StepId = "record-payment", OrderId = order.Id, Amount = order.Total });
+
+    // Saves the payment, and the note too, which nothing asked this step to save.
+    await db.SaveChangesAsync(ct);
+});
+```
+
+It works the other way round too: when earlier code has already loaded a row, a tracking query returns that instance
+with the values it holds, not the values it just read, and `FindAsync` does not query at all. A scoped step starts from
+an empty context every time:
+
+{/* check: body OrderPlaced */}
+```csharp
+var order = context.Event.Data;
+
+var payment = await context.Step.RunScopedAsync("record-payment", async (ShopDbContext db, CancellationToken ct) =>
+{
+    var row = new Payment { RunId = context.RunId, StepId = "record-payment", OrderId = order.OrderId, Amount = order.Total };
+    db.Payments.Add(row);
+    await db.SaveChangesAsync(ct);
+    return new PaymentRecorded(row.Id);
+});
+```
+
+## RunScopedAsync
+
+The handler can ask for the scope's `IServiceProvider`, or for one service, which the SDK resolves with
+`GetRequiredService`. A handler without a result returns `Task`, and every overload also takes a `StepOptions` in
+place of the id, like the other step tools:
+
+{/* check: body OrderPlaced; string orderId */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+// Resolve what the step needs from the scope.
+var total = await context.Step.RunScopedAsync("sum-orders", async (services, ct) =>
+{
+    var db = services.GetRequiredService<ShopDbContext>();
+    return await db.Orders.SumAsync(o => o.Total, ct);
+});
+
+// One service. Write the type of the first parameter so that the compiler can infer it.
+var open = await context.Step.RunScopedAsync("count-open", (ShopDbContext db, CancellationToken ct) =>
+    db.Orders.CountAsync(o => o.Status == "placed", ct));
+
+// No result.
+await context.Step.RunScopedAsync("archive", async (ShopDbContext db, CancellationToken ct) =>
+{
+    await db.Orders.Where(o => o.Status == "shipped").ExecuteDeleteAsync(ct);
+});
+```
+
+Both forms resolve services with `GetRequiredService<T>()` and use no reflection of their own, so they work in trimmed
+and Native AOT apps as far as the services do. To Inngest a scoped step is a run step, reported exactly as `RunAsync`
+reports one, with the same id rules, retries and results. What differs is the scope:
+
+- **It lives as long as the handler.** The SDK creates it when the handler starts and disposes it when the handler
+  ends, whether the handler returned or threw, asynchronously for services that are `IAsyncDisposable`. That is before
+  the result is saved.
+- **Every execution gets a new one.** Each attempt of a step, each step of a checkpointed call and each of the steps
+  that [run in parallel](/inngest-dotnet/guides/parallel-steps/) has a scope of its own, so two steps never use one
+  `DbContext` at the same time, which Entity Framework does not support. A step whose result Inngest already has, a
+  step that is only planned and a step a test mocks create none.
+- **It is next to the call's scope, not inside it.** `IServiceScopeFactory` makes a scope that is a sibling of the
+  call's, as it does everywhere in .NET. Scoped services in it are new instances and singletons are shared, but
+  nothing code stored in the call's scope is there, such as a tenant that middleware set on a scoped service. Set it
+  from the step: `services.GetRequiredService<ITenantAccessor>().Set(tenantId)`.
+- **Middleware keeps seeing the call's scope.** `FunctionContext.Services` is the same for every hook.
+  `WrapStepHandlerAsync` wraps the scope: it is created inside `next()` and gone when `next()` returns, and the step's
+  `StepInfo.Type` is `Run`. See [Middleware](/inngest-dotnet/guides/middleware/#registration-and-lifetime).
+- **A service that fails to dispose does not fail the step.** The work is done by then, and a retry would do it again.
+  The SDK logs the exception at the error level instead, and a handler that threw keeps its own exception.
+- **Steps cannot be nested.** Calling a step tool inside the handler throws, as it does in `RunAsync`.
+
+## Results are plain data
+
+The result is serialized to JSON after the scope has been disposed, and every replay reads it back
+([Results are JSON](/inngest-dotnet/guides/steps/#results-are-json)). Return records, lists and ids, never tracked
+entities. An entity with navigation properties usually refers back to itself, which `System.Text.Json` refuses, and a
+query that has not run yet, such as an `IQueryable` or a lazy `Select`, would need the context that is gone. Project
+in the query and return what the function needs next:
+
+{/* check: body OrderPlaced; string orderId */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var summary = await context.Step.RunScopedAsync("load-order", (ShopDbContext db, CancellationToken ct) =>
+    db.Orders
+        .Where(o => o.Id == orderId)
+        .Select(o => new OrderSummary(o.Id, o.Status, o.Lines.Select(line => new LineSummary(line.Sku, line.Quantity)).ToList()))
+        .SingleAsync(ct));
+```
+
+A result that cannot be serialized fails the step after its handler has finished. The work is already committed
+by then, and the retry does it again, which is a reason to make steps safe to repeat, as described below.
+
+Do not hand an entity from one step to another either. Re-attaching a copy that a step returned, with `Update`, writes
+every column it holds, including values that changed in the meantime. Pass the id and load the row again where it is
+needed.
+
+## Entity Framework Core
+
+### One SaveChangesAsync per step
+
+A step is the unit that Inngest retries, and it records the step's result only when the handler returns. Give each step
+one `SaveChangesAsync`: for a relational provider it runs in a transaction of its own, so the step writes everything or
+nothing, and a retry starts from a clean state. Work that is separate, such as taking the payment and booking the
+shipment, belongs in separate steps, so that a failure retries only what failed. Return what the next step needs,
+such as the generated key, after the save.
+
+Register the context as usual. With `AddDbContextPool` a step takes a context from the pool when it resolves one and
+the scope gives it back, reset, when the step ends:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+builder.Services.AddDbContextPool<ShopDbContext>(options =>
+{
+    // Your provider, for example options.UseNpgsql(connectionString).
+});
+```
+
+If a step needs only a `DbContext`, `IDbContextFactory<T>` does the same without the SDK: inject the factory into the
+function and create the context inside a plain `RunAsync`. A scoped step is for steps that use several scoped services
+that must share one context, such as repositories or a unit of work class registered as scoped.
+
+{/* check: body OrderPlaced; IDbContextFactory<ShopDbContext> dbFactory */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var count = await context.Step.RunAsync("count-open", async ct =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync(ct);
+    return await db.Orders.CountAsync(o => o.Status == "placed", ct);
+});
+```
+
+### Transactions and execution strategies
+
+A step that needs several saves in one transaction opens the transaction itself. If the provider is set up with a
+retrying execution strategy, such as `EnableRetryOnFailure()`, Entity Framework refuses a transaction you start
+yourself unless the whole transaction runs inside `strategy.ExecuteAsync`. The strategy runs the delegate again after
+a transient failure, so the delegate must start from a clean state: clear the change tracker and build the entities
+inside it.
+
+{/* check: body OrderPlaced */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var order = context.Event.Data;
+
+var captured = await context.Step.RunScopedAsync("capture-payment", async (ShopDbContext db, CancellationToken ct) =>
+{
+    var strategy = db.Database.CreateExecutionStrategy();
+    return await strategy.ExecuteAsync(async () =>
+    {
+        db.ChangeTracker.Clear();
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        var row = await db.Orders.SingleAsync(o => o.Id == order.OrderId, ct);
+        row.Status = "paid";
+        await db.SaveChangesAsync(ct);
+
+        var payment = new Payment { RunId = context.RunId, StepId = "capture-payment", OrderId = row.Id, Amount = row.Total };
+        db.Payments.Add(payment);
+        await db.SaveChangesAsync(ct);
+
+        await transaction.CommitAsync(ct);
+        return new PaymentRecorded(payment.Id);
+    });
+});
+```
+
+The same code works without a retrying strategy; the default strategy runs the delegate once. If the connection drops
+while the transaction commits, Entity Framework cannot tell whether it committed and may run the delegate again, which
+is the same problem the next section solves for the step as a whole. See Microsoft's pages on
+[connection resiliency](https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency) and
+[the lifetime of a DbContext](https://learn.microsoft.com/ef/core/dbcontext-configuration/).
+
+### Idempotency keys
+
+A step's handler can run again after its work has been committed. Inngest records a step's result only when the
+call that ran it answers with the result. If that call is lost first, because the process stops, a proxy times out or
+the connection drops, Inngest retries the step, and the handler finds its rows already written. The same happens when
+the result cannot be serialized, and under [checkpointing](/inngest-dotnet/reference/api/#options) with a
+`BufferedSteps` above 1, where steps that were not yet saved run again after a lost call. Inngest's own page on
+[idempotency](https://www.inngest.com/docs/guides/handling-idempotency) makes the same point about external services.
+Deduplicating the event or the function, as [flow control](/inngest-dotnet/guides/flow-control/#idempotency) does,
+decides whether a run starts, not whether a step runs twice.
+
+So key the write by what stays the same across executions of the step: the run id and the step id. A new `Guid` or
+`context.Attempt` would differ each time, which defeats the key. Put a unique index on the key, as the model above
+does for `Payment`, so the database refuses a second row even when two executions overlap, and make the handler return
+the row that is there:
+
+{/* check: body OrderPlaced */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var order = context.Event.Data;
+
+var recorded = await context.Step.RunScopedAsync("record-payment", async (ShopDbContext db, CancellationToken ct) =>
+{
+    var existing = await db.Payments.SingleOrDefaultAsync(p => p.RunId == context.RunId && p.StepId == "record-payment", ct);
+    if (existing is not null)
+    {
+        return new PaymentRecorded(existing.Id);
+    }
+
+    var payment = new Payment { RunId = context.RunId, StepId = "record-payment", OrderId = order.OrderId, Amount = order.Total };
+    db.Payments.Add(payment);
+    try
+    {
+        await db.SaveChangesAsync(ct);
+    }
+    catch (DbUpdateException)
+    {
+        // An execution that overlapped this one committed first, and the unique index refused this row.
+        db.ChangeTracker.Clear();
+        var winner = await db.Payments.SingleOrDefaultAsync(p => p.RunId == context.RunId && p.StepId == "record-payment", ct);
+        if (winner is null)
+        {
+            throw;
+        }
+
+        return new PaymentRecorded(winner.Id);
+    }
+
+    return new PaymentRecorded(payment.Id);
+});
+```
+
+A step id used in a loop is numbered (`record-payment:1`), so build the id from the item, as in
+`$"record-payment-{invoice.Id}"`, and key by that. Other steps need other shapes:
+
+- A step that creates a row can put the key on the row itself, as above, or use a natural key such as the order id.
+- A step that sets a status is safe to repeat as it is, as long as it does not depend on the previous value.
+- A step that changes a number relative to its old value, such as a stock count, is not. Add a row keyed by run and
+  step in the same save, so the second save fails, or make the update conditional.
+
+Keep the keys as long as the run can still retry the step. A function triggered by `inngest/function.finished` can
+delete them when the run ends.
+
+### Reads between steps
+
+Code outside steps runs on every call, and what a read finds can change between two calls. A branch taken on such a
+read can differ from call to call, so the function reaches different steps than the run recorded. Put every read that
+decides what the function does into a step, so that its result is saved:
+
+{/* check: body OrderPlaced; string orderId */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var status = await context.Step.RunScopedAsync("load-status", (ShopDbContext db, CancellationToken ct) =>
+    db.Orders.Where(o => o.Id == orderId).Select(o => o.Status).SingleAsync(ct));
+
+if (status == "paid")
+{
+    await context.Step.RunAsync("ship", () => Task.CompletedTask);
+}
+```
+
+## Testing
+
+The [test host](/inngest-dotnet/guides/testing/#the-test-host) runs scoped steps like any other, with a new scope for
+each, and a mock replaces one where its handler would run, so `new StepMocks().Run("record-payment", new
+PaymentRecorded(1))` answers the step above without touching a database. To test the database code, run it against a real
+database: SQLite in memory or, better, the kind you deploy to. The EF Core in-memory provider does not support
+transactions, and a test of an idempotency key needs a database that enforces the unique index.
+
+A [fake `IStepTools`](/inngest-dotnet/guides/testing/#a-fake-for-the-step-tools) has to implement `RunScopedAsync`
+itself: the default throws `NotSupportedException`, so that fakes written before it keep compiling. Creating a scope
+from a provider of the test and running the handler in it is all it takes:
+
+```csharp
+using Inngest;
+
+public sealed class ScopingStepTools(IServiceProvider services) : IStepTools
+{
+    public async Task<T> RunScopedAsync<T>(string id, Func<IServiceProvider, CancellationToken, Task<T>> handler)
+    {
+        await using var scope = services.CreateAsyncScope();
+        return await handler(scope.ServiceProvider, CancellationToken.None);
+    }
+
+    public async Task<T> RunAsync<T>(string id, Func<CancellationToken, Task<T>> handler) => await handler(CancellationToken.None);
+
+    public Task SleepAsync(string id, TimeSpan duration) => Task.CompletedTask;
+
+    public Task SleepUntilAsync(string id, DateTimeOffset until) => Task.CompletedTask;
+
+    public Task<InngestEvent<TData>?> WaitForEventAsync<TData>(string id, WaitForEventOptions options) =>
+        Task.FromResult<InngestEvent<TData>?>(null);
+
+    public Task<TResult> InvokeAsync<TResult>(string id, InvokeOptions options) => throw new NotSupportedException();
+
+    public Task<SendEventsResult> SendEventAsync(string id, IReadOnlyList<InngestEvent> events) => throw new NotSupportedException();
+}
+```
+
+The overloads that take a `StepOptions`, or a service type, or no result, all end up in that one method.

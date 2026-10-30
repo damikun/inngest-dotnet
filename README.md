@@ -98,6 +98,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Steps that run once** | `context.Step.RunAsync(id, handler)` saves the result, and a retry resumes after the last step that finished. |
 | **Sleep and wait for events** | `SleepAsync`, `SleepUntilAsync` and `WaitForEventAsync<T>` pause a run without holding a thread, a request or a worker. |
 | **Parallel steps** | Start steps together and `await Task.WhenAll(...)`. Inngest runs each in its own call. |
+| **A scope per step** | `RunScopedAsync` runs a step in a dependency injection scope of its own, so a `DbContext` never carries state from one step or call to the next. |
 | **Functions that call functions** | `InvokeAsync<T>` runs another function and returns its result. `SendEventAsync` sends events exactly once. |
 | **Triggers** | Events, events filtered with an expression, and cron schedules with a time zone. |
 | **Flow control** | Concurrency with keys, throttling, rate limits, debounce, batching, priority, idempotency and singletons, as attributes on the function or options in `FunctionOptions`. |
@@ -308,6 +309,7 @@ data.
   [Templates and tool](https://damikun.github.io/inngest-dotnet/guides/templates-and-tools/)
 - **Guides:** [Functions and triggers](https://damikun.github.io/inngest-dotnet/guides/functions-and-triggers/) ·
   [Steps](https://damikun.github.io/inngest-dotnet/guides/steps/) ·
+  [Scoped steps](https://damikun.github.io/inngest-dotnet/guides/scoped-steps/) ·
   [Sleep and wait for events](https://damikun.github.io/inngest-dotnet/guides/sleep-and-wait-for-events/) ·
   [Parallel steps](https://damikun.github.io/inngest-dotnet/guides/parallel-steps/) ·
   [Invoking functions](https://damikun.github.io/inngest-dotnet/guides/invoking-functions/) ·

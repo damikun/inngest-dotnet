@@ -40,6 +40,7 @@ saved payment id without charging the card a second time.
 | `InvokeAsync<T>(id, options)` | Runs another function and returns its result. | [Invoking functions](/inngest-dotnet/guides/invoking-functions/) |
 | `SendEventAsync(id, events)` | Sends events exactly once per run. | [Sending events](/inngest-dotnet/guides/sending-events/) |
 | `AIWrapAsync(id, input, handler)` | Runs your own model call as a step that the Inngest UI shows as one. | [Calls to AI models](#calls-to-ai-models), [AI chat clients](/inngest-dotnet/guides/ai/) |
+| `RunScopedAsync(id, handler)` | Runs code once like `RunAsync`, in a dependency injection scope of its own, so a `DbContext` is new for every step. | [Scoped steps](/inngest-dotnet/guides/scoped-steps/) |
 | `PublishAsync(id, topic, data)` | Publishes a realtime message once. | [Realtime](/inngest-dotnet/guides/realtime/) |
 
 All of them are on `IStepTools`, which is an interface so that functions can be
@@ -172,6 +173,10 @@ Each step has its own retry count: with `Retries = 3`, every step gets up to fou
 them, the SDK throws `StepFailedException` where the function awaits the step. Catch it to recover; left uncaught,
 it fails the run. [Errors and retries](/inngest-dotnet/guides/errors-and-retries/) covers this, along with
 `NonRetriableException` and `RetryAfterException`.
+
+A handler can also run again after its work succeeded, when the call that ran it is lost before Inngest records the
+result. Write steps that are safe to repeat, such as a database write keyed by the run and the step;
+[Scoped steps](/inngest-dotnet/guides/scoped-steps/#idempotency-keys) shows one.
 
 ## Related examples
 

@@ -331,6 +331,13 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   `SleepUntilAsync`, `WaitForEventAsync`, `InvokeAsync`, `SendEventAsync`. Members added later have default
   implementations, and convenience overloads are extension methods over those six. Parallel steps are plain
   `Task.WhenAll`/`Task.WhenAny`.
+- `RunScopedAsync` is a run step whose handler runs in a dependency injection scope of its own. The invocation makes
+  the scope from its services (a sibling of the invocation's scope, as `IServiceScopeFactory` makes them) when the
+  handler starts and disposes it, asynchronously, when the handler ends, so a `DbContext` is new for every attempt and
+  step, and a memoized, planned or mocked step makes none. It is a `RunStep<T>` with a wrapped handler, so Inngest,
+  middleware (`StepType.Run`) and the test host see an ordinary run step, and middleware keeps seeing the invocation's
+  scope in `FunctionContext.Services`. The typed overloads are extension methods that resolve one service with
+  `GetRequiredService<T>()`. A scoped service that throws when it is disposed is logged and does not fail the step.
 - Errors are exceptions: `NonRetriableException`, `RetryAfterException`, and `StepFailedException` thrown at a
   step's call site when the step failed for good. `InngestException` covers failures talking to Inngest.
 - Failure handlers implement `IFailureHandler` on the function class, or pass `onFailure` with a delegate.
@@ -497,6 +504,7 @@ per call.
 | Serve endpoint: introspection, in-band and out-of-band sync, calls | Supported |
 | Dev mode and cloud mode, signing, signing key rotation, response signing | Supported |
 | Steps: run, sleep, sleepUntil, waitForEvent, invoke, sendEvent, parallel steps | Supported |
+| A dependency injection scope per step handler, for a `DbContext` and other scoped services | Supported (.NET only): `RunScopedAsync` and typed overloads on the step tools |
 | Flow control and function config: concurrency, throttle, rate limit, debounce, batching, priority, idempotency, retries, cancelOn, timeouts, singleton | Supported |
 | Function config as attributes on the class, typed events, typed results and invoke by class | Supported (.NET only) |
 | Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |

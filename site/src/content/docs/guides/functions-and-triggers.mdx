@@ -97,7 +97,8 @@ builder.Services
 
 The SDK resolves a new instance from a dependency injection scope for every call Inngest makes, and disposes the
 scope when the call ends. Scoped services such as an Entity Framework `DbContext` work as they do in a controller.
-You do not need to register the class yourself; `AddFunction` adds it as a transient service if it is not there.
+The scope is the call's, not a step's; [Scoped steps](/inngest-dotnet/guides/scoped-steps/) gives a step a scope of its
+own. You do not need to register the class yourself; `AddFunction` adds it as a transient service if it is not there.
 
 `ExecuteAsync` returns the function's output, which Inngest stores and shows with the run. Return `null` when there
 is nothing to return. The output is serialized to JSON, like everything a function hands to Inngest. To give the
