@@ -11,9 +11,9 @@ public sealed class StartFailureTests
     {
         // The server stops at once on an option it does not know. The wait is shortened, since it has to give up.
         var wait = Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
-            request => request.ForPort(InngestBuilder.InngestPort).ForPath("/health"),
+            request => request.ForPort(InngestServerBuilder.InngestPort).ForPath("/health"),
             strategy => strategy.WithTimeout(TimeSpan.FromSeconds(20)));
-        await using var server = new InngestBuilder(InngestServer.Image).WithCommand("--no-such-option").WithWaitStrategy(wait).Build();
+        await using var server = new InngestServerBuilder(InngestServer.Image).WithCommand("--no-such-option").WithWaitStrategy(wait).Build();
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() => server.StartAsync(TestContext.Current.CancellationToken));
 

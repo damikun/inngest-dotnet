@@ -13,18 +13,18 @@ namespace Inngest.IntegrationTests.Containers;
 // Program is internal, and any public type of the assembly finds the entry point just as well.
 public abstract class FactoryFixture : IAsyncLifetime
 {
-    public InngestContainer Server { get; private set; } = null!;
+    public InngestServerContainer Server { get; private set; } = null!;
 
     public InngestWebApplicationFactory<OnboardUser> App { get; private set; } = null!;
 
     public DevServerClient Api { get; private set; } = null!;
 
-    protected abstract InngestBuilder Configure(InngestBuilder builder);
+    protected abstract InngestServerBuilder Configure(InngestServerBuilder builder);
 
     public async ValueTask InitializeAsync()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        Server = Configure(new InngestBuilder(InngestServer.Image)).Build();
+        Server = Configure(new InngestServerBuilder(InngestServer.Image)).Build();
         try
         {
             await Server.StartAsync(cancellationToken);
@@ -65,12 +65,12 @@ public abstract class FactoryFixture : IAsyncLifetime
 
 public sealed class DevFactoryFixture : FactoryFixture
 {
-    protected override InngestBuilder Configure(InngestBuilder builder) => builder;
+    protected override InngestServerBuilder Configure(InngestServerBuilder builder) => builder;
 }
 
 public sealed class SelfHostedFactoryFixture : FactoryFixture
 {
-    protected override InngestBuilder Configure(InngestBuilder builder) => builder.WithSelfHosting();
+    protected override InngestServerBuilder Configure(InngestServerBuilder builder) => builder.WithSelfHosting();
 }
 
 public abstract class WebApplicationFactoryTests<TFixture>(TFixture fixture)
@@ -168,7 +168,7 @@ public sealed class WebApplicationFactoryStartTests
     [Fact(Timeout = 60_000)]
     public async Task The_app_does_not_start_before_the_container_runs()
     {
-        await using var server = new InngestBuilder(InngestServer.Image).Build();
+        await using var server = new InngestServerBuilder(InngestServer.Image).Build();
         await using var app = new InngestWebApplicationFactory<OnboardUser>(server);
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() => app.StartAsync(TestContext.Current.CancellationToken));

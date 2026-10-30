@@ -17,7 +17,7 @@ internal static class FreePort
             using var listener = new TcpListener(IPAddress.Any, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            if (!InngestBuilder.ServerPorts.Contains(port))
+            if (!InngestServerBuilder.ServerPorts.Contains(port))
             {
                 return (ushort)port;
             }

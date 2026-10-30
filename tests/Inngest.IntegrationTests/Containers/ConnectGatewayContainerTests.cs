@@ -16,7 +16,7 @@ public sealed class ConnectGatewayContainerTests
     [InlineData(true)]
     public async Task A_worker_connects_through_the_gateway_and_runs_functions_without_an_endpoint(bool selfHosted)
     {
-        var builder = new InngestBuilder(InngestServer.Image).WithConnectGateway();
+        var builder = new InngestServerBuilder(InngestServer.Image).WithConnectGateway();
         await using var server = (selfHosted ? builder.WithSelfHosting() : builder).Build();
         await server.StartAsync(Cancellation);
 
@@ -40,7 +40,7 @@ public sealed class ConnectGatewayContainerTests
     [Fact(Timeout = 90_000)]
     public async Task The_gateway_is_published_on_the_port_it_has_inside_the_container()
     {
-        await using var server = new InngestBuilder(InngestServer.Image).WithConnectGateway().Build();
+        await using var server = new InngestServerBuilder(InngestServer.Image).WithConnectGateway().Build();
         await server.StartAsync(Cancellation);
         var port = server.ConnectGatewayPort.ShouldNotBeNull();
 
@@ -58,7 +58,7 @@ public sealed class ConnectGatewayContainerTests
     public async Task A_gateway_port_that_was_chosen_is_the_one_published()
     {
         var port = FreePorts.Pick(1)[0];
-        await using var server = new InngestBuilder(InngestServer.Image).WithConnectGateway(port).Build();
+        await using var server = new InngestServerBuilder(InngestServer.Image).WithConnectGateway(port).Build();
 
         await server.StartAsync(Cancellation);
 
@@ -66,7 +66,7 @@ public sealed class ConnectGatewayContainerTests
         server.GetMappedPublicPort(port).ShouldBe((ushort)port);
     }
 
-    private static async Task<string> DescribeAsync(InngestContainer server, CancellationToken cancellationToken)
+    private static async Task<string> DescribeAsync(InngestServerContainer server, CancellationToken cancellationToken)
     {
         var (stdout, stderr) = await server.GetLogsAsync(timestampsEnabled: false, ct: cancellationToken);
         return string.Join('\n', (stdout + stderr).Split('\n', StringSplitOptions.RemoveEmptyEntries).TakeLast(30));

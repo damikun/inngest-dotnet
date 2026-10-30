@@ -8,19 +8,19 @@ using DotNet.Testcontainers.Containers;
 namespace Inngest.Testing.Containers;
 
 /// <summary>
-/// An Inngest server in Docker, started with <see cref="InngestBuilder"/>: the dev server, or the self-hosted server
+/// An Inngest server in Docker, started with <see cref="InngestServerBuilder"/>: the dev server, or the self-hosted server
 /// with its signing and event keys. <see cref="Configure"/> points an app at it and <see cref="SyncAsync"/> has it sync
 /// an app that listens on the machine the test runs on.
 /// </summary>
-public sealed class InngestContainer : DockerContainer
+public sealed class InngestServerContainer : DockerContainer
 {
-    private readonly InngestConfiguration _configuration;
+    private readonly InngestServerConfiguration _configuration;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestContainer" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerContainer" /> class.
     /// </summary>
     /// <param name="configuration">The container configuration.</param>
-    public InngestContainer(InngestConfiguration configuration)
+    public InngestServerContainer(InngestServerConfiguration configuration)
         : base(configuration)
     {
         _configuration = configuration;
@@ -45,11 +45,11 @@ public sealed class InngestContainer : DockerContainer
 
     /// <summary>
     /// Gets the port of the Connect gateway, which is the same inside the container and on the host. Null unless
-    /// <see cref="InngestBuilder.WithConnectGateway"/> was called.
+    /// <see cref="InngestServerBuilder.WithConnectGateway"/> was called.
     /// </summary>
     public int? ConnectGatewayPort => _configuration.ConnectGateway ? _configuration.ConnectGatewayPort : null;
 
-    internal InngestConfiguration Configuration => _configuration;
+    internal InngestServerConfiguration Configuration => _configuration;
 
     /// <summary>
     /// Gets the address of the server's API as the test reaches it: events, the REST and GraphQL APIs and the health
@@ -57,7 +57,7 @@ public sealed class InngestContainer : DockerContainer
     /// </summary>
     /// <returns>The base address of the API.</returns>
     public Uri GetBaseAddress() =>
-        new UriBuilder(Uri.UriSchemeHttp, Hostname, GetMappedPublicPort(InngestBuilder.InngestPort)).Uri;
+        new UriBuilder(Uri.UriSchemeHttp, Hostname, GetMappedPublicPort(InngestServerBuilder.InngestPort)).Uri;
 
     /// <summary>
     /// Sets the options of an app so that it uses this server: the dev server in dev mode, or the self-hosted server in

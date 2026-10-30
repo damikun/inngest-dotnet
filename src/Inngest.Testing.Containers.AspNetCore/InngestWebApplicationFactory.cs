@@ -10,7 +10,7 @@ namespace Inngest.Testing.Containers;
 /// <summary>
 /// A <see cref="WebApplicationFactory{TEntryPoint}"/> that runs the app on Kestrel and points it at an Inngest server in
 /// a container, so the server can call the app's functions over a real socket, which the factory's in-memory server
-/// cannot offer. The app is configured with <see cref="InngestContainer.Configure"/>, whatever it set for itself, and
+/// cannot offer. The app is configured with <see cref="InngestServerContainer.Configure"/>, whatever it set for itself, and
 /// <see cref="StartAsync"/> starts it and has the server sync it. Requests the test sends with
 /// <see cref="WebApplicationFactory{TEntryPoint}.CreateClient()"/> reach the same app over HTTP too.
 /// </summary>
@@ -36,7 +36,7 @@ public class InngestWebApplicationFactory<TEntryPoint> : WebApplicationFactory<T
     /// </summary>
     /// <param name="inngest">The server the app uses. It must be running before the app starts.</param>
     /// <param name="servePath">The path the app maps the Inngest endpoint at, <c>/api/inngest</c> unless <c>MapInngest</c> says otherwise.</param>
-    public InngestWebApplicationFactory(InngestContainer inngest, string servePath = "/api/inngest")
+    public InngestWebApplicationFactory(InngestServerContainer inngest, string servePath = "/api/inngest")
     {
         ArgumentNullException.ThrowIfNull(inngest);
         ArgumentException.ThrowIfNullOrWhiteSpace(servePath);
@@ -51,7 +51,7 @@ public class InngestWebApplicationFactory<TEntryPoint> : WebApplicationFactory<T
     /// <summary>
     /// Gets the server the app is configured for.
     /// </summary>
-    public InngestContainer Container { get; }
+    public InngestServerContainer Container { get; }
 
     /// <summary>
     /// Starts the app on Kestrel, if it is not running yet, and has the server sync it, so that the server knows its

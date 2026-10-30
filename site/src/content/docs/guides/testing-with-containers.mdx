@@ -26,7 +26,7 @@ dotnet add package Inngest.Testing.Containers --prerelease
 
 ## The dev server
 
-`InngestBuilder` takes the image and builds an `InngestContainer`. Start it, and tell the app where it is with
+`InngestServerBuilder` takes the image and builds an `InngestServerContainer`. Start it, and tell the app where it is with
 `Configure`, which sets the options of the SDK: dev mode, and the address of the server.
 
 The server and the app have to reach each other, so neither can be told the other's address before it starts. Start the
@@ -45,7 +45,7 @@ public sealed class InngestFixture : IAsyncLifetime
 {
     private WebApplication? _app;
 
-    public InngestContainer Server { get; } = new InngestBuilder("inngest/inngest:v1.49.0").Build();
+    public InngestServerContainer Server { get; } = new InngestServerBuilder("inngest/inngest:v1.49.0").Build();
 
     public async ValueTask InitializeAsync()
     {
@@ -109,7 +109,7 @@ app may start before or after the server.
 ```csharp
 using Inngest.Testing.Containers;
 
-var server = new InngestBuilder("inngest/inngest:v1.49.0")
+var server = new InngestServerBuilder("inngest/inngest:v1.49.0")
     .WithAppUrl("http://localhost:5280/api/inngest")
     .Build();
 ```
@@ -158,7 +158,7 @@ public sealed class SignalingEmailSender : IEmailSender
     }
 }
 
-public sealed class ShopFactory(InngestContainer inngest, IEmailSender email)
+public sealed class ShopFactory(InngestServerContainer inngest, IEmailSender email)
     : InngestWebApplicationFactory<Program>(inngest)
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -168,7 +168,7 @@ public sealed class ShopFactory(InngestContainer inngest, IEmailSender email)
 public sealed class OnboardingTests : IAsyncLifetime
 {
     private readonly SignalingEmailSender _email = new();
-    private readonly InngestContainer _server = new InngestBuilder("inngest/inngest:v1.49.0").Build();
+    private readonly InngestServerContainer _server = new InngestServerBuilder("inngest/inngest:v1.49.0").Build();
     private ShopFactory? _app;
 
     public async ValueTask InitializeAsync()
@@ -231,7 +231,7 @@ tells them:
 ```csharp
 using Inngest.Testing.Containers;
 
-var server = new InngestBuilder("inngest/inngest:v1.49.0")
+var server = new InngestServerBuilder("inngest/inngest:v1.49.0")
     .WithSelfHosting()
     .Build();
 await server.StartAsync();
@@ -253,7 +253,7 @@ hands the worker the gateway's address as it is inside the container. `WithConne
 same port on the machine, picks a free one when you give none, and makes the container wait for the gateway as well as
 the API. The worker needs no URL to sync and no `SyncAsync`:
 
-{/* check: statements; InngestContainer server */}
+{/* check: statements; InngestServerContainer server */}
 ```csharp
 using Inngest.Connect;
 using Inngest.Testing.Containers;
@@ -274,7 +274,7 @@ using var worker = builder.Build();
 await worker.StartAsync();
 ```
 
-Build the container with `new InngestBuilder("inngest/inngest:v1.49.0").WithConnectGateway()`. `ConnectGatewayPort`
+Build the container with `new InngestServerBuilder("inngest/inngest:v1.49.0").WithConnectGateway()`. `ConnectGatewayPort`
 tells the port.
 
 ## Apps that read their settings from the environment
@@ -284,7 +284,7 @@ a project that starts another process, `GetSdkEnvironment` lists the same settin
 dev server, and `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. The names are
 those every Inngest SDK reads.
 
-{/* check: statements; InngestContainer server */}
+{/* check: statements; InngestServerContainer server */}
 ```csharp
 using System.Diagnostics;
 using Inngest.Testing.Containers;
@@ -298,7 +298,7 @@ foreach (var (name, value) in server.GetSdkEnvironment())
 
 ## Options
 
-| Method of `InngestBuilder` | What it does |
+| Method of `InngestServerBuilder` | What it does |
 |---|---|
 | `WithSelfHosting()` | Runs `inngest start` in place of `inngest dev`. |
 | `WithSigningKey(key)`, `WithEventKey(key)` | Sets the keys of the self-hosted server instead of generating them. |
@@ -311,7 +311,7 @@ Everything else is the Testcontainers builder, such as `WithImagePullPolicy`, `W
 container is ready when the API answers `/health`, and the gateway `/ready` when it is published; a wait strategy with
 conditions of its own replaces that.
 
-| Member of `InngestContainer` | What it holds |
+| Member of `InngestServerContainer` | What it holds |
 |---|---|
 | `GetBaseAddress()` | The address of the server's API: events, the REST and GraphQL APIs, syncs and the health check. `GetConnectionString()` returns it as text. |
 | `Configure(options)` | Sets an app's `InngestOptions` to use the server. |

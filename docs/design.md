@@ -240,7 +240,7 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
 | `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
-| `Inngest.Testing.Containers` | A Testcontainers module (`InngestBuilder`, `InngestContainer`, `InngestConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
+| `Inngest.Testing.Containers` | A Testcontainers module (`InngestServerBuilder`, `InngestServerContainer`, `InngestServerConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
 | `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
 
 `Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing` and `Inngest.Encryption` use internals of `Inngest` through
@@ -513,8 +513,8 @@ key in the description, the data and the log of every kind of answer.
 
 ## Test containers
 
-`Inngest.Testing.Containers` follows the module pattern of testcontainers-dotnet 4.16: `InngestBuilder` derives from
-`ContainerBuilder`, `InngestConfiguration` from `ContainerConfiguration`, `InngestContainer` from `DockerContainer`, and
+`Inngest.Testing.Containers` follows the module pattern of testcontainers-dotnet 4.16: `InngestServerBuilder` derives from
+`ContainerBuilder`, `InngestServerConfiguration` from `ContainerConfiguration`, `InngestServerContainer` from `DockerContainer`, and
 the builder takes the image, as every module has since 4.10, so there is no default image to go stale. The builder
 keeps what the caller chose (the mode, the keys, the app URLs, the gateway) in the configuration and turns it into the
 command line in `Build`, so the order of its methods never matters and one builder can build several containers, each

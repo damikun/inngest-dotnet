@@ -137,7 +137,7 @@ public sealed class DevServerBuilderTests
     [Fact]
     public void An_image_can_be_given_as_text_or_as_an_image()
     {
-        new InngestBuilder(new DotNet.Testcontainers.Images.DockerImage(Image)).WithDockerEndpoint("tcp://127.0.0.1:1")
+        new InngestServerBuilder(new DotNet.Testcontainers.Images.DockerImage(Image)).WithDockerEndpoint("tcp://127.0.0.1:1")
             .Build().Image.FullName.ShouldBe(Image);
     }
 }

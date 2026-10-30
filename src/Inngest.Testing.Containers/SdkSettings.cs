@@ -7,7 +7,7 @@ namespace Inngest.Testing.Containers;
 internal static class SdkSettings
 {
     // BaseUrl first, because it wins over every other address in the options, including one the app set in code.
-    public static void Apply(InngestOptions options, Uri baseAddress, InngestConfiguration configuration)
+    public static void Apply(InngestOptions options, Uri baseAddress, InngestServerConfiguration configuration)
     {
         options.BaseUrl = baseAddress;
         if (configuration.SelfHosted)
@@ -24,7 +24,7 @@ internal static class SdkSettings
     }
 
     // INNGEST_DEV carries the address of a dev server, as the SDKs of every language read it.
-    public static IReadOnlyDictionary<string, string> ToEnvironment(Uri baseAddress, InngestConfiguration configuration) =>
+    public static IReadOnlyDictionary<string, string> ToEnvironment(Uri baseAddress, InngestServerConfiguration configuration) =>
         configuration.SelfHosted
             ? new Dictionary<string, string>
             {

@@ -7,18 +7,18 @@ using DotNet.Testcontainers.Configurations;
 namespace Inngest.Testing.Containers;
 
 /// <summary>
-/// The configuration of an <see cref="InngestContainer"/>: what any container has, and what the
-/// <see cref="InngestBuilder"/> keeps for the server it starts. The builder turns it into a command line when it builds
+/// The configuration of an <see cref="InngestServerContainer"/>: what any container has, and what the
+/// <see cref="InngestServerBuilder"/> keeps for the server it starts. The builder turns it into a command line when it builds
 /// the container, so the order of its methods never matters.
 /// </summary>
-public sealed class InngestConfiguration : ContainerConfiguration
+public sealed class InngestServerConfiguration : ContainerConfiguration
 {
     private readonly bool? _selfHosted;
     private readonly bool? _connectGateway;
     private readonly bool? _fastTiming;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestConfiguration" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerConfiguration" /> class.
     /// </summary>
     /// <param name="selfHosted">Runs <c>inngest start</c> in place of <c>inngest dev</c>.</param>
     /// <param name="signingKey">The signing key of the self-hosted server.</param>
@@ -27,7 +27,7 @@ public sealed class InngestConfiguration : ContainerConfiguration
     /// <param name="connectGateway">Publishes the Connect gateway.</param>
     /// <param name="connectGatewayPort">The port of the Connect gateway, inside the container and on the host.</param>
     /// <param name="fastTiming">Starts the server with the flags that make runs finish quickly.</param>
-    public InngestConfiguration(
+    public InngestServerConfiguration(
         bool? selfHosted = null,
         string? signingKey = null,
         string? eventKey = null,
@@ -46,10 +46,10 @@ public sealed class InngestConfiguration : ContainerConfiguration
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestConfiguration" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerConfiguration" /> class.
     /// </summary>
     /// <param name="resourceConfiguration">The Docker resource configuration.</param>
-    public InngestConfiguration(IResourceConfiguration<CreateContainerParameters> resourceConfiguration)
+    public InngestServerConfiguration(IResourceConfiguration<CreateContainerParameters> resourceConfiguration)
         : base(resourceConfiguration)
     {
         // Passes the configuration upwards to the base implementations to create an updated immutable copy.
@@ -57,10 +57,10 @@ public sealed class InngestConfiguration : ContainerConfiguration
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestConfiguration" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerConfiguration" /> class.
     /// </summary>
     /// <param name="resourceConfiguration">The Docker resource configuration.</param>
-    public InngestConfiguration(IContainerConfiguration resourceConfiguration)
+    public InngestServerConfiguration(IContainerConfiguration resourceConfiguration)
         : base(resourceConfiguration)
     {
         // Passes the configuration upwards to the base implementations to create an updated immutable copy.
@@ -68,21 +68,21 @@ public sealed class InngestConfiguration : ContainerConfiguration
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestConfiguration" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerConfiguration" /> class.
     /// </summary>
     /// <param name="resourceConfiguration">The Docker resource configuration.</param>
-    public InngestConfiguration(InngestConfiguration resourceConfiguration)
-        : this(new InngestConfiguration(), resourceConfiguration)
+    public InngestServerConfiguration(InngestServerConfiguration resourceConfiguration)
+        : this(new InngestServerConfiguration(), resourceConfiguration)
     {
         // Passes the configuration upwards to the base implementations to create an updated immutable copy.
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InngestConfiguration" /> class.
+    /// Initializes a new instance of the <see cref="InngestServerConfiguration" /> class.
     /// </summary>
     /// <param name="oldValue">The old Docker resource configuration.</param>
     /// <param name="newValue">The new Docker resource configuration.</param>
-    public InngestConfiguration(InngestConfiguration oldValue, InngestConfiguration newValue)
+    public InngestServerConfiguration(InngestServerConfiguration oldValue, InngestServerConfiguration newValue)
         : base(oldValue, newValue)
     {
         _selfHosted = BuildConfiguration.Combine(oldValue._selfHosted, newValue._selfHosted);

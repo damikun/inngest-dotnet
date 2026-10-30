@@ -15,7 +15,7 @@ public sealed class AppUrlContainerTests
     public async Task The_server_keeps_trying_until_an_app_that_starts_after_it_answers_and_then_runs_its_functions(bool selfHosted)
     {
         var port = FreePorts.Pick(1)[0];
-        var builder = new InngestBuilder(InngestServer.Image).WithAppUrl($"http://localhost:{port}{ContainerApp.ServePath}");
+        var builder = new InngestServerBuilder(InngestServer.Image).WithAppUrl($"http://localhost:{port}{ContainerApp.ServePath}");
         await using var server = (selfHosted ? builder.WithSelfHosting() : builder).Build();
         await server.StartAsync(Cancellation);
 
@@ -43,7 +43,7 @@ public sealed class AppUrlContainerTests
     public async Task One_server_syncs_several_apps()
     {
         var ports = FreePorts.Pick(2);
-        var builder = new InngestBuilder(InngestServer.Image)
+        var builder = new InngestServerBuilder(InngestServer.Image)
             .WithAppUrl(new Uri($"http://localhost:{ports[0]}{ContainerApp.ServePath}"))
             .WithAppUrl(new Uri($"http://127.0.0.1:{ports[1]}{ContainerApp.ServePath}"));
         await using var server = builder.Build();

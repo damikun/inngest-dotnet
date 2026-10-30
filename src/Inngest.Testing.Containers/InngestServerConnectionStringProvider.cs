@@ -5,7 +5,7 @@ using DotNet.Testcontainers.Configurations;
 namespace Inngest.Testing.Containers;
 
 // The connection string of an Inngest server is the address of its API.
-internal sealed class InngestConnectionStringProvider : ContainerConnectionStringProvider<InngestContainer, InngestConfiguration>
+internal sealed class InngestServerConnectionStringProvider : ContainerConnectionStringProvider<InngestServerContainer, InngestServerConfiguration>
 {
     protected override string GetHostConnectionString() => Container.GetBaseAddress().AbsoluteUri;
 }

@@ -1,6 +1,5 @@
 using Inngest.Configuration;
 using Inngest.Testing.Containers;
-using InngestConfiguration = Inngest.Testing.Containers.InngestConfiguration;
 
 namespace Inngest.Tests.TestingContainers;
 
@@ -12,9 +11,9 @@ public sealed class SdkSettingsTests
 
     private const string SigningKey = "9f2c5a7e1b3d4f60a8c9e0d1b2a3f4e5d6c7b8a9f0e1d2c3b4a5968778695a4b";
 
-    private static readonly InngestConfiguration Dev = new();
+    private static readonly InngestServerConfiguration Dev = new();
 
-    private static readonly InngestConfiguration SelfHosted = new(selfHosted: true, signingKey: SigningKey, eventKey: "events-1");
+    private static readonly InngestServerConfiguration SelfHosted = new(selfHosted: true, signingKey: SigningKey, eventKey: "events-1");
 
     private static InngestSettings Resolve(Action<InngestOptions> configure, Func<string, string?>? variables = null)
     {
