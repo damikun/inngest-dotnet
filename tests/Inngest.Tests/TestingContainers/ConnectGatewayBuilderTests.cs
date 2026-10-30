@@ -14,7 +14,7 @@ public sealed class ConnectGatewayBuilderTests
         port.ShouldBeInRange(1024, ushort.MaxValue);
         new[] { 8288, 8289, 50052, 50053 }.ShouldNotContain(port);
         container.CommandOf().SkipWhile(argument => argument != "--connect-gateway-port").Skip(1).First().ShouldBe(port.ToString());
-        container.Configuration.PortBindings.ShouldContainKeyAndValue(port.ToString(), port.ToString());
+        container.Configuration.PortBindings.ValueOf(port.ToString()).ShouldBe(port.ToString());
     }
 
     [Fact]
@@ -23,7 +23,7 @@ public sealed class ConnectGatewayBuilderTests
         var container = Builder().WithConnectGateway(18289).Build();
 
         container.ConnectGatewayPort.ShouldBe(18289);
-        container.Configuration.PortBindings.ShouldContainKeyAndValue("18289", "18289");
+        container.Configuration.PortBindings.ValueOf("18289").ShouldBe("18289");
         container.CommandOf().ShouldContain("18289");
     }
 

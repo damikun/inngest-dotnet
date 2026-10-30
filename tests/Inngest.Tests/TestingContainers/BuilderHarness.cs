@@ -15,6 +15,10 @@ internal static class BuilderHarness
 
     public static string[] CommandOf(this InngestBuilder builder) => builder.Build().CommandOf();
 
+    // Null when the key is absent, which no expected value here is.
+    public static string? ValueOf(this IReadOnlyDictionary<string, string> dictionary, string key) =>
+        dictionary.TryGetValue(key, out var value) ? value : null;
+
     // The create parameters Docker would be sent, after the builder's modifiers have run.
     public static CreateContainerParameters CreateParametersOf(this InngestContainer container)
     {

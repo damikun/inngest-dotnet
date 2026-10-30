@@ -57,6 +57,14 @@ public abstract class ContainerRunTests<TFixture>(TFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task An_app_can_be_named_by_the_address_that_kestrel_reports_for_all_interfaces()
+    {
+        var kestrelName = new Uri($"http://[::]:{Fixture.App.Port}{ContainerApp.ServePath}");
+
+        await Should.NotThrowAsync(() => Fixture.Server.SyncAsync(kestrelName, Cancellation));
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task Syncing_an_app_that_is_not_there_says_so()
     {
         var closed = new Uri($"http://127.0.0.1:{FreePorts.Pick(1)[0]}{ContainerApp.ServePath}");

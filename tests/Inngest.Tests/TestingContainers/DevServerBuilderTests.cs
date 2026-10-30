@@ -42,7 +42,7 @@ public sealed class DevServerBuilderTests
     public void The_api_is_published_on_a_random_port_of_the_host()
     {
         // Docker takes an empty host port as "any free port".
-        Builder().Build().Configuration.PortBindings.ShouldContainKeyAndValue("8288", "");
+        Builder().Build().Configuration.PortBindings.ValueOf("8288").ShouldBe("");
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class DevServerBuilderTests
     [Fact]
     public void The_server_does_not_report_usage()
     {
-        Builder().Build().Configuration.Environments.ShouldContainKeyAndValue("DO_NOT_TRACK", "1");
+        Builder().Build().Configuration.Environments.ValueOf("DO_NOT_TRACK").ShouldBe("1");
     }
 
     [Fact]

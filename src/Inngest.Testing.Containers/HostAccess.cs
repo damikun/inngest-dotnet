@@ -19,7 +19,7 @@ internal static class HostAccess
             throw new ArgumentException($"The app URL must be an absolute http or https URL, not '{url}'.", nameof(url));
         }
 
-        return url.IsLoopback || IsAnyAddress(url) ? new UriBuilder(url) { Host = ContainerHostName }.Uri : url;
+        return IsLoopback(url) || IsAnyAddress(url) ? new UriBuilder(url) { Host = ContainerHostName }.Uri : url;
     }
 
     // Kestrel names an app that listens on all interfaces [::] or 0.0.0.0. Those are not addresses a client can connect to
@@ -29,6 +29,12 @@ internal static class HostAccess
         ArgumentNullException.ThrowIfNull(url);
         return IsAnyAddress(url) ? new UriBuilder(url) { Host = "localhost" }.Uri : url;
     }
+
+    // Uri.IsLoopback leaves LOCALHOST out on .NET 8, so the name is compared here.
+    private static bool IsLoopback(Uri url) =>
+        url.IsAbsoluteUri
+        && (string.Equals(url.DnsSafeHost, "localhost", StringComparison.OrdinalIgnoreCase)
+            || (IPAddress.TryParse(url.DnsSafeHost, out var address) && IPAddress.IsLoopback(address)));
 
     // An app that listens on all interfaces is reached on any of its addresses, so it is the host to the container too.
     private static bool IsAnyAddress(Uri url) =>
