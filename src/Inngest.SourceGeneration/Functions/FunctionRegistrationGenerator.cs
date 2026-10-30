@@ -65,6 +65,7 @@ public sealed class FunctionRegistrationGenerator : IIncrementalGenerator
 
     private static void Emit(SourceProductionContext context, Registration registration)
     {
+        // A project without function classes has nothing to write, and a property it sets wrongly has no effect to report.
         if (registration.TypeNames.Length == 0)
         {
             return;
