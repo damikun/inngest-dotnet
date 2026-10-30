@@ -9,6 +9,18 @@ namespace Inngest.Json;
 
 internal static class JsonPayload
 {
+    // What JsonSerializerOptions.MaxDepth 0 stands for.
+    private const int DefaultMaxDepth = 64;
+
+    // Inngest sends back what the SDK wrote a few levels deeper than it was written, a step's output under
+    // steps.<id>.data, and other producers may nest event data further than this serializer would.
+    private const int MinDocumentDepth = 256;
+    private const int Nesting = 8;
+
+    // How deep a document from Inngest may be, so that whatever the serializer could write can be read back.
+    public static JsonDocumentOptions DocumentOptions(JsonSerializerOptions options) =>
+        new() { MaxDepth = Math.Max(MinDocumentDepth, (options.MaxDepth == 0 ? DefaultMaxDepth : options.MaxDepth) + Nesting) };
+
     // Inngest decodes event data, event user and invoke data as JSON objects, and rejects anything else far from
     // the code that sent it. Values with custom converters are given the benefit of the doubt.
     // Throws "<part> of <owner> "<name>" must serialize to a JSON object", for example the data of event "shop/order".

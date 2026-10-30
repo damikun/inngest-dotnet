@@ -28,6 +28,20 @@ public sealed class ExecutionEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_step_result_as_deep_as_the_serializer_writes_is_read_back()
+    {
+        // Written two levels down in the op, it comes back three levels down, under steps.<id>.data.
+        var deep = new string('[', 62) + "1" + new string(']', 62);
+        var function = TestFunction.Define(async context =>
+            (await context.Step.RunAsync("A", () => default(JsonElement))).GetRawText().Length);
+
+        var result = await _host.CallAsync(function, Call.New().Data("A", deep));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("125");
+    }
+
+    [Fact]
     public async Task Replay_hands_back_memoized_results_and_executes_the_next_step()
     {
         var ran = new List<string>();

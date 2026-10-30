@@ -4,6 +4,7 @@
 using System.Text.Json;
 using Inngest.Execution;
 using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Middleware;
 
@@ -139,7 +140,7 @@ internal sealed class PayloadTransforms(IPayloadTransform[] transforms, Function
                     throw new InvalidOperationException($"{item.GetType().Name}.{hook} returned true without writing a complete JSON value.");
                 }
 
-                var document = JsonDocument.Parse(buffer.WrittenMemory);
+                var document = JsonDocument.Parse(buffer.WrittenMemory, JsonPayload.DocumentOptions(options));
                 current.Dispose();
                 current = new TransformedJson(document, buffer);
                 buffer = null;
@@ -175,7 +176,7 @@ internal sealed class PayloadTransforms(IPayloadTransform[] transforms, Function
             serialize(originalWriter, output, options);
         }
 
-        using var document = JsonDocument.Parse(original.WrittenMemory);
+        using var document = JsonDocument.Parse(original.WrittenMemory, JsonPayload.DocumentOptions(options));
         using var result = Apply(transforms, reverse: true, document.RootElement, options, hook, state, transform);
         writer.WriteRawValue(result.IsRewritten ? result.RewrittenJson : original.WrittenSpan, skipInputValidation: true);
     }

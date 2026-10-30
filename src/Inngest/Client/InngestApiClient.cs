@@ -4,6 +4,7 @@
 using System.Net;
 using System.Text.Json;
 using Inngest.Configuration;
+using Inngest.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Client;
@@ -14,11 +15,13 @@ internal sealed class InngestApiClient : IInngestApi
 
     private readonly InngestApiTransport _transport;
     private readonly Uri _registerUrl;
+    private readonly JsonDocumentOptions _documentOptions;
 
     public InngestApiClient(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<InngestApiClient> logger)
     {
         _transport = new InngestApiTransport(httpClientFactory, settings, logger);
         _registerUrl = _transport.Url("/fn/register");
+        _documentOptions = JsonPayload.DocumentOptions(settings.SerializerOptions);
     }
 
     public async Task<RegisterResult> RegisterAsync(
@@ -90,7 +93,7 @@ internal sealed class InngestApiClient : IInngestApi
             var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             await using (stream.ConfigureAwait(false))
             {
-                return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                return await JsonDocument.ParseAsync(stream, _documentOptions, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException)

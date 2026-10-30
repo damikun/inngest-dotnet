@@ -7,6 +7,7 @@ using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Errors;
 using Inngest.Internal;
+using Inngest.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Execution;
@@ -18,6 +19,7 @@ internal sealed class ExecutionEngine : IExecutionEngine
     private readonly ConcurrentDictionary<string, ILogger> _functionLoggers = new(StringComparer.Ordinal);
     private readonly ILoggerFactory _loggerFactory;
     private readonly IInngestApi _api;
+    private readonly JsonDocumentOptions _documentOptions;
 
     public ExecutionEngine(
         InngestSettings settings,
@@ -32,6 +34,7 @@ internal sealed class ExecutionEngine : IExecutionEngine
         Checkpoints = checkpoints;
         _loggerFactory = loggerFactory;
         _api = api;
+        _documentOptions = JsonPayload.DocumentOptions(settings.SerializerOptions);
     }
 
     public InngestSettings Settings { get; }
@@ -50,7 +53,7 @@ internal sealed class ExecutionEngine : IExecutionEngine
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(request.Body);
+            document = JsonDocument.Parse(request.Body, _documentOptions);
         }
         catch (JsonException exception)
         {
