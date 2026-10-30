@@ -107,9 +107,9 @@ and the method. For a REST API, take `APIGatewayProxyRequest` and `APIGatewayPro
 ## A Native AOT function
 
 A Native AOT function is an executable that runs on the `provided.al2023` custom runtime, with
-`Amazon.Lambda.RuntimeSupport` taking events from Lambda. Nothing in `Inngest.AwsLambda` uses reflection, and the
-events go through source-generated JSON, so the executable publishes without trimming or AOT warnings. Name it
-`bootstrap`, which is what the custom runtime starts:
+`Amazon.Lambda.RuntimeSupport` taking events from Lambda. Nothing in `Inngest.AwsLambda` uses reflection, and a
+minimal function like the one below publishes without trimming or AOT warnings and answers events. Name the
+executable `bootstrap`, which is what the custom runtime starts:
 
 ```xml title="Shop.csproj"
 <PropertyGroup>
@@ -181,13 +181,13 @@ hold: the generator warns (`SYSLIB1031`), and the executable fails on its first 
 about the metadata of `ProxyRequestContext`. List the pair a function serves, `APIGatewayProxyRequest` and
 `APIGatewayProxyResponse` for a REST API, and nothing else.
 
-Publish for `linux-x64` or `linux-arm64`, whichever the function's architecture is, on a Linux host of that
-architecture. `dotnet lambda deploy-function` of `Amazon.Lambda.Tools` builds in a Docker container with Amazon Linux
-2023 for you.
+Native AOT does not compile across operating systems, so build on Linux for `linux-x64` or `linux-arm64`, whichever
+architecture the function uses, in a container that matches Lambda's Amazon Linux 2023. `dotnet lambda deploy-function`
+of `Amazon.Lambda.Tools` builds in such a container with Docker.
 
 ## Deploy it
 
-The function needs its Inngest keys, and Inngest needs a route to it. With the AWS SAM, an HTTP API route to the
+The function needs its Inngest keys, and Inngest needs a route to it. With AWS SAM, an HTTP API route to the
 managed runtime function looks like this:
 
 ```yaml title="template.yaml"
@@ -247,19 +247,20 @@ string, minus `deployId`. What API Gateway puts in the path decides whether the 
 
 | Invoked through | Path in the URL |
 |---|---|
-| REST API on `execute-api` | `requestContext.path`, which starts with the stage: `/prod/api/inngest`. `path` leaves it out. |
-| REST API on a custom domain | `requestContext.path`, which has the base path mapping and no stage. |
+| REST API | `requestContext.path`, which API Gateway fills with the path the client called, so it starts with the stage on the `execute-api` domain: `/prod/api/inngest`. `path` leaves the stage out. |
 | HTTP API, `$default` stage | `rawPath`. |
 | HTTP API, named stage | `rawPath`, which starts with the stage. |
 | Function URL | `rawPath`. |
 
 `requestContext.path` is used when it is `path` with something in front, and `path` otherwise.
-`Amazon.Lambda.AspNetCoreServer` reads the stage and the base path from it the same way.
+`Amazon.Lambda.AspNetCoreServer` finds the stage the same way, as the request context's path minus the path.
 
-Some setups hide the public address from the event, and then the sync reports the wrong URL. An HTTP API behind a
-custom domain with an API mapping is one: AWS notes that `rawPath` leaves the mapping out. A CloudFront distribution
-in front of the API or the function URL is another, since the function sees the host CloudFront used to reach it.
-Give the SDK the address, as in [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
+Some setups hide the public address from the event, and then the sync reports the wrong URL. A custom domain with an
+API mapping is one: AWS notes that the `rawPath` of an HTTP API leaves the mapping out, and a REST API shows only what
+API Gateway puts in `requestContext.path`. A CloudFront distribution in front of the API or the function URL is
+another, since the function sees the host CloudFront used to reach it. Check the URL in the Inngest dashboard after
+the first sync, and give the SDK the address when it is wrong, as in
+[Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
 
 {/* check: statements; InngestOptions options */}
 ```csharp
@@ -267,13 +268,12 @@ options.ServeOrigin = new Uri("https://api.example.com");
 options.ServePath = "/v1/api/inngest";
 ```
 
-`INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH` do the same. The Inngest dashboard shows the URL each app registered
-with, so check it after the first sync.
+`INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH` do the same.
 
 ## Time and size
 
-Three clocks run on a call from Inngest, and the shortest one wins. These are AWS's limits at the time of writing, so
-check its [quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html) before relying on them:
+Several limits apply to a call from Inngest, and the lowest one wins. These are AWS's at the time of writing, so check
+its [quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html) before relying on them:
 
 | Limit | Value |
 |---|---|
@@ -285,18 +285,18 @@ check its [quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/
 
 Set the function's timeout on purpose. The default of 3 seconds ends any call whose step takes longer. Behind API
 Gateway, do not set it above the gateway's limit: the gateway answers Inngest with an error at its limit while the
-function runs on, and Inngest retries the call meanwhile. Keep each step well inside the shortest clock, and split
+function runs on, and Inngest retries the call meanwhile. Keep each step well inside the lowest limit, and split
 long work into steps.
 
 A step's result and a function's output travel in the response, so they have to fit in 6 MB; return an id or a link
-to stored data rather than the data. Inngest sends the events and steps of a large run to the SDK through its API
-instead of in the request (`use_api`), so the size of the request is not the limit.
+to stored data rather than the data. When a run's events and steps are too large for the request, Inngest trims it
+(`use_api`) and the SDK reads them from Inngest's API, so the size of the request is not the limit.
 
-By default every step is a call of its own, so a run of ten short steps is ten invocations. With
-[checkpointing](/inngest-dotnet/guides/configuration/#checkpointing) one call runs steps one after another and saves
+By default every step is a call of its own, and one more call ends the run. With
+[checkpointing](/inngest-dotnet/reference/api/#options) one call runs steps one after another and saves
 each to Inngest as it completes. `MaxRuntime` is how long the call may start new steps; past it, the next step is left
 to Inngest, which calls again. A step that has started still runs to its end, so `MaxRuntime` plus your longest step
-has to fit in the shortest clock above. For a REST API's 29 seconds, with steps of a few seconds, 15 seconds leaves
+has to fit in the lowest limit above. For a REST API's 29 seconds, with steps of a few seconds, 15 seconds leaves
 room:
 
 {/* check: statements; InngestOptions options */}
@@ -304,8 +304,8 @@ room:
 options.Checkpointing = new CheckpointingOptions { MaxRuntime = TimeSpan.FromSeconds(15) };
 ```
 
-Without `MaxRuntime` a call may run steps for 10 seconds. Behind a function URL there is no gateway in between, and
-the function's timeout is the only limit.
+When `MaxRuntime` is not set, a call runs steps for up to 10 seconds. Behind a function URL there is no gateway in
+between, and the function's timeout is the only limit.
 
 ## What an invocation does
 
@@ -313,15 +313,18 @@ the function's timeout is the only limit.
   returned. Functions and middleware are resolved from it.
 - **Cancellation.** The `CancellationToken` that functions and steps receive is never cancelled. Lambda sends the
   function no signal before it ends an invocation that has run out of time, and the handler does not make one up
-  from `ILambdaContext.RemainingTime`: cancelling shortly before the deadline would only turn the error Inngest
+  from `ILambdaContext.RemainingTime`: cancelling shortly before the deadline would only turn the error that Inngest
   retries anyway into an error of the handler's own, take time from calls that would have finished, and keep stuck
-  work alive in an environment that Lambda would reset. `MaxRuntime` is the setting that keeps calls inside their time.
-- **Streaming.** The response is one buffered response, so `InngestOptions.Streaming` has no effect. A buffered
-  response needs no keep-alive: the clocks above are the only ones.
+  work alive in an environment that Lambda would otherwise reset. `MaxRuntime` is the setting that keeps calls inside
+  their time.
+- **Streaming.** The response is one buffered response, so `InngestOptions.Streaming` has no effect. Lambda can
+  stream responses to .NET functions, but that exists for connections that sit idle, and a buffered response has no
+  idle time: only the limits above apply.
 - **Background work.** Lambda freezes the execution environment once the handler returns, which pauses anything left
   running, such as a batch exporter's timer. Flush telemetry before the invocation ends, as `Inngest.Sentry` does
   when the call's scope ends.
-- **Connect.** A Connect worker holds a WebSocket open, which an invocation cannot; use the endpoint on Lambda.
+- **Connect.** A Connect worker is a process that stays up with a WebSocket open, which an invocation is not; use the
+  endpoint on Lambda.
 
 ## MapInngest on Lambda
 
@@ -351,7 +354,7 @@ ASP.NET Core pipeline, such as authentication, middleware or health checks. Pref
 function only serves Inngest: the event goes straight to the handler, with no web stack to start. The framework
 Inngest shows for an app is `aspnetcore` with `MapInngest` and `aws-lambda` with the handler.
 
-The AWS package marks the overloads of `AddAWSLambdaHosting` that take no serializer as needing reflection. A minimal
+The AWS package marks the overloads of `AddAWSLambdaHosting` that take no serializer as unsafe for trimming. A minimal
 `MapInngest` app that passes a `SourceGeneratorLambdaJsonSerializer<T>` to `AddAWSLambdaHosting` published with Native
 AOT without warnings, and answered events, when checked with `Amazon.Lambda.AspNetCoreServer.Hosting` 2.2.1 on
 .NET 10. That package is AWS's, so read its release notes for what later versions change.
