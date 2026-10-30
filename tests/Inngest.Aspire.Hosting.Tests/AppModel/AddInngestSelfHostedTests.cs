@@ -9,13 +9,13 @@ public sealed class AddInngestSelfHostedTests
     public async Task The_server_is_started_with_its_keys_from_the_environment_and_polls_for_apps()
     {
         var builder = Model.CreateBuilder();
-        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", "event-key-1"), connectPort: 12345);
+        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", "event-key-1"));
 
         var arguments = await Model.ArgumentsAsync(inngest.Resource);
         var environment = await Model.EnvironmentAsync(inngest.Resource);
 
         // inngest start does not poll unless told to, and an app that starts after the server has to be found.
-        arguments.ShouldBe(["start", "--poll-interval", "5", "--connect-gateway-port", "12345"]);
+        arguments.ShouldBe(["start", "--poll-interval", "5"]);
         environment["INNGEST_SIGNING_KEY"].ShouldBe(SigningKey);
         environment["INNGEST_EVENT_KEY"].ShouldBe("event-key-1");
         arguments.ShouldNotContain(argument => argument.Contains(SigningKey, StringComparison.Ordinal));
@@ -27,14 +27,14 @@ public sealed class AddInngestSelfHostedTests
     {
         var builder = Model.CreateBuilder();
 
-        var inngest = builder.AddInngestSelfHosted("inngest", port: 18288, connectPort: 8289);
+        var inngest = builder.AddInngestSelfHosted("inngest", port: 18288, connectPort: 18289);
 
         var image = inngest.Resource.Annotations.OfType<ContainerImageAnnotation>().ShouldHaveSingleItem();
         (image.Registry, image.Image, image.Tag).ShouldBe(("docker.io", "inngest/inngest", "v1.49.0"));
         inngest.Resource.Entrypoint.ShouldBe("inngest");
         inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "http").Port.ShouldBe(18288);
         var connect = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect");
-        (connect.Port, connect.TargetPort).ShouldBe((8289, 8289));
+        (connect.Port, connect.TargetPort).ShouldBe((18289, 8289));
         inngest.Resource.Annotations.OfType<HealthCheckAnnotation>().Select(annotation => annotation.Key)
             .ShouldBe(["inngest_http_/health_200_check", "inngest_connect_/ready_200_check"]);
     }

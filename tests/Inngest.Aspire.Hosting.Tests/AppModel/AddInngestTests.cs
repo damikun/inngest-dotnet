@@ -62,46 +62,22 @@ public sealed class AddInngestTests
         inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "http").Port.ShouldBe(18288);
     }
 
-    // Workers dial the gateway at the host they called the API on and the port the server listens on, so the port must
-    // be the same outside and inside the container, and a proxy in between would break that. Aspire cannot pick a port
-    // for a container to listen on, so the integration picks one that is free on the host.
+    // The server tells a worker to dial the host it called the API on and the port the gateway listens on in the container,
+    // which is not the port Aspire publishes it on. So the endpoint is an ordinary one, and resources that reference the
+    // server are told the address (see WithReferenceTests).
     [Fact]
-    public void The_gateway_endpoint_has_the_same_port_on_the_host_and_in_the_container()
+    public void The_gateway_is_an_endpoint_that_Aspire_proxies_on_a_port_of_its_choice()
     {
         var builder = Model.CreateBuilder();
 
         var inngest = builder.AddInngest("inngest");
 
         var connect = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect");
-        connect.IsExplicitlyProxied.ShouldBe(false);
+        connect.TargetPort.ShouldBe(8289);
+        connect.Port.ShouldBeNull();
         connect.UriScheme.ShouldBe("http");
-        connect.Port.ShouldNotBeNull().ShouldBeInRange(10_000, 32_767);
-        connect.TargetPort.ShouldBe(connect.Port);
+        connect.IsExplicitlyProxied.ShouldBeNull();
         inngest.Resource.ConnectEndpoint.EndpointName.ShouldBe("connect");
-    }
-
-    [Fact]
-    public void Servers_in_one_AppHost_do_not_get_the_same_gateway_port()
-    {
-        var builder = Model.CreateBuilder();
-
-        var ports = Enumerable.Range(0, 20)
-            .Select(index => builder.AddInngest($"inngest-{index}").Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect").Port)
-            .ToList();
-
-        ports.Distinct().Count().ShouldBe(ports.Count);
-    }
-
-    [Fact]
-    public void The_gateway_of_a_manifest_has_the_port_the_server_listens_on_by_default()
-    {
-        var builder = DistributedApplication.CreateBuilder(["--operation", "publish", "--publisher", "manifest", "--output-path", "manifest.json"]);
-        builder.ExecutionContext.IsPublishMode.ShouldBeTrue();
-
-        var inngest = builder.AddInngest("inngest");
-
-        var connect = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect");
-        (connect.Port, connect.TargetPort).ShouldBe((8289, 8289));
     }
 
     [Fact]
@@ -109,37 +85,24 @@ public sealed class AddInngestTests
     {
         var builder = Model.CreateBuilder();
 
-        var inngest = builder.AddInngest("inngest", connectPort: 8289);
+        var inngest = builder.AddInngest("inngest", connectPort: 18289);
 
         var connect = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect");
-        connect.Port.ShouldBe(8289);
+        connect.Port.ShouldBe(18289);
         connect.TargetPort.ShouldBe(8289);
-        connect.IsExplicitlyProxied.ShouldBe(false);
     }
 
     [Fact]
-    public async Task The_dev_server_is_started_without_discovery_and_told_which_port_its_gateway_has()
+    public async Task The_dev_server_is_started_without_discovery()
     {
         var builder = Model.CreateBuilder();
         var inngest = builder.AddInngest("inngest");
-        var gatewayPort = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect").Port;
 
         var arguments = await Model.ArgumentsAsync(inngest.Resource);
 
         // Inside the container, discovery would scan the container's own ports and find nothing.
-        arguments.ShouldBe(["dev", "--no-discovery", "--connect-gateway-port", gatewayPort.ToString()!]);
+        arguments.ShouldBe(["dev", "--no-discovery"]);
         (await Model.EnvironmentAsync(inngest.Resource)).ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task The_gateway_port_chosen_in_code_is_the_one_the_server_listens_on()
-    {
-        var builder = Model.CreateBuilder();
-        var inngest = builder.AddInngest("inngest", connectPort: 28289);
-
-        var arguments = await Model.ArgumentsAsync(inngest.Resource);
-
-        arguments.ShouldBe(["dev", "--no-discovery", "--connect-gateway-port", "28289"]);
     }
 
     [Fact]

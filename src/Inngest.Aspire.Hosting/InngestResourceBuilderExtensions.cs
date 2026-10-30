@@ -9,8 +9,9 @@ namespace Aspire.Hosting;
 /// </summary>
 public static class InngestResourceBuilderExtensions
 {
-    // What the server listens on inside the container. Only the Connect gateway's port is configurable.
+    // What the server listens on inside the container, which are the ports it defaults to.
     private const int ApiPort = 8288;
+    private const int GatewayPort = 8289;
 
     // The path the SDK serves on when the app maps it as in its documentation.
     private const string DefaultServePath = "/api/inngest";
@@ -27,11 +28,7 @@ public static class InngestResourceBuilderExtensions
     /// <param name="builder">The AppHost builder.</param>
     /// <param name="name">The name of the resource.</param>
     /// <param name="port">The host port of the API and UI. It is picked by Aspire when <see langword="null"/>.</param>
-    /// <param name="connectPort">
-    /// The port of the Connect gateway, which is the same on the host and in the container because the server hands
-    /// workers its own port. A free port between 10000 and 32767 is picked when <see langword="null"/>, a different one
-    /// on every run, so a container with a persistent lifetime needs a port of your choice. A manifest gets 8289.
-    /// </param>
+    /// <param name="connectPort">The host port of the Connect gateway. It is picked by Aspire when <see langword="null"/>.</param>
     public static IResourceBuilder<InngestServerResource> AddInngest(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name,
@@ -59,11 +56,7 @@ public static class InngestResourceBuilderExtensions
     /// <param name="signingKey">A secret parameter with the signing key. One is generated when <see langword="null"/>.</param>
     /// <param name="eventKey">A secret parameter with the event key. One is generated when <see langword="null"/>.</param>
     /// <param name="port">The host port of the API and UI. It is picked by Aspire when <see langword="null"/>.</param>
-    /// <param name="connectPort">
-    /// The port of the Connect gateway, which is the same on the host and in the container because the server hands
-    /// workers its own port. A free port between 10000 and 32767 is picked when <see langword="null"/>, a different one
-    /// on every run, so a container with a persistent lifetime needs a port of your choice. A manifest gets 8289.
-    /// </param>
+    /// <param name="connectPort">The host port of the Connect gateway. It is picked by Aspire when <see langword="null"/>.</param>
     public static IResourceBuilder<InngestServerResource> AddInngestSelfHosted(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name,
@@ -100,6 +93,7 @@ public static class InngestResourceBuilderExtensions
     /// Apps that only send events, and Connect workers, need no registration. The server keeps trying until the app
     /// answers, so neither has to wait for the other.
     /// </remarks>
+    /// <typeparam name="TApp">The type of the app resource.</typeparam>
     /// <param name="builder">The Inngest server.</param>
     /// <param name="app">The app. It must have an endpoint the server can reach over HTTP.</param>
     /// <param name="path">The path the app serves Inngest on, <c>/api/inngest</c> by default.</param>
@@ -135,13 +129,22 @@ public static class InngestResourceBuilderExtensions
     /// <c>INNGEST_DEV</c>, which turns on dev mode and holds the server's address, and <c>INNGEST_BASE_URL</c> with the
     /// same address for SDKs that read only that. For a self-hosted server it is <c>INNGEST_BASE_URL</c>,
     /// <c>INNGEST_SIGNING_KEY</c> and <c>INNGEST_EVENT_KEY</c>, with <c>INNGEST_DEV</c> set to <c>0</c> so that an
-    /// <c>INNGEST_DEV</c> in the environment of the AppHost cannot turn off signature checks.
+    /// <c>INNGEST_DEV</c> in the environment of the AppHost cannot turn off signature checks. Both get
+    /// <c>INNGEST_CONNECT_GATEWAY_URL</c>, the address of the Connect gateway, for workers.
     /// </summary>
     /// <remarks>
-    /// The address is worked out for the resource that gets it: a project on the host is given the address of the
+    /// <para>
+    /// The addresses are worked out for the resource that gets them: a project on the host is given the address of the
     /// host port, and a container is given the address of the server on the container network. The resource does not
     /// wait for the server; add <c>WaitFor</c> if it must not start before the server is healthy.
+    /// </para>
+    /// <para>
+    /// The server tells a worker to dial the gateway on the port that it listens on in the container, which is not
+    /// the port that Aspire publishes it on. The worker takes the address of the gateway from
+    /// <c>INNGEST_CONNECT_GATEWAY_URL</c> instead.
+    /// </para>
     /// </remarks>
+    /// <typeparam name="TDestination">The type of the resource that gets the settings.</typeparam>
     /// <param name="builder">The resource that gets the settings, such as a project.</param>
     /// <param name="inngest">The Inngest server.</param>
     public static IResourceBuilder<TDestination> WithReference<TDestination>(
@@ -154,6 +157,7 @@ public static class InngestResourceBuilderExtensions
 
         var server = inngest.Resource;
         var address = ReferenceExpression.Create($"{server.PrimaryEndpoint.Property(EndpointProperty.Url)}");
+        var gateway = ReferenceExpression.Create($"ws://{server.ConnectEndpoint.Property(EndpointProperty.HostAndPort)}/v0/connect");
 
         return builder
             .WithReferenceRelationship(server)
@@ -171,6 +175,8 @@ public static class InngestResourceBuilderExtensions
                     context.EnvironmentVariables["INNGEST_DEV"] = address;
                     context.EnvironmentVariables["INNGEST_BASE_URL"] = address;
                 }
+
+                context.EnvironmentVariables["INNGEST_CONNECT_GATEWAY_URL"] = gateway;
             });
     }
 
@@ -180,16 +186,14 @@ public static class InngestResourceBuilderExtensions
         int? port,
         int? connectPort)
     {
-        var gatewayPort = connectPort ?? (builder.ExecutionContext.IsPublishMode ? ConnectGatewayPort.Default : ConnectGatewayPort.Pick());
-
         return builder.AddResource(resource)
             .WithImage(InngestContainerImageTags.Image, InngestContainerImageTags.Tag)
             .WithImageRegistry(InngestContainerImageTags.Registry)
             .WithIconName("Flash")
             .WithHttpEndpoint(port: port, targetPort: ApiPort, name: InngestServerResource.PrimaryEndpointName)
-            // Workers dial the gateway at the host they called the API on and the port the server itself listens on, so the
-            // port must be the same outside and inside the container, and a proxy would hand the host another one.
-            .WithHttpEndpoint(port: gatewayPort, targetPort: gatewayPort, name: InngestServerResource.ConnectEndpointName, isProxied: false)
+            // The gateway speaks HTTP until a worker upgrades the connection to a WebSocket on /v0/connect, which is
+            // what Aspire's health check needs.
+            .WithHttpEndpoint(port: connectPort, targetPort: GatewayPort, name: InngestServerResource.ConnectEndpointName)
             .WithHttpHealthCheck("/health", endpointName: InngestServerResource.PrimaryEndpointName)
             .WithHttpHealthCheck("/ready", endpointName: InngestServerResource.ConnectEndpointName)
             .WithUrlForEndpoint(InngestServerResource.PrimaryEndpointName, url => url.DisplayText = "Inngest UI")
@@ -211,9 +215,6 @@ public static class InngestResourceBuilderExtensions
                     // Inside the container, discovery would only scan the container's own ports.
                     context.Args.Add("--no-discovery");
                 }
-
-                context.Args.Add("--connect-gateway-port");
-                context.Args.Add(resource.ConnectEndpoint.Property(EndpointProperty.TargetPort));
             })
             .WithEnvironment(context =>
             {

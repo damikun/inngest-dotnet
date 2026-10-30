@@ -54,8 +54,8 @@ public sealed class InngestServerResource : ContainerResource
     public EndpointReference PrimaryEndpoint => _primaryEndpoint ??= new(this, PrimaryEndpointName);
 
     /// <summary>
-    /// Gets the endpoint of the gateway that Connect workers dial. Workers learn its address from the API, so it
-    /// needs no environment variable of its own.
+    /// Gets the endpoint of the gateway that Connect workers dial. A resource that references the server gets its
+    /// address as <c>INNGEST_CONNECT_GATEWAY_URL</c>.
     /// </summary>
     public EndpointReference ConnectEndpoint => _connectEndpoint ??= new(this, ConnectEndpointName);
 }

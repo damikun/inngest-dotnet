@@ -7,13 +7,17 @@ namespace Inngest.Aspire.Hosting.Tests.AppModel;
 // resource as Aspire resolves them for the process or container, and endpoints that have the addresses DCP gives them.
 internal static class Model
 {
+    // A value that depends on an endpoint nobody allocated is waited for, so a test that forgets one would never end.
+    private static readonly TimeSpan ResolutionTimeout = TimeSpan.FromSeconds(10);
+
     public static IDistributedApplicationBuilder CreateBuilder() => DistributedApplication.CreateBuilder();
 
     public static async Task<IReadOnlyList<string>> ArgumentsAsync(IResource resource)
     {
         var configuration = await ExecutionConfigurationBuilder.Create(resource)
             .WithArgumentsConfig()
-            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run), NullLogger.Instance, TestContext.Current.CancellationToken);
+            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run), NullLogger.Instance, TestContext.Current.CancellationToken)
+            .WaitAsync(ResolutionTimeout);
 
         ThrowIfFailed(configuration);
         return [.. configuration.Arguments.Select(argument => argument.Value)];
@@ -23,7 +27,8 @@ internal static class Model
     {
         var configuration = await ExecutionConfigurationBuilder.Create(resource)
             .WithEnvironmentVariablesConfig()
-            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run), NullLogger.Instance, TestContext.Current.CancellationToken);
+            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run), NullLogger.Instance, TestContext.Current.CancellationToken)
+            .WaitAsync(ResolutionTimeout);
 
         ThrowIfFailed(configuration);
         return configuration.EnvironmentVariables.ToDictionary(variable => variable.Key, variable => variable.Value);
@@ -43,7 +48,8 @@ internal static class Model
         builder.CreateResourceBuilder(new ParameterResource(name, _ => value, secret: true));
 
     public static async Task<string> ValueAsync(ParameterResource parameter) =>
-        await parameter.GetValueAsync(TestContext.Current.CancellationToken) ?? throw new InvalidOperationException($"The parameter {parameter.Name} has no value.");
+        await parameter.GetValueAsync(TestContext.Current.CancellationToken).AsTask().WaitAsync(ResolutionTimeout)
+        ?? throw new InvalidOperationException($"The parameter {parameter.Name} has no value.");
 
     // The addresses of an endpoint once DCP has allocated it: from the host, localhost and the port the proxy listens
     // on, and from a container, the name the host or the other container has on the container network.

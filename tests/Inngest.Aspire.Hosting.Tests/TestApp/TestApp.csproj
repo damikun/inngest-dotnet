@@ -5,5 +5,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
   </ItemGroup>
 </Project>

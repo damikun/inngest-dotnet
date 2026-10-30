@@ -9,6 +9,7 @@ public sealed class WithReferenceTests
     {
         var inngest = builder.AddInngest("inngest");
         Model.Allocate(inngest.Resource, "http", 18288, "inngest.dev.internal", 8288);
+        Model.Allocate(inngest.Resource, "connect", 18289, "inngest.dev.internal", 8289);
         return inngest;
     }
 
@@ -16,6 +17,7 @@ public sealed class WithReferenceTests
     {
         var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", "event-key-1"));
         Model.Allocate(inngest.Resource, "http", 18288, "inngest.dev.internal", 8288);
+        Model.Allocate(inngest.Resource, "connect", 18289, "inngest.dev.internal", 8289);
         return inngest;
     }
 
@@ -30,7 +32,9 @@ public sealed class WithReferenceTests
         var environment = await Model.EnvironmentAsync(shop.Resource);
         environment["INNGEST_DEV"].ShouldBe("http://localhost:18288");
         environment["INNGEST_BASE_URL"].ShouldBe("http://localhost:18288");
-        environment.Keys.Where(key => key.StartsWith("INNGEST_", StringComparison.Ordinal)).Order().ShouldBe(["INNGEST_BASE_URL", "INNGEST_DEV"]);
+        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://localhost:18289/v0/connect");
+        environment.Keys.Where(key => key.StartsWith("INNGEST_", StringComparison.Ordinal)).Order()
+            .ShouldBe(["INNGEST_BASE_URL", "INNGEST_CONNECT_GATEWAY_URL", "INNGEST_DEV"]);
     }
 
     [Fact]
@@ -44,6 +48,7 @@ public sealed class WithReferenceTests
         var environment = await Model.EnvironmentAsync(worker.Resource);
         environment["INNGEST_DEV"].ShouldBe("http://inngest.dev.internal:8288");
         environment["INNGEST_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://inngest.dev.internal:8289/v0/connect");
     }
 
     [Fact]
@@ -61,6 +66,7 @@ public sealed class WithReferenceTests
         environment["INNGEST_BASE_URL"].ShouldBe("http://localhost:18288");
         environment["INNGEST_SIGNING_KEY"].ShouldBe(SigningKey);
         environment["INNGEST_EVENT_KEY"].ShouldBe("event-key-1");
+        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://localhost:18289/v0/connect");
     }
 
     [Fact]
@@ -69,6 +75,7 @@ public sealed class WithReferenceTests
         var builder = Model.CreateBuilder();
         var inngest = builder.AddInngestSelfHosted("inngest");
         Model.Allocate(inngest.Resource, "http", 18288, "inngest.dev.internal", 8288);
+        Model.Allocate(inngest.Resource, "connect", 18289, "inngest.dev.internal", 8289);
 
         var shop = builder.AddProject<Projects.TestApp>("shop").WithReference(inngest);
 
@@ -87,7 +94,9 @@ public sealed class WithReferenceTests
 
         var worker = builder.AddContainer("worker", "example/worker").WithReference(inngest);
 
-        (await Model.EnvironmentAsync(worker.Resource))["INNGEST_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        var environment = await Model.EnvironmentAsync(worker.Resource);
+        environment["INNGEST_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://inngest.dev.internal:8289/v0/connect");
     }
 
     [Fact]
@@ -103,6 +112,7 @@ public sealed class WithReferenceTests
 
         var environment = configuration.EnvironmentVariables.ToDictionary();
         environment["INNGEST_BASE_URL"].ShouldBe("{inngest.bindings.http.url}");
+        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://{inngest.bindings.connect.host}:{inngest.bindings.connect.port}/v0/connect");
         environment["INNGEST_SIGNING_KEY"].ShouldBe("{signing.value}");
         environment["INNGEST_EVENT_KEY"].ShouldBe("{events.value}");
     }

@@ -2,7 +2,8 @@ using Aspire.Hosting.Testing;
 
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
-// A self-hosted server that signs its requests, with keys the integration generates, and a project that has the same keys.
+// A self-hosted server that signs its requests, with keys the integration generates, a project that it syncs and a
+// Connect worker, which have the same keys.
 public sealed class SelfHostedApp : AppHostFixture
 {
     public InngestServerResource Server { get; private set; } = null!;
@@ -15,6 +16,11 @@ public sealed class SelfHostedApp : AppHostFixture
             .WithHttpHealthCheck("/health")
             .WithReference(inngest);
         inngest.WithApp(shop);
+        builder.AddProject<Projects.TestApp>("worker")
+            .WithHttpEndpoint(name: "http")
+            .WithHttpHealthCheck("/health")
+            .WithEnvironment("TEST_WORKER", "true")
+            .WithReference(inngest);
         Server = inngest.Resource;
     }
 }

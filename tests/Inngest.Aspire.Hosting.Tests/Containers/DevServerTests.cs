@@ -1,13 +1,11 @@
 using Aspire.Hosting.Testing;
 using System.Net;
-using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
 // The dev server in Docker next to a project on the host, started by Aspire. They prove what the app model cannot: that
 // the addresses Aspire works out are the ones that work, in both directions.
-public sealed partial class DevServerTests(DevServerApp fixture) : IClassFixture<DevServerApp>
+public sealed class DevServerTests(DevServerApp fixture) : IClassFixture<DevServerApp>
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(90);
 
@@ -31,29 +29,38 @@ public sealed partial class DevServerTests(DevServerApp fixture) : IClassFixture
         urls.ShouldContain(url => url.IsInternal);
     }
 
-    // The server tells a worker where to dial from the host the worker called it on and the port the gateway listens on
-    // in the container, and the endpoint makes the same port work on the host.
     [Fact]
-    public async Task The_gateway_is_where_the_server_tells_workers_to_dial()
+    public async Task The_gateway_answers_on_the_port_Aspire_publishes_it_on()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         await fixture.WaitForHealthyAsync("inngest", cancellationToken);
 
-        using var http = fixture.App.CreateHttpClient("inngest", "http");
-        using var response = await http.PostAsync("v0/connect/start", content: null, cancellationToken);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var http = new HttpClient();
+        using var ready = await http.GetAsync(new UriBuilder(fixture.App.GetEndpoint("inngest", "connect")) { Path = "ready" }.Uri, cancellationToken);
 
-        // The body is a protobuf message whose first strings are the connection id and the gateway's address.
-        var body = Encoding.Latin1.GetString(await response.Content.ReadAsByteArrayAsync(cancellationToken));
-        var gateway = new Uri(WebSocketAddress().Match(body).Value);
-        var connect = fixture.App.GetEndpoint("inngest", "connect");
-        gateway.Host.ShouldBe(http.BaseAddress!.Host);
-        gateway.Port.ShouldBe(connect.Port);
-        gateway.AbsolutePath.ShouldBe("/v0/connect");
-        gateway.Port.ShouldNotBe(http.BaseAddress.Port);
-
-        using var ready = await http.GetAsync(new UriBuilder(connect) { Path = "ready" }.Uri, cancellationToken);
         ready.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    // The server would tell the worker to dial the port the gateway has in the container. The address the worker is given
+    // instead is that of the endpoint, on the port Aspire published.
+    [Fact]
+    public async Task A_Connect_worker_dials_the_gateway_where_Aspire_published_it_and_runs_its_function()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await fixture.WaitForHealthyAsync("inngest", cancellationToken);
+        await fixture.WaitForHealthyAsync("worker", cancellationToken);
+        var server = new ServerApi(fixture.App.CreateHttpClient("inngest", "http"), "dev-key");
+
+        // The app appears when the worker has connected, and the server cannot call it over HTTP.
+        await server.WaitForFunctionAsync("aspire-test-worker", "aspire-test-worker-hello", Timeout, cancellationToken);
+        using var worker = fixture.App.CreateHttpClient("worker", "http");
+        using var sent = await worker.PostAsync("send", content: null, cancellationToken);
+        sent.EnsureSuccessStatusCode();
+        using var sentBody = System.Text.Json.JsonDocument.Parse(await sent.Content.ReadAsStringAsync(cancellationToken));
+        var run = await server.WaitForRunAsync(sentBody.RootElement.GetProperty("id").GetString()!, Timeout, cancellationToken);
+
+        run.Status.ShouldBe("Completed");
+        run.Output.GetProperty("greeting").GetString().ShouldBe("hello from aspire");
     }
 
     [Fact]
@@ -74,8 +81,9 @@ public sealed partial class DevServerTests(DevServerApp fixture) : IClassFixture
 
         // The server calls the project at the address that Aspire gave the container for the host, not at localhost, which
         // would be the container itself.
-        function.StepUrl.IsLoopback.ShouldBeFalse();
-        function.StepUrl.AbsolutePath.ShouldBe("/api/inngest");
+        var stepUrl = new Uri(function.StepUrl);
+        stepUrl.IsLoopback.ShouldBeFalse();
+        stepUrl.AbsolutePath.ShouldBe("/api/inngest");
     }
 
     [Fact]
@@ -100,7 +108,4 @@ public sealed partial class DevServerTests(DevServerApp fixture) : IClassFixture
         using var introspectionBody = System.Text.Json.JsonDocument.Parse(await introspection.Content.ReadAsStringAsync(cancellationToken));
         introspectionBody.RootElement.GetProperty("mode").GetString().ShouldBe("dev");
     }
-
-    [GeneratedRegex(@"ws://[^\x00-\x1f]+")]
-    private static partial Regex WebSocketAddress();
 }

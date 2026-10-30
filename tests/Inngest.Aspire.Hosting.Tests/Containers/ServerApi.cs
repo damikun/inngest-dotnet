@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
-internal sealed record SyncedFunction(string Slug, Uri StepUrl);
+internal sealed record SyncedFunction(string Slug, string StepUrl);
 
 internal sealed record RunResult(string Status, JsonElement Output);
 
@@ -13,7 +13,8 @@ internal sealed class ServerApi(HttpClient http, string eventKey)
 {
     private long _requests;
 
-    // The function once the server has synced the app, with the URL it calls the app on for each step.
+    // The function once the server has synced the app, with the URL it calls for each step: that of the app, or for a
+    // Connect worker not one a client could open.
     public async Task<SyncedFunction> WaitForFunctionAsync(string appId, string slug, TimeSpan timeout, CancellationToken cancellationToken) =>
         await Poll.UntilAsync(
             $"app {appId} to be synced with {slug}",
@@ -22,7 +23,7 @@ internal sealed class ServerApi(HttpClient http, string eventKey)
                 using var body = await GetAsync($"v1/apps/{appId}/functions", token);
                 var function = body.RootElement.EnumerateArray().FirstOrDefault(candidate => candidate.GetProperty("id").GetString() == slug);
                 return function.ValueKind == JsonValueKind.Object
-                    ? new SyncedFunction(slug, new Uri(function.GetProperty("config").GetProperty("steps")[0].GetProperty("uri").GetString()!))
+                    ? new SyncedFunction(slug, function.GetProperty("config").GetProperty("steps")[0].GetProperty("uri").GetString()!)
                     : null;
             },
             timeout,

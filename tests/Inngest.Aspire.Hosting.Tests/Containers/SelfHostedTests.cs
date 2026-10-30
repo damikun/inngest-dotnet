@@ -55,6 +55,24 @@ public sealed class SelfHostedTests(SelfHostedApp fixture) : IClassFixture<SelfH
     }
 
     [Fact]
+    public async Task A_Connect_worker_with_the_keys_connects_to_the_gateway_and_runs_its_function()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (server, _) = await ConnectAsync(cancellationToken);
+        await fixture.WaitForHealthyAsync("worker", cancellationToken);
+
+        await server.WaitForFunctionAsync("aspire-test-worker", "aspire-test-worker-hello", Timeout, cancellationToken);
+        using var worker = fixture.App.CreateHttpClient("worker", "http");
+        using var sent = await worker.PostAsync("send", content: null, cancellationToken);
+        sent.EnsureSuccessStatusCode();
+        using var sentBody = System.Text.Json.JsonDocument.Parse(await sent.Content.ReadAsStringAsync(cancellationToken));
+        var run = await server.WaitForRunAsync(sentBody.RootElement.GetProperty("id").GetString()!, Timeout, cancellationToken);
+
+        run.Status.ShouldBe("Completed");
+        run.Output.GetProperty("greeting").GetString().ShouldBe("hello from aspire");
+    }
+
+    [Fact]
     public async Task The_project_is_in_cloud_mode_and_refuses_what_is_not_signed()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
