@@ -1,0 +1,322 @@
+---
+title: Project templates and the dotnet inngest command
+description: Start an Inngest app with dotnet new inngest-web or inngest-worker, and run the Inngest dev server for it with dotnet inngest dev, which downloads the Inngest CLI, checks its SHA-256 and finds the app in its launch settings.
+sidebar:
+  label: Templates and tool
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Two packages take the first steps of [getting started](/inngest-dotnet/guides/getting-started/) off your hands.
+[`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) makes a project with a function that
+runs, and [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) is a .NET tool that runs the Inngest
+dev server for it. You can use either without the other.
+
+## Templates
+
+Install the template package once. It adds two templates to `dotnet new`:
+
+```bash
+dotnet new install Inngest.Templates
+```
+
+| Template | Makes |
+|---|---|
+| `inngest-web` | An ASP.NET Core app that serves an Inngest function, with an endpoint that sends the event that starts it. |
+| `inngest-worker` | A worker that runs the same function over [Connect](/inngest-dotnet/guides/connect/), with no endpoint to expose. |
+
+Make a project and run it:
+
+```bash
+dotnet new inngest-web -n Shop
+cd Shop
+dotnet run
+```
+
+The options of both templates:
+
+| Option | Meaning | Default |
+|---|---|---|
+| `-n`, `--name` | The name of the project. The app id is the same name in kebab case, such as `shop-orders` for `Shop.Orders`. | The name of the folder |
+| `-f`, `--framework` | `net10.0` or `net8.0`. | `net10.0` |
+| `--http-port` | The port in `Properties/launchSettings.json`. Only `inngest-web`. | A free port from 5000 to 5300 |
+| `--no-restore` | Does not restore the packages after making the project. | Restores |
+
+### The web app
+
+`inngest-web` makes a project with an event, a function, a `Program.cs`, its settings and a launch profile. The event is
+a record that carries its own name:
+
+```csharp title="Events.cs"
+using Inngest;
+
+// An event is a record that carries its own name, so sending it and triggering a function with it need no string.
+public sealed record HelloRequested(string Name) : IInngestEventData
+{
+    public static string EventName => "app/hello.requested";
+}
+```
+
+The function has one step. Its attributes give it an id and the event that starts it:
+
+```csharp title="SayHello.cs"
+using Inngest;
+
+// The attributes give the function its id and the event that starts it. A step runs once and Inngest saves its result,
+// so a retry repeats only the step that failed.
+[InngestFunction("say-hello", Name = "Say hello")]
+[EventTrigger<HelloRequested>]
+public sealed class SayHello : InngestFunction<HelloRequested>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<HelloRequested> context, CancellationToken cancellationToken)
+    {
+        var greeting = await context.Step.RunAsync("compose-greeting", () => $"Hello, {context.Event.Data.Name}!");
+
+        context.Logger.LogInformation("{Greeting}", greeting);
+        return new { greeting };
+    }
+}
+```
+
+`Program.cs` registers the function, maps the endpoint Inngest calls and has one endpoint of its own, which sends the
+event:
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// The settings come from the Inngest section of appsettings.json. appsettings.Development.json turns on dev mode, which
+// talks to the Inngest dev server on this machine and needs no keys.
+builder.Services
+    .AddInngest(builder.Configuration.GetSection("Inngest"))
+    .AddFunction<SayHello>();
+
+var app = builder.Build();
+
+// Inngest calls this endpoint to sync the app's functions and to run their steps.
+app.MapInngest();
+
+// Sends the event that starts SayHello: curl -X POST http://localhost:5280/hello/Ada
+app.MapPost("/hello/{name}", async (string name, IInngestClient inngest, CancellationToken cancellationToken) =>
+{
+    var sent = await inngest.SendAsync(new HelloRequested(name), cancellationToken);
+    return Results.Accepted(value: new { eventId = sent.Ids[0] });
+});
+
+app.Run();
+```
+
+The project references `Inngest.AspNetCore`. The settings put the app id in `appsettings.json` and dev mode in
+`appsettings.Development.json`, so that only the Development environment talks to a dev server:
+
+```json title="appsettings.json"
+{
+  "Inngest": {
+    "AppId": "shop"
+  }
+}
+```
+
+```json title="appsettings.Development.json"
+{
+  "Inngest": {
+    "IsDev": true
+  }
+}
+```
+
+The launch profile runs the app in the Development environment on the port the template picked, which is 5280 in
+these examples. The [dotnet inngest command](#the-dotnet-inngest-command) reads the app's address from it:
+
+```json title="Properties/launchSettings.json"
+{
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5280",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+```
+
+Outside the Development environment the app runs in cloud mode, which needs the event key and the signing key of an
+Inngest app. See [Configuration](/inngest-dotnet/guides/configuration/) and
+[Deploying](/inngest-dotnet/guides/deploying/).
+
+### The worker
+
+`inngest-worker` makes the same event and function, the same settings and a `Program.cs` that serves them over
+Connect instead of mapping an endpoint:
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// The settings come from the Inngest section of appsettings.json. appsettings.Development.json turns on dev mode, which
+// talks to the Inngest dev server on this machine and needs no keys.
+builder.Services
+    .AddInngest(builder.Configuration.GetSection("Inngest"))
+    .AddFunction<SayHello>()
+    .AddConnect();
+
+// The worker dials out to Inngest and receives its calls over that connection, so it has no endpoint to expose.
+await builder.Build().RunAsync();
+```
+
+Its project uses the worker SDK and references `Inngest.Connect` and `Microsoft.Extensions.Hosting`. It has no
+endpoint, so there is no event endpoint either: send the event from the dev server's UI, or to its event API.
+
+```bash
+curl -X POST http://localhost:8288/e/dev -d '{"name": "app/hello.requested", "data": {"name": "Ada"}}'
+```
+
+### Versions
+
+A new project references the Inngest packages at the version of the template package that made it. `dotnet new update`
+updates the template package, so that the next project gets newer packages. The reference is an ordinary
+`PackageReference`: raise its version to update the SDK in a project that exists. `Microsoft.Extensions.Hosting` in the
+worker is the version the SDK's own tests run with.
+
+## The dotnet inngest command
+
+`dotnet-inngest` is a .NET tool that adds `dotnet inngest` to the command line. Its one command, `dev`, runs the
+[Inngest dev server](https://www.inngest.com/docs/local-development) without you installing it first:
+
+<Tabs syncKey="tool-install">
+<TabItem label="For you">
+
+```bash
+dotnet tool install --global dotnet-inngest
+```
+
+</TabItem>
+<TabItem label="For a repository">
+
+A local tool is recorded in the tool manifest, `dotnet-tools.json`, so everyone who clones the repository gets it with
+`dotnet tool restore`:
+
+```bash
+dotnet new tool-manifest
+dotnet tool install dotnet-inngest
+```
+
+</TabItem>
+</Tabs>
+
+Start your app, then the dev server, each in a terminal of its own. From the folder of a project made by
+`inngest-web`:
+
+```bash
+dotnet run
+```
+
+```bash
+dotnet inngest dev
+```
+
+The first run downloads the Inngest CLI; the later ones start at once. The tool runs `inngest dev` and passes on its
+output, its exit code and Ctrl+C. Open `http://localhost:8288` to see the runs.
+
+### Where the dev server finds the app
+
+`inngest dev` needs the address of the app's Inngest endpoint, which it is told with `-u`. Without `-u`, and without
+`--no-discovery`, the tool reads it from `Properties/launchSettings.json` in the current folder: the first profile
+that runs the project and has an `http` address supplies it, and the tool appends `/api/inngest`, the path of
+`MapInngest`. It says which one it used:
+
+```text
+The dev server will call http://localhost:5280/api/inngest, from the profile http of Properties/launchSettings.json. -u <url> names another.
+```
+
+An address that listens on every interface, such as `http://*:5280`, is called on `localhost`. Profiles with only
+`https` give nothing, because the dev server may not trust the development certificate. When no address is found, the
+dev server looks for apps on its own, on the ports it knows.
+
+### Options
+
+| Option | Meaning |
+|---|---|
+| `-u`, `--sdk-url <url>` | The URL of the app's Inngest endpoint. Can be given more than once. |
+| `--project <path>` | The folder, or project file, whose launch settings give the address. The current folder by default. |
+| `--cli-version <version>` | Runs another release of the Inngest CLI, such as `1.50.0`. |
+| `-h`, `--help` | Shows the usage. |
+
+The tool owns `--project` and `--cli-version`. Every other option goes to `inngest dev` as it is and in the order it
+was given, so `dotnet inngest dev --port 9000 --persist` works, and so does an option of a later release of the CLI.
+Everything after `--` goes to the CLI untouched; `dotnet inngest dev -- --help` shows its options. For a Connect
+worker, which has no endpoint, pass `--no-discovery`, and the tool adds no address:
+
+```bash
+dotnet inngest dev --no-discovery
+```
+
+### What it downloads
+
+The tool runs the release of the Inngest CLI from [github.com/inngest/inngest](https://github.com/inngest/inngest/releases),
+the file the install script and the `inngest-cli` npm package download too. The file is chosen for the machine and not
+for the .NET process: under Rosetta on a Mac with Apple silicon, or on Windows on Arm, the native binary is the one that
+runs.
+
+| System | Architecture | File |
+|---|---|---|
+| Linux | x64, Arm64 | `inngest_1.49.0_linux_amd64.tar.gz`, `inngest_1.49.0_linux_arm64.tar.gz` |
+| macOS | x64, Arm64 | `inngest_1.49.0_darwin_amd64.tar.gz`, `inngest_1.49.0_darwin_arm64.tar.gz` |
+| Windows | x64, Arm64 | `inngest_1.49.0_windows_amd64.zip`, `inngest_1.49.0_windows_arm64.zip` |
+
+The release has no file for other systems, such as 32-bit ones. The tool is pinned to one version, 1.49.0 here, the
+one of the `inngest/inngest` image that this SDK's tests run against, and a new version of the tool moves the pin.
+
+Before it unpacks anything the tool checks the SHA-256 of the download:
+
+- **The pinned version** is checked against the checksums in the source of the tool, copied from the release's
+  `checksums.txt`. A file that is replaced on GitHub fails the check, even when `checksums.txt` next to it is replaced
+  too.
+- **Another version**, named with `--cli-version`, is checked against the `checksums.txt` of its release. That catches
+  a damaged or cut-off download. It does not catch a replaced release, since the checksums come from the same place,
+  and the tool says so when you ask for one.
+
+A download that does not match is deleted and nothing is installed. The tool then ends with exit code 1.
+
+The CLI is kept per user and per version, and a folder that holds a binary is used again without a request. The CLI is
+about 100 MB unpacked.
+
+| System | Where |
+|---|---|
+| Windows | `%LOCALAPPDATA%\inngest-dotnet\cli\<version>\<system>_<architecture>` |
+| Linux, macOS | `~/.local/share/inngest-dotnet/cli/<version>/<system>_<architecture>`, or under `$XDG_DATA_HOME` |
+
+`INNGEST_DOTNET_CACHE` names another folder for the whole cache. Delete a version's folder to remove it. A machine
+without access to GitHub can use the cache as it is: put the binary of the release in the folder of its version
+and system, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
+
+### Ctrl+C, exit codes and Docker
+
+The CLI runs on the console of the tool, so its output, and its input, are yours. Ctrl+C reaches the CLI, which shuts
+down; the tool waits for it and ends with its exit code. On Linux and macOS a signal sent to the tool alone, a
+`SIGINT` or a `SIGTERM`, is passed on to the CLI, so that stopping the tool never leaves a dev server behind. The tool
+itself ends with 2 for a command line it cannot read and with 1 when it cannot get the CLI.
+
+When it cannot get the CLI, because the machine is offline or no release exists for it, the message ends with a
+command that runs the dev server in Docker instead, for the same address:
+
+```text
+docker run --rm -p 8288:8288 -p 8289:8289 --add-host=host.docker.internal:host-gateway inngest/inngest:v1.49.0 inngest dev -u http://host.docker.internal:5280/api/inngest
+```
+
+The container reaches the app on the host as `host.docker.internal`, since `localhost` inside it is the container
+itself. It is not run for you; the tool runs the dev server as a process.
+
+<Aside title="What the tool does not do">
+
+It does not start your app, and it does not replace the Inngest CLI: it downloads the CLI once and passes your
+arguments to it. The tool makes no request except that download, and the checksums of a release you name with
+`--cli-version`, and it sends no telemetry. It updates the CLI only when you update the tool or name another version.
+
+</Aside>
+
+See [getting started](/inngest-dotnet/guides/getting-started/) for what happens once the app and the dev server run.

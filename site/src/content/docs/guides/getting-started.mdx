@@ -24,6 +24,13 @@ only that one. The dev server shows every step as it happens.
 
 </Aside>
 
+<Aside type="tip" title="Start from a template">
+
+`dotnet new install Inngest.Templates` and `dotnet new inngest-web -n Shop` make a project like the one in this guide,
+and `dotnet inngest dev` runs the dev server for it. See [Templates and tool](/inngest-dotnet/guides/templates-and-tools/).
+
+</Aside>
+
 ## 1. Add the SDK
 
 Install `Inngest.AspNetCore` from NuGet. It brings in `Inngest`. The version is a preview, so add `--prerelease`:
@@ -55,6 +62,8 @@ The SDK is split into these packages:
 | [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/) | End-to-end encryption of event data, step results and function output. See [Encryption](/inngest-dotnet/guides/middleware/#encryption). |
 | [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) | Reports the errors of functions and steps to Sentry. See [Middleware](/inngest-dotnet/guides/middleware/#sentry). |
 | [`Inngest.Extensions.AI`](https://www.nuget.org/packages/Inngest.Extensions.AI/) | Makes the model calls and tool calls of a Microsoft.Extensions.AI `IChatClient` steps of the run. See [AI chat clients](/inngest-dotnet/guides/ai/). |
+| [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) | `dotnet new inngest-web` and `dotnet new inngest-worker`, which make a project like the one below. See [Templates and tool](/inngest-dotnet/guides/templates-and-tools/). |
+| [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) | A .NET tool: `dotnet inngest dev` downloads the Inngest CLI and runs the dev server for the app. See [Templates and tool](/inngest-dotnet/guides/templates-and-tools/#the-dotnet-inngest-command). |
 
 ## 2. Write a function
 

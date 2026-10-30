@@ -172,8 +172,11 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/) | End-to-end encryption of event data, step results and function output, in the format of the TypeScript SDK's encryption middleware. |
 | [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) | Reports the errors of functions and steps to Sentry, tagged with the app, the function, the run and the event. |
 | [`Inngest.Extensions.AI`](https://www.nuget.org/packages/Inngest.Extensions.AI/) | Makes the model calls and tool calls of a Microsoft.Extensions.AI `IChatClient` steps of the run, so a replay never calls the model or a tool twice. |
+| [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) | `dotnet new inngest-web` and `dotnet new inngest-worker`: a project with a typed event, a function and dev mode in its Development settings. |
+| [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) | A .NET tool: `dotnet inngest dev` downloads the Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder. |
 
-Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`.
+Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`;
+the template package holds files only.
 
 ## Quick start
 

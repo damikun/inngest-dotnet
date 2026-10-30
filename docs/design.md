@@ -243,6 +243,8 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Extensions.AI` | `UseInngestSteps` and `UseInngestFunctionInvocation`, stages for the `ChatClientBuilder` of Microsoft.Extensions.AI that make each model call and each tool call of a run an AI wrap step, and `InngestInferChatClient`, a chat client of inference steps in the OpenAI chat format. Depends on `Microsoft.Extensions.AI`. |
 | `Inngest.Testing.Containers` | A Testcontainers module (`InngestServerBuilder`, `InngestServerContainer`, `InngestServerConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
 | `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
+| `Inngest.Templates` | The `inngest-web` and `inngest-worker` templates for `dotnet new`. A template package: files, no assembly. |
+| `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 
 `Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption` and `Inngest.Extensions.AI` use internals of
 `Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of
@@ -254,11 +256,11 @@ the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the publ
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.Extensions.AI` and the two `Inngest.Testing.Containers`
-packages have no release to compare with yet, so their project files clear the baseline until their first one. The
-container packages are not `IsAotCompatible`, which every other package is: Testcontainers and
-`Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects, which are neither
-trimmed nor compiled ahead of time.
+each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers`
+packages and `dotnet-inngest` have no release to compare with yet, so their project files clear the baseline until their
+first one; `Inngest.Templates` has no assembly to compare. The container packages are not `IsAotCompatible`, which every
+other package is: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are
+for test projects, which are neither trimmed nor compiled ahead of time.
 
 ### Code layout
 
@@ -416,6 +418,7 @@ per call.
 | Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. `InngestInferChatClient` has Inngest call an OpenAI-compatible provider instead (`step.ai.infer`). |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
+| `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
 
 
 ## Spec deviations
@@ -573,3 +576,53 @@ with, is kept.
   `CreateDefaultClient(Uri, ...)` set the base address after it, from options that default to `http://localhost`, port
   80, so the factory declares `CreateClient` again. The addresses collection of a started Kestrel cannot be changed, so
   there is no earlier place to fix it.
+
+## Templates and the dotnet-inngest tool
+
+**The template package.** `src/Inngest.Templates` has `PackageType` Template and no build output. Each template under
+`templates/` is a real project with `!!INNGEST_VERSION!!` where the version of an Inngest package goes. At pack time the
+target `StageTemplates`, which runs before the package files are collected and so also for `dotnet pack --no-build`,
+copies the folder to `obj`, replaces the tokens with `$(PackageVersion)` in a small inline MSBuild task and packs the
+copy. It fails when a token is left, and it copies on every pack, because a new version changes the result while the
+files stay the same. The worker's `Microsoft.Extensions.Hosting` takes its version from `Directory.Packages.props` the
+same way. This follows the Aspire templates, which replace `!!REPLACE_WITH_LATEST_VERSION!!` in a copy at pack time. The
+ASP.NET Core templates generate their project files with a task of the Arcade SDK, which a project outside that repository
+does not have, and Aspire runs a C# script with `dotnet`. An inline MSBuild task needs neither.
+
+The `template.json` files use what `dotnet new` offers instead of tokens of their own: a `Framework` choice that replaces
+`net10.0`, the `port` generator with `coalesce` for `--http-port`, the `kebabCase` form of the project name for the app
+id, a fresh `UserSecretsId`, and the restore post action. The generated code has no namespace and no folders, as in the
+getting started guide. `Microsoft.TemplateEngine.Authoring.Tasks` only localizes templates, and
+`Microsoft.TemplateEngine.Authoring.TemplateVerifier` snapshots a template folder, so neither is used.
+
+**Their tests.** `tests/Inngest.Templates.Tests` packs `Inngest`, `Inngest.AspNetCore`, `Inngest.Connect` and
+`Inngest.Templates` into a temporary feed with a version of its own (a version restored from a feed stays in the global
+packages folder, so a fixed one would hide changes), installs the template package into a throwaway hive
+(`--debug:custom-hive`), makes both templates and builds them with a `nuget.config` that maps `Inngest*` to the feed and
+the rest to nuget.org. It also starts the web app and reads its introspection, which proves the launch profile, the
+Development settings and dev mode work together. A run packs four projects and builds two, so it is a job of its own in CI.
+
+**The tool.** `src/dotnet-inngest` is a `PackAsTool` project named `dotnet-inngest`, so that `dotnet inngest` finds it, as
+`dotnet ef` finds `dotnet-ef`. It targets `net8.0` and `net10.0`, each in its own folder of the package, with
+`RollForward=Major` for a machine that has neither. The arguments are parsed by hand: the tool owns three options and
+passes the rest to `inngest dev`, whose options change with the release, which is the opposite of what a command line
+library is for, and the tool stays free of dependencies. Its types are internal, tested through `InternalsVisibleTo`.
+
+- **Download.** The asset is named `inngest_<version>_<os>_<arch>.<tar.gz|zip>` in the release of the tag, as the
+  install script and the npm package expect it, chosen by the architecture of the machine. The pinned version is checked
+  against `PinnedChecksums`, a copy of the release's `checksums.txt` in the source, and never against the release, so a
+  file replaced on GitHub together with its checksums is caught. Another version is checked against its `checksums.txt`,
+  which catches damage only. The pin, the `inngest/inngest` image in the docs and the integration tests are raised
+  together.
+- **Cache.** `<local app data>/inngest-dotnet/cli/<version>/<os>_<arch>/inngest`. The download and the unpacked binary
+  are made in a staging folder beside it, which is moved into place in one step, so an interrupted install leaves nothing
+  that looks installed and two installs at once end with one. Only the binary is unpacked, to a path the tool chooses,
+  whatever the archive's entries are called, and it gets the execute bit.
+- **Running.** The CLI inherits the console, so its output and input are the user's. Ctrl+C reaches the CLI as it does
+  any foreground program, and the tool waits for it and returns its exit code. On Unix `SIGINT` and `SIGTERM` that reach
+  the tool alone are passed on with `kill`, so stopping the tool leaves no dev server running; the CLI takes the second
+  `SIGINT` of a terminal as one.
+- **Address.** Without `-u` or `--no-discovery`, the first launch profile that runs the project and has an `http` address
+  gives the app's URL, plus `/api/inngest`.
+- **Docker.** The failures that mean the CLI cannot be had print the `docker run` command for the same address. Nothing is
+  run for the user.

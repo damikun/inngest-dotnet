@@ -63,8 +63,8 @@ jobs:
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
 
   # Packs the packages of this repository into a folder, installs the template package from it and builds what the
-  # templates make against it, so nuget.org is needed for the rest of what those projects use. That takes a few minutes,
-  # which is why it is a job of its own.
+  # templates make against it, so nuget.org is needed for the rest of what those projects use. That packs four projects
+  # and builds two, which is why it is a job of its own.
   templates:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, with their members and what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, with their members and what they are for, and the templates of Inngest.Templates and the commands of dotnet-inngest.
 sidebar:
   label: API overview
 ---
@@ -454,3 +454,40 @@ Package `Inngest.Testing.Containers.AspNetCore` for .NET 10, namespace `Inngest.
 | `GetAppUrl()` | The address of the app's Inngest endpoint as the test reaches it. |
 | `CreateClient()`, `CreateClient(WebApplicationFactoryClientOptions)` | Declared again, so that a client reaches the app at `localhost` and its port, also with options that have no base address. `CreateDefaultClient` gets the same address. |
 | `Container` | The container the app is configured for. |
+
+## Templates and tool
+
+Packages `Inngest.Templates` and `dotnet-inngest`. They have no C# API: the first holds `dotnet new` templates and the
+second is a .NET tool. See [Templates and tool](/inngest-dotnet/guides/templates-and-tools/).
+
+**Templates**, installed with `dotnet new install Inngest.Templates`:
+
+| Short name | Project SDK | References |
+|---|---|---|
+| `inngest-web` | `Microsoft.NET.Sdk.Web` | `Inngest.AspNetCore`, at the version of the template package |
+| `inngest-worker` | `Microsoft.NET.Sdk.Worker` | `Inngest.Connect`, at the version of the template package, and `Microsoft.Extensions.Hosting` |
+
+| Option | Templates | Meaning |
+|---|---|---|
+| `-n`, `--name` | both | The project name, and the app id in kebab case. |
+| `-f`, `--framework` | both | `net10.0` (the default) or `net8.0`. |
+| `--http-port` | `inngest-web` | The port of the `http` launch profile. A free port from 5000 to 5300 by default. |
+| `--no-restore` | both | Skips the restore after the project is made. |
+
+**`dotnet inngest`**, installed with `dotnet tool install --global dotnet-inngest` (the command is `dotnet-inngest`):
+
+| Command | Purpose |
+|---|---|
+| `dotnet inngest dev [options] [-- <options of inngest dev>]` | Downloads the Inngest CLI release on first use, checks its SHA-256 and runs `inngest dev`. |
+| `dotnet inngest --version` | Prints the version of the tool and of the CLI it is pinned to. |
+| `dotnet inngest --help` | Prints the usage. |
+
+| Option of `dev` | Meaning |
+|---|---|
+| `-u`, `--sdk-url <url>` | The app's Inngest endpoint, passed to the CLI. Without it, and without `--no-discovery`, the tool reads the `http` address of the first profile that runs the project in `Properties/launchSettings.json` and appends `/api/inngest`. |
+| `--project <path>` | The folder or project file whose launch settings are read. The current folder by default. |
+| `--cli-version <version>` | Runs another release of the CLI. Its download is checked against the `checksums.txt` of the release; the pinned version against checksums built into the tool. |
+
+Other options go to `inngest dev` as they are, in order. `INNGEST_DOTNET_CACHE` sets the folder the CLI is kept in. The
+exit code is the CLI's; the tool's own are 1 when the CLI cannot be had (a request failed, or a download does not
+match its SHA-256), 2 for a command line it cannot read and 130 when Ctrl+C stops a download.

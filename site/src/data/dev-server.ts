@@ -1,7 +1,7 @@
 // The ways to start the Inngest dev server. The DevServer component shows them as tabs and the Markdown copies of
 // the pages write them out as sections, from this one list. The order follows Inngest's local development docs
-// (install script, Homebrew, npx, Docker); Compose is added for teams. Every command is one line, so it pastes into
-// any shell; long lines wrap on screen.
+// (install script, Homebrew, npx, Docker); the .NET tool, which runs the same CLI, sits next to npx, and Compose is added
+// for teams. Every command is one line, so it pastes into any shell; long lines wrap on screen.
 
 const IMAGE = 'inngest/inngest:v1.49.0';
 
@@ -45,6 +45,15 @@ export function devServerTabs(connect: boolean): DevServerTab[] {
     {
       label: 'npx',
       blocks: [{ lang: 'bash', wrap: true, code: `npx --ignore-scripts=false inngest-cli@latest dev ${app('localhost')}` }],
+    },
+    {
+      label: '.NET tool',
+      blocks: [{ lang: 'bash', wrap: true, code: `dotnet tool install --global dotnet-inngest\ndotnet inngest dev ${app('localhost')}` }],
+      note:
+        'The tool downloads the Inngest CLI once, checks its SHA-256 and runs it.' +
+        (connect
+          ? ''
+          : ' In a project with a launch profile, leave out <code>-u</code>: the tool reads the address from <code>Properties/launchSettings.json</code>.'),
     },
     {
       label: 'Docker',
