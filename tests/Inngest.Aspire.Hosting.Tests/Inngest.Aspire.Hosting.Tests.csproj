@@ -1,0 +1,33 @@
+<!-- Aspire.Hosting.Testing starts an AppHost with the orchestrator and the dashboard that the Aspire AppHost SDK locates
+     and records in the assembly, and finds the assembly by that record. So the test project is an AppHost project too. -->
+<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+  <PropertyGroup>
+    <TargetFramework>$(LatestTargetFramework)</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <!-- ASPIRE010: the AppHost packages carry the orchestrator and dashboard, so the tests do not need the Aspire CLI bundle. -->
+    <NoWarn>$(NoWarn);xUnit1051;ASPIRE010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The app has a project of its own. -->
+    <Compile Remove="TestApp\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Shouldly" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- A library, not a project the AppHost runs. -->
+    <ProjectReference Include="..\..\src\Inngest.Aspire.Hosting\Inngest.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
+    <!-- The app the server syncs in the tests that run containers; the SDK turns this reference into Projects.TestApp. -->
+    <ProjectReference Include="TestApp\TestApp.csproj" />
+  </ItemGroup>
+</Project>
