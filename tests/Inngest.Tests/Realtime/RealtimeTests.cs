@@ -144,7 +144,23 @@ public sealed class RealtimeTests
             return Task.CompletedTask;
         }
 
+        public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
+        {
+            var text = new StringBuilder();
+            await foreach (var chunk in chunks.WithCancellation(cancellationToken))
+            {
+                text.Append(chunk);
+            }
+
+
+            Published.Add((topic, runId, text.ToString()));
+            return text.ToString();
+        }
+
         public Task<string> GetTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken) => Task.FromResult("jwt");
+
+        public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     // Records compare lists by reference.

@@ -5,5 +5,11 @@ using System.Text.Json;
 
 namespace Inngest.Testing;
 
-/// <summary>A realtime message the test host recorded instead of publishing it, with its data as JSON.</summary>
-public sealed record PublishedMessage(RealtimeTopic Topic, JsonElement Data);
+/// <summary>
+/// A realtime message the test host recorded instead of publishing it, with its data as JSON. A stream is recorded as one
+/// message whose data is all its text.
+/// </summary>
+public sealed record PublishedMessage(RealtimeTopic Topic, JsonElement Data)
+{
+    public bool IsStream { get; init; }
+}

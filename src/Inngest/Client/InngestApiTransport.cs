@@ -26,6 +26,8 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
         var client = httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
         var response = await SendOnceAsync(client, call, settings.SigningKey, completionOption, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            || call.Token is not null
+            || call.Content is not null
             || settings.SigningKeyFallback is not { } fallback)
         {
             return response;
@@ -57,6 +59,10 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
             request.Content = new ReadOnlyMemoryContent(body);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
+        else if (call.Content is not null)
+        {
+            request.Content = call.Content;
+        }
 
         if (call.SyncKind is not null)
         {
@@ -68,7 +74,11 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
             request.Headers.TryAddWithoutValidation(Headers.ExpectedServerKind, call.ExpectedServerKind);
         }
 
-        if (key is not null)
+        if (call.Token is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", call.Token);
+        }
+        else if (key is not null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.BearerToken);
         }
@@ -78,10 +88,14 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
 }
 
 // One request to the REST API. Environment overrides the app's branch environment for this request only.
+// Content is a body that can be sent once, such as a stream, so a request with it is never repeated with the fallback
+// key. Token authenticates in place of the signing key, as a realtime subscription token does.
 internal readonly record struct ApiCall(
     HttpMethod Method,
     Uri Url,
     ReadOnlyMemory<byte>? Body = null,
     string? ExpectedServerKind = null,
     string? SyncKind = null,
-    string? Environment = null);
+    string? Environment = null,
+    HttpContent? Content = null,
+    string? Token = null);

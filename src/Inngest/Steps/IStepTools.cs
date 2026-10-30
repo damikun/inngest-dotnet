@@ -59,6 +59,18 @@ public interface IStepTools
     Task<T> PublishAsync<T>(string id, RealtimeTopic topic, T data) =>
         throw new NotSupportedException($"{GetType().Name} does not implement PublishAsync.");
 
+    /// <summary>Publishes data to a typed realtime topic once, as PublishAsync does for any topic.</summary>
+    Task<T> PublishAsync<T>(string id, RealtimeTopic<T> topic, T data) =>
+        PublishAsync(id, (topic ?? throw new ArgumentNullException(nameof(topic))).Untyped, data);
+
+    /// <summary>
+    /// Streams text to a realtime topic as the chunks arrive, tagged with the run, and returns all of it. The step streams
+    /// once: a replay returns the memoized text without enumerating the chunks, so a model call behind them is not made
+    /// again.
+    /// </summary>
+    Task<string> PublishStreamAsync(string id, RealtimeTopic topic, IAsyncEnumerable<string> chunks) =>
+        throw new NotSupportedException($"{GetType().Name} does not implement PublishStreamAsync.");
+
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
@@ -112,6 +124,18 @@ public interface IStepTools
     /// returns the memoized data without publishing again.
     /// </summary>
     Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => PublishAsync(IdOf(stepOptions), topic, data);
+
+    /// <summary>Publishes data to a typed realtime topic once, as PublishAsync does for any topic.</summary>
+    Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic<T> topic, T data) =>
+        PublishAsync(stepOptions, (topic ?? throw new ArgumentNullException(nameof(topic))).Untyped, data);
+
+    /// <summary>
+    /// Streams text to a realtime topic as the chunks arrive, tagged with the run, and returns all of it. The step streams
+    /// once: a replay returns the memoized text without enumerating the chunks, so a model call behind them is not made
+    /// again.
+    /// </summary>
+    Task<string> PublishStreamAsync(StepOptions stepOptions, RealtimeTopic topic, IAsyncEnumerable<string> chunks) =>
+        PublishStreamAsync(IdOf(stepOptions), topic, chunks);
 
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(StepOptions stepOptions, object? data = null, TimeSpan? timeout = null)

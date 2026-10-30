@@ -70,6 +70,11 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
 
     public Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => Publish(IdOf(stepOptions), stepOptions, topic, data);
 
+    public Task<string> PublishStreamAsync(string id, RealtimeTopic topic, IAsyncEnumerable<string> chunks) => PublishStream(id, null, topic, chunks);
+
+    public Task<string> PublishStreamAsync(StepOptions stepOptions, RealtimeTopic topic, IAsyncEnumerable<string> chunks) =>
+        PublishStream(IdOf(stepOptions), stepOptions, topic, chunks);
+
     public Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
         Invoke<TResult>(id, null, InvokeOptionsFor<TFunction>(data, timeout));
@@ -208,8 +213,16 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
     private Task<T> Publish<T>(string id, StepOptions? stepOptions, RealtimeTopic topic, T data)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
-        RealtimeMessage.Check(topic);
+        RealtimePayload.Check(topic);
         return Register(new RealtimePublishStep<T>(id, topic, data), stepOptions);
+    }
+
+    private Task<string> PublishStream(string id, StepOptions? stepOptions, RealtimeTopic topic, IAsyncEnumerable<string> chunks)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        RealtimePayload.Check(topic);
+        ArgumentNullException.ThrowIfNull(chunks);
+        return Register(new RealtimeStreamStep(id, topic, chunks), stepOptions);
     }
 
     // The registry knows the id of every class it registered, whether the class has attributes or not.

@@ -8,8 +8,8 @@ using Inngest.Realtime;
 
 namespace Inngest.Testing;
 
-// Takes the place of Inngest's realtime API: published messages are recorded, and tokens are placeholders that no
-// Inngest accepts.
+// Takes the place of Inngest's realtime API: published messages and streams are recorded, tokens are placeholders that
+// no Inngest accepts, and subscribing fails, since nothing is published anywhere a subscriber could read it.
 internal sealed class RecordingRealtimeApi(InngestTestHost host) : IRealtimeApi
 {
     public const string PlaceholderToken = "test-host-token";
@@ -20,8 +20,24 @@ internal sealed class RecordingRealtimeApi(InngestTestHost host) : IRealtimeApi
         return Task.CompletedTask;
     }
 
+    public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
+    {
+        var text = new StringBuilder();
+        await foreach (var chunk in chunks.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            text.Append(chunk);
+        }
+
+        host.RecordPublished(new PublishedMessage(topic, Text(text.ToString())) { IsStream = true }, RunDriver.Current);
+        return text.ToString();
+    }
+
     public Task<string> GetTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken) =>
         Task.FromResult(PlaceholderToken);
+
+    public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken) =>
+        Task.FromException<HttpResponseMessage>(new InvalidOperationException(
+            "The test host records realtime messages in run.Published and host.Published and delivers them to no subscriber."));
 
     // Text goes out as it is, so a message that is not JSON was a string.
     private static JsonElement Read(ReadOnlyMemory<byte> body)
@@ -33,14 +49,19 @@ internal sealed class RecordingRealtimeApi(InngestTestHost host) : IRealtimeApi
         }
         catch (JsonException)
         {
-            var text = new ArrayBufferWriter<byte>();
-            using (var writer = new Utf8JsonWriter(text))
-            {
-                writer.WriteStringValue(Encoding.UTF8.GetString(body.Span));
-            }
-
-            using var document = JsonDocument.Parse(text.WrittenMemory);
-            return document.RootElement.Clone();
+            return Text(Encoding.UTF8.GetString(body.Span));
         }
+    }
+
+    private static JsonElement Text(string text)
+    {
+        var json = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(json))
+        {
+            writer.WriteStringValue(text);
+        }
+
+        using var document = JsonDocument.Parse(json.WrittenMemory);
+        return document.RootElement.Clone();
     }
 }
