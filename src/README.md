@@ -19,6 +19,8 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   on the real execution engine.
 - [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/): traces and metrics for function
   calls and steps.
+- [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/): end-to-end encryption of event data, step
+  results and function output, in the format of the TypeScript SDK's encryption middleware.
 
 Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`:
 

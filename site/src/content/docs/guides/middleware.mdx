@@ -170,12 +170,190 @@ public sealed class FailureMetricsMiddleware : InngestMiddleware
 
 The [tracing example](/inngest-dotnet/examples/tracing-middleware/) wraps steps in OpenTelemetry activities.
 
+## Encryption
+
+The `Inngest.Encryption` package encrypts event data, step results and function output in your app, so that Inngest
+stores and shows ciphertext for them. It writes the format of
+[`@inngest/middleware-encryption`](https://www.npmjs.com/package/@inngest/middleware-encryption), so .NET and
+TypeScript services can read each other's events, step results and output.
+
+```bash
+dotnet add package Inngest.Encryption --prerelease
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddEncryption(options => options.Key = builder.Configuration["Inngest:EncryptionKey"]);
+```
+
+The middleware covers every function of the app. Functions keep working with plain values: they receive events and
+memoized results decrypted, and what they return is encrypted on its way to Inngest.
+
+### What is encrypted
+
+| Data | What is encrypted |
+|---|---|
+| The result of a step | All of it, unless it is `null`. |
+| The output of the function | All of it, unless it is `null`. |
+| The data of an event the app sends, from `IInngestClient` or a step | One top-level field of it: `encrypted`, or the field that `EventEncryptionField` names. |
+
+The field is matched against the name the serializer writes, so with the default camelCase options the property
+`Encrypted` is the field `encrypted`:
+
+```csharp title="CardPayment.cs"
+using Inngest;
+
+public sealed record CardDetails(string Number, string Holder);
+
+public sealed record CardPayment(string OrderId, CardDetails Encrypted) : IInngestEventData
+{
+    public static string EventName => "shop/card.paid";
+}
+```
+
+{/* check: statements; IInngestClient inngest */}
+```csharp
+await inngest.SendAsync(new CardPayment("o-7", new CardDetails("4242 4242 4242 4242", "Ada Lovelace")));
+```
+
+Inngest stores `OrderId` as it is and `Encrypted` as ciphertext. A function triggered by the event gets
+`context.Event.Data.Encrypted` as a `CardDetails`. This also works across languages: when an event arrives, every
+top-level field of its data that holds an encrypted value is decrypted, whatever it is called, and the same goes for the
+event a `WaitForEventAsync` matched. `context.RawEvent` stays as Inngest sent it.
+
+Everything else is sent as it is: event names, ids and timestamps, the other fields of the data, `User`, step ids and
+names, and the data passed to `InvokeAsync`. Inngest also stores the messages of exceptions as they are, so keep
+secrets out of them. It evaluates expressions, such as trigger conditions, concurrency keys and the `If` of a wait,
+against event data, so they can only use fields that are not encrypted.
+
+### Keys
+
+A key is any text. The middleware hashes it with BLAKE2b to the 32 bytes the cipher needs, so its length does not matter
+but its randomness does: use a long random value, such as the output of `openssl rand -base64 32`, kept in a secret
+store, and not a password. White space around the key is ignored. Every service that reads the data needs the same key.
+
+### Rotating keys
+
+`Key` always encrypts. `FallbackDecryptionKeys` only decrypt: they are tried when `Key` does not decrypt a value, and
+blank entries are ignored. To replace a key without failing the runs that hold data written with the old one:
+
+1. Deploy every service with the new key as a fallback: `Key` is the current key and `FallbackDecryptionKeys` the new one.
+2. Deploy again with the new key first, and the current key as the fallback.
+3. Once no run holds data written with the current key, remove it.
+
+{/* check: statements; WebApplicationBuilder builder, string newKey, string currentKey */}
+```csharp title="Program.cs, step 2"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddEncryption(options =>
+    {
+        options.Key = newKey;
+        options.FallbackDecryptionKeys = [currentKey];
+    });
+```
+
+A value that no key decrypts throws a `CryptographicException` where it is read, which fails the call, and Inngest
+retries it. During a rolling deploy the retry can reach an instance that has the key.
+
+`DecryptOnly = true` makes a service read encrypted data and write none. Use it to add the middleware to every service
+before encryption is switched on in any of them, so that none receives data it cannot read, and to phase encryption
+out again.
+
+### TypeScript services
+
+An encrypted value is the object `{"__ENCRYPTED__":true,"__STRATEGY__":"inngest/libsodium","data":"..."}`. `data` is the
+standard base64 of a random 24-byte nonce followed by what libsodium's `crypto_secretbox_easy` (XSalsa20-Poly1305) makes
+of the JSON text of the value, with the BLAKE2b hash of the key as its key. The package computes this with the managed
+primitives of BouncyCastle, which is its only dependency besides `Inngest`.
+
+The two sides need the same key, and the same event field for the events they send each other. In TypeScript the
+middleware is added to the client:
+
+```ts
+import { Inngest } from "inngest";
+import { encryptionMiddleware } from "@inngest/middleware-encryption";
+
+const inngest = new Inngest({
+  id: "shop",
+  middleware: [encryptionMiddleware({ key: process.env.ENCRYPTION_KEY! })],
+});
+```
+
+Where the two differ:
+
+- The AES values, those of the first versions of the TypeScript package, which have no strategy, and those of its
+  `AESEncryptionService`, are read and never written. They have no authentication, so a value counts as genuine when
+  it decrypts to JSON. There is no counterpart of `legacyV0Service`.
+- The data of a step that invokes another function is not encrypted in .NET, because the payload hooks do not cover it.
+  A .NET function invoked from TypeScript still reads the data decrypted.
+- The TypeScript package returns the event that `waitForEvent` matched with its field still encrypted. .NET decrypts it.
+
+### Another cipher
+
+`EncryptionOptions.Service` replaces the default strategy for writing values. A service gets the UTF-8 JSON of a value
+and returns the text for the `data` field of the envelope, and the other way round. Its `Identifier` is written to
+`__STRATEGY__`, and picks the service that reads a value, so other services need the same identifier and algorithm.
+
+```csharp title="AesGcmEncryptionService.cs"
+using System.Security.Cryptography;
+using Inngest;
+
+public sealed class AesGcmEncryptionService(byte[] key) : EncryptionService
+{
+    private const int NonceSize = 12;
+    private const int TagSize = 16;
+
+    public override string Identifier => "shop/aes-gcm";
+
+    public override string Encrypt(ReadOnlySpan<byte> json)
+    {
+        var data = new byte[NonceSize + TagSize + json.Length];
+        RandomNumberGenerator.Fill(data.AsSpan(0, NonceSize));
+        using var aes = new AesGcm(key, TagSize);
+        aes.Encrypt(data.AsSpan(0, NonceSize), json, data.AsSpan(NonceSize + TagSize), data.AsSpan(NonceSize, TagSize));
+        return Convert.ToBase64String(data);
+    }
+
+    public override byte[] Decrypt(string data)
+    {
+        var bytes = Convert.FromBase64String(data);
+        var json = new byte[bytes.Length - NonceSize - TagSize];
+        using var aes = new AesGcm(key, TagSize);
+        aes.Decrypt(bytes.AsSpan(0, NonceSize), bytes.AsSpan(NonceSize + TagSize), bytes.AsSpan(NonceSize, TagSize), json);
+        return json;
+    }
+}
+```
+
+{/* check: statements; WebApplicationBuilder builder, byte[] key */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddEncryption(options => options.Service = new AesGcmEncryptionService(key));
+```
+
+One instance serves every call at the same time, so it must be thread-safe, and it runs synchronously on the call's path:
+load keys at startup rather than from a vault on each value. `Key` is not needed with a service. When it is set, values
+that the default strategies wrote are still decrypted, so data can move from one to the other.
+
+### Notes
+
+- Events pass through middleware in registration order, so register encryption after middleware that add or change
+  events, or it does not see them.
+- A middleware that rewrites payloads with `IPayloadTransform` sees plain data if it is registered after encryption and
+  ciphertext if it is registered before it.
+- A value grows by a third and by about 120 bytes of envelope, which counts against the size limits Inngest puts on
+  events and step results.
+- It works under Native AOT. Event data types go in the serializer context as for any event.
+
 ## Compared with the TypeScript SDK
 
 The hooks follow inngest-js v4's middleware, with .NET names. The TypeScript SDK's transform hooks
 (`transformFunctionInput`, `transformStepInput`) have a .NET counterpart in `IPayloadTransform`: a middleware that
 implements it rewrites the raw JSON of events, step results, step output and the function's output, which is what
-encryption needs. There is no `wrapRequest`: ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a
+[encryption](#encryption) needs. There is no `wrapRequest`: ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a
 request, and constructor injection covers most other uses. Inngest's
 [middleware guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/middleware) describes the
 lifecycle in general.

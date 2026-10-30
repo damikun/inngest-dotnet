@@ -428,6 +428,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
 ${references}
 ${reference('Inngest.Testing')}
+${reference('Inngest.Encryption')}
   </ItemGroup>
   <ItemGroup>
     <Using Include="Docs.Support" />

@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry and Inngest.Testing packages, with their members and what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption and Inngest.Testing packages, with their members and what they are for.
 sidebar:
   label: API overview
 ---
@@ -286,6 +286,28 @@ Connect worker adds `inngest.connect.request` for every request it receives. The
 `inngest.run.completed`, `inngest.run.failed`, `inngest.retries`, `inngest.execution.duration` and
 `inngest.step.duration`, with durations in seconds. The [tracing middleware example](/inngest-dotnet/examples/tracing-middleware/)
 shows how to write such a middleware yourself.
+
+## Encryption
+
+Package `Inngest.Encryption`. See [Encryption](/inngest-dotnet/guides/middleware/#encryption).
+
+| Member | Purpose |
+|---|---|
+| `IInngestBuilder.AddEncryption(Action<EncryptionOptions>?)` | Adds the middleware that encrypts event data, step results and function output and decrypts what comes back, in the format of `@inngest/middleware-encryption`. Register it after middleware that add or change events. |
+
+**`EncryptionOptions`**:
+
+| Member | Purpose |
+|---|---|
+| `Key` | The key that encrypts, and the first one tried when decrypting. Required unless `Service` is set. |
+| `FallbackDecryptionKeys` | Keys that only decrypt, for replacing a key. Empty by default. |
+| `DecryptOnly` | Reads encrypted data and writes none. `false` by default. |
+| `EventEncryptionField` | The top-level field of an event's data that is encrypted when the event is sent. `"encrypted"` by default. |
+| `Service` | An `EncryptionService` that encrypts in place of the default strategy. |
+
+**`EncryptionService`**, an abstract class: `Identifier`, which the envelope's `__STRATEGY__` carries;
+`Encrypt(ReadOnlySpan<byte> json)`, which returns the text of the `data` field; and `Decrypt(string data)`, which
+returns the UTF-8 JSON of the value.
 
 ## Test host
 

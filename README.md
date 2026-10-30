@@ -166,6 +166,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
 | [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |
 | [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/) | Traces and metrics for function calls and steps. |
+| [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/) | End-to-end encryption of event data, step results and function output, in the format of the TypeScript SDK's encryption middleware. |
 
 Each package targets `net8.0` and `net10.0`.
 
