@@ -26,18 +26,40 @@ internal readonly struct VariableSource(Func<string, string?> read)
         return null;
     }
 
+    // Names that resolve only inside a network, where addresses are usually plain http.
+    private static readonly string[] PrivateSuffixes = [".internal", ".local", ".localhost", ".lan", ".home.arpa", ".svc", ".test"];
+
     public Uri? GetUrl(string name) => Get(name) is { } value ? ParseUrl(name, value) : null;
 
-    // Accepts "host:port" without a scheme, as the dev server is usually written, and assumes http for it.
-    public static Uri ParseUrl(string name, string value)
+    // Accepts "host:port" without a scheme, as the dev server is usually written. That means http for the dev server
+    // and for hosts inside a network: localhost, an IP address, a name without dots such as a container's, or a
+    // private suffix. Any other host gets https, so that a key or token never crosses the internet in clear text
+    // because a scheme was left out.
+    public static Uri ParseUrl(string name, string value, bool assumeHttp = false)
     {
-        var text = value.Contains("://", StringComparison.Ordinal) ? value : "http://" + value;
+        var text = value.Contains("://", StringComparison.Ordinal) ? value
+            : assumeHttp || IsPrivateHost(value) ? "http://" + value
+            : "https://" + value;
         if (Uri.TryCreate(text, UriKind.Absolute, out var url) && url.Scheme is "http" or "https")
         {
             return url;
         }
 
         throw new InvalidOperationException($"{name} must be an http or https URL, but it is '{value}'.");
+    }
+
+    private static bool IsPrivateHost(string address)
+    {
+        if (!Uri.TryCreate("http://" + address, UriKind.Absolute, out var url))
+        {
+            return true;
+        }
+
+        var host = url.IdnHost;
+        return url.IsLoopback
+            || url.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
+            || !host.Contains('.', StringComparison.Ordinal)
+            || PrivateSuffixes.Any(suffix => host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
     public static bool? ParseBoolean(string? value) => value?.Trim() switch

@@ -255,6 +255,36 @@ public sealed class InngestSettingsTests
         settings.ApiBaseUrl.AbsoluteUri.ShouldBe("http://inngest.internal:8288/");
     }
 
+    // A key or token must not cross the internet in clear text because the scheme was left out.
+    [Theory]
+    [InlineData("INNGEST_API_BASE_URL", "api.inngest.com", "https://api.inngest.com/")]
+    [InlineData("INNGEST_EVENT_API_BASE_URL", "inn.gs", "https://inn.gs/")]
+    [InlineData("INNGEST_SERVE_ORIGIN", "shop.example.com", "https://shop.example.com/")]
+    [InlineData("INNGEST_BASE_URL", "inngest:8288", "http://inngest:8288/")]
+    [InlineData("INNGEST_BASE_URL", "localhost:8288", "http://localhost:8288/")]
+    [InlineData("INNGEST_BASE_URL", "10.0.0.5:8288", "http://10.0.0.5:8288/")]
+    [InlineData("INNGEST_BASE_URL", "inngest.default.svc.cluster.local:8288", "http://inngest.default.svc.cluster.local:8288/")]
+    public void An_address_without_a_scheme_gets_https_unless_its_host_is_private(string variable, string value, string expected)
+    {
+        var settings = Create(null, (variable, value));
+
+        var url = variable switch
+        {
+            "INNGEST_EVENT_API_BASE_URL" => settings.EventApiBaseUrl,
+            "INNGEST_SERVE_ORIGIN" => settings.ServeOrigin!,
+            _ => settings.ApiBaseUrl,
+        };
+        url.AbsoluteUri.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void A_dev_server_address_without_a_scheme_is_http_wherever_it_runs()
+    {
+        var settings = Create(null, ("INNGEST_DEV", "devbox.example.com:8288"));
+
+        settings.ApiBaseUrl.AbsoluteUri.ShouldBe("http://devbox.example.com:8288/");
+    }
+
     [Fact]
     public void Paths_in_addresses_are_kept()
     {

@@ -39,6 +39,10 @@ builder.Services.AddInngest(options =>
 | `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
 | `SerializerOptions` | | `JsonSerializerDefaults.Web` |
 
+An address in a variable may leave out the scheme, as in `INNGEST_DEV=localhost:8288`. The dev server, localhost, IP
+addresses, names without dots (such as a container's) and names ending in `.internal`, `.local` or another private
+suffix get `http`. Any other host gets `https`, so a key never crosses the internet in clear text by mistake.
+
 The SDK reads the variables through `IConfiguration` when the host has one, so they can also come from
 `appsettings.json`, user secrets, Azure App Configuration or any other configuration source, under the same names:
 

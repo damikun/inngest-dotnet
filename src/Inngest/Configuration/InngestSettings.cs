@@ -176,7 +176,8 @@ internal sealed record InngestSettings
             return (null, null);
         }
 
-        return VariableSource.ParseBoolean(value) is { } flag ? (flag, null) : (null, VariableSource.ParseUrl(DevVariableName, value));
+        // The dev server speaks plain http wherever it runs.
+        return VariableSource.ParseBoolean(value) is { } flag ? (flag, null) : (null, VariableSource.ParseUrl(DevVariableName, value, assumeHttp: true));
     }
 
     private static Uri? RequireHttpUrl(Uri? url, string optionName)
