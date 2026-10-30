@@ -194,6 +194,8 @@ What it does not do:
 - It does not check a wait mock's event against the wait's `Match` or `If`, only against the event name.
 - It does not carry out signal waits, fetch steps or inference steps, which cannot be mocked, so the run waits on
   them. Nor does it run invoked functions: an invoke without a mock leaves the run waiting.
+- It does not checkpoint. A function with checkpointing on runs one step per call in the host, as without it, so
+  code outside steps runs more often than in production; the results are the same.
 
 ### Reading a run
 

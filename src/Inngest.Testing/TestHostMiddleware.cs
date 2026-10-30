@@ -1,12 +1,14 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using Inngest.Middleware;
+
 namespace Inngest.Testing;
 
-// The host's hooks into the engine. It is registered after the app's middleware, so the app's wrappers wrap it: a
-// mocked run step is answered where its handler would run, a run's exceptions are kept as they were thrown, and
-// sent events are recorded instead of leaving the process.
-internal sealed class TestHostMiddleware(InngestTestHost host) : InngestMiddleware
+// The host's hooks into the engine. It is registered after the app's middleware and is innermost, so the app's
+// wrappers and a function's own wrap it: a mocked run step is answered where its handler would run, a run's
+// exceptions are kept as they were thrown, and sent events are recorded instead of leaving the process.
+internal sealed class TestHostMiddleware(InngestTestHost host) : InngestMiddleware, IInnermostMiddleware
 {
     public override Task<object?> WrapStepHandlerAsync(FunctionContext context, StepInfo step, Func<Task<object?>> next)
     {

@@ -97,7 +97,7 @@ internal sealed partial class RunDriver
         switch (op.Code)
         {
             case ReportedOp.StepPlanned:
-                Enqueue(new Work(WorkKind.Execute, Step: step), _clock.Now);
+                Enqueue(new Work(WorkKind.Execute, Step: step, JobId: Ulid.New(_clock.Now)), _clock.Now);
                 break;
 
             case ReportedOp.Sleep when mock is not null || _mocks.EndsAllSleeps:

@@ -41,7 +41,7 @@ internal sealed partial class RunDriver
         return buffer.WrittenSpan.ToArray();
     }
 
-    private async Task<Answer> CallAsync(string? stepId, int attempt, CancellationToken cancellationToken)
+    private async Task<Answer> CallAsync(string? stepId, int attempt, string? jobId, CancellationToken cancellationToken)
     {
         if (++_calls > MaxCalls)
         {
@@ -67,6 +67,7 @@ internal sealed partial class RunDriver
                 StepId = stepId ?? "step",
                 Services = scope.ServiceProvider,
                 RequestId = Ulid.New(_clock.Now),
+                JobId = jobId,
             };
 
             using var result = await _host.Engine.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);

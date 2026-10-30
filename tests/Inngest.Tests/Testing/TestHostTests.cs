@@ -255,6 +255,24 @@ public sealed class TestHostTests
     }
 
     [Fact]
+    public async Task A_function_s_own_middleware_transforms_events_before_the_host_records_them()
+    {
+        var services = new ServiceCollection();
+        services.AddInngest(options => options.AppId = AppId).AddFunction(
+            Options() with { Middleware = [FunctionMiddleware.Of(_ => new StampVersion())] },
+            async (context, _) =>
+            {
+                await context.Step.SendEventAsync("notify", new InngestEvent("user/notified"));
+                return null;
+            });
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.SentEvents.ShouldHaveSingleItem().Version.ShouldBe("2026-10");
+    }
+
+    [Fact]
     public async Task An_event_the_client_would_refuse_fails_the_send_step()
     {
         await using var host = For(

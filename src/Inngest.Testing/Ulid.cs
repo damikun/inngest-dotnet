@@ -6,21 +6,62 @@ using System.Security.Cryptography;
 namespace Inngest.Testing;
 
 // Ids in the format Inngest gives runs and events: ULIDs, 48 bits of Unix milliseconds and 80 random bits in
-// Crockford's base 32.
+// Crockford's base 32. Ids made in the same millisecond count up from the first one's random bits, as in the ULID
+// spec's monotonic mode, so that they sort in the order they were made.
 internal static class Ulid
 {
     private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    private const ulong MaxUInt40 = (1UL << 40) - 1;
+
+    private static readonly object Gate = new();
+    private static long _lastTime = -1;
+    private static ulong _lastHigh;
+    private static ulong _lastLow;
 
     public static string New(DateTimeOffset time)
     {
-        Span<byte> random = stackalloc byte[10];
-        RandomNumberGenerator.Fill(random);
+        var milliseconds = Math.Max(0, time.ToUnixTimeMilliseconds());
+        ulong high;
+        ulong low;
+        lock (Gate)
+        {
+            if (milliseconds != _lastTime || !TryIncrementLast())
+            {
+                Span<byte> random = stackalloc byte[10];
+                RandomNumberGenerator.Fill(random);
+                _lastHigh = ReadUInt40(random[..5]);
+                _lastLow = ReadUInt40(random[5..]);
+                _lastTime = milliseconds;
+            }
+
+            high = _lastHigh;
+            low = _lastLow;
+        }
 
         Span<char> chars = stackalloc char[26];
-        Encode((ulong)Math.Max(0, time.ToUnixTimeMilliseconds()), chars[..10]);
-        Encode(ReadUInt40(random[..5]), chars[10..18]);
-        Encode(ReadUInt40(random[5..]), chars[18..]);
+        Encode((ulong)milliseconds, chars[..10]);
+        Encode(high, chars[10..18]);
+        Encode(low, chars[18..]);
         return new string(chars);
+    }
+
+    // Adds one to the 80 random bits; false when they are all ones, and fresh random bits are taken instead.
+    private static bool TryIncrementLast()
+    {
+        if (_lastLow < MaxUInt40)
+        {
+            _lastLow++;
+            return true;
+        }
+
+        if (_lastHigh < MaxUInt40)
+        {
+            _lastHigh++;
+            _lastLow = 0;
+            return true;
+        }
+
+        return false;
     }
 
     // Writes the low five bits per character of value, most significant first.

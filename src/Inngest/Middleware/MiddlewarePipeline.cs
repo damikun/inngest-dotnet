@@ -26,7 +26,7 @@ internal sealed class MiddlewarePipeline(InngestMiddleware[] middleware, Functio
     public static string? RunningObserver => Observer.Value;
 
     // The middleware of one call: the app's in registration order, then the function's own, so that app middleware
-    // wraps the function's, as in the TypeScript SDK.
+    // wraps the function's, as in the TypeScript SDK. Innermost middleware goes after both.
     public static InngestMiddleware[] Resolve(IServiceProvider services, IReadOnlyList<FunctionMiddleware>? forFunction)
     {
         var app = services.GetServices<InngestMiddleware>();
@@ -35,10 +35,28 @@ internal sealed class MiddlewarePipeline(InngestMiddleware[] middleware, Functio
             return [.. app];
         }
 
-        List<InngestMiddleware> all = [.. app];
+        List<InngestMiddleware> all = [];
+        List<InngestMiddleware>? innermost = null;
+        foreach (var item in app)
+        {
+            if (item is IInnermostMiddleware)
+            {
+                (innermost ??= []).Add(item);
+            }
+            else
+            {
+                all.Add(item);
+            }
+        }
+
         foreach (var item in forFunction)
         {
             all.Add(item.Resolve(services));
+        }
+
+        if (innermost is not null)
+        {
+            all.AddRange(innermost);
         }
 
         return [.. all];

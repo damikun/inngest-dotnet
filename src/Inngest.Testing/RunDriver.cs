@@ -146,14 +146,14 @@ internal sealed partial class RunDriver
     private async Task<TestRun?> DiscoverAsync(Work work, CancellationToken cancellationToken)
     {
         _discoveryQueued = false;
-        var answer = await CallAsync(stepId: null, work.Attempt, cancellationToken).ConfigureAwait(false);
+        var answer = await CallAsync(stepId: null, work.Attempt, work.JobId, cancellationToken).ConfigureAwait(false);
         return Handle(answer, work);
     }
 
     private async Task<TestRun?> ExecuteAsync(Work work, CancellationToken cancellationToken)
     {
         var step = work.Step!;
-        var answer = await CallAsync(step.HashedId, work.Attempt, cancellationToken).ConfigureAwait(false);
+        var answer = await CallAsync(step.HashedId, work.Attempt, work.JobId, cancellationToken).ConfigureAwait(false);
         if (answer.IsStepNotFound())
         {
             // Inngest retries this, but replaying the same results in process reaches the same steps again.
@@ -188,7 +188,7 @@ internal sealed partial class RunDriver
     {
         if (work.Kind == WorkKind.Discover)
         {
-            QueueDiscovery(work.Attempt + 1);
+            QueueDiscovery(work.Attempt + 1, work.JobId);
         }
         else
         {
@@ -196,12 +196,13 @@ internal sealed partial class RunDriver
         }
     }
 
-    private void QueueDiscovery(int attempt)
+    // A retry keeps the job id of the call it repeats, as Inngest's queue item does.
+    private void QueueDiscovery(int attempt, string? jobId = null)
     {
         if (!_discoveryQueued)
         {
             _discoveryQueued = true;
-            Enqueue(new Work(WorkKind.Discover, attempt), _clock.Now);
+            Enqueue(new Work(WorkKind.Discover, attempt, JobId: jobId ?? Ulid.New(_clock.Now)), _clock.Now);
         }
     }
 
@@ -227,8 +228,14 @@ internal sealed partial class RunDriver
     }
 
     // One item of the run's queue: a call that finds the next steps, a targeted call that runs a planned step, or
-    // the result a mock gives a sleep, wait or invoke.
-    private readonly record struct Work(WorkKind Kind, int Attempt = 0, StepRecord? Step = null, byte[]? Memo = null, Exception? Error = null);
+    // the result a mock gives a sleep, wait or invoke. A call has the job id Inngest sends as X-Inngest-Job-Id.
+    private readonly record struct Work(
+        WorkKind Kind,
+        int Attempt = 0,
+        StepRecord? Step = null,
+        byte[]? Memo = null,
+        Exception? Error = null,
+        string? JobId = null);
 
     private sealed record Answer(int StatusCode, byte[] Body, bool? NoRetry)
     {

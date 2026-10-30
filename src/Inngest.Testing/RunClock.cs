@@ -10,6 +10,9 @@ namespace Inngest.Testing;
 // the order does not depend on how fast the test runs. An app on a FakeTimeProvider sees its clock move along.
 internal sealed class RunClock(TimeProvider time)
 {
+    // Runs in parallel can share one FakeTimeProvider.
+    private static readonly object FakeGate = new();
+
     private DateTimeOffset _simulated = time.GetUtcNow();
 
     // A FakeTimeProvider can also be moved by the test's own code.
@@ -26,7 +29,15 @@ internal sealed class RunClock(TimeProvider time)
         _simulated = instant;
         if (time is FakeTimeProvider fake)
         {
-            fake.SetUtcNow(instant);
+            // Checked and moved under one lock, so that a run whose instant another run has passed already does not
+            // move the fake back, which it refuses with an exception.
+            lock (FakeGate)
+            {
+                if (instant > fake.GetUtcNow())
+                {
+                    fake.SetUtcNow(instant);
+                }
+            }
         }
     }
 }
