@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.AzureFunctions</RootNamespace>
+    <Description>Azure Functions hosting for the Inngest .NET SDK: an HTTP-triggered function of the isolated worker serves sync, introspection and invocation.</Description>
+    <PackageTags>$(PackageTags);azure;azure-functions;serverless</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Behind the ASP.NET Core integration of the worker, a function runs inside a request of Kestrel, and the call can be
+         answered through that request as it is by MapInngest, streaming included. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Only the types a function receives. The app brings the rest of the worker and the Functions SDK. -->
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+    <ProjectReference Include="..\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+    <InternalsVisibleTo Include="Inngest.IntegrationTests" />
+  </ItemGroup>
+</Project>

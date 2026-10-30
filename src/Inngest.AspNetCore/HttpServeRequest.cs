@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 
 namespace Inngest.AspNetCore;
 
-internal sealed class HttpServeRequest(HttpContext context, ReadOnlyMemory<byte> body) : IServeRequest
+internal sealed class HttpServeRequest(HttpContext context, ReadOnlyMemory<byte> body, string framework) : IServeRequest
 {
     private Uri? _url;
 
@@ -19,7 +19,7 @@ internal sealed class HttpServeRequest(HttpContext context, ReadOnlyMemory<byte>
 
     public ReadOnlyMemory<byte> Body => body;
 
-    public string Framework => "aspnetcore";
+    public string Framework => framework;
 
     public IServiceProvider? Services => context.RequestServices;
 

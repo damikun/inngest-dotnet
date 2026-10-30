@@ -12,6 +12,7 @@
     <ProjectReference Include="..\Inngest\Inngest.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.AzureFunctions" />
     <InternalsVisibleTo Include="Inngest.Tests" />
     <InternalsVisibleTo Include="Inngest.IntegrationTests" />
   </ItemGroup>

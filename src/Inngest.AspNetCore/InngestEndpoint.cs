@@ -23,11 +23,15 @@ internal static class InngestEndpoint
 
     private static readonly ReadOnlyMemory<byte> KeepAlive = " "u8.ToArray();
 
-    public static async Task HandleAsync(HttpContext context, InngestCommHandler handler)
+    public static Task HandleAsync(HttpContext context, InngestCommHandler handler) =>
+        HandleAsync(context, handler, "aspnetcore", context.RequestAborted);
+
+    // A host that sits on ASP.NET Core, such as Azure Functions with its ASP.NET Core integration, says what to report
+    // as the framework and which token ends the call.
+    public static async Task HandleAsync(HttpContext context, InngestCommHandler handler, string framework, CancellationToken cancellationToken)
     {
-        var cancellationToken = context.RequestAborted;
         using var body = await ReadBodyAsync(context, cancellationToken).ConfigureAwait(false);
-        var request = new HttpServeRequest(context, body?.WrittenMemory ?? ReadOnlyMemory<byte>.Empty);
+        var request = new HttpServeRequest(context, body?.WrittenMemory ?? ReadOnlyMemory<byte>.Empty, framework);
         var pending = handler.HandleAsync(request, cancellationToken);
         if (handler.Streams(request))
         {

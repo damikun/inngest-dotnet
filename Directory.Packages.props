@@ -7,6 +7,9 @@
     <PackageVersion Include="Amazon.Lambda.APIGatewayEvents" Version="3.0.1" />
     <!-- ILambdaContext. -->
     <PackageVersion Include="Amazon.Lambda.Core" Version="3.4.0" />
+    <!-- The first 2.x release of the isolated worker, so that an app keeps the worker version it has: NuGet raises this to
+         whatever the app's Microsoft.Azure.Functions.Worker needs. -->
+    <PackageVersion Include="Microsoft.Azure.Functions.Worker.Core" Version="2.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
