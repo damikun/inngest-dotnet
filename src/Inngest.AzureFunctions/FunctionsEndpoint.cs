@@ -23,8 +23,8 @@ internal static class FunctionsEndpoint
     // FunctionContext.GetHttpContext() reads this entry. Without the integration there is none.
     private const string HttpContextKey = "HttpRequestContext";
 
-    // The declared length sizes the first buffer only up to this much, as in InngestEndpoint: a stream that is not in
-    // memory yet may belong to a caller whose signature has not been checked.
+    // The length of a stream sizes the first buffer only up to this much, as in InngestEndpoint, where the length is
+    // declared by a caller whose signature has not been checked.
     private const int MaxInitialBufferSize = 64 * 1024;
 
     // One warning for each app. The handler is a singleton, and the table does not keep it alive.
@@ -53,6 +53,8 @@ internal static class FunctionsEndpoint
         var cancellationToken = functionContext.CancellationToken;
         using var body = await ReadBodyAsync(request.Body, cancellationToken).ConfigureAwait(false);
         var serveRequest = new FunctionsServeRequest(request, body.Memory);
+
+        // Streams is true for a call from Inngest when streaming is on.
         if (handler.Streams(serveRequest) && StreamingWarned.TryAdd(handler, Warned))
         {
             Log.StreamingNeedsAspNetCoreIntegration(CreateLogger(services));
@@ -95,7 +97,7 @@ internal static class FunctionsEndpoint
 
     // The built-in model hands over a MemoryStream that holds the whole body already, so its buffer is used as it is.
     // Any other stream is read into a pooled buffer.
-    internal static async ValueTask<RequestBody> ReadBodyAsync(Stream stream, CancellationToken cancellationToken)
+    private static async ValueTask<RequestBody> ReadBodyAsync(Stream stream, CancellationToken cancellationToken)
     {
         if (stream is MemoryStream memory && memory.TryGetBuffer(out var segment))
         {

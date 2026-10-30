@@ -179,8 +179,8 @@ app: [Configuration](/inngest-dotnet/guides/configuration/).
 An HTTP-triggered function has to answer within 230 seconds, whatever its `functionTimeout`. After that the Azure
 load balancer times the request out and returns a 502; the function goes on running but can no longer answer.
 [Microsoft's HTTP trigger reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits)
-describes the limit. Inngest calls the endpoint once for each step, and for more steps per call with checkpointing,
-so the limit is on one call, not on a run, which can last days. A call that hits it is a failed attempt, and Inngest
+describes the limit. Inngest calls the endpoint once for each step, or once for several steps with checkpointing, so
+the limit is on one call, not on a run, which can last days. A call that hits it is a failed attempt, and Inngest
 retries the step, which starts again from its beginning.
 
 Choose by how long your longest step is:
