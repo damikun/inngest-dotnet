@@ -41,3 +41,10 @@ public sealed class PlainContext(DbContextOptions<PlainContext> options) : DbCon
 {
     public DbSet<Order> Orders => Set<Order>();
 }
+
+// A context that moves the outbox table to another name and schema.
+public sealed class RenamedContext(DbContextOptions<RenamedContext> options) : DbContext(options)
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.AddInngestOutbox(outbox => outbox.ToTable("Outbox", "inngest"));
+}
