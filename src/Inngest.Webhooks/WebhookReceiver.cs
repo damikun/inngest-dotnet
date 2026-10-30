@@ -22,6 +22,9 @@ internal sealed class WebhookReceiver
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxBodySize, nameof(options) + "." + nameof(WebhookOptions.MaxBodySize));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.SendTimeout, TimeSpan.Zero, nameof(options) + "." + nameof(WebhookOptions.SendTimeout));
+
+        // What a CancellationTokenSource can wait for.
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(options.SendTimeout, TimeSpan.FromMilliseconds(uint.MaxValue - 1), nameof(options) + "." + nameof(WebhookOptions.SendTimeout));
         _provider = provider;
         _client = client;
         _options = options;

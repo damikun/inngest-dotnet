@@ -251,6 +251,7 @@ binder, so it works trimmed and under Native AOT.
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 | `Inngest.SignalR` | `AddInngestSignalR`, `MapInngestRealtimeHub` and `InngestRealtimeBridge<THub>`, which forward realtime messages to SignalR clients through `IHubContext<THub>`: clients join through a hub method guarded by a callback, share one subscription per channel and topics, and get each message on a queue of their own, by connection id and never through a group, so that instances on a backplane deliver once. Reads the realtime subscriber of `Inngest` through `InternalsVisibleTo`, takes `RealtimeSubscription` from `Inngest.AspNetCore`, and uses the SignalR of the ASP.NET Core shared framework. No release includes it yet, so its project file clears the package validation baseline. |
 | `Inngest.Blazor` | `RealtimeView`, a headless Blazor component, and `IRealtimeSource`, the realtime messages as an async stream, with a source for the server (`AddInngestRealtimeServerSource`, over `IInngestRealtime`) and one for WebAssembly (`AddInngestRealtimeRelaySource`, which reads a `MapInngestRealtime` endpoint). A Razor class library that references `Microsoft.AspNetCore.Components.Web` as a package, not the shared framework, so it runs in the browser. |
+| `Inngest.Webhooks` | Verifiers for Standard Webhooks (Svix, Clerk, Resend), Stripe, GitHub, Shopify and any HMAC, the providers that turn a verified delivery into an event, and the pipeline behind `MapInngestWebhook` (which is in `Inngest.AspNetCore`). Depends on `Inngest` only, and uses `System.Security.Cryptography` for every signature. |
 
 `Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Blazor`, `Inngest.Connect`, `Inngest.SignalR`, `Inngest.Testing`,
 `Inngest.Encryption`, `Inngest.EntityFrameworkCore` and `Inngest.Extensions.AI` use internals of `Inngest` through
@@ -498,6 +499,42 @@ project turns reflection-based JSON off, and then it reports types that would fa
 the function replays memoized steps, so a message written between two steps appears once per run rather than once
 per call.
 
+### Webhooks
+
+`MapInngestWebhook` turns a provider's webhooks into events. The work is split so that nothing but the last step knows
+about ASP.NET Core:
+
+```
+Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> WebhookReceiver
+  size check -> IWebhookVerifier.Verify -> JsonDocument.Parse -> WebhookProvider.CreateEvent
+  -> WebhookOptions.Transform -> IInngestClient.SendAsync (within SendTimeout) -> status code
+```
+
+- **Package.** `Inngest.Webhooks` holds the verifiers, `WebhookProvider`, `WebhookOptions` and `WebhookReceiver`, and
+  depends on `Inngest` alone. `Inngest.AspNetCore` references it and adds the endpoint, as `InngestCommHandler` in
+  `Inngest` is reached by `MapInngest` and by the Connect worker. The verifiers work on `IWebhookRequest` (the raw bytes
+  and a header lookup), so an Azure Functions or a Lambda host can reuse them. `WebhookReceiver` is internal for now;
+  such a host gets `InternalsVisibleTo` or the type becomes public when it needs it. `Inngest` itself gained no API.
+- **Verification** is in front of everything: the body is not parsed, and no header is used for anything but the
+  signature's own inputs, until a signature matches. Signatures are decoded without exceptions, compared with
+  `CryptographicOperations.FixedTimeEquals` against every candidate and every secret (no early exit), and the timestamp
+  window is checked after the signature, so the log can tell a replay from a forgery. A secret never appears in a
+  message, and neither does a body, a signature or a header.
+- **Schemes.** Standard Webhooks signs `{id}.{timestamp}.{body}` with HMAC-SHA256 and the base64 key behind `whsec_`, and
+  carries several `v1,<base64>` signatures for rotation; `v1a` (Ed25519) is ignored, because .NET has no Ed25519 in its
+  libraries. Stripe signs `{t}.{body}` with the text of the secret and carries one `v1` per active secret. GitHub and
+  Shopify sign the body only, so they have no replay window and their headers are not covered. `HmacWebhookVerifier`
+  expresses all of them, and Slack's `v0:{timestamp}:{body}`, as options; GitHub and Shopify are two presets of it.
+- **Events.** The default mappings follow Inngest's own transforms where its guide has one (`stripe/<type>` with the
+  event as data and its `id` as the id; `<prefix>/<type>` with the `data` of the payload for Clerk and Resend). The data
+  is a `JsonElement` of the request, which the client writes through the serializer options with `JsonElement`
+  metadata that `PublicTypesJsonContext` always adds, so it needs no reflection. Ids and names from a request are
+  checked for their shape (short visible ASCII) because GitHub's and Shopify's headers are not signed.
+- **Answers** have no body: 200, 204 (the transform dropped it), 401, 400, 413, 503 (Inngest did not accept the event
+  within `SendTimeout`, which is short because providers wait seconds) and 500 (a verifier or a transform threw). A failed
+  send is a 5xx on purpose: the provider delivers the webhook again and the delivery id makes a second attempt a
+  duplicate that Inngest drops.
+
 ### What is supported
 
 | Area | Status |
@@ -526,6 +563,7 @@ per call.
 | AWS Lambda: the serve endpoint behind API Gateway REST and HTTP APIs and function URLs, in a managed runtime function or a Native AOT executable | Supported (`Inngest.AwsLambda`, `InngestLambdaHandler`), with buffered responses only: `Streaming` has no effect, and the call's cancellation token is never cancelled |
 | Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result. Azure Functions streams the same way with the worker's ASP.NET Core integration, and not with its built-in HTTP model. |
 | Azure Functions (isolated worker): built-in HTTP model and ASP.NET Core integration | Supported (`Inngest.AzureFunctions`): tested against fakes of the worker and against the Inngest server behind a stand-in for the Functions host, not in a deployed app. A call has to be answered within the platform's 230 seconds. |
+| Receiving webhooks: Stripe, GitHub, Shopify, Standard Webhooks (Svix, Clerk, Resend) and HMAC signatures, event ids from the delivery ids | Supported (`Inngest.Webhooks`, `MapInngestWebhook`). Inngest's hosted webhooks and their transforms are the counterpart. `v1a` (Ed25519) signatures are not checked. |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
 | `defer` | Not yet |
 | Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGEST001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |

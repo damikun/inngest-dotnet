@@ -44,7 +44,7 @@ internal static class WebhookEndpoint
         var request = context.Request;
         if (request.ContentLength == 0 || context.Features.Get<IHttpRequestBodyDetectionFeature>() is { CanHaveBody: false })
         {
-            return RentedBody.Empty;
+            return new RentedBody([], 0);
         }
 
         var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(request.ContentLength ?? 0, 1, Math.Min(limit, MaxInitialBufferSize)));
@@ -67,7 +67,7 @@ internal static class WebhookEndpoint
                 {
                     if (buffer.Length - length < segment.Length)
                     {
-                        var larger = ArrayPool<byte>.Shared.Rent(Math.Max(length + segment.Length, buffer.Length * 2));
+                        var larger = ArrayPool<byte>.Shared.Rent((int)Math.Min(Math.Max(length + (long)segment.Length, buffer.Length * 2L), Array.MaxLength));
                         buffer.AsSpan(0, length).CopyTo(larger);
                         RentedBody.Return(buffer, length);
                         buffer = larger;
@@ -93,8 +93,6 @@ internal static class WebhookEndpoint
 
     private sealed class RentedBody(byte[] array, int length) : IDisposable
     {
-        public static readonly RentedBody Empty = new([], 0);
-
         private byte[]? _array = array;
 
         public ReadOnlyMemory<byte> Memory => _array.AsMemory(0, length);

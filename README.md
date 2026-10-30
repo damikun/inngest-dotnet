@@ -181,6 +181,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) | `dotnet new inngest-web` and `dotnet new inngest-worker`: a project with a typed event, a function and dev mode in its Development settings. |
 | [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) | A .NET tool: `dotnet inngest dev` downloads the Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder. |
 | [`Inngest.SignalR`](https://www.nuget.org/packages/Inngest.SignalR/) | Forwards Inngest realtime messages to the clients of a SignalR hub, with one subscription to Inngest shared by the clients of a channel. |
+| [`Inngest.Webhooks`](https://www.nuget.org/packages/Inngest.Webhooks/) | Verifies the signatures of webhooks from Stripe, GitHub, Shopify, Standard Webhooks senders such as Clerk and Resend, and any HMAC, and sends each as an event whose id is the delivery id. `MapInngestWebhook` is in `Inngest.AspNetCore`, which brings it in. |
 
 Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`;
 the template package holds files only.
@@ -315,6 +316,7 @@ data.
   [Invoking functions](https://damikun.github.io/inngest-dotnet/guides/invoking-functions/) ·
   [Sending events](https://damikun.github.io/inngest-dotnet/guides/sending-events/) ·
   [Transactional outbox](https://damikun.github.io/inngest-dotnet/guides/outbox/) ·
+  [Webhooks](https://damikun.github.io/inngest-dotnet/guides/webhooks/) ·
   [Realtime](https://damikun.github.io/inngest-dotnet/guides/realtime/) ·
   [Durable endpoints](https://damikun.github.io/inngest-dotnet/guides/durable-endpoints/) ·
   [AI chat clients](https://damikun.github.io/inngest-dotnet/guides/ai/) ·

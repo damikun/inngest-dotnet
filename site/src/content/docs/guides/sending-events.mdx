@@ -119,6 +119,8 @@ The [transactional outbox](/inngest-dotnet/guides/outbox/) relies on this to sen
 
 The Inngest docs explain [event ids and deduplication](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/send-events).
 
+[Webhooks](/inngest-dotnet/guides/webhooks/) from Stripe, GitHub, Shopify and others arrive as events whose id is the provider's id for the delivery, so a delivery that is sent again starts no second run.
+
 ### Delaying runs
 
 A future `Timestamp` makes the functions an event triggers start at that time:

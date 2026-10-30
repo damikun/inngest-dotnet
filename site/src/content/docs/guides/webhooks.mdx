@@ -1,0 +1,331 @@
+---
+title: Webhooks
+description: Receive webhooks from Stripe, GitHub, Shopify, Clerk, Resend and other providers in ASP.NET Core, verify their signatures before anything else, and send each as an Inngest event whose id is the delivery id, so that a redelivery starts no second run.
+---
+
+Services tell your app what happened by sending it an HTTP request: a payment succeeded, a pull request was opened, a
+user signed up. `MapInngestWebhook` turns those requests into Inngest events. It reads the raw body, verifies the
+sender's signature before it parses anything, makes an event whose id is the provider's id for the delivery, sends it
+and answers at once. A function does the work, with all the retries, steps and flow control of any other.
+
+The signature schemes are written out with `System.Security.Cryptography` and need no provider SDK: Stripe, GitHub,
+Shopify, and any provider that follows [Standard Webhooks](https://www.standardwebhooks.com), such as Svix, Clerk and
+Resend. Other providers that sign with an HMAC are a few lines of options, and anything else is an interface to
+implement.
+
+## Receive webhooks
+
+Map one endpoint for each provider, with the secret the provider gave you for it:
+
+{/* check: statements; WebApplication app; IConfiguration configuration */}
+```csharp
+app.MapInngestWebhook("/webhooks/stripe", WebhookProvider.Stripe(configuration["Stripe:WebhookSecret"]!));
+app.MapInngestWebhook("/webhooks/github", WebhookProvider.GitHub(configuration["GitHub:WebhookSecret"]!));
+app.MapInngestWebhook("/webhooks/shopify", WebhookProvider.Shopify(configuration["Shopify:ClientSecret"]!));
+app.MapInngestWebhook("/webhooks/clerk", WebhookProvider.StandardWebhooks("clerk", configuration["Clerk:WebhookSecret"]!));
+app.MapInngestWebhook("/webhooks/resend", WebhookProvider.StandardWebhooks("resend", configuration["Resend:WebhookSecret"]!));
+```
+
+Give the provider the URL of the endpoint, over HTTPS. `AddInngest` must have been called, because the endpoint sends
+through the app's `IInngestClient`. The endpoint allows anonymous callers, since a webhook proves who sent it with its
+signature rather than with a login, so an app-wide authorization policy does not turn providers away.
+
+A function listens for the events by name, as for any event. This one starts when Stripe says a checkout was paid:
+
+```csharp
+using System.Text.Json;
+
+public sealed record StripeEvent(string Id, string Type, StripeEventData Data);
+
+public sealed record StripeEventData(JsonElement Object);
+```
+
+```csharp
+using Inngest;
+
+[InngestFunction("fulfil-order")]
+[EventTrigger("stripe/checkout.session.completed")]
+public sealed class FulfilOrder : InngestFunction<StripeEvent>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<StripeEvent> context, CancellationToken cancellationToken)
+    {
+        var session = context.Event.Data.Data.Object;
+        var sessionId = session.GetProperty("id").GetString()!;
+
+        await context.Step.RunAsync("fulfil", () => Task.CompletedTask);
+        return sessionId;
+    }
+}
+```
+
+Providers wait only seconds for an answer, so the endpoint does no more than receive. Whatever takes time belongs in the
+function.
+
+## What happens to a request
+
+1. The body is read as raw bytes, up to `WebhookOptions.MaxBodySize` (1 MiB by default). A larger one is answered with
+   413 without being read to its end.
+2. The signature is verified against the raw body, and the signed timestamp, if the provider signs one, against the
+   clock. A request that fails is answered with 401, and nothing else about it is looked at.
+3. The body is parsed as JSON and made into an event by the provider's conventions, [below](#the-event). A body that
+   is not JSON, or that no event can be made of, is answered with 400.
+4. Your `Transform`, if you set one, changes the event or drops the delivery.
+5. The event is sent to Inngest, and the request is answered once Inngest has accepted it. Nothing waits for a run.
+
+| Answer | When |
+|---|---|
+| 200 | The event was sent. |
+| 204 | `Transform` returned null for the delivery. |
+| 400 | The signature is valid, but the body is not JSON, or no event can be made of it, or the client refuses the event, such as one named with the `inngest/` prefix, which Inngest reserves. |
+| 401 | The signature, or a header it needs, is missing, malformed or wrong, or the signed timestamp is outside the tolerance. |
+| 413 | The body is larger than `MaxBodySize`. |
+| 503 | Inngest did not accept the event, or not within `SendTimeout`, four seconds by default. |
+| 500 | The verifier or the `Transform` threw. |
+
+No answer has a body, so a caller who cannot prove who it is learns nothing from them. Anything but a 2xx is a failed
+delivery to the provider, which sends the webhook again on its own schedule (GitHub does not). Because the event id is
+the provider's id for the delivery, one that reached Inngest after all is dropped the second time. The log says why a
+request was rejected, in words of the SDK's own and never with a secret, a signature or a body.
+
+## The event
+
+| Provider | Factory | Name | Data | Id |
+|---|---|---|---|---|
+| Stripe | `WebhookProvider.Stripe(secret)` | `stripe/` and the event's `type`, such as `stripe/payment_intent.succeeded` | The whole Stripe event | The event's `id`, `evt_...` |
+| GitHub | `WebhookProvider.GitHub(secret)` | `github/` and `X-GitHub-Event`, such as `github/pull_request` | The payload | `X-GitHub-Delivery` |
+| Shopify | `WebhookProvider.Shopify(secret)` | `shopify/` and `X-Shopify-Topic` with the slash as a dot, such as `shopify/orders.create` | The payload, with `shop_domain` from `X-Shopify-Shop-Domain` when the payload has none | `X-Shopify-Webhook-Id` |
+| Standard Webhooks, Svix, Clerk, Resend | `WebhookProvider.StandardWebhooks(prefix, secret)` | The prefix you choose and the payload's `type`, such as `clerk/user.created` | The payload's `data`, or the payload when it has none | `webhook-id`, or `svix-id` |
+| Other HMAC | `WebhookProvider.Hmac(name, options, secret)` | The name you give, for every event | The payload | The header you name, if any |
+
+These follow the transforms in the [Inngest guide to webhooks](https://www.inngest.com/docs/platform/webhooks), where it
+shows one: `stripe/<type>` with the event as the data and its id as the id, and `clerk/<type>` and `resend/<type>` with
+the `data` of the payload. Its GitHub example names events `github.<event>` with a dot, where this uses a slash like the
+others. Rename them with a `Transform` if functions already trigger on the dot.
+
+The data is the payload exactly as the provider sent it, so a record for it has the provider's own property names. Only
+Shopify adds to it, because most of its payloads do not say which shop sent them and an app installed on many shops has
+to know. The payload must be a JSON object, as the data of every Inngest event is. Names and ids are at most 256
+characters of visible ASCII, so a header that is not a short token never becomes the name or the id of an event.
+
+## Changing the event
+
+`Transform` receives the delivery and the event the provider's conventions made, and returns the event to send. Return
+null to drop a delivery, which is answered with 204. This ignores the Stripe events nothing listens to, and moves the
+rest under another name:
+
+{/* check: statements; WebApplication app; string secret */}
+```csharp
+app.MapInngestWebhook("/webhooks/stripe", WebhookProvider.Stripe(secret), new WebhookOptions
+{
+    Transform = (delivery, @event) =>
+    {
+        if (!@event.Name.StartsWith("stripe/invoice.", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return @event with { Name = "billing/" + @event.Name["stripe/".Length..] };
+    },
+});
+```
+
+The delivery has its parsed `Payload` as a `JsonElement`, its `DeliveryId`, any request header through `GetHeader`, and
+the request's `Services`. The `Transform` runs on the request, after the signature has been verified, so keep it quick
+and let a function do the work. If it throws, the request is answered with 500 and the provider tries again. The
+payload, and the `Data` of the event, are valid only while the request is handled: do not keep them. Set `Data` to a new
+object to send something else.
+
+## Redeliveries and duplicates
+
+Providers send a webhook again when they get no 2xx, and some send the same one twice for no reason. Each delivery
+carries an id that is the same for every attempt, and the event takes it as its id. Inngest keeps the first event with an
+id and starts no runs for the later ones, for 24 hours; the later ones show in the event history. So a webhook that
+reached Inngest once and is delivered again starts one run, and one that was answered with a 5xx starts its run on the
+attempt that gets through.
+
+What this does not cover:
+
+- **Different ids for one thing.** Stripe says that in some cases two separate events are sent for what happened once.
+  Their ids differ, so both start runs. Its advice is to identify them by the id of the object in `data.object` together
+  with the event type, which is what a function's `Idempotency` key can be made of.
+- **The same id for several events.** GitHub's `X-GitHub-Delivery` identifies the event, so two webhooks that GitHub sends
+  the same event to can carry the same id, and a message that Svix sends to several endpoints has the same id at each.
+  Shopify's `X-Shopify-Webhook-Id` is different for each subscription, and its `X-Shopify-Event-Id` is the one they
+  share. If two endpoints send to the same Inngest environment and must both start runs, make the ids differ in a
+  `Transform`, such as `@event with { Id = delivery.GetHeader("X-GitHub-Hook-ID") + ":" + @event.Id }`.
+- **A manual redelivery.** GitHub does not retry on its own. Redelivering from its page or its API, or resending an event
+  from the Stripe dashboard or CLI, sends the same id again, which Inngest drops for 24 hours if the first attempt got
+  through. To run the work again, rerun the function from the Inngest dashboard.
+- **Features that ignore event ids.** Inngest documents that event idempotency does not apply to debouncing, to event
+  batching and to a paused function. A function that uses them needs an idempotency key of its own.
+- **Ids after 24 hours.** The same id is a new event after that.
+
+## Replays
+
+The signature proves who sent a request. It does not prove the request is new, so providers that sign a timestamp ask
+you to reject old ones, and this does:
+
+| Provider | What the signature covers | Replays |
+|---|---|---|
+| Standard Webhooks | The id, the timestamp and the body | A timestamp more than five minutes from now, in either direction, is rejected. Inside that, the same id makes Inngest drop the repeat. |
+| Stripe | The timestamp and the body, which contains the event id | The same, with the same five minutes. |
+| GitHub | The body only | None. A captured request verifies for as long as the secret stays the same. |
+| Shopify | The body only | None, and `X-Shopify-Triggered-At` is not signed, so it cannot be trusted. |
+| Other HMAC | What `HmacWebhookOptions` says | Only if the provider signs a timestamp and you name its header. |
+
+For GitHub and Shopify the only defence inside the SDK is Inngest dropping a second event with the same id, and that
+reaches only so far. The signature does not cover the headers, so a request that someone captured and sent again with a
+different `X-GitHub-Delivery` or `X-Shopify-Webhook-Id` is a new event, and so is any replay after 24 hours. What helps is
+outside the webhook: keep the secret secret and the endpoint on HTTPS, allow only the addresses the provider sends from
+(Stripe and GitHub publish them) at your proxy, and give a function an idempotency key made of what the signed body
+contains, such as the id of an object in it.
+
+The tolerance can be changed per provider, for a server whose clock you cannot keep right, but not switched off. Keep the
+server's clock in sync: a wrong clock rejects real webhooks.
+
+## Secrets and rotation
+
+Every factory takes one secret or a list. A request is accepted when any signature in it matches any of the secrets, so
+a secret can be replaced without downtime: put the new one in beside the old one, switch the provider, and remove the
+old one later.
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapInngestWebhook("/webhooks/stripe", WebhookProvider.Stripe(["whsec_new...", "whsec_old..."]));
+```
+
+When you roll a secret in Stripe and keep the old one, Stripe signs with both for up to 24 hours, and a Standard Webhooks
+sender signs with the old key and the new one for a while; the verifier checks every signature in the header. Shopify
+says a signature can take up to an hour to follow a change of the client secret. GitHub signs with the one secret of the
+webhook.
+
+The secrets are used exactly as written, which is how each provider signs: Stripe's and GitHub's as text, Standard
+Webhooks' as the base64 after `whsec_`. A newline at the end of a secret that was read from a file makes every signature
+fail. Keep them in configuration or a secret store, not in source.
+
+## Other providers
+
+A provider that signs the body with an HMAC and sends the signature in a header needs only options. The signed text is
+the optional `SignedContentPrefix`, then the optional timestamp from `TimestampHeader` and `TimestampSeparator`, then the
+body. Slack, for one, signs `v0:{timestamp}:{body}` and sends `v0=` and the hex digest in `X-Slack-Signature`, with a
+timestamp that has to be within five minutes:
+
+{/* check: statements; WebApplication app; string secret */}
+```csharp
+var options = new HmacWebhookOptions
+{
+    SignatureHeader = "X-Slack-Signature",
+    SignaturePrefix = "v0=",
+    TimestampHeader = "X-Slack-Request-Timestamp",
+    SignedContentPrefix = "v0:",
+    TimestampSeparator = ":",
+};
+
+app.MapInngestWebhook("/webhooks/slack", WebhookProvider.Hmac("slack/event", options, secret));
+```
+
+`Algorithm` is SHA-256 unless you set SHA-1, SHA-384 or SHA-512, `SignatureEncoding` is hexadecimal unless you set
+base64, and `DeliveryIdHeader` names the header whose value becomes the event id. Every event has the one name you gave;
+use a `Transform` to name events after their content. The body must be JSON.
+
+For anything else, implement `IWebhookVerifier`. It sees the raw body and the headers, and has to give an answer for
+whatever it is handed, because it runs before anyone has proved who they are: return `Invalid` instead of throwing, and
+compare secrets with `CryptographicOperations.FixedTimeEquals`. The reason you give goes to the log, so it must not hold
+anything from the request.
+
+```csharp
+using System.Security.Cryptography;
+using System.Text;
+using Inngest;
+
+public sealed class SharedTokenVerifier(string token) : IWebhookVerifier
+{
+    private readonly byte[] _expected = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+
+    public WebhookVerification Verify(IWebhookRequest request, DateTimeOffset now)
+    {
+        if (request.GetHeader("X-Acme-Token") is not { Length: > 0 } sent)
+        {
+            return WebhookVerification.Invalid("the token header is missing");
+        }
+
+        // Digests have the same length, so the comparison does not tell how much of the token was right.
+        var matches = CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(sent)), _expected);
+        return matches
+            ? WebhookVerification.Valid(request.GetHeader("X-Acme-Delivery"))
+            : WebhookVerification.Invalid("the token does not match");
+    }
+}
+```
+
+A `WebhookProvider` joins the verifier with the code that makes the event of a verified delivery, which returns null for
+one that cannot be an event:
+
+{/* check: statements; WebApplication app; string token */}
+```csharp
+app.MapInngestWebhook("/webhooks/acme", new WebhookProvider(
+    "acme",
+    new SharedTokenVerifier(token),
+    delivery => delivery.Payload.ValueKind == JsonValueKind.Object
+        && delivery.Payload.TryGetProperty("kind", out var kind)
+        && kind.ValueKind == JsonValueKind.String
+            ? new InngestEvent("acme/" + kind.GetString(), delivery.Payload) { Id = delivery.DeliveryId }
+            : null));
+```
+
+## Limits and settings
+
+| Setting | Default | Notes |
+|---|---|---|
+| `MaxBodySize` | 1 MiB | The body is held in memory and read before anything else, so this bounds what an anonymous caller can make the app hold. Inngest refuses events over 256 KiB on its free plan and 3 MiB on its paid plans, so a larger limit only turns a 413 here into a failed send. |
+| `SendTimeout` | 4 seconds | How long to wait for Inngest before answering 503. The client retries a failed send with backoff, which can take longer than a provider waits: Shopify allows five seconds in all. |
+
+Both are in `WebhookOptions`, an immutable record like the SDK's other options. The endpoint returns an
+`IEndpointConventionBuilder`, so rate limiting, host filtering and the rest of ASP.NET Core's endpoint features apply:
+
+{/* check: statements; WebApplication app; string secret */}
+```csharp
+app.MapInngestWebhook("/webhooks/stripe", WebhookProvider.Stripe(secret), new WebhookOptions { MaxBodySize = 256 * 1024 })
+    .RequireHost("webhooks.example.com");
+```
+
+The request goes through the rest of the pipeline first. Middleware that reads or changes the body makes every signature
+fail, and a redirect from HTTP to HTTPS is answered with a 3xx that providers count as a failure, so register the
+HTTPS URL with them. GitHub must be set to send `application/json`; its form-encoded format is not JSON.
+
+## Hosted webhooks or `MapInngestWebhook`
+
+Inngest can also receive webhooks itself: you give the provider a URL at Inngest, and a JavaScript transform you write
+turns each request into an event. Neither is better everywhere:
+
+| | Inngest webhooks | `MapInngestWebhook` |
+|---|---|---|
+| Where requests go | To Inngest, which accepts them even while your app is down | To your app, which has to be up; providers retry for a while (Stripe for up to three days in live mode, Shopify eight times over four hours, GitHub not at all) |
+| Signatures | Not verified by Inngest. The transform is handed the raw body and the headers, and the function has to check them after the event exists | Verified before an event exists, so a forged request never reaches Inngest |
+| Mapping | JavaScript, kept in Inngest | C# in your app, with its types and services, under its tests |
+| Event id | Whatever the transform sets | The provider's delivery id |
+| Operating | Nothing to host | An endpoint on the internet to protect and keep up |
+
+Hosted webhooks fit when you do not want an endpoint to run, or when a provider's retries are too short for the
+downtime you can have. `MapInngestWebhook` fits when forged requests must never become events, when the mapping is more
+than a few lines, or when you want your own authorization, rate limiting and tests in front of it. They mix: use
+whichever fits each provider.
+
+## Other hosts, testing and troubleshooting
+
+`MapInngestWebhook` is in `Inngest.AspNetCore`, which brings in `Inngest.Webhooks`: the verifiers, the providers and the
+event conventions. That package depends on `Inngest` and on nothing of ASP.NET Core, and the verifiers read the raw bytes
+and the headers through `IWebhookRequest`, so a host that is not ASP.NET Core, such as an Azure Function or a Lambda that
+receives the request itself, can verify with them.
+
+A verifier needs no running endpoint to test, and `Verify` takes the time it should take for "now", so a tolerance can be
+tested without waiting. To try a real provider, `stripe listen --forward-to localhost:5000/webhooks/stripe` forwards test
+events to your machine and prints the signing secret to use there.
+
+When a webhook is rejected, the log says why. `no signature matches the body for any secret` means a wrong secret, a
+secret of the other mode (Stripe's test and live endpoints have different ones), a newline at the end of the secret, or a
+body that something changed on the way. `the timestamp is outside the tolerance` means a replay or a clock that is wrong.
+
+Related: [Sending events](/inngest-dotnet/guides/sending-events/#deduplicating-with-an-id) explains event ids, and the
+[webhook pipeline](/inngest-dotnet/examples/webhook-pipeline/) example handles a provider by hand and processes each
+delivery once.

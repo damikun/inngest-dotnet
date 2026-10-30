@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>Inngest.AspNetCore</RootNamespace>
-    <Description>ASP.NET Core hosting for the Inngest .NET SDK: MapInngest serves sync, introspection and invocation, and a health check tells readiness probes whether the app can work with Inngest.</Description>
+    <Description>ASP.NET Core hosting for the Inngest .NET SDK: MapInngest serves sync, introspection and invocation, MapInngestWebhook receives webhooks from Stripe, GitHub, Shopify and others as events, and a health check tells readiness probes whether the app can work with Inngest.</Description>
     <!-- The package uses its own durable endpoint API, which is marked experimental for its users. -->
     <NoWarn>$(NoWarn);INNGEST001</NoWarn>
   </PropertyGroup>

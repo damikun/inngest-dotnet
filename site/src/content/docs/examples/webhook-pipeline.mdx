@@ -11,6 +11,10 @@ Webhook senders want a fast `200` and retry when they do not get one, sometimes 
 than once. The pattern: verify the request, send an event with the delivery id, answer at once, and do the real
 work in a function.
 
+This example does the first three steps by hand, for a sender the SDK does not know. For Stripe, GitHub, Shopify and
+senders that follow Standard Webhooks, such as Clerk and Resend, `MapInngestWebhook` does them for you, with the
+signature checks written out and the delivery id as the event id: see [Webhooks](/inngest-dotnet/guides/webhooks/).
+
 ```csharp title="Program.cs"
 using System.Security.Cryptography;
 using System.Text;

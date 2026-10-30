@@ -263,6 +263,8 @@ public sealed class WebhookReceiverTests
     {
         Should.Throw<ArgumentOutOfRangeException>(() => Receiver(options: new WebhookOptions { MaxBodySize = 0 }));
         Should.Throw<ArgumentOutOfRangeException>(() => Receiver(options: new WebhookOptions { SendTimeout = TimeSpan.Zero }));
+        Should.Throw<ArgumentOutOfRangeException>(() => Receiver(options: new WebhookOptions { SendTimeout = Timeout.InfiniteTimeSpan }));
+        Should.Throw<ArgumentOutOfRangeException>(() => Receiver(options: new WebhookOptions { SendTimeout = TimeSpan.FromDays(100) }));
     }
 
     private WebhookReceiver Receiver(WebhookProvider? provider = null, WebhookOptions? options = null) =>
