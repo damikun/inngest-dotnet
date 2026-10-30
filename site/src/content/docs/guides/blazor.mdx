@@ -146,6 +146,10 @@ itself through the renderer's dispatcher, and it unsubscribes when the component
 ends does for all of its components. Disposing waits up to five seconds for the subscription to stop. A circuit whose
 client has disconnected is kept by Blazor for a few minutes, and keeps its subscriptions meanwhile.
 
+Each view holds a subscription of its own to Inngest, a token request and a connection, for as long as the circuit
+shows it. To watch several topics of a channel, use one view with a `Channel` and its `Topics`, as
+[below](#several-topics), rather than a view for each.
+
 ## WebAssembly
 
 A WebAssembly app has no signing key, so the server relays the messages. Map a `MapInngestRealtime` endpoint whose

@@ -13,7 +13,7 @@ namespace Inngest;
 /// <typeparam name="TData">The type of the data of the messages.</typeparam>
 public sealed class RealtimeState<TData>
 {
-    // Inngest streams up to 1,000 chunks of 1 KB, which is where the text of a stream stops growing.
+    // Inngest streams up to 1,000 chunks of 1 KB, so a stream stays below this.
     private const int MaxTextLength = 1 << 20;
 
     private readonly MessageBuffer _messages = new();
@@ -107,9 +107,11 @@ public sealed class RealtimeState<TData>
                     _text[message.Topic] = text = new StringBuilder();
                 }
 
-                if (text.Length + chunk.Length <= MaxTextLength)
+                // A stream that outgrows the limit keeps its start and stops there, so that the text stays one piece.
+                var room = MaxTextLength - text.Length;
+                if (room > 0)
                 {
-                    text.Append(chunk);
+                    text.Append(chunk, 0, Math.Min(room, chunk.Length));
                     _textByTopic = null;
                 }
 
