@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Testing.Containers</RootNamespace>
+    <Description>Testcontainers module for the Inngest .NET SDK: starts the Inngest dev server or a self-hosted Inngest server in Docker for end-to-end tests, and configures an app to use it.</Description>
+    <PackageTags>$(PackageTags);testing;testcontainers;docker</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+    <!-- Testcontainers is built on reflection and is not trim safe, so claiming it for this package would mislead. The
+         package is for test projects, which nobody trims or compiles ahead of time. -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

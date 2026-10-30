@@ -15,6 +15,7 @@
     <Project Path="src/Inngest.Sentry/Inngest.Sentry.csproj" />
     <Project Path="src/Inngest/Inngest.csproj" />
     <Project Path="src/Inngest.Testing/Inngest.Testing.csproj" />
+    <Project Path="src/Inngest.Testing.Containers/Inngest.Testing.Containers.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj" />
