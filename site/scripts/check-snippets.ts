@@ -306,6 +306,23 @@ function parityCases(): { name: string; app: AppModel; options: FunctionOptionsM
     },
     { name: 'invoke-only', app, options: { id: 'score-account', triggers: [] } },
     { name: 'quotes-in-id', app: { ...app, failureHandler: true }, options: { id: "o'brien", triggers: [{ kind: 'event', event: 'a/b' }] } },
+    {
+      name: 'no-concurrency-limit',
+      app,
+      options: {
+        id: 'import-accounts',
+        triggers: [
+          { kind: 'event', event: 'import/requested' },
+          { kind: 'event', event: 'import/requested', if: 'event.data.rows > 1000' },
+          { kind: 'cron', schedule: '0 9 * * *', timezone: 'Europe/Prague' },
+          { kind: 'cron', schedule: '0 9 * * *', timezone: 'America/New_York' },
+        ],
+        concurrency: [
+          { limit: 0, scope: 'Function' },
+          { limit: 5, key: 'event.data.accountId', scope: 'Account' },
+        ],
+      },
+    },
   ];
 }
 

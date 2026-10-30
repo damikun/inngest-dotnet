@@ -267,8 +267,9 @@ export default function OptionsBuilder() {
               <div className="rounded-md border border-fail bg-fail-bg p-3 text-sm text-strong">
                 <p className="m-0 font-semibold text-fail">The SDK would refuse these options when the app starts:</p>
                 <ul className="mt-2 mb-0 pl-5">
-                  {problems.map((problem) => (
-                    <li key={problem}>{problem}</li>
+                  {/* The same problem can come up twice, as for a trigger given three times. */}
+                  {problems.map((problem, index) => (
+                    <li key={index}>{problem}</li>
                   ))}
                 </ul>
               </div>
@@ -506,7 +507,7 @@ function Concurrency({ limits, onChange }: { limits: ConcurrencyModel[]; onChang
     <div className="flex flex-col gap-3">
       {limits.map((limit, index) => (
         <div key={index} className="grid grid-cols-1 gap-3 rounded-md bg-surface p-3 @[28rem]:grid-cols-3">
-          <NumberField label={`Limit ${index + 1}`} value={limit.limit} min={1} required onChange={(value) => onChange(replace(limits, index, { ...limit, limit: value ?? 0 }))} />
+          <NumberField label={`Limit ${index + 1}`} value={limit.limit} min={0} required onChange={(value) => onChange(replace(limits, index, { ...limit, limit: value ?? 0 }))} />
           <TextField label="Key (optional)" value={limit.key ?? ''} mono onChange={(key) => onChange(replace(limits, index, { ...limit, key: key || undefined }))} />
           <SelectField label="Scope" value={limit.scope} options={SCOPES} onChange={(scope) => onChange(replace(limits, index, { ...limit, scope: scope as ConcurrencyScope }))} />
           {limits.length > 1 && (

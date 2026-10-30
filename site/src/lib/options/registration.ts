@@ -37,7 +37,7 @@ export function serveUrls(serveUrl: string) {
   };
 }
 
-function cronSchedule(schedule: string, timezone: string | undefined): string {
+export function cronSchedule(schedule: string, timezone: string | undefined): string {
   const hasTimezone = schedule.startsWith('TZ=') || schedule.startsWith('CRON_TZ=');
   return !isSet(timezone) || hasTimezone ? schedule : `TZ=${timezone} ${schedule}`;
 }
@@ -65,13 +65,16 @@ function writeFunction(options: FunctionOptionsModel, compositeId: string, stepU
   if (options.retries !== undefined) step.retries = { attempts: options.retries };
   fn.steps = { step };
 
-  if (options.concurrency && options.concurrency.length > 0) {
-    fn.concurrency = options.concurrency.map((limit) => {
-      const value: JsonObject = { limit: limit.limit };
-      setIf(value, 'key', limit.key);
-      value.scope = SCOPES[limit.scope];
-      return value;
-    });
+  // A limit of 0 means no limit, as in the Inngest docs, so it is left out rather than sent.
+  if (options.concurrency && options.concurrency.some((limit) => limit.limit > 0)) {
+    fn.concurrency = options.concurrency
+      .filter((limit) => limit.limit !== 0)
+      .map((limit) => {
+        const value: JsonObject = { limit: limit.limit };
+        setIf(value, 'key', limit.key);
+        value.scope = SCOPES[limit.scope];
+        return value;
+      });
   }
 
   if (options.throttle) {

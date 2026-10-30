@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { attributesCode, className, csString, functionAttributes, functionOptionsCode, registrationCode } from './csharp.ts';
-import type { AppModel, FunctionOptionsModel } from './model.ts';
+import type { AppModel, ConcurrencyModel, FunctionOptionsModel } from './model.ts';
 import { presets } from './presets.ts';
 import { registrationBody, registrationFunctions, serveUrls } from './registration.ts';
 import { formatSeconds } from './time.ts';
@@ -146,6 +146,16 @@ describe('registration JSON', () => {
       app,
     );
     expect(fn.triggers).toEqual([{ cron: 'TZ=UTC 0 0 * * *' }]);
+  });
+
+  // The cases of tests/Inngest.Tests/Registration/FunctionConfigTests.cs with a limit of 0, which means no limit.
+  it('leaves out a concurrency limit of 0', () => {
+    const concurrency = (limits: ConcurrencyModel[]) =>
+      registrationFunctions({ id: 'orders', triggers: [], concurrency: limits }, app)[0].concurrency;
+    expect(concurrency([{ limit: 0, scope: 'Function' }, { limit: 10, key: 'event.data.accountId', scope: 'Function' }])).toEqual([
+      { limit: 10, key: 'event.data.accountId', scope: 'fn' },
+    ]);
+    expect(concurrency([{ limit: 0, scope: 'Function' }])).toBeUndefined();
   });
 
   it('escapes the id in the failure trigger', () => {
@@ -353,6 +363,110 @@ describe('validation', () => {
   it('describes sub-second durations as given', () => {
     expect(validate({ ...base, throttle: { limit: 1, period: { value: 0, unit: 's' } } })).toEqual([
       'Function "orders": Throttle.Period must be at least 1s, but was 0s.',
+    ]);
+  });
+
+  // Inngest refuses the whole sync for these.
+  it('rejects a trigger given twice', () => {
+    const total = 'event.data.total > 100';
+    expect(
+      validate({
+        ...base,
+        triggers: [
+          { kind: 'event', event: 'order/created', if: total },
+          { kind: 'event', event: 'order/created', if: total },
+        ],
+      }),
+    ).toEqual(['Function "orders": The event trigger "order/created" is given twice.']);
+    // A blank condition is the same as none, and every repeat is a problem of its own.
+    const blank = (condition: string) => ({ kind: 'event', event: 'order/created', if: condition }) as const;
+    expect(validate({ ...base, triggers: [...base.triggers, blank(''), blank(' ')] })).toEqual([
+      'Function "orders": The event trigger "order/created" is given twice.',
+      'Function "orders": The event trigger "order/created" is given twice.',
+    ]);
+    // The time zone becomes part of the schedule.
+    expect(
+      validate({
+        ...base,
+        triggers: [
+          { kind: 'cron', schedule: '0 9 * * *', timezone: 'Europe/Prague' },
+          { kind: 'cron', schedule: 'TZ=Europe/Prague 0 9 * * *' },
+        ],
+      }),
+    ).toEqual([
+      'Function "orders": The cron schedule "TZ=Europe/Prague 0 9 * * *" is given twice, which Inngest refuses even with different jitter.',
+    ]);
+  });
+
+  it('accepts one event under different conditions and one schedule in two time zones', () => {
+    expect(validate({ ...base, triggers: [...base.triggers, { kind: 'event', event: 'order/created', if: 'event.data.total > 100' }] })).toEqual([]);
+    expect(
+      validate({
+        ...base,
+        triggers: [
+          { kind: 'cron', schedule: '0 9 * * *', timezone: 'Europe/Prague' },
+          { kind: 'cron', schedule: '0 9 * * *', timezone: 'America/New_York' },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts a concurrency limit of 0, which means no limit, and rejects a negative one', () => {
+    expect(validate({ ...base, concurrency: [{ limit: 0, scope: 'Function' }] })).toEqual([]);
+    expect(validate({ ...base, concurrency: [{ limit: -3, scope: 'Function' }] })).toEqual([
+      'Function "orders": A concurrency limit cannot be negative, but one was -3. Use 0 for no limit.',
+    ]);
+  });
+
+  it('leaves the upper batch timeout to the plan', () => {
+    expect(validate({ ...base, batchEvents: { maxSize: 10, timeout: { value: 5, unit: 'm' } } })).toEqual([]);
+    expect(validate({ ...base, batchEvents: { maxSize: 10, timeout: { value: 0, unit: 's' } } })).toEqual([
+      'Function "orders": BatchEvents.Timeout must be at least 1s, but was 0s.',
+    ]);
+  });
+
+  it('reports only the missing event of a CancelOn entry without one', () => {
+    expect(validate({ ...base, cancelOn: [{ event: ' ', timeout: { value: 0, unit: 's' } }] })).toEqual([
+      'Function "orders": A CancelOn entry needs an event name.',
+    ]);
+  });
+
+  // Lists_every_problem_of_a_function_at_once and Checks_each_concurrency_limit_even_when_there_are_too_many in
+  // tests/Inngest.Tests/Functions/FunctionOptionsValidatorTests.cs.
+  it('lists every problem in the order the SDK finds them', () => {
+    expect(
+      validate({
+        ...base,
+        retries: 21,
+        throttle: { limit: 0, period: { value: 1, unit: 'm' }, burst: -1 },
+        debounce: { period: { value: 5, unit: 's' } },
+        batchEvents: { maxSize: 10, timeout: { value: 5, unit: 's' } },
+      }),
+    ).toEqual([
+      'Function "orders": Retries must be between 0 and 20, but was 21.',
+      'Function "orders": Throttle.Limit must be greater than 0, but was 0.',
+      'Function "orders": Throttle.Burst must not be negative, but was -1.',
+      'Function "orders": BatchEvents cannot be combined with Debounce.',
+    ]);
+    expect(
+      validate({
+        ...base,
+        concurrency: [
+          { limit: 1, scope: 'Function' },
+          { limit: -1, scope: 'Function' },
+          { limit: 5, scope: 'Account' },
+        ],
+      }),
+    ).toEqual([
+      'Function "orders": Concurrency allows at most 2 limits, but 3 were given.',
+      'Function "orders": A concurrency limit cannot be negative, but one was -1. Use 0 for no limit.',
+      'Function "orders": A concurrency limit with the Account scope needs a Key. Only the Function scope can go without one.',
+    ]);
+  });
+
+  it('reports only the missing id until the function has one', () => {
+    expect(validate({ ...base, id: '', retries: 21, priority: { run: '' } })).toEqual([
+      'A function has no Id. Set FunctionOptions.Id to an id that is unique in the app and never changes.',
     ]);
   });
 });

@@ -1,8 +1,10 @@
 import { type FunctionOptionsModel, isSet } from './model.ts';
+import { cronSchedule } from './registration.ts';
 import { describeSeconds, toSeconds } from './time.ts';
 
-// The checks src/Inngest/Functions/FunctionOptionsValidator.cs makes at startup, with its messages. The SDK throws
-// on the first problem; the builder lists all of them, in the order the SDK checks them.
+// The checks src/Inngest/Functions/FunctionOptionsValidator.cs makes at startup, with its messages. Like the SDK, the
+// builder lists every problem, in the order the SDK checks them. The SDK's checks of what the form cannot set (cron
+// jitter, enum values that are not defined, middleware and checkpointing) are left out.
 
 const MAX_RETRIES = 20;
 const MAX_TRIGGERS = 10;
@@ -10,7 +12,6 @@ const MAX_CONCURRENCY_LIMITS = 2;
 const MAX_CANCELLATIONS = 5;
 const MIN_BATCH_SIZE = 2;
 const MIN_PERIOD = 1;
-const MAX_BATCH_TIMEOUT = 60;
 const MAX_DEBOUNCE_PERIOD = 7 * 86400;
 const MAX_RATE_LIMIT_PERIOD = 86400;
 
@@ -30,9 +31,24 @@ export function validate(options: FunctionOptionsModel): string[] {
   if (options.triggers.length > MAX_TRIGGERS) {
     invalid(`A function can have at most ${MAX_TRIGGERS} triggers, but has ${options.triggers.length}.`);
   }
+  // Inngest refuses a sync that has the same trigger twice, and the same cron schedule twice even with different
+  // jitter. A blank condition is the same as none, as the builder leaves it out of the C# and the JSON.
+  const events = new Set<string>();
+  const schedules = new Set<string>();
   for (const trigger of options.triggers) {
-    if (trigger.kind === 'event' && !isSet(trigger.event)) invalid('An event trigger needs an event name.');
-    if (trigger.kind === 'cron' && !isSet(trigger.schedule)) invalid('A cron trigger needs a schedule.');
+    if (trigger.kind === 'event') {
+      if (!isSet(trigger.event)) invalid('An event trigger needs an event name.');
+      const key = JSON.stringify([trigger.event, isSet(trigger.if) ? trigger.if : null]);
+      if (events.has(key)) invalid(`The event trigger "${trigger.event}" is given twice.`);
+      events.add(key);
+    } else {
+      if (!isSet(trigger.schedule)) invalid('A cron trigger needs a schedule.');
+      const schedule = cronSchedule(trigger.schedule, trigger.timezone);
+      if (schedules.has(schedule)) {
+        invalid(`The cron schedule "${trigger.schedule}" is given twice, which Inngest refuses even with different jitter.`);
+      }
+      schedules.add(schedule);
+    }
   }
 
   const limits = options.concurrency;
@@ -41,7 +57,8 @@ export function validate(options: FunctionOptionsModel): string[] {
       invalid(`Concurrency allows at most ${MAX_CONCURRENCY_LIMITS} limits, but ${limits.length} were given.`);
     }
     for (const limit of limits) {
-      if (limit.limit <= 0) invalid(`A concurrency limit must be greater than 0, but one was ${limit.limit}.`);
+      // 0 means no limit, as in the Inngest docs.
+      if (limit.limit < 0) invalid(`A concurrency limit cannot be negative, but one was ${limit.limit}. Use 0 for no limit.`);
       if (limit.scope !== 'Function' && !isSet(limit.key)) {
         invalid(`A concurrency limit with the ${limit.scope} scope needs a Key. Only the Function scope can go without one.`);
       }
@@ -82,9 +99,8 @@ export function validate(options: FunctionOptionsModel): string[] {
   if (batch) {
     const timeout = toSeconds(batch.timeout);
     if (batch.maxSize < MIN_BATCH_SIZE) invalid(`BatchEvents.MaxSize must be at least ${MIN_BATCH_SIZE}, but was ${batch.maxSize}.`);
-    if (timeout < MIN_PERIOD || timeout > MAX_BATCH_TIMEOUT) {
-      invalid(`BatchEvents.Timeout must be between 1s and 60s, but was ${describeSeconds(timeout)}.`);
-    }
+    // The upper limit depends on the Inngest plan, so it is left to the server.
+    if (timeout < MIN_PERIOD) invalid(`BatchEvents.Timeout must be at least 1s, but was ${describeSeconds(timeout)}.`);
     if (options.cancelOn && options.cancelOn.length > 0) invalid('BatchEvents cannot be combined with CancelOn.');
     if (options.debounce) invalid('BatchEvents cannot be combined with Debounce.');
     if (options.singleton) invalid('BatchEvents cannot be combined with Singleton.');
@@ -101,7 +117,11 @@ export function validate(options: FunctionOptionsModel): string[] {
       invalid(`CancelOn allows at most ${MAX_CANCELLATIONS} entries, but ${cancellations.length} were given.`);
     }
     for (const cancel of cancellations) {
-      if (!isSet(cancel.event)) invalid('A CancelOn entry needs an event name.');
+      // The timeout problem names the event, so an entry without one stops here.
+      if (!isSet(cancel.event)) {
+        invalid('A CancelOn entry needs an event name.');
+        continue;
+      }
       if (cancel.timeout && toSeconds(cancel.timeout) <= 0) {
         invalid(`The CancelOn timeout for "${cancel.event}" must be greater than zero, but was ${describeSeconds(toSeconds(cancel.timeout))}.`);
       }
