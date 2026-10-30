@@ -50,6 +50,15 @@ internal sealed class InngestHealthCheck(InngestSettings settings, InngestHealth
 
         data["checkedAt"] = result.CheckedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
+        // The sync is only known when the API answered, and its problems are those of the app, not of the API.
+        if (result.Sync is { } sync)
+        {
+            AddSync(data, sync);
+            return sync.IsSynced
+                ? HealthCheckResult.Healthy($"{Describe(result)} {Describe(sync)}", data)
+                : new HealthCheckResult(failureStatus, Describe(sync), data: data);
+        }
+
         return new HealthCheckResult(StatusOf(result, failureStatus), Describe(result), data: data);
     }
 
@@ -91,6 +100,50 @@ internal sealed class InngestHealthCheck(InngestSettings settings, InngestHealth
 
         return problems is null ? null : string.Join(' ', problems);
     }
+
+    private void AddSync(Dictionary<string, object> data, SyncResult sync)
+    {
+        data["sync"] = sync.Verdict switch
+        {
+            SyncVerdict.Synced => "synced",
+            SyncVerdict.NotRegistered => "not registered",
+            SyncVerdict.Archived => "archived",
+            SyncVerdict.Failed => "failed",
+            SyncVerdict.VersionMismatch => "version mismatch",
+            SyncVerdict.FunctionCountMismatch => "function count mismatch",
+            _ => "unreadable",
+        };
+
+        data["functionsServed"] = probe.ServedFunctions;
+        AddIfKnown(data, "functionsInInngest", sync.FunctionCount);
+        AddIfKnown(data, "syncStatus", sync.Status);
+        AddIfKnown(data, "syncedAt", sync.SyncedAt);
+        AddIfKnown(data, "appVersion", settings.AppVersion);
+        AddIfKnown(data, "syncedAppVersion", sync.SyncedVersion);
+    }
+
+    private static string Functions(int? count) => count == 1 ? "1 function" : $"{count ?? 0} functions";
+
+    private static void AddIfKnown(Dictionary<string, object> data, string name, object? value)
+    {
+        if (value is not null)
+        {
+            data[name] = value;
+        }
+    }
+
+    private string Describe(SyncResult sync) => sync.Verdict switch
+    {
+        SyncVerdict.Synced => $"The app \"{settings.AppId}\" is synced with {Functions(sync.FunctionCount)}.",
+        SyncVerdict.NotRegistered => $"Inngest has no app \"{settings.AppId}\". Sync the app so that Inngest knows its functions.",
+        SyncVerdict.Archived => $"The app \"{settings.AppId}\" is archived in Inngest.",
+        SyncVerdict.Failed => $"Inngest reports that the latest sync of the app \"{settings.AppId}\" failed.",
+        SyncVerdict.VersionMismatch =>
+            $"Inngest last synced version \"{sync.SyncedVersion}\" of the app \"{settings.AppId}\", and this instance is version \"{settings.AppVersion}\". Sync the app.",
+        SyncVerdict.FunctionCountMismatch =>
+            $"Inngest has {Functions(sync.FunctionCount)} for the app \"{settings.AppId}\", and this instance serves {probe.ServedFunctions}. Sync the app.",
+        _ => $"Inngest's answer about the app \"{settings.AppId}\" could not be read.",
+    };
 
     private static HealthStatus StatusOf(ProbeResult result, HealthStatus failureStatus) => result.Api switch
     {

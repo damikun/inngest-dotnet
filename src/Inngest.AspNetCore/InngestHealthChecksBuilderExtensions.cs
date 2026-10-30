@@ -3,6 +3,7 @@
 using Inngest;
 using Inngest.AspNetCore;
 using Inngest.Configuration;
+using Inngest.Registration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -21,8 +22,9 @@ public static class InngestHealthChecksBuilderExtensions
     /// <see cref="InngestHealthCheckOptions.CacheDuration" />, so frequent probes send few requests, and the request
     /// is cancelled when the probe is, or when <paramref name="timeout" /> has passed (10 seconds unless given),
     /// whichever is first.
-    /// It does not tell whether Inngest has synced the app. It is meant for readiness probes: tag it and keep it out of
-    /// the liveness probe, because restarting the app does not bring Inngest back. Whether an Inngest outage should
+    /// Unless <see cref="InngestHealthCheckOptions.CheckSync" /> is set, it does not tell whether Inngest has synced the
+    /// app. It is meant for readiness probes: tag it and keep it out of the liveness probe, because restarting the app
+    /// does not bring Inngest back. Whether an Inngest outage should
     /// take the app out of rotation is for failureStatus to say: use Degraded for an app that mostly serves its own
     /// users and only runs background work through Inngest.
     /// </summary>
@@ -79,6 +81,7 @@ public static class InngestHealthChecksBuilderExtensions
                 probe = new InngestHealthProbe(
                     services.GetRequiredService<IHttpClientFactory>(),
                     settings,
+                    policy.CheckSync ? services.GetRequiredService<IFunctionRegistry>() : null,
                     policy,
                     services.GetService<TimeProvider>() ?? TimeProvider.System,
                     services.GetService<ILogger<InngestHealthCheck>>() ?? NullLogger<InngestHealthCheck>.Instance);

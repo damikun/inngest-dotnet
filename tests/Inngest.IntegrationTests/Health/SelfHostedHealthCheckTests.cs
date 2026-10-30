@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -62,6 +63,37 @@ public sealed class SelfHostedHealthCheckTests(SigningFixture fixture) : Integra
 
         entry.Status.ShouldBe(HealthStatus.Unhealthy);
         entry.Description.ShouldBe("Inngest refused the signing key and the fallback signing key (HTTP 401).");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task Finds_the_app_synced_with_the_functions_this_instance_serves()
+    {
+        await using var app = HealthApp.Create(
+            Configure(Fixture.SigningKey),
+            checks => checks.AddInngest(options => options.CheckSync = true),
+            inngest => inngest.AddSigningFunctions());
+
+        var entry = await app.CheckAsync(Cancellation);
+
+        entry.Status.ShouldBe(HealthStatus.Healthy);
+        entry.Description.ShouldBe($"Inngest accepted the signing key. The app \"{Fixture.AppId}\" is synced with {SigningFunctions.Slugs.Count} functions.");
+        entry.Data["sync"].ShouldBe("synced");
+        entry.Data["functionsInInngest"].ShouldBe(SigningFunctions.Slugs.Count);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task Does_not_ask_about_the_app_when_the_server_refuses_the_signing_key()
+    {
+        await using var app = HealthApp.Create(
+            Configure(NewKey()),
+            checks => checks.AddInngest(options => options.CheckSync = true),
+            inngest => inngest.AddSigningFunctions());
+
+        var entry = await app.CheckAsync(Cancellation);
+
+        entry.Status.ShouldBe(HealthStatus.Unhealthy);
+        entry.Data["api"].ShouldBe("refused");
+        entry.Data.ContainsKey("sync").ShouldBeFalse();
     }
 
     private Action<InngestOptions> Configure(string signingKey, string? fallbackKey = null) =>

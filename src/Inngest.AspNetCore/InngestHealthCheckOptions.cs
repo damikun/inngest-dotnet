@@ -17,6 +17,17 @@ public sealed class InngestHealthCheckOptions
     public bool RequireEventKey { get; set; }
 
     /// <summary>
+    /// Whether the check also reads what Inngest knows about the app, from its Get app endpoint, which Inngest marks
+    /// Beta, and fails while the app is not registered, is archived, failed its latest sync, or differs from this
+    /// instance in its app version (when <see cref="InngestOptions.AppVersion" /> is set) or in the number of functions.
+    /// It costs a second request when the answer is renewed. It is off by default, and it does not belong in the
+    /// readiness probe of a deployment: the app is synced after its new instances serve, so the check fails after every
+    /// deploy that changes the functions, until the sync. Use it to watch for a sync that was forgotten, or in a step
+    /// of the pipeline after the sync.
+    /// </summary>
+    public bool CheckSync { get; set; }
+
+    /// <summary>
     /// How long the answer of a successful request to Inngest is reused before a probe asks again. Probes in between
     /// get the stored result, so a probe every second does not send a request every second. Zero asks on every probe.
     /// The default is 30 seconds.
