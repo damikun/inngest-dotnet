@@ -99,9 +99,9 @@ it starts:
 - A project that runs on the host is reached through the container tunnel that Aspire 13 starts, at an address like
   `aspire.dev.internal:<port>`. The tunnel does not depend on `host.docker.internal`, so the integration adds no
   `--add-host=host.docker.internal:host-gateway`, which the plain Docker command of
-  [Getting started](/inngest-dotnet/guides/getting-started/#4-run-it) needs on Linux. Where the tunnel is turned off, Aspire falls
-  back to the host name of the container runtime, which is `host.docker.internal` on Docker Desktop. The tests of this
-  repository have run on Docker Desktop for Mac only.
+  [Getting started](/inngest-dotnet/guides/getting-started/#4-run-it) needs on Linux. Where the tunnel is turned off,
+  Aspire falls back to the host name of the container runtime, which is `host.docker.internal` on Docker Desktop. The
+  tests of this repository have run on Docker Desktop for Mac only.
 - An app that is itself a container is reached by its name on the container network.
 
 The SDK registers the address that the server synced it through, so each step of a run calls the app at the same
@@ -140,17 +140,17 @@ builder.AddProject<Projects.Worker>("worker")
 
 The worker calls the API of the server to start a connection, and the server answers with the address of its gateway.
 That address is made of the host the worker called and the port the gateway has inside the container, and Aspire
-publishes the gateway on another one, so a worker that used it would dial a port that nothing on the host listens on. That is why
-`WithReference` sets `INNGEST_CONNECT_GATEWAY_URL`, which the SDK dials instead. The address is that of the `connect`
-endpoint, resolved for the worker like the others. A worker that is started by other means than this reference gets
-the server's answer and has to set the variable itself.
+publishes the gateway on another one, so a worker that used it would dial a port that nothing on the host listens on.
+That is why `WithReference` sets `INNGEST_CONNECT_GATEWAY_URL`, which the SDK dials instead. The address is that of
+the `connect` endpoint, resolved for the worker like the others. A worker that is started by other means than this
+reference gets the server's answer and has to set the variable itself.
 
 ## A self-hosted server
 
 The dev server checks nothing: it does not sign its requests and accepts any event key. `AddInngestSelfHosted` runs
 `inngest start` instead, which signs every request to an app with a signing key, wants the key on its REST API and
-refuses events that do not carry its event key. A project that references it runs in cloud mode with the same keys, as it
-would in production:
+refuses events that do not carry its event key. A project that references it runs in cloud mode with the same keys, as
+it would in production:
 
 {/* check: statements; IDistributedApplicationBuilder builder */}
 ```csharp
@@ -182,8 +182,10 @@ var inngest = builder.AddInngestSelfHosted("inngest");
 
 A generated signing key has 64 digits, which are valid hex, and a generated event key is letters and digits. Both are
 kept in the user secrets of the AppHost, when it has them, as `Parameters:inngest-signing-key` and
-`Parameters:inngest-event-key`, so that they stay the same between runs, and a value you put there wins. Unlike the dev server, the self-hosted server polls
-for apps only when it is told to, so the integration starts it with a polling interval of 5 seconds.
+`Parameters:inngest-event-key`, so that they stay the same between runs, and a value you put there wins.
+
+Unlike the dev server, the self-hosted server polls for apps only when it is told to, so the integration starts it with
+a polling interval of 5 seconds.
 
 ## What it does not do
 
@@ -193,13 +195,11 @@ for apps only when it is told to, so the integration starts it with a polling in
   the AppHost.
 - **It does not deploy anything.** Aspire writes the container into a manifest like any other, but Inngest in
   production is Inngest Cloud or a server you run and size yourself. See [Deploying](/inngest-dotnet/guides/deploying/).
-- **It does not start the apps for you.** Projects are added to the AppHost as usual, and the integration only
-  references them.
 - **It cannot be called from an AppHost written in another language.** The methods are not exported for Aspire's
   polyglot AppHosts.
 
 ## Testing the AppHost
 
-The integration works under `Aspire.Hosting.Testing`, which is how this repository tests it. The tests start the dev
-server and a small app, wait for both to be healthy, and run a function through the server; the same tests cover a
-Connect worker and the self-hosted server. They need Docker.
+The integration works under `Aspire.Hosting.Testing`, which is how this repository tests it. Its tests start the dev
+server, a small app and a Connect worker, wait for them to be healthy and run a function through the server, and do the
+same against the self-hosted server. They need Docker.
