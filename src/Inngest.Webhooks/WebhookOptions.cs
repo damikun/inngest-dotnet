@@ -8,7 +8,7 @@ public sealed record WebhookOptions
     /// <summary>
     /// The largest body accepted, in bytes. A larger request is answered with 413 without being read to its end. It
     /// bounds what an anonymous caller can make the app hold, since the body is read in full before the signature can
-    /// be checked. 1 MiB by default. Inngest refuses events over 256 KiB on its free plan and 3 MiB on its paid ones,
+    /// be checked. 1 MiB by default. Inngest refuses events over 256 KiB on its free plan and 3 MiB on Pro and Business,
     /// so a limit above what the plan takes only turns a 413 here into a failed send.
     /// </summary>
     public int MaxBodySize { get; init; } = 1024 * 1024;

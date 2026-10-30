@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.AspNetCore.Builder;
 
+/// <summary>Maps endpoints that receive webhooks from other services as Inngest events.</summary>
 public static class InngestWebhookEndpointRouteBuilderExtensions
 {
     /// <summary>

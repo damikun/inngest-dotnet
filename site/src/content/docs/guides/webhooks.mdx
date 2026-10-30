@@ -148,11 +148,12 @@ What this does not cover:
 - **Different ids for one thing.** Stripe says that in some cases two separate events are sent for what happened once.
   Their ids differ, so both start runs. Its advice is to identify them by the id of the object in `data.object` together
   with the event type, which is what a function's `Idempotency` key can be made of.
-- **The same id for several events.** GitHub's `X-GitHub-Delivery` identifies the event, so two webhooks that GitHub sends
-  the same event to can carry the same id, and a message that Svix sends to several endpoints has the same id at each.
-  Shopify's `X-Shopify-Webhook-Id` is different for each subscription, and its `X-Shopify-Event-Id` is the one they
-  share. If two endpoints send to the same Inngest environment and must both start runs, make the ids differ in a
-  `Transform`, such as `@event with { Id = delivery.GetHeader("X-GitHub-Hook-ID") + ":" + @event.Id }`.
+- **The same id for several events.** GitHub's API describes the id in `X-GitHub-Delivery` as the identifier of the
+  event, shared by the deliveries of all the webhooks that subscribe to it. A redelivery has it, and so do two webhooks
+  of yours that GitHub sends the same event to. Shopify's `X-Shopify-Webhook-Id` is different for each subscription, and
+  its `X-Shopify-Event-Id` is the one they share. If two endpoints send to the same Inngest environment and must both
+  start runs, make the ids differ in a `Transform`, such as
+  `@event with { Id = delivery.GetHeader("X-GitHub-Hook-ID") + ":" + @event.Id }`.
 - **A manual redelivery.** GitHub does not retry on its own. Redelivering from its page or its API, or resending an event
   from the Stripe dashboard or CLI, sends the same id again, which Inngest drops for 24 hours if the first attempt got
   through. To run the work again, rerun the function from the Inngest dashboard.
@@ -277,7 +278,7 @@ app.MapInngestWebhook("/webhooks/acme", new WebhookProvider(
 
 | Setting | Default | Notes |
 |---|---|---|
-| `MaxBodySize` | 1 MiB | The body is held in memory and read before anything else, so this bounds what an anonymous caller can make the app hold. Inngest refuses events over 256 KiB on its free plan and 3 MiB on its paid plans, so a larger limit only turns a 413 here into a failed send. |
+| `MaxBodySize` | 1 MiB | The body is held in memory and read before anything else, so this bounds what an anonymous caller can make the app hold. Inngest refuses events over 256 KiB on its free plan and 3 MiB on Pro and Business, so a larger limit only turns a 413 here into a failed send. |
 | `SendTimeout` | 4 seconds | How long to wait for Inngest before answering 503. The client retries a failed send with backoff, which can take longer than a provider waits: Shopify allows five seconds in all. |
 
 Both are in `WebhookOptions`, an immutable record like the SDK's other options. The endpoint returns an
