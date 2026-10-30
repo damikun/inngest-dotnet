@@ -68,6 +68,7 @@ export default defineConfig({
             'guides/invoking-functions',
             'guides/sending-events',
             'guides/outbox',
+            'guides/user-context',
             'guides/webhooks',
             'guides/realtime',
             'guides/blazor',

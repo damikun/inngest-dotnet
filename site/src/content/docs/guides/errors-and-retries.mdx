@@ -166,6 +166,9 @@ The handler is a function of its own. The SDK registers it as `<function id>-fai
 | `Error` | The error the run failed with: `Name`, `Message`, `Stack` and `Cause`, the error that caused it. |
 | `Event` | The event that triggered the failed run, as a `JsonElement`. |
 
+With [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/#pass-the-user-on) the handler also runs as the user who
+caused the failed run: `ICurrentUser` is restored from `Event`.
+
 A delegate function takes its failure handler as `onFailure`:
 
 {/* check: statements; IInngestBuilder inngest; ICatalogImporter importer */}

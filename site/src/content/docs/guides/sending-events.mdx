@@ -94,6 +94,9 @@ The step takes a list of records too, or `InngestEvent`s for events named by a s
 Sending through `IInngestClient` inside a function would send again on every call that passes that line. Use the
 step tool there.
 
+Events sent from a run carry the run's sessions, and with [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/)
+the user who caused it.
+
 ## What an event holds
 
 `InngestEvent` is a record with the name and the data, plus optional properties. A typed send creates one with the

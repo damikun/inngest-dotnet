@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Blazor, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.SignalR, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers, Inngest.Testing.Containers.AspNetCore and Inngest.Webhooks packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Blazor, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.SignalR, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers, Inngest.Testing.Containers.AspNetCore, Inngest.UserContext, Inngest.UserContext.AspNetCore and Inngest.Webhooks packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -589,6 +589,34 @@ Each side registers its own source. An app that registers both gets the one regi
 
 **`RealtimeRelayOptions`**: `Url`, which maps a channel and its topics to the address of the endpoint, and
 `SerializerOptions`, which read the data of typed topics.
+
+## User context
+
+Packages `Inngest.UserContext` and `Inngest.UserContext.AspNetCore`. See [User context](/inngest-dotnet/guides/user-context/).
+
+| Member | Purpose |
+|---|---|
+| `IInngestBuilder.AddUserContext(Action<UserContextOptions>?)` | Adds the middleware that attaches the allowed claims of the current user to the events an app sends and restores them in runs, and registers `ICurrentUser` and a scoped `ClaimsPrincipal`. Needs Data Protection, or an `IUserContextProtector`. Register it before middleware that needs the user. |
+| `IInngestBuilder.AddUserContextFromHttpContext()` | Package `Inngest.UserContext.AspNetCore`. Makes `HttpContext.User` the user of events sent while serving a request. |
+| `InvokeOptions.WithUser(ICurrentUser)` | Extension method. Passes the user of the run to the function being invoked. Invocations do not pass through middleware, so they carry the user only when asked. |
+
+**`ICurrentUser`**: `Principal`, a `ClaimsPrincipal` that is anonymous without a user; `IsAuthenticated`; and `IssuedAt`,
+when the sender took the claims. It is the user of the run whose code is running, in every scope.
+
+**`UserContextOptions`**:
+
+| Member | Purpose |
+|---|---|
+| `Claims` | The claim types that are attached, matched exactly. `sub` and `ClaimTypes.NameIdentifier` by default. |
+| `Lifetime` | How long after the claims were taken a run can still be created with them. Seven days by default. |
+| `MaxSize` | The largest size of the payload's JSON in UTF-8 bytes. 4096 by default; a larger user is not attached. |
+| `Propagate` | Whether the events a run sends carry its user. `true` by default. |
+| `EventFilter` | A `Func<InngestEvent, bool>` that picks the events that carry the user. `null` means all. |
+| `OnInvalid` | An `InvalidUserContextAction`: `Anonymous` (default) runs without a user and logs a warning, `FailRun` fails the run. |
+
+**`IUserContextSource`**: `GetUserAsync(CancellationToken)` returns the `ClaimsPrincipal` an event sent outside a run is
+sent for, or null. **`IUserContextProtector`**: `Protect(string)` and `TryUnprotect(string, out string?)`, which turn the
+JSON of the claims into text for the event and back; ASP.NET Core Data Protection by default.
 
 ## Webhooks
 

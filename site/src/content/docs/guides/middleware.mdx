@@ -146,6 +146,9 @@ public sealed class EventVersionMiddleware : InngestMiddleware
 }
 ```
 
+Attaching the signed-in user to every event is a change of this kind. [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/)
+does it with the claims protected, and restores them in the run.
+
 ### Count failures
 
 Observing hooks suit metrics. This one counts final failures per function with `System.Diagnostics.Metrics`; the

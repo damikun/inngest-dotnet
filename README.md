@@ -182,6 +182,8 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) | `dotnet new inngest-web` and `dotnet new inngest-worker`: a project with a typed event, a function and dev mode in its Development settings. |
 | [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) | A .NET tool: `dotnet inngest dev` downloads the Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder. |
 | [`Inngest.SignalR`](https://www.nuget.org/packages/Inngest.SignalR/) | Forwards Inngest realtime messages to the clients of a SignalR hub, with one subscription to Inngest shared by the clients of a channel. |
+| [`Inngest.UserContext`](https://www.nuget.org/packages/Inngest.UserContext/) | Carries the signed-in user who caused a run into it: selected claims travel in the event, protected with ASP.NET Core Data Protection, and a function reads them as `ICurrentUser` or `ClaimsPrincipal`. Needs no ASP.NET Core, so workers use it. |
+| [`Inngest.UserContext.AspNetCore`](https://www.nuget.org/packages/Inngest.UserContext.AspNetCore/) | Takes the user an event is sent for from `HttpContext.User`. |
 | [`Inngest.Webhooks`](https://www.nuget.org/packages/Inngest.Webhooks/) | Verifies the signatures of webhooks from Stripe, GitHub, Shopify, Standard Webhooks senders such as Clerk and Resend, and any HMAC, and sends each as an event whose id is the delivery id. `MapInngestWebhook` is in `Inngest.AspNetCore`, which brings it in. |
 
 Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`;

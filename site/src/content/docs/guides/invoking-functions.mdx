@@ -147,6 +147,12 @@ catch (StepFailedException exception)
 Left uncaught, `StepFailedException` fails the run without retrying it. If the invoked function's rate limit skips
 the run, the step fails in the same way.
 
+## Passing the user on
+
+An invoked function does not receive the user who caused the calling run by itself, because invocations do not pass
+through middleware. With [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/#pass-the-user-on), `WithUser` adds
+the run's user to the options.
+
 ## Invoke or send an event?
 
 Invoke when the caller needs the result or must know that the work finished. Send an event with

@@ -456,6 +456,8 @@ ${reference('Inngest.Extensions.AI')}
 ${reference('Inngest.AwsLambda')}
 ${reference('Inngest.AzureFunctions')}
 ${reference('Inngest.SignalR')}
+${reference('Inngest.UserContext')}
+${reference('Inngest.UserContext.AspNetCore')}
   </ItemGroup>
   <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>

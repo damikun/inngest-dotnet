@@ -51,6 +51,10 @@ which are never compiled ahead of time.
   Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder.
 - [`Inngest.SignalR`](https://www.nuget.org/packages/Inngest.SignalR/): forwards Inngest realtime messages to the
   clients of a SignalR hub, with one subscription to Inngest shared by the clients of a channel.
+- [`Inngest.UserContext`](https://www.nuget.org/packages/Inngest.UserContext/): carries the signed-in user who caused a
+  run into it, protected with ASP.NET Core Data Protection, as `ICurrentUser` and `ClaimsPrincipal`.
+- [`Inngest.UserContext.AspNetCore`](https://www.nuget.org/packages/Inngest.UserContext.AspNetCore/): takes the user an
+  event is sent for from `HttpContext.User`.
 - [`Inngest.Webhooks`](https://www.nuget.org/packages/Inngest.Webhooks/): verifies the signatures of webhooks from
   Stripe, GitHub, Shopify, Standard Webhooks senders such as Clerk and Resend, and any HMAC, and sends each as an event
   whose id is the delivery id. `MapInngestWebhook` is in `Inngest.AspNetCore`, which brings it in.

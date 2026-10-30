@@ -425,6 +425,13 @@ public sealed class OnboardUserFakeTests
 These tests check the function's logic and the order of its steps. They do not exercise replays or the
 serialization of step results, which the test host does.
 
+## Functions that read the user
+
+A function that takes `ICurrentUser` from [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/#testing) is tested
+with a fake `ICurrentUser` in the services of the host. Add the real middleware to the services instead to test how the
+user travels: the host restores the user of the event it is given, and records the events a function sends with the
+user they carry.
+
 ## End to end against the dev server
 
 Flow control, cancellation and the expressions of triggers and waits are applied by Inngest, so only a run against

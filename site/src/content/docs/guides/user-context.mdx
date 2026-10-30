@@ -1,0 +1,382 @@
+---
+title: The user behind an event in Inngest functions
+description: Carry the signed-in user who caused a run into it with Inngest.UserContext, protected with ASP.NET Core Data Protection, and read it as ICurrentUser or ClaimsPrincipal in functions, steps, failure handlers and the events they send.
+sidebar:
+  label: User context
+---
+
+A run has no request behind it: no `HttpContext`, no cookie, no signed-in user. When a click starts a run, the function
+often still needs to know who clicked: to attribute the work, to call another service as that person, or to check what
+they may see. The `Inngest.UserContext` packages carry the user along. When your app sends an event, they attach
+selected claims of the current user to it, protected so that nobody can read or change them. In the run, middleware
+restores the claims as `ICurrentUser` and as a scoped `ClaimsPrincipal`.
+
+**The restored user is a snapshot from the time the event was sent, not a fresh authorization.** A run can start later
+and last for days. The user may have lost a role, been blocked or been deleted since. Use the restored user to know who
+caused the work, and check what that person may do against current data for anything that matters.
+
+## Set up
+
+There are two packages:
+
+| Package | What it gives you |
+|---|---|
+| `Inngest.UserContext` | The format, the protector, the middleware, `ICurrentUser` and `AddUserContext`. It needs no ASP.NET Core, so a worker that only restores users, such as a [Connect](/inngest-dotnet/guides/connect/) worker, uses this one alone. |
+| `Inngest.UserContext.AspNetCore` | `AddUserContextFromHttpContext`, which takes the user from `HttpContext.User`. For the app that sends events while it serves requests. |
+
+```bash
+dotnet add package Inngest.UserContext --prerelease
+dotnet add package Inngest.UserContext.AspNetCore --prerelease
+```
+
+The user is protected with [ASP.NET Core Data Protection](https://learn.microsoft.com/aspnet/core/security/data-protection/introduction),
+which you set up yourself, because the apps that send and restore users have to
+[share its key ring](#share-the-key-ring). The web app that sends events:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+using Microsoft.AspNetCore.DataProtection;
+
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("shop")
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/shop/keys"));
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop-web")
+    .AddUserContext(options => options.Claims = ["sub", "name", "email", "role"])
+    .AddUserContextFromHttpContext();
+```
+
+`Claims` is the list of claim types that travel. Everything else in the principal stays behind. The worker that runs the
+functions needs the same key ring and application name, and only `AddUserContext`:
+
+{/* check: statements; HostApplicationBuilder builder */}
+```csharp title="Program.cs of the worker"
+using Microsoft.AspNetCore.DataProtection;
+
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("shop")
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/shop/keys"));
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop-worker")
+    .AddUserContext()
+    .AddConnect();
+```
+
+An app that sends events and serves them, as a single ASP.NET Core app often does, uses `AddUserContext` and
+`AddUserContextFromHttpContext` once. Register `AddUserContext` before middleware that needs the user, because
+middleware runs in registration order.
+
+## Read the user in a function
+
+Take `ICurrentUser` where you need the user:
+
+```csharp title="ExportReport.cs"
+using Inngest;
+
+public sealed record ReportRequested(string ReportId) : IInngestEventData
+{
+    public static string EventName => "shop/report.requested";
+}
+
+public interface IReportAccess
+{
+    Task<bool> MayExportAsync(string userId, string reportId, CancellationToken cancellationToken);
+
+    Task<string> ExportAsync(string userId, string reportId, CancellationToken cancellationToken);
+}
+
+[InngestFunction("export-report")]
+public sealed class ExportReport(ICurrentUser user, IReportAccess access) : InngestFunction<ReportRequested>
+{
+    public override async Task<object?> ExecuteAsync(
+        FunctionContext<ReportRequested> context, CancellationToken cancellationToken)
+    {
+        if (!user.IsAuthenticated)
+        {
+            throw new NonRetriableException("A report is exported for the user who asked for it.");
+        }
+
+        var userId = user.Principal.FindFirst("sub")!.Value;
+        var reportId = context.Event.Data.ReportId;
+
+        // The snapshot says who asked. Whether they may still have the report is a question for today's data.
+        var may = await context.Step.RunAsync("check-access", ct => access.MayExportAsync(userId, reportId, ct));
+        if (!may)
+        {
+            throw new NonRetriableException($"User {userId} may no longer export report {reportId}.");
+        }
+
+        return await context.Step.RunAsync("export", ct => access.ExportAsync(userId, reportId, ct));
+    }
+}
+```
+
+`ICurrentUser` has three members:
+
+| Member | Meaning |
+|---|---|
+| `Principal` | The restored `ClaimsPrincipal`: one identity with the authentication type `Inngest.UserContext` and the claims the sender allowed, as strings. The name and role claim types of the original identity are kept, so `Identity.Name` and `IsInRole` answer as they did in the request. Claim value types, issuers and properties are not carried. Without a user it is anonymous: no claims, and `Identity.IsAuthenticated` is false. |
+| `IsAuthenticated` | True when the event carried a user that is valid for this run. |
+| `IssuedAt` | When the sender took the claims, or null without a user. Use it to treat an old snapshot with more care. |
+
+A run has no user when the event came from somewhere that has none: a cron trigger, another service, a webhook, the
+Inngest dashboard, or a sender that is not signed in. When Inngest replays a function, `event.user` is empty, as its
+[send reference](https://www.inngest.com/docs/reference/events/send) says, so a replayed run has none either.
+
+`ICurrentUser` always answers for the run whose code is running. It is a singleton, and it is the same in every scope of
+the run: the scope of the call, a scope your code creates in a step, a singleton's. Outside a run it is nobody. The user
+is restored when the function starts, and the function class is created before that, so a service must read the user
+when it uses it and not in its constructor. `ClaimsPrincipal` is also registered, as a scoped service, for code that
+wants one: it is the principal as it is when the service is created, which is anonymous before the function starts. An
+app that registered its own `ClaimsPrincipal` keeps it.
+
+## Share the key ring
+
+The restoring app has to unprotect what the sending app protected. Data Protection makes that possible with three
+things, and its defaults give none of them to two separate deployments:
+
+1. **The same keys.** Persist the key ring to a store both apps reach: a shared folder, Azure Blob Storage, Redis or
+   Entity Framework Core (see [key storage providers](https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers)).
+   The default is a folder in the user profile, or memory in a container, and then each app makes keys of its own.
+2. **The same application name.** `SetApplicationName("shop")` in both apps. Without it Data Protection isolates apps by
+   their content root path, and payloads do not cross.
+3. **The same purpose,** which the package sets. Payloads of another feature that use the same keys, such as a cookie,
+   are not accepted as users.
+
+The keys are secrets: whoever holds them can make a payload for any user. Encrypt them at rest with
+`ProtectKeysWith...` and limit who can read the store. A key lives 90 days by default. Data Protection creates the next
+one two days before, and an app reads the store at least daily, so apps have a new key before they use it (both are fixed
+in Data Protection). Expired keys still unprotect, so payloads made with them are read for as long as the key stays in
+the ring. A revoked key does not: revoking one with `IKeyManager.RevokeKey` is the way to stop trusting payloads made with
+a key that leaked, and running apps notice when they refresh their cached key ring.
+
+Set the ring up before the apps that share it start for the first time. Apps that both begin with an empty store each
+create a key, and may not read each other's payloads until their next refresh of the store.
+
+When the restoring app cannot unprotect a payload, the run has no user, and the log says why (see
+[when the user cannot be used](#when-the-user-cannot-be-used)).
+
+## What travels with the event
+
+The `user` field of an event is where Inngest documents user data, and it [stores it encrypted at rest](https://www.inngest.com/docs/reference/events/send).
+The packages add one key to it and leave all other keys to you:
+
+```json
+"user": {
+  "external_id": "u-42",
+  "_inngest_dotnet_user": { "v": 1, "t": "CfDJ8..." }
+}
+```
+
+`v` is the format version. `t` is the protected text of this JSON, which only apps with the key ring can read:
+
+```json
+{ "v": 1, "iat": 1793268000, "exp": 1793872800, "ev": "shop/report.requested", "nt": "name", "rt": "role",
+  "c": { "sub": ["u-42"], "name": ["Ada Lovelace"], "role": ["admin", "support"] } }
+```
+
+`iat` is when the claims were taken and `exp` when they stop being accepted for new runs. `ev` is the name of the event
+the text was made for: it is accepted on that event only, so a payload that leaked from one event cannot be attached to
+another to run as the user. `nt` and `rt` are the name and role claim types when they are not the .NET defaults, and `c`
+holds the claims. Data Protection signs and encrypts the text, so what Inngest's dashboard, the logs of whatever reads
+events and every other function triggered by the event can see is ciphertext.
+
+Think of each claim you allow as personal data in an event. List what the runs need and nothing else: `Claims` is matched
+exactly against the claim types of the principal (the default allows `sub` and `ClaimTypes.NameIdentifier`), and
+whatever it does not list is never read. The JSON of the payload may be up to `MaxSize` bytes, 4096 by default. A user
+over the bound is not attached: the event is sent without it and a warning is logged. The protected text is about a third
+larger than the JSON, and an event can be 256 KiB on Inngest's Free plan and 3 MiB on Pro and Business (see its
+[usage limits](https://www.inngest.com/docs/usage-limits/inngest)).
+
+An event that should not carry the user, such as an audit event for another team, is left out with `EventFilter`. It runs
+for every event that is sent:
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddUserContext(options =>
+{
+    options.Claims = ["sub", "name"];
+    options.EventFilter = @event => !@event.Name.StartsWith("audit/", StringComparison.Ordinal);
+});
+```
+
+## How long a user is valid
+
+`Lifetime` is seven days by default. It is not how long a run may use the user. A function runs again from its top on
+every call, so a user that expired halfway through a run would change under it: a check at the top of the function would
+pass before a long sleep and fail after it. So the lifetime is judged once, by the time Inngest created the run. A run
+id is a ULID, and its first part is the creation time; Inngest makes it, so the sender of an event cannot choose it.
+
+- A run created before the expiry keeps its user for as long as it lives. It can sleep, wait and retry for as long as
+  Inngest lets a run last, and every call sees the same user.
+- A run created after the expiry has no user. This is what bounds a payload that leaked from an event and is sent again.
+- An event with a timestamp in the future starts a run that Inngest created when it received the event, so the run is
+  judged by that time, not by the time it starts. Time that passes before the run exists does count, such as a debounce
+  period or the timeout of a batch.
+- A run id that is not a ULID, such as the made-up ids of a unit test, is judged by the clock at each call.
+- The events and invocations a run sends carry the same expiry, not a new one. A chain of runs therefore cannot go on
+  for longer than the lifetime of the first send: a run created after it has no user.
+
+Choose a lifetime that covers the longest time between sending an event and the creation of the run it starts, and for a
+chain of runs, between the first send and the last event of the chain. A longer lifetime lets a leaked payload start
+runs for longer.
+
+## Pass the user on
+
+Events that a run sends carry the run's user, as they carry its [sessions](/inngest-dotnet/guides/sending-events/#sessions).
+This covers `context.Step.SendEventAsync` and an `IInngestClient` used inside the function. The source of the user is never
+asked there: the request that called the app belongs to Inngest, not to a user. `Propagate = false` turns it off, and
+`EventFilter` picks events. Each event gets a payload made for its own name.
+
+Invocations do not pass through middleware, so the user goes to an invoked function when the code asks for it with
+`WithUser`. The invoked function restores it like any other:
+
+{/* check: body ReportRequested */}
+```csharp
+var options = new InvokeOptions("render-report") { Data = context.Event.Data }
+    .WithUser(context.Services.GetRequiredService<ICurrentUser>());
+
+var rendered = await context.Step.InvokeAsync<string>("render", options);
+```
+
+Other keys that `InvokeOptions.User` already holds are kept. A run without a user passes none.
+
+A [failure handler](/inngest-dotnet/guides/errors-and-retries/) gets the user of the run that failed. Inngest sends it
+the failed run's event, with its `user`, and the user is judged as that run was. Other functions that listen for
+`inngest/function.failed` do not get it.
+
+```csharp title="ImportCatalog.cs"
+using Inngest;
+
+public sealed record CatalogUploaded(string CatalogId) : IInngestEventData
+{
+    public static string EventName => "shop/catalog.uploaded";
+}
+
+public interface IAlerts
+{
+    Task TellAsync(string userId, string message, CancellationToken cancellationToken);
+}
+
+[InngestFunction("import-catalog")]
+public sealed class ImportCatalog(ICurrentUser user, IAlerts alerts) : InngestFunction<CatalogUploaded>, IFailureHandler
+{
+    public override Task<object?> ExecuteAsync(
+        FunctionContext<CatalogUploaded> context, CancellationToken cancellationToken) =>
+        throw new NonRetriableException("The catalog is not valid.");
+
+    public async Task OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken)
+    {
+        if (user.IsAuthenticated)
+        {
+            await alerts.TellAsync(user.Principal.FindFirst("sub")!.Value, "Your catalog could not be imported.", cancellationToken);
+        }
+    }
+}
+```
+
+There is no single user where there is no single event. A function that batches events has none, and neither has the
+failure handler of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not
+restored.
+
+## When the user cannot be used
+
+An event without the reserved key is not an error: the run has no user. A payload that is there and cannot be used
+is, and `OnInvalid` decides what the run does:
+
+| Setting | A run whose payload cannot be used |
+|---|---|
+| `Anonymous` (the default) | Writes one warning and runs without a user. |
+| `FailRun` | Fails. An expired payload, one made for another event and one with an unknown format fail without retries; one that cannot be unprotected is retried, because the key store may only be unreachable for now, and fails on the last attempt. |
+
+| Reason in the log | What it means |
+|---|---|
+| it has expired | The run was created after the expiry. |
+| it was made for another event | The event name is not the one the payload was made for. |
+| it could not be unprotected | It was changed, or made with a key or purpose this app does not have. The app's key ring or application name usually differs from the sender's. Data Protection reports every failure the same way, so an unreachable key store looks like this too; its own logs have the cause. |
+| its format is not known to this version | The format version is newer than this package. Deploy the restoring apps before the senders when you upgrade. |
+| it is not valid | The payload was protected but is not a user. |
+
+The warning is written once for the run and names the event and the reason. No log line, exception message or trace of
+these packages contains a claim or the protected text, and yours should not either.
+
+## What someone who can send events can do
+
+Anyone with your event key can send an event with any `user`. What they can do with it:
+
+- **Make up a user:** nothing. Text that the key ring did not produce does not unprotect, the run has no user, and a warning
+  is logged. They cannot choose claims.
+- **Move a payload to another event:** nothing. A payload is bound to the name of its event.
+- **Send a payload they copied again,** for example from the dashboard: the run starts as that user until the payload
+  expires. This is the same as sending the original event again, so keep `Lifetime` as short as your delays allow, keep
+  the event key secret, and make functions that act for a user idempotent.
+- **Read the claims:** nothing, without the keys.
+
+Whoever holds the key ring can make payloads for any user, so treat it like a signing key.
+
+## Other hosts and other protectors
+
+`AddUserContextFromHttpContext` is a source of the user for sends outside a run. For another kind of host, register an
+`IUserContextSource`. This one takes the user of a Blazor circuit:
+
+```csharp title="AuthenticationStateSource.cs"
+using System.Security.Claims;
+using Inngest;
+using Microsoft.AspNetCore.Components.Authorization;
+
+public sealed class AuthenticationStateSource(AuthenticationStateProvider provider) : IUserContextSource
+{
+    public async ValueTask<ClaimsPrincipal?> GetUserAsync(CancellationToken cancellationToken) =>
+        (await provider.GetAuthenticationStateAsync()).User;
+}
+```
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddUserContext();
+inngest.Services.AddSingleton<IUserContextSource, AuthenticationStateSource>();
+```
+
+It is asked for every send outside a run, and only an authenticated user is attached.
+
+To protect users some other way, such as with a key from a vault, register an `IUserContextProtector` as a singleton. It
+turns the JSON of the claims into text and back, and the packages do the rest: the format, the expiry, the binding to the
+event. It has to detect changes and should encrypt, because the text is visible to anyone who can see the event. Its
+`TryUnprotect` returns false for text that is not valid and throws for failures that are not the text's fault, so that
+Inngest retries the call. When one is registered, Data Protection is not used and need not be set up.
+
+## Testing
+
+Functions that take `ICurrentUser` are tested with a fake in the services:
+
+```csharp title="SignedInAs.cs"
+using System.Security.Claims;
+using Inngest;
+
+public sealed class SignedInAs(string userId) : ICurrentUser
+{
+    public ClaimsPrincipal Principal { get; } = new(new ClaimsIdentity([new Claim("sub", userId)], "Test"));
+
+    public bool IsAuthenticated => true;
+
+    public DateTimeOffset? IssuedAt => null;
+}
+```
+
+Register it with `services.AddSingleton<ICurrentUser>(new SignedInAs("u-42"))` in the services of the
+[test host](/inngest-dotnet/guides/testing/). With a fake, `WithUser` leaves the invocation as it is. To test the packages
+themselves, register `AddUserContext` with Data Protection in the test services: the host records the events a function
+sends, so `SentEvents` shows the payload they carry.
+
+## Compared with other libraries
+
+MassTransit and NServiceBus carry the user in a message header that a filter or behavior sets when a message is sent and
+reads when it is consumed, and Hangfire jobs take the user id as an argument or a job parameter, because a job has no
+request. These are plain values that the broker is trusted to keep. Inngest accepts an event from anyone who has the event
+key, and the user is stored in the event, so these packages protect it and bind it to the event, and judge it by the time
+the run was created. The TypeScript SDK has no equivalent, and other SDKs see an opaque `_inngest_dotnet_user` key in
+`user`.

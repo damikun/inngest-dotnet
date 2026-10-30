@@ -251,26 +251,31 @@ binder, so it works trimmed and under Native AOT.
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 | `Inngest.SignalR` | `AddInngestSignalR`, `MapInngestRealtimeHub` and `InngestRealtimeBridge<THub>`, which forward realtime messages to SignalR clients through `IHubContext<THub>`: clients join through a hub method guarded by a callback, share one subscription per channel and topics, and get each message on a queue of their own, by connection id and never through a group, so that instances on a backplane deliver once. Reads the realtime subscriber of `Inngest` through `InternalsVisibleTo`, takes `RealtimeSubscription` from `Inngest.AspNetCore`, and uses the SignalR of the ASP.NET Core shared framework. No release includes it yet, so its project file clears the package validation baseline. |
 | `Inngest.Blazor` | `RealtimeView`, a headless Blazor component, and `IRealtimeSource`, the realtime messages as an async stream, with a source for the server (`AddInngestRealtimeServerSource`, over `IInngestRealtime`) and one for WebAssembly (`AddInngestRealtimeRelaySource`, which reads a `MapInngestRealtime` endpoint). A Razor class library that references `Microsoft.AspNetCore.Components.Web` as a package, not the shared framework, so it runs in the browser. |
+| `Inngest.UserContext` | `AddUserContext`, a middleware that attaches selected claims of the current user to the events an app sends, protected with ASP.NET Core Data Protection, and restores them in runs as `ICurrentUser` and `ClaimsPrincipal`. Depends on `Microsoft.AspNetCore.DataProtection`, which has no framework reference, so workers without ASP.NET Core use it. |
+| `Inngest.UserContext.AspNetCore` | `AddUserContextFromHttpContext`, which takes the user of an event sent while serving a request from `HttpContext.User`. Uses the ASP.NET Core shared framework. |
 | `Inngest.Webhooks` | Verifiers for Standard Webhooks (Svix, Clerk, Resend), Stripe, GitHub, Shopify and any HMAC, the providers that turn a verified delivery into an event, and the pipeline behind `MapInngestWebhook` (which is in `Inngest.AspNetCore`). Depends on `Inngest` only, and uses `System.Security.Cryptography` for every signature. |
 
 `Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Blazor`, `Inngest.Connect`, `Inngest.SignalR`, `Inngest.Testing`,
-`Inngest.Encryption`, `Inngest.EntityFrameworkCore` and `Inngest.Extensions.AI` use internals of `Inngest` through
-`InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
-`Inngest.Encryption` only reads the serializer options, `Inngest.EntityFrameworkCore` those and the checks the client
-makes on an event it sends, and `Inngest.Extensions.AI` only asks which invocation the calling code runs in, and so
-whether it can make a step. `Inngest.Blazor` and `Inngest.SignalR` use the realtime subscriber, and `Inngest.Blazor`
+`Inngest.Encryption`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI` and `Inngest.UserContext` use internals of
+`Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings,
+of which `Inngest.Encryption` only reads the serializer options, `Inngest.EntityFrameworkCore` those and the checks the
+client makes on an event it sends, `Inngest.Extensions.AI` only asks which invocation the calling code runs in, and so
+whether it can make a step, and `Inngest.UserContext` reads the settings, the registry and the run a piece of code
+belongs to. `Inngest.Blazor` and `Inngest.SignalR` use the realtime subscriber, and `Inngest.Blazor`
 also its message reader and server-sent events parser. Internals can change in any release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
 the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 `Inngest.AzureFunctions` uses the serve handler of `Inngest` and the `InngestEndpoint` of `Inngest.AspNetCore` in the
-same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too. Package validation compares every
+same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too, as `Inngest.AspNetCore` does on the
+`Inngest.Webhooks` whose internal receiver `MapInngestWebhook` uses. Package validation compares every
 package with the last release on nuget.org, so `dotnet pack` fails on a change that would break code built against it;
 `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after each release. `Inngest.Encryption`,
 `Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers` packages,
-`Inngest.Templates`, `dotnet-inngest`, `Inngest.AwsLambda`, `Inngest.AzureFunctions`, `Inngest.Blazor` and
-`Inngest.SignalR` have no release to compare with yet, so their project files clear the baseline until their first one.
+`Inngest.Templates`, `dotnet-inngest`, `Inngest.AwsLambda`, `Inngest.AzureFunctions`, `Inngest.Blazor`, `Inngest.SignalR`,
+`Inngest.UserContext`, `Inngest.UserContext.AspNetCore` and `Inngest.Webhooks` have no release to compare with yet, so
+their project files clear the baseline until their first one.
 Every package with an assembly is `IsAotCompatible` except four. The two container packages: Testcontainers and
 `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects, which are neither
 trimmed nor compiled ahead of time. `Inngest.EntityFrameworkCore`: the constructors of EF Core's `DbContext` require
@@ -623,6 +628,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Azure Functions (isolated worker): built-in HTTP model and ASP.NET Core integration | Supported (`Inngest.AzureFunctions`): tested against fakes of the worker and against the Inngest server behind a stand-in for the Functions host, not in a deployed app. A call has to be answered within the platform's 230 seconds. |
 | Receiving webhooks: Stripe, GitHub, Shopify, Standard Webhooks (Svix, Clerk, Resend) and HMAC signatures, event ids from the delivery ids | Supported (`Inngest.Webhooks`, `MapInngestWebhook`). Inngest's hosted webhooks and their transforms are the counterpart. `v1a` (Ed25519) signatures are not checked. |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
+| The user behind an event: selected claims of the current user in the event's `user`, protected, restored in the run, passed on to events, invocations and failure handlers | Supported (.NET only): `Inngest.UserContext`, `Inngest.UserContext.AspNetCore`. See [User context](#user-context) |
 | `defer` | Not yet |
 | Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGEST001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, step output and function output. The data an invoke sends is not transformed. |
@@ -1039,3 +1045,35 @@ specific to Inngest:
   runs. The `Containers` tests run both servers in Docker next to a project and a Connect worker, through the real
   orchestrator, with an inherited `INNGEST_*` environment that the settings of `WithReference` must win over.
 
+## User context
+
+`Inngest.UserContext` carries the user who caused a run into it. It is a format and a middleware; `Inngest` itself only
+lets it see its internals. It has no counterpart in the TypeScript SDK.
+
+- **Wire.** The event's `user` object, which Inngest documents as user data and stores encrypted at rest, gets one
+  reserved key, `_inngest_dotnet_user: {"v":1,"t":"<text>"}`; every other key is the app's. `t` is what
+  `IUserContextProtector.Protect` made of this JSON: `{"v":1,"iat":<unix s>,"exp":<unix s>,"ev":"<event name>","nt":..,"rt":..,"c":{"<claim type>":["<value>"]}}`.
+  `ev` ties the text to the event it was made for, `nt` and `rt` are the name and role claim types when they are not
+  the .NET defaults, and `c` holds only the claim types of `UserContextOptions.Claims`, up to `MaxSize` bytes. The expiry
+  and the event name are inside the protected text, so every protector has them and a custom one only has to detect
+  changes and, ideally, encrypt. The default protector is Data Protection with the purposes `Inngest.UserContext` and `v1`.
+- **Capture.** `WrapSendEventAsync` runs for every send. Outside a run it asks the `IUserContextSource`; the ASP.NET Core
+  package registers one over `IHttpContextAccessor`, which flows with the async context into the scope the client makes
+  for middleware. Inside a run (`context`, or `Invocation.AmbientContext` for a client used in a function) it attaches the
+  run's own snapshot and never asks the source, because the request that reached the app is Inngest's. Each event gets a
+  text made for its own name, and the snapshot keeps its original `iat` and `exp`, so passing it on never extends it.
+  Invocations have no middleware payload hook, so `InvokeOptions.WithUser` puts the envelope in `InvokeOptions.User`.
+- **Restore.** `WrapFunctionAsync` reads `FunctionContext.RawEvent`, or for the failure handler of a function
+  (`FunctionDefinition.FailureHandlerFor`) the event inside `inngest/function.failed`, and keeps the snapshot in a
+  `ConditionalWeakTable` keyed by the run's `FunctionContext`. `ICurrentUser` is a singleton that finds the running run
+  through `Invocation.AmbientContext` on every read, so it is the same in every DI scope of the call, including the
+  sibling scope a scoped step makes, and in singletons. A function that batches events gets no user: a batch has no
+  single one.
+- **Validity.** A function replays from its top on every call, so a user that expired halfway through a run would change
+  under it. The expiry is compared with the creation time of the run, which its id holds (a ULID that Inngest makes and
+  every call shares), not with the clock of the call. An id that is not a ULID falls back to the clock of the call. Against
+  the dev server, an event with a future timestamp gets a run created when the event is received.
+- **Failure.** A payload that cannot be used gives an anonymous principal and one warning, written once per run through
+  the replay-safe logger, that names the reason and the event and never the payload. `OnInvalid = FailRun` fails the run
+  instead: without retries, except for text that could not be unprotected, which may mean a key store that is down. Data
+  Protection reports every failure as a `CryptographicException`, so it cannot tell the two apart.
