@@ -340,8 +340,9 @@ Package `Inngest.AwsLambda`. See [Running on AWS Lambda](/inngest-dotnet/guides/
 | `HandleAsync(APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)` | Serves an event of an API Gateway HTTP API or a Lambda function URL (payload format 2.0) and returns an `APIGatewayHttpApiV2ProxyResponse`. |
 
 Each invocation runs in a service scope of its own. The cancellation token that functions receive is never cancelled,
-and `InngestOptions.Streaming` has no effect, since the response is buffered. The event types are those of
-`Amazon.Lambda.APIGatewayEvents`, and the package ships no `JsonSerializerContext` for them.
+and `InngestOptions.Streaming` has no effect, since the response is buffered; building the handler logs a warning when
+it is on. The event types are those of `Amazon.Lambda.APIGatewayEvents`, and the package ships no
+`JsonSerializerContext` for them.
 
 ## OpenTelemetry
 

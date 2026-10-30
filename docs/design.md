@@ -571,13 +571,14 @@ in inngest-js.
 - **Query.** HTTP APIs decode `queryStringParameters` twice, so a `%2B` arrives as a space. `rawQueryString` is the
   source for HTTP APIs, and REST events, which only have decoded dictionaries, are encoded into a query string. One
   parser reads both, so a parameter has the same value from either.
-- **URL.** The scheme comes from the first value of `X-Forwarded-Proto` (`https` unless it says `http`) and the host
-  from `Host`, or the request context's domain name. The path is `rawPath` for HTTP APIs, which already starts with a
-  named stage, and `requestContext.path` for REST APIs when it extends `path`, which is when it holds the stage (API
-  Gateway fills it with the path the client called). inngest-js uses `path`, which leaves the stage out. The URL is
-  built on first use, and only out-of-band syncs use it: an in-band sync names the URL in its signed body. Anything the
-  event cannot show, such as an API mapping of an HTTP API or a CloudFront host, is left to `ServeOrigin` and
-  `ServePath`.
+- **URL.** The scheme comes from the last value of `X-Forwarded-Proto`, which the closest proxy appends and ASP.NET
+  Core's forwarded headers middleware trusts (`https` unless it says `http`), and the host from `Host`, or the request
+  context's domain name. The path is `rawPath` for HTTP APIs, which already starts with a named stage, and
+  `requestContext.path` for REST APIs when it extends `path`, which is when it holds the stage. API Gateway fills it with
+  the path the client called; on a custom domain both fields hold the base path mapping, as a real event in
+  aws-lambda-dotnet issue 127 shows. inngest-js uses `path`, which leaves the stage out. The URL is built on first use,
+  and only out-of-band syncs use it: an in-band sync names the URL in its signed body. Anything the event cannot show,
+  such as the API mapping of an HTTP API or a CloudFront host, is left to `ServeOrigin` and `ServePath`.
 - **Time.** The call's cancellation token is `CancellationToken.None`. Lambda gives no signal before it ends an
   invocation, and cancelling shortly before `RemainingTime` runs out could only turn the 5xx that Inngest retries anyway
   into an error of the handler's own: the serve handler rethrows a cancellation, so an error response would have to be
@@ -585,13 +586,15 @@ in inngest-js.
   moments, and the abandoned work stays alive in an environment that a timeout would have reset. Checkpointing's
   `MaxRuntime` limits the time steps may start within.
 - **Streaming.** The answer is a single buffered response, which cannot write the 201 and the spaces of
-  `InngestOptions.Streaming` while a call runs, so `Streaming` is not consulted. Lambda can stream responses to .NET
-  functions (`Amazon.Lambda.Core.ResponseStreaming` with function URLs in `RESPONSE_STREAM` mode, or REST APIs with a
-  streaming integration), which would be a second response path with its own prelude; the handler does not use it.
-- **Native AOT.** Nothing reflects. The event types come from `Amazon.Lambda.APIGatewayEvents`, which the app lists in
-  its own `JsonSerializerContext` for `SourceGeneratorLambdaJsonSerializer`. The package ships none: a context fixes the
-  shape of types it does not own, cannot hold the REST and HTTP API event types together (their nested types share
-  names, `SYSLIB1031`) and could not be combined with the app's other event types.
+  `InngestOptions.Streaming` while a call runs, so `Streaming` is not consulted, and the handler logs a warning (event
+  id 380) when it is built with the setting on. Lambda can stream responses to .NET functions
+  (`Amazon.Lambda.Core.ResponseStreaming` with function URLs in `RESPONSE_STREAM` mode, or REST APIs with a streaming
+  integration), which would be a second response path with its own prelude; the handler does not use it.
+- **Native AOT.** Nothing reflects, and CI publishes `samples/Inngest.LambdaAotSample`, the guide's function, where a
+  warning fails the publish. The event types come from `Amazon.Lambda.APIGatewayEvents`, which the app lists in its own
+  `JsonSerializerContext` for `SourceGeneratorLambdaJsonSerializer`. The package ships none: a context fixes the shape
+  of types it does not own, cannot hold the REST and HTTP API event types together (their nested types share names,
+  `SYSLIB1031`) and could not be combined with the app's other event types.
 
 ## Connect
 

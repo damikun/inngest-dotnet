@@ -79,11 +79,23 @@ public sealed class LambdaRestApiTests
     }
 
     [Fact]
-    public async Task A_base_path_mapping_of_a_custom_domain_is_in_the_url()
+    public async Task A_base_path_mapping_of_a_custom_domain_is_in_path_and_in_the_request_context_path_alike()
     {
-        var url = await SyncUrlAsync(LambdaEvents.Rest("PUT", path: "/v1/api/inngest", contextPath: "/v1/api/inngest", host: "api.example.com"));
+        // As logged from a REST API behind a custom domain with the base path mapping "test" and the stage Production
+        // (aws-lambda-dotnet issue 127): both paths have the mapping, and neither has the stage.
+        var url = await SyncUrlAsync(LambdaEvents.Rest("PUT", path: "/test/foo/bar", contextPath: "/test/foo/bar", stage: "Production", host: "api.emg-services.net"));
 
-        url.ShouldBe(new Uri("https://api.example.com/v1/api/inngest"));
+        url.ShouldBe(new Uri("https://api.emg-services.net/test/foo/bar"));
+    }
+
+    [Fact]
+    public async Task The_same_api_on_its_execute_api_domain_has_the_stage_in_the_request_context_path_only()
+    {
+        // The other request of that issue: path leaves the stage out and requestContext.path has it.
+        var url = await SyncUrlAsync(
+            LambdaEvents.Rest("PUT", path: "/foo/bar", contextPath: "/Production/foo/bar", stage: "Production", host: "6bgh10txr3.execute-api.eu-west-1.amazonaws.com"));
+
+        url.ShouldBe(new Uri("https://6bgh10txr3.execute-api.eu-west-1.amazonaws.com/Production/foo/bar"));
     }
 
     [Fact]

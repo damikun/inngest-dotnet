@@ -46,8 +46,6 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
   </ItemGroup>
   <ItemGroup Label="Testing">
-    <!-- The serializer the managed runtime reads events with, so that tests build events the way it does. -->
-    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
     <PackageVersion Include="Amazon.Lambda.TestUtilities" Version="4.3.0" />
     <!-- TestHost is versioned with ASP.NET Core and its 10.0 packages have no net8.0 build. -->
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
@@ -81,5 +79,12 @@
          Aspire.Hosting.AppHost for the machine's runtime. Raise all of these together; a test checks that they agree. -->
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.4" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.4" />
+  </ItemGroup>
+  <ItemGroup Label="Samples">
+    <!-- The Native AOT Lambda sample: the loop that takes events from Lambda, the source-generated serializer that reads
+         them (which the unit tests also read events with, as the managed runtime does) and the console logger. -->
+    <PackageVersion Include="Amazon.Lambda.RuntimeSupport" Version="2.3.0" />
+    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
   </ItemGroup>
 </Project>

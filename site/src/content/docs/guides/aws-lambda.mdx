@@ -99,8 +99,9 @@ public sealed class Function
 }
 ```
 
-Use the `dotnet10` runtime, or `dotnet8`, with the handler `Shop::Function::HandleAsync`: the assembly name, the type
-and the method. For a REST API, take `APIGatewayProxyRequest` and `APIGatewayProxyResponse` instead. Add
+Use the `dotnet10` runtime (AWS deprecates `dotnet8` on 10 November 2026), with the handler
+`Shop::Function::HandleAsync`: the assembly name, the type and the method. For a REST API, take
+`APIGatewayProxyRequest` and `APIGatewayProxyResponse` instead. Add
 `Amazon.Lambda.Serialization.SystemTextJson` for `DefaultLambdaJsonSerializer`, and
 `Microsoft.Extensions.Logging.Console` for the console logger, whose output goes to CloudWatch Logs.
 
@@ -175,6 +176,9 @@ internal sealed partial class ShopJson : JsonSerializerContext;
 internal sealed partial class LambdaJson : JsonSerializerContext;
 ```
 
+`samples/Inngest.LambdaAotSample` in the repository is this function, with the same three files. CI publishes it with
+Native AOT, where a trimming or AOT warning fails the build.
+
 The package ships no context for the event types, and the context above lists the request and response of one event
 shape only. The REST and HTTP API request types have nested types with the same names, which one context cannot
 hold: the generator warns (`SYSLIB1031`), and the executable fails on its first event with a `NotSupportedException`
@@ -231,38 +235,55 @@ build. A function URL replaces the `Events` with `FunctionUrlConfig`, whose `Aut
         AuthType: NONE
 ```
 
-Public is fine, since Inngest's signature is the authentication: in cloud mode the SDK turns away every request that
-is not signed with your signing key. Route only the Inngest path to the function, and keep `INNGEST_DEV` unset. The
-keys come from the environment of the function, which you can fill from Secrets Manager or Parameter Store; see
-[Configuration](/inngest-dotnet/guides/configuration/). Then add the app in the Inngest dashboard with its URL, or
-sync after each deploy with a `PUT` as in [Deploying](/inngest-dotnet/guides/deploying/#syncing). The URL of a REST
-API includes its stage.
+Keep the function URL's invoke mode at `BUFFERED`, which is the default: the handler returns its answer as a response
+and writes nothing to a response stream, which is what `RESPONSE_STREAM` mode takes.
+
+Inngest has to reach the function, so the route is public, and Inngest's signature protects it: in cloud mode the SDK
+answers a call, an introspection request or an in-band sync that is not signed with your signing key with `401`, and
+it signs its responses. A sync that Inngest did not start is the exception. An unsigned out-of-band `PUT` is accepted
+by default, and without `ServeOrigin` the URL it registers comes from the request, so anyone who can reach a public
+URL can make the app register a wrong address until the next real sync. On a public URL, set `ServeOrigin` and
+`ServePath`, and turn unsigned syncs off with `AllowUnsignedSync = false` (`INNGEST_ENABLE_UNAUTHED_SYNC=false`); the
+[Syncs](/inngest-dotnet/guides/configuration/#syncs) section of the configuration guide has the details. A bare
+`curl -X PUT` from a deploy script is then refused, so sync from the Inngest dashboard, where Inngest sends a signed
+request.
+
+Route only the Inngest path to the function, and keep `INNGEST_DEV` unset. The keys come from the environment of the
+function, which you can fill from Secrets Manager or Parameter Store; see
+[Configuration](/inngest-dotnet/guides/configuration/). Add the app in the Inngest dashboard with its URL; the URL of
+a REST API includes its stage. After later deploys, sync from the dashboard, or with a `PUT` as in
+[Deploying](/inngest-dotnet/guides/deploying/#syncing) where unsigned syncs are still on.
 
 ## The URL Inngest calls
 
 A sync tells Inngest which URL to call. An in-band sync, which Inngest starts when you add the app in its dashboard,
 carries the URL Inngest used in its signed body, and the SDK reports that one. An out-of-band sync, a `PUT` from a
 deploy script or from the dev server, carries none, so the SDK builds the URL from the event: the scheme from
-`X-Forwarded-Proto` (the first value; `https` when the header is missing or says anything but `http`), the host from
-the `Host` header (the domain name of the request context when there is none), and the path as the caller used it,
-with the query string, minus `deployId`. What API Gateway puts in the path decides whether the stage is part of it:
+`X-Forwarded-Proto` (its last value, which the closest proxy added; `https` when the header is missing or that value
+is anything but `http`), the host from the `Host` header (the domain name of the request context when there is none),
+and the path as the caller used it, with the query string, minus `deployId`. What API Gateway puts in the path decides
+whether the stage is part of it:
 
 | Invoked through | Path in the URL |
 |---|---|
-| REST API | `requestContext.path`, which API Gateway fills with the path the client called, so it starts with the stage on the `execute-api` domain: `/prod/api/inngest`. `path` leaves the stage out. |
+| REST API on `execute-api` | `requestContext.path`, which starts with the stage: `/prod/api/inngest`. `path` leaves the stage out. |
+| REST API on a custom domain | `requestContext.path`, which has the base path mapping and not the stage: `/test/api/inngest`. `path` has the mapping too. |
 | HTTP API, `$default` stage | `rawPath`. |
 | HTTP API, named stage | `rawPath`, which starts with the stage. |
 | Function URL | `rawPath`. |
 
 `requestContext.path` is used when it is `path` with something in front, and `path` otherwise.
-`Amazon.Lambda.AspNetCoreServer` finds the stage the same way, as the request context's path minus the path.
+`Amazon.Lambda.AspNetCoreServer` finds the stage the same way, as the request context's path minus the path. The
+custom domain row is what a real event of a REST API with a base path mapping looked like when it was logged in
+[aws-lambda-dotnet issue 127](https://github.com/aws/aws-lambda-dotnet/issues/127), so a REST API needs no `ServePath`
+for its mapping.
 
-Some setups hide the public address from the event, and then an out-of-band sync reports the wrong URL. A custom
-domain with an API mapping is one: AWS notes that the `rawPath` of an HTTP API leaves the mapping out, and a REST API
-shows only what API Gateway puts in `requestContext.path`. A CloudFront distribution in front of the API or the
-function URL is another, since the function sees the host CloudFront used to reach it. Check the URL in the Inngest
-dashboard after the first sync, and give the SDK the address when it is wrong, as in
-[Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
+Some setups hide the public address from the event, and then an out-of-band sync reports the wrong URL. An HTTP API
+behind a custom domain with an API mapping is one: AWS notes that `rawPath` leaves the mapping out. Give the SDK the
+path, or integrate the HTTP API with payload format 1.0 and use the REST overload, whose `path` has the mapping, as AWS
+suggests. A CloudFront distribution in front of the API or the function URL is another, since the function sees the
+host CloudFront used to reach it. Check the URL in the Inngest dashboard after the first sync, and give the SDK the
+address when it is wrong, as in [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
 
 {/* check: statements; InngestOptions options */}
 ```csharp
@@ -298,8 +319,9 @@ By default every step is a call of its own, and one more call ends the run. With
 [checkpointing](/inngest-dotnet/reference/api/#options) one call runs steps one after another and saves
 each to Inngest as it completes. `MaxRuntime` is how long the call may start new steps; past it, the next step is left
 to Inngest, which calls again. A step that has started still runs to its end, so `MaxRuntime` plus your longest step
-has to fit in the lowest limit above. For a REST API's 29 seconds, with steps of a few seconds, 15 seconds leaves
-room:
+has to fit in the lowest limit above, with a cold start: the first call to a new execution environment waits for the
+runtime to start and the app to build its services before any step runs, and the gateway counts that wait too. For a
+REST API's 29 seconds, with steps of a few seconds, 15 seconds leaves room:
 
 {/* check: statements; InngestOptions options */}
 ```csharp
@@ -320,8 +342,9 @@ between, and the function's timeout is the only limit.
   work alive in an environment that Lambda would otherwise reset. `MaxRuntime` is the setting that keeps calls inside
   their time.
 - **Streaming.** The response is one buffered response. It cannot send the 201 and the spaces that streaming writes
-  while a call runs, so `InngestOptions.Streaming` has no effect. Lambda can stream responses to .NET functions, through
-  function URLs in `RESPONSE_STREAM` mode and REST APIs with a streaming integration, which this package does not use.
+  while a call runs, so `InngestOptions.Streaming` has no effect, and building the handler logs a warning when it is
+  on. Lambda can stream responses to .NET functions, through function URLs in `RESPONSE_STREAM` mode and REST APIs with
+  a streaming integration, which this package does not use.
 - **Background work.** Lambda freezes the execution environment once the handler returns, which pauses anything left
   running, such as a batch exporter's timer. Flush telemetry before the invocation ends, as `Inngest.Sentry` does
   when the call's scope ends.

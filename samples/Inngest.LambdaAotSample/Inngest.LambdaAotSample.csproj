@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(LatestTargetFramework)</TargetFramework>
+    <!-- The custom runtime of Lambda starts the executable named bootstrap. -->
+    <AssemblyName>bootstrap</AssemblyName>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Inngest.AwsLambda\Inngest.AwsLambda.csproj" />
+  </ItemGroup>
+  <!-- SendWelcomeEmail.cs, Program.cs and Json.cs are the code of the Native AOT function in
+       site/src/content/docs/guides/aws-lambda.mdx, which publishes as it is. Change them together. -->
+</Project>

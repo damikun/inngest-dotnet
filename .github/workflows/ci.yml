@@ -127,8 +127,8 @@ jobs:
       - run: dotnet test --project tests/Inngest.Templates.Tests/Inngest.Templates.Tests.csproj -c Release
 
   # The analyzers behind IsAotCompatible cannot see what only happens in a native binary, such as reading the function
-  # attributes at startup, so the sample is published and started. Warnings are errors, so a trimming or AOT warning
-  # fails the publish.
+  # attributes at startup, so the sample is published and started. The Lambda sample only runs under the runtime API of
+  # Lambda, so it is published and not started. Warnings are errors, so a trimming or AOT warning fails the publish.
   aot:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -154,3 +154,4 @@ jobs:
           echo "$body"
           # The sample registers greet, welcome-member and score-member.
           jq -e '.function_count == 3' <<< "$body"
+      - run: dotnet publish samples/Inngest.LambdaAotSample/Inngest.LambdaAotSample.csproj -c Release -r linux-x64 -o lambda-aot
