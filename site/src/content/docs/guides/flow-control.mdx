@@ -35,6 +35,21 @@ public sealed class SyncAccount : InngestFunction<AccountUpdated>
 Its options, with a concurrency limit, a throttle, a debounce and a cancellation event:
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("sync-account")]
+[EventTrigger<AccountUpdated>]
+[Concurrency(5, Key = "event.data.accountId")]
+[Throttle(10, "1m")]
+[Debounce("30s", Key = "event.data.accountId")]
+[CancelOn<AccountDeleted>(Match = "data.accountId")]
+```
+
+The attributes go on `SyncAccount`, and `inngest.AddFunction<SyncAccount>()` registers it without options.
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: statements; IInngestBuilder inngest */}
@@ -49,21 +64,6 @@ inngest.AddFunction<SyncAccount>(new FunctionOptions
     CancelOn = [CancelOn.For<AccountDeleted>() with { Match = "data.accountId" }],
 });
 ```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[InngestFunction("sync-account")]
-[EventTrigger<AccountUpdated>]
-[Concurrency(5, Key = "event.data.accountId")]
-[Throttle(10, "1m")]
-[Debounce("30s", Key = "event.data.accountId")]
-[CancelOn<AccountDeleted>(Match = "data.accountId")]
-```
-
-The attributes go on `SyncAccount`, and `inngest.AddFunction<SyncAccount>()` registers it without options.
 
 </TabItem>
 </Tabs>
@@ -91,6 +91,15 @@ run side by side. A key can combine fields: `event.data.tenantId + "-" + event.d
 ## Concurrency
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[Concurrency(50)]
+[Concurrency(1, Key = "event.data.accountId")]
+```
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
@@ -100,15 +109,6 @@ Concurrency =
     new ConcurrencyLimit(50),
     new ConcurrencyLimit(1) { Key = "event.data.accountId" },
 ],
-```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[Concurrency(50)]
-[Concurrency(1, Key = "event.data.accountId")]
 ```
 
 </TabItem>
@@ -125,19 +125,19 @@ Both need a key. See [concurrency](https://www.inngest.com/docs/durable-executio
 ## Throttle
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Throttle = new Throttle(10, TimeSpan.FromMinutes(1)) { Burst = 5, Key = "event.data.merchantId" },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [Throttle(10, "1m", Burst = 5, Key = "event.data.merchantId")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Throttle = new Throttle(10, TimeSpan.FromMinutes(1)) { Burst = 5, Key = "event.data.merchantId" },
 ```
 
 </TabItem>
@@ -151,19 +151,19 @@ own. The period must be at least one second. See
 ## Rate limit
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-RateLimit = new RateLimit(1, TimeSpan.FromHours(4)) { Key = "event.data.userId" },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [RateLimit(1, "4h", Key = "event.data.userId")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+RateLimit = new RateLimit(1, TimeSpan.FromHours(4)) { Key = "event.data.userId" },
 ```
 
 </TabItem>
@@ -176,19 +176,19 @@ and 24 hours. See [rate limiting](https://www.inngest.com/docs/durable-execution
 ## Debounce
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.productId", Timeout = TimeSpan.FromMinutes(5) },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [Debounce("30s", Key = "event.data.productId", Timeout = "5m")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Debounce = new Debounce(TimeSpan.FromSeconds(30)) { Key = "event.data.productId", Timeout = TimeSpan.FromMinutes(5) },
 ```
 
 </TabItem>
@@ -201,19 +201,19 @@ period is between one second and seven days. See [debounce](https://www.inngest.
 ## Batching
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-BatchEvents = new BatchEvents(100, TimeSpan.FromSeconds(10)) { Key = "event.data.importId" },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [BatchEvents(100, "10s", Key = "event.data.importId")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+BatchEvents = new BatchEvents(100, TimeSpan.FromSeconds(10)) { Key = "event.data.importId" },
 ```
 
 </TabItem>
@@ -237,19 +237,19 @@ with cancellation, debounce, singletons or priority, and the SDK rejects those c
 ## Priority
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Priority = new Priority("event.data.plan == 'enterprise' ? 120 : 0"),
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [Priority("event.data.plan == 'enterprise' ? 120 : 0")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Priority = new Priority("event.data.plan == 'enterprise' ? 120 : 0"),
 ```
 
 </TabItem>
@@ -263,19 +263,19 @@ runs queue up, so it goes together with concurrency or throttling. See
 ## Idempotency
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Idempotency = "event.data.paymentId",
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [InngestFunction("record-payment", Idempotency = "event.data.paymentId")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Idempotency = "event.data.paymentId",
 ```
 
 </TabItem>
@@ -290,19 +290,19 @@ same event are not affected. Inngest implements it as a rate limit of 1 per 24 h
 ## Singleton
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Singleton = new Singleton(SingletonMode.Skip) { Key = "event.data.accountId" },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [Singleton(SingletonMode.Skip, Key = "event.data.accountId")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Singleton = new Singleton(SingletonMode.Skip) { Key = "event.data.accountId" },
 ```
 
 </TabItem>
@@ -315,6 +315,15 @@ run, sleeps and waits included. See [singleton](https://www.inngest.com/docs/dur
 ## Cancel on events
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[CancelOn<AccountDeleted>(Match = "data.accountId")]
+[CancelOn("subscription/changed", If = "async.data.plan == 'free'", Timeout = "7d")]
+```
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
@@ -324,15 +333,6 @@ CancelOn =
     CancelOn.For<AccountDeleted>() with { Match = "data.accountId" },
     new CancelOn("subscription/changed") { If = "async.data.plan == 'free'", Timeout = TimeSpan.FromDays(7) },
 ],
-```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[CancelOn<AccountDeleted>(Match = "data.accountId")]
-[CancelOn("subscription/changed", If = "async.data.plan == 'free'", Timeout = "7d")]
 ```
 
 </TabItem>
@@ -350,19 +350,19 @@ See [cancellation](https://www.inngest.com/docs/durable-execution/guides-and-adv
 ## Timeouts
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: members FunctionOptions */}
-```csharp
-Timeouts = new FunctionTimeouts { Start = TimeSpan.FromMinutes(10), Finish = TimeSpan.FromHours(1) },
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
 ```csharp
 [Timeouts(Start = "10m", Finish = "1h")]
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: members FunctionOptions */}
+```csharp
+Timeouts = new FunctionTimeouts { Start = TimeSpan.FromMinutes(10), Finish = TimeSpan.FromHours(1) },
 ```
 
 </TabItem>

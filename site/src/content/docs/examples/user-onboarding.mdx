@@ -76,23 +76,9 @@ public interface ICrm
 ```
 
 Each event record names its event in `EventName`, so the trigger, the waits and the cancellation refer to the type. The
-function's options give it its id, trigger, cancellation and rate limit, in code or as attributes on the class:
+function's options give it its id, trigger, cancellation and rate limit, as attributes on the class or in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp title="Program.cs (registration)"
-inngest.AddFunction<OnboardUser>(new FunctionOptions
-{
-    Id = "onboard-user",
-    Triggers = [Trigger.Event<UserSignedUp>()],
-    CancelOn = [CancelOn.For<UserDeleted>() with { Match = "data.userId" }],
-    RateLimit = new RateLimit(1, TimeSpan.FromHours(24)) { Key = "event.data.userId" },
-});
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -108,6 +94,20 @@ The attributes go on `OnboardUser`, and `AddFunction` reads them once at startup
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest.AddFunction<OnboardUser>();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<OnboardUser>(new FunctionOptions
+{
+    Id = "onboard-user",
+    Triggers = [Trigger.Event<UserSignedUp>()],
+    CancelOn = [CancelOn.For<UserDeleted>() with { Match = "data.userId" }],
+    RateLimit = new RateLimit(1, TimeSpan.FromHours(24)) { Key = "event.data.userId" },
+});
 ```
 
 </TabItem>

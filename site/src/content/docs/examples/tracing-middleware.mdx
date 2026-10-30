@@ -80,7 +80,7 @@ builder.Services.AddOpenTelemetry()
 
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<SyncCatalog>(new FunctionOptions { Id = "sync-catalog", Triggers = [Trigger.Event("catalog/changed")] })
+    .AddFunction<SyncCatalog>()
     .AddMiddleware<TracingMiddleware>();
 
 var app = builder.Build();
@@ -91,15 +91,16 @@ app.Run();
 The `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore` and
 `OpenTelemetry.Exporter.OpenTelemetryProtocol` packages provide the registration.
 
-`SyncCatalog` is a function for the middleware to trace. `Program.cs` gives it its id and its trigger, which names
-the event with a string because the function reads its event as `JsonElement`. With `[InngestFunction("sync-catalog")]`
-and `[EventTrigger("catalog/changed")]` on the class instead, `AddFunction<SyncCatalog>()` registers it without
-options.
+`SyncCatalog` is a function for the middleware to trace. Its attributes give it its id and its trigger, which names
+the event with a string because the function reads its event as `JsonElement`. With its options passed to
+`AddFunction` in code as `FunctionOptions` instead, the class needs no attributes.
 
 ```csharp title="SyncCatalog.cs"
 using System.Text.Json;
 using Inngest;
 
+[InngestFunction("sync-catalog")]
+[EventTrigger("catalog/changed")]
 public sealed class SyncCatalog : InngestFunction<JsonElement>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)

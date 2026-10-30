@@ -46,11 +46,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services
     .AddInngest(options => options.AppId = "shop-worker")
-    .AddFunction<OnboardUser>(new FunctionOptions
-    {
-        Id = "onboard-user",
-        Triggers = [Trigger.Event<UserSignedUp>()],
-    })
+    .AddFunction<OnboardUser>()
     .AddConnect(connect =>
     {
         connect.InstanceId = Environment.GetEnvironmentVariable("HOSTNAME");
@@ -60,8 +56,8 @@ builder.Services
 await builder.Build().RunAsync();
 ```
 
-Functions are defined and registered the same way for a worker as for an endpoint, with their options in code as
-here or as [attributes](/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes) on the class.
+Functions are defined and registered the same way for a worker as for an endpoint, with their options as attributes
+on the class or [in code](/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes).
 `AddConnect` registers a hosted service. It connects when the host starts and syncs the app through the
 connection, so there is no URL to sync and nothing to call `PUT` on. An ASP.NET Core app can use `AddConnect` too, alongside
 its own endpoints; it then needs no `MapInngest`.

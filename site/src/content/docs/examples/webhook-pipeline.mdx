@@ -22,14 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpClient<ILedger, LedgerClient>(client => client.BaseAddress = new Uri("https://ledger.internal/"));
 builder.Services
     .AddInngest(options => options.AppId = "payments")
-    .AddFunction<ProcessPaymentWebhook>(new FunctionOptions
-    {
-        Id = "process-payment-webhook",
-        Triggers = [Trigger.Event<PaymentWebhook>()],
-        Retries = 8,
-        Idempotency = "event.data.deliveryId",
-        Throttle = new Throttle(10, TimeSpan.FromSeconds(1)) { Key = "event.data.merchantId" },
-    });
+    .AddFunction<ProcessPaymentWebhook>();
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");
@@ -115,15 +108,10 @@ public sealed class LedgerClient(HttpClient http) : ILedger
 ```
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-`Program.cs` registers the function with its options: eight retries, an idempotency key on the delivery id and a
-throttle per merchant.
-
-</TabItem>
 <TabItem label="Attributes">
 
-The same options as attributes on `ProcessPaymentWebhook`:
+The function's options go on `ProcessPaymentWebhook` as attributes: eight retries, an idempotency key on the
+delivery id and a throttle per merchant.
 
 {/* check: attributes */}
 ```csharp
@@ -132,7 +120,25 @@ The same options as attributes on `ProcessPaymentWebhook`:
 [Throttle(10, "1s", Key = "event.data.merchantId")]
 ```
 
-`Program.cs` then registers it with `.AddFunction<ProcessPaymentWebhook>()`, without options.
+`Program.cs` registers it with `.AddFunction<ProcessPaymentWebhook>()`, without options.
+
+</TabItem>
+<TabItem label="Code first">
+
+Without the attributes, `Program.cs` registers the function with its options in code: eight retries, an idempotency
+key on the delivery id and a throttle per merchant.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<ProcessPaymentWebhook>(new FunctionOptions
+{
+    Id = "process-payment-webhook",
+    Triggers = [Trigger.Event<PaymentWebhook>()],
+    Retries = 8,
+    Idempotency = "event.data.deliveryId",
+    Throttle = new Throttle(10, TimeSpan.FromSeconds(1)) { Key = "event.data.merchantId" },
+});
+```
 
 </TabItem>
 </Tabs>

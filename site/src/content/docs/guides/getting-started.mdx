@@ -53,14 +53,16 @@ The SDK has five packages in all:
 
 ## 2. Write a function
 
-A function is a class. Each `RunAsync` is a step: it runs once and Inngest saves its result. `SleepAsync` pauses
-the run without holding a thread.
+A function is a class. `[InngestFunction]` gives it an id and `[EventTrigger]` names the event that starts it. Each
+`RunAsync` is a step: it runs once and Inngest saves its result. `SleepAsync` pauses the run without holding a thread.
 
 ```csharp title="OnboardUser.cs"
 using Inngest;
 
 public sealed record UserSignedUp(string UserId, string Email);
 
+[InngestFunction("onboard-user")]
+[EventTrigger("user/signed-up")]
 public sealed class OnboardUser(IEmailSender email) : InngestFunction<UserSignedUp>
 {
     public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
@@ -111,11 +113,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<OnboardUser>(new FunctionOptions
-    {
-        Id = "onboard-user",
-        Triggers = [Trigger.Event("user/signed-up")],
-    });
+    .AddFunction<OnboardUser>();
 
 var app = builder.Build();
 
@@ -133,8 +131,8 @@ app.Run();
 public sealed record SignupRequest(string Email);
 ```
 
-The function's options are in code here. They can also go on the class as attributes, `[InngestFunction("onboard-user")]`
-and `[EventTrigger("user/signed-up")]`, with `.AddFunction<OnboardUser>()` and no options;
+The function's options are attributes on the class here. They can also be passed in code, as `FunctionOptions` given
+to `AddFunction`, which suits values the app reads from configuration;
 [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/#code-first-or-attributes) shows both forms.
 
 <Aside type="tip">

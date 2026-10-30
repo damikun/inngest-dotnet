@@ -44,24 +44,9 @@ public interface INotifier
 }
 ```
 
-The app registers it with its options in code, or with the options as attributes on the class:
+The app registers it with its options as attributes on the class, or with the options in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp title="Program.cs (registration)"
-inngest.AddFunction<SendReminder>(new FunctionOptions
-{
-    Id = "send-reminder",
-    Triggers = [Trigger.Event<ReminderScheduled>()],
-    // A newer schedule for the same reminder cancels the pending run.
-    Singleton = new Singleton(SingletonMode.Cancel) { Key = "event.data.reminderId" },
-    CancelOn = [CancelOn.For<ReminderDeleted>() with { Match = "data.reminderId" }],
-});
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -78,6 +63,21 @@ The attributes go on `SendReminder`, and `AddFunction` reads them once at startu
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp title="Program.cs (registration)"
 inngest.AddFunction<SendReminder>();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest.AddFunction<SendReminder>(new FunctionOptions
+{
+    Id = "send-reminder",
+    Triggers = [Trigger.Event<ReminderScheduled>()],
+    // A newer schedule for the same reminder cancels the pending run.
+    Singleton = new Singleton(SingletonMode.Cancel) { Key = "event.data.reminderId" },
+    CancelOn = [CancelOn.For<ReminderDeleted>() with { Match = "data.reminderId" }],
+});
 ```
 
 </TabItem>

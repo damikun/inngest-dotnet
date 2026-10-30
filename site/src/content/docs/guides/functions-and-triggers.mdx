@@ -1,6 +1,6 @@
 ---
 title: Functions, event triggers and cron in C#
-description: Define Inngest functions as classes or delegates, with their options in code or as attributes, type their events, and start them from events, filtered events or cron schedules.
+description: Define Inngest functions as classes or delegates, with their options as attributes or in code, type their events, and start them from events, filtered events or cron schedules.
 sidebar:
   label: Functions and triggers
 ---
@@ -51,27 +51,10 @@ public interface IPaymentGateway
 }
 ```
 
-Register the class with `AddFunction<TFunction>`, with its options in code, or put the options on the class as
-attributes and register it without them:
+Put the options on the class as attributes and register it with `AddFunction<TFunction>`, or pass the options to
+`AddFunction` in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; WebApplicationBuilder builder */}
-```csharp title="Program.cs"
-builder.Services
-    .AddInngest(options => options.AppId = "shop")
-    .AddFunction<ChargeOrder>(new FunctionOptions
-    {
-        Id = "charge-order",
-        Name = "Charge an order",
-        Triggers = [Trigger.Event<OrderPlaced>()],
-    });
-```
-
-`Id` and `Triggers` are required. The name, retries, flow control and the other options are optional.
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -91,6 +74,23 @@ builder.Services
 The other attributes add triggers and flow control. `AddFunction` reads them once, when the app starts.
 
 </TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<ChargeOrder>(new FunctionOptions
+    {
+        Id = "charge-order",
+        Name = "Charge an order",
+        Triggers = [Trigger.Event<OrderPlaced>()],
+    });
+```
+
+`Id` and `Triggers` are required. The name, retries, flow control and the other options are optional.
+
+</TabItem>
 </Tabs>
 
 The SDK resolves a new instance from a dependency injection scope for every call Inngest makes, and disposes the
@@ -105,10 +105,10 @@ output a type, derive from `InngestFunction<TEventData, TResult>` instead; a fun
 ## Code first or attributes
 
 Both forms say the same things. Each attribute sets the `FunctionOptions` member of the same name, and
-[function options](/inngest-dotnet/explainers/function-options/) maps one to the other. In code, the options sit
-with the registration, can use values the app reads at startup and take durations as `TimeSpan`s. As attributes,
-they sit on the class, next to the code they describe, and take durations as time strings such as `"30s"`. These
-docs show code first; choosing **Attributes** in one of the tabs switches the tabs on every page to that form.
+[function options](/inngest-dotnet/explainers/function-options/) maps one to the other. As attributes, the options
+sit on the class, next to the code they describe, and take durations as time strings such as `"30s"`. In code,
+they sit with the registration, can use values the app reads at startup and take durations as `TimeSpan`s. These
+docs show attributes first; choosing **Code first** in one of the tabs switches the tabs on every page to that form.
 
 A function's options come from one place: options passed in code replace the class's attributes. To start from the
 attributes and change some of the options in code, for example a limit read from configuration, pass a callback:
@@ -228,12 +228,21 @@ example to add converters, change `SerializerOptions` when you call `AddInngest`
 
 ## Event triggers
 
-`Trigger.Event<T>()` runs the function for every event of type `T`, and `Trigger.Event("name")` for every event
-with that name; as attributes they are `[EventTrigger<T>]` and `[EventTrigger("name")]`. The optional `If` is an
+`[EventTrigger<T>]` runs the function for every event of type `T`, and `[EventTrigger("name")]` for every event
+with that name; in code they are `Trigger.Event<T>()` and `Trigger.Event("name")`. The optional `If` is an
 [expression](https://www.inngest.com/docs/guides/writing-expressions) that Inngest evaluates against the event
 before it starts a run:
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[EventTrigger<OrderPlaced>(If = "event.data.total >= 500")]
+[EventTrigger("shop/order.flagged")]
+```
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
@@ -243,15 +252,6 @@ Triggers =
     Trigger.Event<OrderPlaced>(@if: "event.data.total >= 500"),
     Trigger.Event("shop/order.flagged"),
 ],
-```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[EventTrigger<OrderPlaced>(If = "event.data.total >= 500")]
-[EventTrigger("shop/order.flagged")]
 ```
 
 </TabItem>
@@ -267,10 +267,19 @@ page of the Inngest docs has more, including wildcard triggers.
 
 ## Cron triggers
 
-`Trigger.Cron`, or `[CronTrigger]`, runs the function on a schedule. Schedules have five fields and run in UTC
+`[CronTrigger]`, or `Trigger.Cron` in code, runs the function on a schedule. Schedules have five fields and run in UTC
 unless you give a time zone:
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[CronTrigger("0 6 * * 1-5", Timezone = "Europe/Prague")]
+[CronTrigger("TZ=America/New_York 30 17 * * 5", Jitter = "2m")]
+```
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
@@ -280,15 +289,6 @@ Triggers =
     Trigger.Cron("0 6 * * 1-5", timezone: "Europe/Prague"),
     Trigger.Cron("TZ=America/New_York 30 17 * * 5", TimeSpan.FromMinutes(2)),
 ],
-```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[CronTrigger("0 6 * * 1-5", Timezone = "Europe/Prague")]
-[CronTrigger("TZ=America/New_York 30 17 * * 5", Jitter = "2m")]
 ```
 
 </TabItem>
@@ -320,14 +320,6 @@ public sealed class ScoreAccount : InngestFunction<JsonElement, int>
 ```
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp
-inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Triggers = [] });
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -336,6 +328,14 @@ inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Tr
 ```
 
 The attribute goes on `ScoreAccount`, and `inngest.AddFunction<ScoreAccount>()` registers it.
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Triggers = [] });
+```
 
 </TabItem>
 </Tabs>

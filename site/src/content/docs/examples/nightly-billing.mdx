@@ -93,32 +93,9 @@ public interface IBillingEngine
 }
 ```
 
-The app registers both with their options in code, or with the options as attributes on the classes:
+The app registers both with their options as attributes on the classes, or with the options in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp title="Program.cs (registration)"
-inngest
-    .AddFunction<StartBillingRun>(new FunctionOptions
-    {
-        Id = "start-billing-run",
-        Triggers = [Trigger.Cron("0 2 * * *", timezone: "Europe/Prague")],
-        Singleton = new Singleton(SingletonMode.Skip),
-    })
-    .AddFunction<BillAccount>(new FunctionOptions
-    {
-        Id = "bill-account",
-        Triggers = [Trigger.Event<AccountDue>()],
-        Retries = 10,
-        Concurrency = [new ConcurrencyLimit(20)],
-        Throttle = new Throttle(200, TimeSpan.FromMinutes(1)),
-        Idempotency = "event.data.accountId + '-' + event.data.billingDate",
-    });
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 On `StartBillingRun`:
@@ -147,6 +124,29 @@ On `BillAccount`, with durations as time strings such as `"1m"`:
 inngest
     .AddFunction<StartBillingRun>()
     .AddFunction<BillAccount>();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest
+    .AddFunction<StartBillingRun>(new FunctionOptions
+    {
+        Id = "start-billing-run",
+        Triggers = [Trigger.Cron("0 2 * * *", timezone: "Europe/Prague")],
+        Singleton = new Singleton(SingletonMode.Skip),
+    })
+    .AddFunction<BillAccount>(new FunctionOptions
+    {
+        Id = "bill-account",
+        Triggers = [Trigger.Event<AccountDue>()],
+        Retries = 10,
+        Concurrency = [new ConcurrencyLimit(20)],
+        Throttle = new Throttle(200, TimeSpan.FromMinutes(1)),
+        Idempotency = "event.data.accountId + '-' + event.data.billingDate",
+    });
 ```
 
 </TabItem>

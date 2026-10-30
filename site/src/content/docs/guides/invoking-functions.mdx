@@ -50,14 +50,6 @@ public interface IScoring
 ```
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp
-inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Triggers = [] });
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -66,6 +58,14 @@ inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Tr
 ```
 
 The attribute goes on `ScoreAccount`, and `inngest.AddFunction<ScoreAccount>()` registers it.
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Triggers = [] });
+```
 
 </TabItem>
 </Tabs>

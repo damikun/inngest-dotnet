@@ -96,37 +96,9 @@ public interface IAlerts
 }
 ```
 
-The app registers the function with its options in code, or with the options as attributes on the class:
+The app registers the function with its options as attributes on the class, or with the options in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-```csharp title="Program.cs"
-using Inngest;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Register the implementations of IInventory, IPayments, IShipping, IMailer and IAlerts here.
-
-builder.Services
-    .AddInngest(options => options.AppId = "shop")
-    .AddFunction<FulfillOrder>(new FunctionOptions
-    {
-        Id = "fulfill-order",
-        Name = "Fulfill an order",
-        Triggers = [Trigger.Event<OrderPlaced>()],
-        Retries = 5,
-        Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
-        CancelOn = [CancelOn.For<OrderCancelled>() with { Match = "data.orderId", Timeout = TimeSpan.FromHours(1) }],
-        Idempotency = "event.data.orderId",
-    });
-
-var app = builder.Build();
-app.MapInngest("/api/inngest");
-app.Run();
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 {/* check: attributes */}
@@ -149,6 +121,34 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services
     .AddInngest(options => options.AppId = "shop")
     .AddFunction<FulfillOrder>();
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+app.Run();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register the implementations of IInventory, IPayments, IShipping, IMailer and IAlerts here.
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<FulfillOrder>(new FunctionOptions
+    {
+        Id = "fulfill-order",
+        Name = "Fulfill an order",
+        Triggers = [Trigger.Event<OrderPlaced>()],
+        Retries = 5,
+        Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
+        CancelOn = [CancelOn.For<OrderCancelled>() with { Match = "data.orderId", Timeout = TimeSpan.FromHours(1) }],
+        Idempotency = "event.data.orderId",
+    });
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");

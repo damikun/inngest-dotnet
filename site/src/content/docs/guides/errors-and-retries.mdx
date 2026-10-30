@@ -13,24 +13,24 @@ Three exception types change that default, and a failure handler runs when every
 
 ## How many retries
 
-`Retries` in `FunctionOptions`, or on `[InngestFunction]`, is the number of retries after the first attempt, from 0
+`Retries` on `[InngestFunction]`, or in `FunctionOptions`, is the number of retries after the first attempt, from 0
 to 20. Without it, Inngest retries 4 times, so 5 attempts in all.
 
 <Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("import-catalog", Retries = 8)]
+```
+
+</TabItem>
 <TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
 ```csharp
 Id = "import-catalog",
 Retries = 8,
-```
-
-</TabItem>
-<TabItem label="Attributes">
-
-{/* check: attributes */}
-```csharp
-[InngestFunction("import-catalog", Retries = 8)]
 ```
 
 </TabItem>

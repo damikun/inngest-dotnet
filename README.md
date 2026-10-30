@@ -36,13 +36,16 @@ card is not charged again, and a sleep holds no thread or worker while it waits.
 
 ## Ordinary C#, durable by default
 
-A function is a class. Each call to a step tool, such as `RunAsync` or `SleepAsync`, is a step. The rest is plain C#.
+A function is a class. Its attributes give it an id and the event that starts it. Each call to a step tool, such as
+`RunAsync` or `SleepAsync`, is a step. The rest is plain C#.
 
 ```csharp
 using Inngest;
 
 public sealed record OrderPaid(string OrderId, string CustomerId, decimal Amount);
 
+[InngestFunction("checkout")]
+[EventTrigger("shop/order.paid")]
 public sealed class CheckoutFunction(IPayments pay, IMailer mail, IWarehouse warehouse)
     : InngestFunction<OrderPaid>
 {
@@ -97,7 +100,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Parallel steps** | Start steps together and `await Task.WhenAll(...)`. Inngest runs each in its own call. |
 | **Functions that call functions** | `InvokeAsync<T>` runs another function and returns its result. `SendEventAsync` sends events exactly once. |
 | **Triggers** | Events, events filtered with an expression, and cron schedules with a time zone. |
-| **Flow control** | Concurrency with keys, throttling, rate limits, debounce, batching, priority, idempotency and singletons, as options in `FunctionOptions`. |
+| **Flow control** | Concurrency with keys, throttling, rate limits, debounce, batching, priority, idempotency and singletons, as attributes on the function or options in `FunctionOptions`. |
 | **Errors and retries** | Every step retries on its own. `NonRetriableException` stops, `RetryAfterException` sets the delay, and a failure handler runs when a function fails for good. |
 | **Cancellation and timeouts** | `CancelOn` stops a run when a matching event arrives. `Timeouts` cancel a run that waits too long to start or takes too long to finish. |
 | **Middleware** | `InngestMiddleware` observes or wraps runs, steps and event sends, with dependencies from DI. |
@@ -119,17 +122,14 @@ if (activated is null)
 }
 ```
 
-Flow control is a set of options on the function. Inngest enforces them:
+Flow control is a set of attributes on the function, or options in code. Inngest enforces them:
 
 ```csharp
-new FunctionOptions
-{
-    Id = "sync-account",
-    Triggers = [Trigger.Event("account/updated")],
-    Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.accountId" }],
-    Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),
-    CancelOn = [new CancelOn("account/deleted") { Match = "data.accountId" }],
-}
+[InngestFunction("sync-account")]
+[EventTrigger("account/updated")]
+[Concurrency(1, Key = "event.data.accountId")]
+[Throttle(10, "1m")]
+[CancelOn("account/deleted", Match = "data.accountId")]
 ```
 
 ## How it works
@@ -196,11 +196,7 @@ Each package targets `net8.0` and `net10.0`.
    // Register IPayments, IMailer and IWarehouse as usual. CheckoutFunction gets them from DI.
    builder.Services
        .AddInngest(options => options.AppId = "shop")
-       .AddFunction<CheckoutFunction>(new FunctionOptions
-       {
-           Id = "checkout",
-           Triggers = [Trigger.Event("shop/order.paid")],
-       });
+       .AddFunction<CheckoutFunction>();
 
    var app = builder.Build();
    app.MapInngest("/api/inngest");

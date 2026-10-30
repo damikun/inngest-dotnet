@@ -3,6 +3,7 @@ title: Flow control timeline
 description: See how concurrency, throttling, rate limiting and debouncing change when the runs for a burst of events start.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 import FlowTimeline from '../../../components/islands/FlowTimeline';
 
 The same fifteen events arrive in bursts over a minute. Pick a kind of flow control and change its settings to see
@@ -22,7 +23,27 @@ uses the generic cell rate algorithm with the period starting at the first event
 
 ## In code
 
-Each of these is one property of `FunctionOptions`:
+Each of these is one attribute on the function class, or one property of `FunctionOptions`:
+
+<Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[Concurrency(2)]
+[Throttle(3, "10s", Burst = 1)]
+[RateLimit(3, "10s")]
+```
+
+A debounce takes a period and an optional timeout:
+
+{/* check: attributes */}
+```csharp
+[Debounce("5s", Timeout = "15s")]
+```
+
+</TabItem>
+<TabItem label="Code first">
 
 {/* check: members FunctionOptions */}
 ```csharp
@@ -37,6 +58,9 @@ A debounce takes a period and an optional timeout:
 ```csharp
 Debounce = new Debounce(TimeSpan.FromSeconds(5)) { Timeout = TimeSpan.FromSeconds(15) },
 ```
+
+</TabItem>
+</Tabs>
 
 [Flow control](/inngest-dotnet/guides/flow-control/) covers every option, including keys that give each customer
 a limit of its own.

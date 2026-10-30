@@ -84,29 +84,9 @@ public interface IReportMailer
 }
 ```
 
-The app registers both with their options in code, or with the options as attributes on the classes:
+The app registers both with their options as attributes on the classes, or with the options in code:
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-{/* check: statements; IInngestBuilder inngest */}
-```csharp title="Program.cs (registration)"
-inngest
-    .AddFunction<WeeklyReport>(new FunctionOptions
-    {
-        Id = "weekly-report",
-        Triggers = [Trigger.Event<ReportRequested>()],
-    })
-    .AddFunction<ComputeRegionFigures>(new FunctionOptions
-    {
-        Id = "compute-region-figures",
-        Triggers = [],
-        Retries = 3,
-        Concurrency = [new ConcurrencyLimit(2)],
-    });
-```
-
-</TabItem>
 <TabItem label="Attributes">
 
 On `ComputeRegionFigures`, which has no trigger attribute:
@@ -132,6 +112,26 @@ On `WeeklyReport`:
 inngest
     .AddFunction<WeeklyReport>()
     .AddFunction<ComputeRegionFigures>();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Program.cs (registration)"
+inngest
+    .AddFunction<WeeklyReport>(new FunctionOptions
+    {
+        Id = "weekly-report",
+        Triggers = [Trigger.Event<ReportRequested>()],
+    })
+    .AddFunction<ComputeRegionFigures>(new FunctionOptions
+    {
+        Id = "compute-region-figures",
+        Triggers = [],
+        Retries = 3,
+        Concurrency = [new ConcurrencyLimit(2)],
+    });
 ```
 
 </TabItem>

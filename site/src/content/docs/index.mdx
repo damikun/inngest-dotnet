@@ -216,14 +216,14 @@ await Task.WhenAll(profile, orders);
 
 ### Flow control
 
-Concurrency, throttling, rate limits, debounce, batching, priority and singletons are options.
+Concurrency, throttling, rate limits, debounce, batching, priority and singletons are attributes on the function.
 [Flow control](/inngest-dotnet/guides/flow-control/)
 
-{/* check: members FunctionOptions */}
+{/* check: attributes */}
 ```csharp
-Concurrency = [new ConcurrencyLimit(1) { Key = "event.data.accountId" }],
-Throttle = new Throttle(10, TimeSpan.FromMinutes(1)),
-CancelOn = [new CancelOn("account/deleted") { Match = "data.accountId" }],
+[Concurrency(1, Key = "event.data.accountId")]
+[Throttle(10, "1m")]
+[CancelOn("account/deleted", Match = "data.accountId")]
 ```
 
 </div>
@@ -274,14 +274,17 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
    dotnet add package Inngest.AspNetCore --prerelease
    ```
 
-2. Write the function, a class with one method. Each `RunAsync` call is a step: it runs once and Inngest saves its
-   result. `SleepAsync` pauses the run without holding a thread:
+2. Write the function, a class with one method. Its attributes give it an id and name the event that starts it.
+   Each `RunAsync` call is a step: it runs once and Inngest saves its result. `SleepAsync` pauses the run without
+   holding a thread:
 
    ```csharp title="OnboardUser.cs"
    using Inngest;
 
    public sealed record UserSignedUp(string UserId, string Email);
 
+   [InngestFunction("onboard-user")]
+   [EventTrigger("user/signed-up")]
    public sealed class OnboardUser : InngestFunction<UserSignedUp>
    {
        public override async Task<object?> ExecuteAsync(
@@ -311,11 +314,7 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
 
    builder.Services
        .AddInngest(options => options.AppId = "shop")
-       .AddFunction<OnboardUser>(new FunctionOptions
-       {
-           Id = "onboard-user",
-           Triggers = [Trigger.Event("user/signed-up")],
-       });
+       .AddFunction<OnboardUser>();
 
    var app = builder.Build();
    app.MapInngest("/api/inngest");

@@ -33,13 +33,16 @@ dotnet add package Inngest.Connect --prerelease
 
 ## A durable function
 
-Each call to a step tool is a step. Inngest saves its result, so a retry runs only the step that failed.
+Attributes give the function its id and the event that starts it. Each call to a step tool is a step. Inngest saves
+its result, so a retry runs only the step that failed.
 
 ```csharp
 using Inngest;
 
 public sealed record OrderPaid(string OrderId, string CustomerId, decimal Amount);
 
+[InngestFunction("checkout")]
+[EventTrigger("shop/order.paid")]
 public sealed class CheckoutFunction(IPayments pay, IMailer mail, IWarehouse warehouse)
     : InngestFunction<OrderPaid>
 {
@@ -70,11 +73,7 @@ Register it and map the endpoint Inngest calls:
 ```csharp
 builder.Services
     .AddInngest(options => options.AppId = "shop")
-    .AddFunction<CheckoutFunction>(new FunctionOptions
-    {
-        Id = "checkout",
-        Triggers = [Trigger.Event("shop/order.paid")],
-    });
+    .AddFunction<CheckoutFunction>();
 
 var app = builder.Build();
 app.MapInngest("/api/inngest");
@@ -88,7 +87,7 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 
 - Steps that run once, sleeps, waits for events, parallel steps with `Task.WhenAll`, and invoking other functions.
 - Triggers from events, filtered events and cron schedules.
-- Flow control as options: concurrency, throttling, rate limits, debounce, batching, priority, idempotency,
+- Flow control as attributes or options: concurrency, throttling, rate limits, debounce, batching, priority, idempotency,
   singletons, cancellation and timeouts.
 - Retries per step, `NonRetriableException`, `RetryAfterException` and failure handlers.
 - Middleware with observer and wrap hooks, resolved from DI.

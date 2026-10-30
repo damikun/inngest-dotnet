@@ -42,12 +42,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
 builder.Services
     .AddInngest(options => options.AppId = "media-worker")
-    .AddFunction<MakeThumbnails>(new FunctionOptions
-    {
-        Id = "make-thumbnails",
-        Triggers = [Trigger.Event<ImageUploaded>()],
-        Concurrency = [new ConcurrencyLimit(8)],
-    })
+    .AddFunction<MakeThumbnails>()
     .AddConnect(connect =>
     {
         // Stable per container, unique between containers.
@@ -85,14 +80,9 @@ public interface IThumbnailer
 ```
 
 <Tabs syncKey="function-style">
-<TabItem label="Code first">
-
-`Worker/Program.cs` registers the function with its options: its id, its trigger and a concurrency limit of 8.
-
-</TabItem>
 <TabItem label="Attributes">
 
-The same options as attributes on `MakeThumbnails`:
+The function's options go on `MakeThumbnails` as attributes: its id, its trigger and a concurrency limit of 8.
 
 {/* check: attributes */}
 ```csharp
@@ -101,7 +91,23 @@ The same options as attributes on `MakeThumbnails`:
 [Concurrency(8)]
 ```
 
-`Worker/Program.cs` then registers it with `.AddFunction<MakeThumbnails>()`, without options.
+`Worker/Program.cs` registers it with `.AddFunction<MakeThumbnails>()`, without options.
+
+</TabItem>
+<TabItem label="Code first">
+
+Without the attributes, `Worker/Program.cs` registers the function with its options in code: its id, its trigger and
+a concurrency limit of 8.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp title="Worker/Program.cs (registration)"
+inngest.AddFunction<MakeThumbnails>(new FunctionOptions
+{
+    Id = "make-thumbnails",
+    Triggers = [Trigger.Event<ImageUploaded>()],
+    Concurrency = [new ConcurrencyLimit(8)],
+});
+```
 
 </TabItem>
 </Tabs>
