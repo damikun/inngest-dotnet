@@ -9,8 +9,7 @@ public sealed class AddInngestSelfHostedTests
     public async Task The_server_is_started_with_its_keys_from_the_environment_and_polls_for_apps()
     {
         var builder = Model.CreateBuilder();
-        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", "event-key-1"));
-        inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect").Port = 12345;
+        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", "event-key-1"), connectPort: 12345);
 
         var arguments = await Model.ArgumentsAsync(inngest.Resource);
         var environment = await Model.EnvironmentAsync(inngest.Resource);

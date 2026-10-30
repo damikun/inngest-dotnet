@@ -29,7 +29,8 @@ public static class InngestResourceBuilderExtensions
     /// <param name="port">The host port of the API and UI. It is picked by Aspire when <see langword="null"/>.</param>
     /// <param name="connectPort">
     /// The port of the Connect gateway, which is the same on the host and in the container because the server hands
-    /// workers its own port. It is picked by Aspire when <see langword="null"/>.
+    /// workers its own port. A free port between 10000 and 32767 is picked when <see langword="null"/>, a different one
+    /// on every run, so a container with a persistent lifetime needs a port of your choice. A manifest gets 8289.
     /// </param>
     public static IResourceBuilder<InngestServerResource> AddInngest(
         this IDistributedApplicationBuilder builder,
@@ -60,7 +61,8 @@ public static class InngestResourceBuilderExtensions
     /// <param name="port">The host port of the API and UI. It is picked by Aspire when <see langword="null"/>.</param>
     /// <param name="connectPort">
     /// The port of the Connect gateway, which is the same on the host and in the container because the server hands
-    /// workers its own port. It is picked by Aspire when <see langword="null"/>.
+    /// workers its own port. A free port between 10000 and 32767 is picked when <see langword="null"/>, a different one
+    /// on every run, so a container with a persistent lifetime needs a port of your choice. A manifest gets 8289.
     /// </param>
     public static IResourceBuilder<InngestServerResource> AddInngestSelfHosted(
         this IDistributedApplicationBuilder builder,
@@ -178,15 +180,16 @@ public static class InngestResourceBuilderExtensions
         int? port,
         int? connectPort)
     {
+        var gatewayPort = connectPort ?? (builder.ExecutionContext.IsPublishMode ? ConnectGatewayPort.Default : ConnectGatewayPort.Pick());
+
         return builder.AddResource(resource)
             .WithImage(InngestContainerImageTags.Image, InngestContainerImageTags.Tag)
             .WithImageRegistry(InngestContainerImageTags.Registry)
             .WithIconName("Flash")
             .WithHttpEndpoint(port: port, targetPort: ApiPort, name: InngestServerResource.PrimaryEndpointName)
-            // Workers dial the gateway at the host they called the API on and the port the server itself listens on,
-            // so the port must be the same outside and inside the container. A proxy would hand the host a different
-            // one; an endpoint without one makes Aspire pick a free port and use it on both sides.
-            .WithHttpEndpoint(port: connectPort, targetPort: connectPort, name: InngestServerResource.ConnectEndpointName, isProxied: false)
+            // Workers dial the gateway at the host they called the API on and the port the server itself listens on, so the
+            // port must be the same outside and inside the container, and a proxy would hand the host another one.
+            .WithHttpEndpoint(port: gatewayPort, targetPort: gatewayPort, name: InngestServerResource.ConnectEndpointName, isProxied: false)
             .WithHttpHealthCheck("/health", endpointName: InngestServerResource.PrimaryEndpointName)
             .WithHttpHealthCheck("/ready", endpointName: InngestServerResource.ConnectEndpointName)
             .WithUrlForEndpoint(InngestServerResource.PrimaryEndpointName, url => url.DisplayText = "Inngest UI")

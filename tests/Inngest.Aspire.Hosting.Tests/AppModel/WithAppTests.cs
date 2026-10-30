@@ -3,8 +3,8 @@ namespace Inngest.Aspire.Hosting.Tests.AppModel;
 // How the address of an app gets into the arguments of the server, where it is resolved for the server's container.
 public sealed class WithAppTests
 {
-    // Arguments that refer to the gateway wait for Aspire to pick its port, so these servers have one. The project
-    // listens on a port of the host, and the container reaches it through a tunnel on an address and port of its own.
+    // The project listens on a port of the host, and the container reaches it through a tunnel on an address and port of
+    // its own. The servers of these tests have a gateway port, so that their arguments are the same on every run.
     private static IResourceBuilder<ProjectResource> AddShop(IDistributedApplicationBuilder builder)
     {
         var shop = builder.AddProject<Projects.TestApp>("shop").WithHttpEndpoint(name: "http");
