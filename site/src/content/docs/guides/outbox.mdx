@@ -246,7 +246,7 @@ All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as 
 - **Providers.** The dispatcher uses only LINQ that Entity Framework Core translates for relational providers. It was
   run against SQLite and PostgreSQL; other providers were not tried.
 - **One database per registration.** A dispatcher reads the database that `TContext` connects to in a new scope. An app
-  that picks the database per tenant needs an outbox for each, or its own dispatcher.
+  that picks the database per tenant is not covered.
 - **No Native AOT.** Entity Framework Core does not support it, and the package does not declare itself compatible. The
   events are still serialized from the metadata of the serializer options, without reflection of its own.
 - **A host that stops loses nothing.** The events are in the table, and whichever instance runs next sends them.
