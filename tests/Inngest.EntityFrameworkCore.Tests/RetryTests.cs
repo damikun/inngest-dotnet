@@ -117,6 +117,55 @@ public sealed class RetryTests
     }
 
     [Fact]
+    public async Task Events_are_sent_one_at_a_time_only_while_the_lease_covers_another_request_and_the_rest_go_back()
+    {
+        using var database = SqliteDatabase.Single();
+        var client = new RecordingInngestClient();
+        await using var host = new OutboxHost(
+            database,
+            options =>
+            {
+                options.LeaseDuration = TimeSpan.FromSeconds(30);
+                options.SendTimeout = TimeSpan.FromSeconds(20);
+            },
+            client);
+        foreach (var number in new[] { "A-1", "A-2", "A-3" })
+        {
+            await host.PlaceOrderAsync(number);
+        }
+
+        // The request with all three is refused. The first request of its own takes 15 seconds, which leaves 15 of the 30
+        // of the lease: less than another request may take, so the dispatcher stops there.
+        client.OnSend = (batch, _) =>
+        {
+            if (batch.Count > 1)
+            {
+                throw new InngestException("Inngest API error: 413 Event payload too large", 413);
+            }
+
+            if (client.Events.Count == 0)
+            {
+                host.Time.Advance(TimeSpan.FromSeconds(15));
+            }
+
+            return Task.CompletedTask;
+        };
+
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(3);
+
+        var rows = await host.RowsAsync();
+        rows.Count(row => row.SentAt != null).ShouldBe(1);
+        var returned = rows.Where(row => row.SentAt == null).ToList();
+        returned.Count.ShouldBe(2);
+        returned.ShouldAllBe(row => row.Attempts == 0 && row.LeaseToken == null && row.LastError == null);
+
+        // They are due at once, and the next pass sends them, as the clock no longer moves.
+        client.OnSend = (batch, _) => batch.Count > 1 ? throw new InngestException("Inngest API error: 413 Event payload too large", 413) : Task.CompletedTask;
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(2);
+        (await host.RowsAsync()).ShouldAllBe(row => row.SentAt != null);
+    }
+
+    [Fact]
     public async Task A_refusal_of_a_single_event_is_retried_like_any_failure()
     {
         using var database = SqliteDatabase.Single();
