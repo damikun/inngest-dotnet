@@ -229,6 +229,20 @@ public sealed class CliInstallerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_connection_that_ends_before_the_file_does_suggests_docker_and_leaves_nothing_behind()
+    {
+        var installer = new CliInstaller(
+            new HttpClient(new CutHandler()), _cache.Path, _log, Version, ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("connection reset");
+        exception.SuggestsDocker.ShouldBeTrue();
+        Directory.GetFileSystemEntries(Path.Combine(_cache.Path, Version)).ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task An_archive_without_the_binary_is_refused()
     {
         var installer = Installer(Archives.TarGz(("LICENSE.md", "license"u8.ToArray())));
@@ -324,6 +338,69 @@ public sealed class CliInstallerTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             throw new HttpRequestException("no route to host");
+    }
+
+    // A response that promises a hundred bytes, sends ten and then loses the connection.
+    private sealed class CutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new CutContent() });
+    }
+
+    private sealed class CutContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => Task.CompletedTask;
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 100;
+            return true;
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new CutStream());
+    }
+
+    private sealed class CutStream : Stream
+    {
+        private bool _sent;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_sent)
+            {
+                throw new IOException("connection reset");
+            }
+
+            _sent = true;
+            buffer.Span[..10].Fill(1);
+            return ValueTask.FromResult(10);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class HangingHandler : HttpMessageHandler

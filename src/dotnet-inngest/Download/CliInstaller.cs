@@ -20,6 +20,7 @@ internal sealed class CliInstaller(
 {
     private const string StagingPrefix = ".staging-";
     private const int BufferSize = 81920;
+    private const int MoveAttempts = 4;
 
     private readonly ChecksumFile _pinned = pinnedChecksums ?? PinnedChecksums.Checksums;
 
@@ -81,18 +82,33 @@ internal sealed class CliInstaller(
                 Directory.Delete(directory, recursive: true);
             }
 
-            try
-            {
-                Directory.Move(unpacked, directory);
-            }
-            catch (IOException) when (File.Exists(Path.Combine(directory, asset.BinaryName)))
-            {
-                // A second tool installed the same release first. Its copy is as good as this one.
-            }
+            await MoveIntoPlaceAsync(unpacked, directory, Path.Combine(directory, asset.BinaryName), cancellationToken);
         }
         finally
         {
             Delete(staging);
+        }
+    }
+
+    private static async Task MoveIntoPlaceAsync(string unpacked, string directory, string binary, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Directory.Move(unpacked, directory);
+                return;
+            }
+            catch (IOException) when (File.Exists(binary))
+            {
+                // A second tool installed the same release first. Its copy is as good as this one.
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException && attempt < MoveAttempts)
+            {
+                // A virus scanner on Windows can hold a file it has just seen written for a moment.
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), cancellationToken);
+            }
         }
     }
 
@@ -127,21 +143,29 @@ internal sealed class CliInstaller(
 
         await using var target = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        try
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var buffer = new byte[BufferSize];
+        while (true)
         {
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var buffer = new byte[BufferSize];
             int read;
-            while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
+            try
             {
-                hash.AppendData(buffer, 0, read);
-                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                read = await source.ReadAsync(buffer, cancellationToken);
             }
-        }
-        catch (HttpIOException exception)
-        {
-            // The connection ended before the file did. A file can also be damaged without that, which the checksum catches.
-            throw new ToolException($"Downloading {uri} failed: {exception.Message}", exception) { SuggestsDocker = true };
+            catch (IOException exception)
+            {
+                // The connection ended before the file did. A file can also be damaged without that, which the checksum
+                // catches.
+                throw new ToolException($"Downloading {uri} failed: {exception.Message}", exception) { SuggestsDocker = true };
+            }
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            hash.AppendData(buffer, 0, read);
+            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
         }
 
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
@@ -155,8 +179,8 @@ internal sealed class CliInstaller(
             if (!response.IsSuccessStatusCode)
             {
                 var status = $"{(int)response.StatusCode} {response.ReasonPhrase}".TrimEnd();
-                response.Dispose();
                 var missing = response.StatusCode == HttpStatusCode.NotFound;
+                response.Dispose();
                 throw new ToolException(missing
                     ? $"{uri} does not exist ({status}). Check the version against https://github.com/inngest/inngest/releases."
                     : $"Downloading {uri} failed: {status}.")
