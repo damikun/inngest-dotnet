@@ -103,7 +103,9 @@ public sealed class ScopeTests
 
         // One event for the exception, which is the log entry's: Sentry drops the second report of the same exception.
         var report = host.Events.ShouldHaveSingleItem();
-        TagsOf(report)["inngest.run.id"].ShouldBe(SentryHost.RunId);
+        var tags = TagsOf(report);
+        tags["inngest.run.id"].ShouldBe(SentryHost.RunId);
+        tags.ShouldNotContainKey("inngest.error.source");
     }
 
     // The guide tells apps to filter these entries out of the logging integration by their event ids.
