@@ -354,8 +354,8 @@ that the default strategies wrote are still decrypted, so data can move from one
 
 The [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) package reports the errors of functions and
 steps to Sentry. An exception that a function throws never leaves the request: the SDK turns it into the answer to
-Inngest, so Sentry's ASP.NET Core integration has nothing to capture. The middleware reports it instead, with the
-app, the function, the run and the event as tags.
+Inngest, so Sentry's ASP.NET Core middleware never sees it. This middleware reports it, with the app, the function,
+the run and the event as tags.
 
 ```bash
 dotnet add package Inngest.Sentry --prerelease
@@ -376,8 +376,8 @@ builder.Services
 
 ### What it reports
 
-The middleware reports the exception of a function when the function fails, and the exception of a step when its
-handler fails and `CaptureStepErrors` is on. By default it reports only the final attempt, after which Inngest does
+The middleware reports the exception of a function when the function throws, and the exception of a step when its
+handler throws and `CaptureStepErrors` is on. By default it reports only the final attempt, after which Inngest does
 not retry: the retries are used up, or the error is a `NonRetriableException`. Each step the call executed leaves a
 breadcrumb for the events that follow, in the category `inngest.step`, with the level `Error` for a step that failed.
 
@@ -399,15 +399,14 @@ A step that fails for good and reaches a function that does not catch it is repo
 ### Scope and trace
 
 Sentry's scope follows the async flow. The middleware pushes one around the function and around every step handler,
-with the tags above except those of an error, so that what your code reports there carries them too: a
-`SentrySdk.CaptureException` in a step, or an error logged through Sentry's logging integration. Sentry.AspNetCore
-locks the scope of a request, so a push there creates nothing, and the tags go on the request's scope, which only this
-call uses.
+with the tags of the call, so that what your code reports there carries them too: a `SentrySdk.CaptureException` in a
+step, or an error logged through Sentry's logging integration. Sentry.AspNetCore locks the scope of a request, so a
+push there creates nothing, and the tags go on the request's scope, which only this call uses.
 
 All calls of a run report to one trace. A run id is a ULID, which holds 128 bits, as a trace id does, and the
-middleware makes it the trace id the way the TypeScript middleware does. Events of different calls, even on different
-instances of the app, are so in one trace in Sentry, and not in the trace of the request that carries the call, which
-is a new one for every call.
+middleware makes it the trace id the way the TypeScript middleware does. So the events of all calls of a run, even on
+different instances of the app, are in one trace in Sentry, and not in the trace of the request that carries the
+call, which is new for every call.
 
 ### Options
 
@@ -416,7 +415,7 @@ is a new one for every call.
 | `OnlyCaptureFinalAttempt` | `true` | Reports an error only on the final attempt. When `false`, every attempt is reported. |
 | `CaptureStepErrors` | `false` | Reports the error of a step as an event of its own, besides the error of the function. |
 | `DisableAutomaticFlush` | `false` | Leaves flushing to Sentry. |
-| `FlushTimeout` | 2 seconds | How long the flush waits for events to be sent, as `FlushTimeout` of Sentry's own options. |
+| `FlushTimeout` | 2 seconds | How long the flush waits for events to be sent, which is Sentry's own default. |
 
 {/* check: statements; WebApplicationBuilder builder */}
 ```csharp title="Program.cs"
@@ -429,8 +428,8 @@ builder.Services
     });
 ```
 
-Unless `DisableAutomaticFlush` is set, the middleware flushes Sentry when the call's service scope ends. A runtime that
-stops once a call has answered, as serverless ones may, then does not take events with it.
+Unless `DisableAutomaticFlush` is set, the middleware flushes Sentry when the call's service scope ends, so that events
+are sent before a runtime that stops once a call has answered, as serverless ones may, goes away.
 
 ### Sentry's logging integration
 
@@ -450,7 +449,7 @@ builder.WebHost.UseSentry(options =>
         category.StartsWith("Inngest.", StringComparison.Ordinal) && eventId.Id is 107 or 109));
 ```
 
-### Compared with the TypeScript middleware
+### Compared with @inngest/middleware-sentry
 
 - The TypeScript middleware also starts a Sentry span for each request and each step. This one reports errors only.
   For spans, use [`Inngest.OpenTelemetry`](/inngest-dotnet/reference/api/#opentelemetry) with Sentry's OpenTelemetry
