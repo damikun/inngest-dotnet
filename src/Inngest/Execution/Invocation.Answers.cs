@@ -58,6 +58,11 @@ internal sealed partial class Invocation
     private async ValueTask<ExecutionResult> ReportAsync(List<FoundStep> steps)
     {
         await EndMemoizationAsync().ConfigureAwait(false);
+        if (_endpoint is not null)
+        {
+            return await HandOverStepsAsync(steps).ConfigureAwait(false);
+        }
+
         var body = new PooledBufferWriter();
         try
         {
@@ -113,6 +118,11 @@ internal sealed partial class Invocation
                 : await ExecuteAsync(requested).ConfigureAwait(false);
         }
 
+        if (_endpoint is not null)
+        {
+            return await CompleteEndpointAsync(output).ConfigureAwait(false);
+        }
+
         var body = new PooledBufferWriter();
         try
         {
@@ -143,6 +153,11 @@ internal sealed partial class Invocation
 
     private async ValueTask<ExecutionResult> RejectAsync(Exception exception)
     {
+        if (_endpoint is not null)
+        {
+            return await RejectEndpointAsync(exception).ConfigureAwait(false);
+        }
+
         var (retriable, retryAfter) = Classify(exception, step: false);
         ReportRunError(exception, retriable);
         if (_pipeline is not null)

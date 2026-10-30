@@ -26,12 +26,14 @@ internal sealed class ExecutionEngine : IExecutionEngine
         ILoggerFactory loggerFactory,
         TimeProvider timeProvider,
         IInngestApi api,
-        ICheckpointApi? checkpoints = null)
+        ICheckpointApi? checkpoints = null,
+        IEndpointCheckpointApi? endpointCheckpoints = null)
     {
         Settings = settings;
         TimeProvider = timeProvider;
         Logger = loggerFactory.CreateLogger<ExecutionEngine>();
         Checkpoints = checkpoints;
+        EndpointCheckpoints = endpointCheckpoints;
         _loggerFactory = loggerFactory;
         _api = api;
         _documentOptions = JsonPayload.DocumentOptions(settings.SerializerOptions);
@@ -45,6 +47,9 @@ internal sealed class ExecutionEngine : IExecutionEngine
 
     // Where calls under checkpointing save their steps. Without it every call answers after one step.
     public ICheckpointApi? Checkpoints { get; }
+
+    // Where durable endpoint requests create their runs. Without it such a request cannot run.
+    public IEndpointCheckpointApi? EndpointCheckpoints { get; }
 
     public async Task<ExecutionResult> ExecuteAsync(ExecutionRequest request, CancellationToken cancellationToken)
     {

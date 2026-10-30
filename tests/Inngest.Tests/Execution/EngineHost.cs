@@ -5,6 +5,7 @@ using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Functions;
+using Inngest.Serving;
 using Inngest.Tests.Checkpointing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,7 @@ internal sealed class EngineHost : IDisposable
         configure?.Invoke(services);
         _provider = services.BuildServiceProvider();
         Logs = _provider.GetFakeLogCollector();
-        Engine = new ExecutionEngine(Settings, _provider.GetRequiredService<ILoggerFactory>(), Time, Api, Checkpoints);
+        Engine = new ExecutionEngine(Settings, _provider.GetRequiredService<ILoggerFactory>(), Time, Api, Checkpoints, EndpointCheckpoints);
     }
 
     public static InngestSettings Settings { get; } = new()
@@ -47,6 +48,8 @@ internal sealed class EngineHost : IDisposable
     public FakeInngestApi Api { get; } = new();
 
     public FakeCheckpointApi Checkpoints { get; } = new();
+
+    public FakeEndpointCheckpointApi EndpointCheckpoints { get; } = new();
 
     public FakeLogCollector Logs { get; }
 
@@ -69,6 +72,24 @@ internal sealed class EngineHost : IDisposable
         Engine.ExecuteAsync(
             new ExecutionRequest { Function = function, Body = call.ToBytes(), StepId = stepId ?? "step", Services = _provider },
             TestContext.Current.CancellationToken);
+
+    // A durable endpoint request that starts a run, as the ASP.NET Core middleware makes it.
+    public async Task<EndpointOutcome> EndpointAsync(FunctionDefinition function, int retries = 3, string runId = "01JENDPOINTRUN00000000000000")
+    {
+        var @event = EndpointCalls.WriteEvent(
+            new EndpointRequest("https://api.example.com", "POST", "/orders", "203.0.113.7", "application/json", "", "{}"u8.ToArray(), function.Id),
+            Now);
+        using var result = await Engine.ExecuteAsync(
+            new ExecutionRequest
+            {
+                Function = function,
+                Body = EndpointCalls.WriteStartCall(@event, runId, retries),
+                Services = _provider,
+                Endpoint = new EndpointCall(@event, retries),
+            },
+            TestContext.Current.CancellationToken);
+        return result.Endpoint ?? throw new InvalidOperationException(Encoding.UTF8.GetString(result.Body.WrittenSpan));
+    }
 
     public IReadOnlyList<FakeLogRecord> LogsOf(string category) =>
         [.. Logs.GetSnapshot().Where(record => record.Category == category)];

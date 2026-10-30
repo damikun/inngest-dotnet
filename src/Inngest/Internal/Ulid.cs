@@ -3,7 +3,7 @@
 
 using System.Security.Cryptography;
 
-namespace Inngest.Testing;
+namespace Inngest.Internal;
 
 // Ids in the format Inngest gives runs and events: ULIDs, 48 bits of Unix milliseconds and 80 random bits in
 // Crockford's base 32. Ids made in the same millisecond count up from the first one's random bits, as in the ULID

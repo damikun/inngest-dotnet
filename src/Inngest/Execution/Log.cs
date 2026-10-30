@@ -52,4 +52,14 @@ internal static partial class Log
     [LoggerMessage(142, LogLevel.Warning,
         "Inngest dispatched run {RunId} of function {FunctionId} again while this call was running, so the call stops without running more steps.")]
     public static partial void StaleDispatch(ILogger logger, string runId, string functionId, Exception exception);
+
+    [LoggerMessage(150, LogLevel.Debug, "Run {RunId} of durable endpoint {FunctionId} went to Inngest, which continues it; the client waits for its output.")]
+    public static partial void EndpointHandedOver(ILogger logger, string runId, string functionId);
+
+    [LoggerMessage(151, LogLevel.Error, "Could not hand run {RunId} of durable endpoint {FunctionId} to Inngest, so the request fails.")]
+    public static partial void EndpointHandOverFailed(ILogger logger, string runId, string functionId, Exception exception);
+
+    [LoggerMessage(152, LogLevel.Warning,
+        "Could not record run {RunId} of durable endpoint {FunctionId} in Inngest after its response; the client has the response.")]
+    public static partial void EndpointRunNotRecorded(ILogger logger, string runId, string functionId, Exception exception);
 }

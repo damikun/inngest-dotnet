@@ -31,4 +31,8 @@ internal sealed record ExecutionRequest
     // How long the call may run steps under checkpointing when the options leave MaxRuntime unset. Connect workers
     // allow longer than HTTP calls, which a host or proxy may time out.
     public TimeSpan DefaultCheckpointMaxRuntime { get; init; } = Checkpointer.ServeMaxRuntime;
+
+    // Set for a durable endpoint request that starts a run, which the app received rather than Inngest. The result
+    // then carries an EndpointOutcome instead of an answer for Inngest.
+    public EndpointCall? Endpoint { get; init; }
 }

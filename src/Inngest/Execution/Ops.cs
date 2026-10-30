@@ -18,4 +18,7 @@ internal static class Ops
     public static readonly JsonEncodedText WaitForSignal = JsonEncodedText.Encode("WaitForSignal");
     public static readonly JsonEncodedText Gateway = JsonEncodedText.Encode("Gateway");
     public static readonly JsonEncodedText AIGateway = JsonEncodedText.Encode("AIGateway");
+
+    // Ends the run of a durable endpoint request, with the endpoint's response as its data.
+    public static readonly JsonEncodedText RunComplete = JsonEncodedText.Encode("RunComplete");
 }

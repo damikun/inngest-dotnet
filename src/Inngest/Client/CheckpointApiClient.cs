@@ -10,19 +10,31 @@ using Microsoft.Extensions.Logging;
 namespace Inngest.Client;
 
 // POST {api}/v1/checkpoint/{runId}/async, retried like inngest-js with up to 5 attempts and backoff from 100 ms. A
-// 409 is never retried: Inngest has dispatched the run again, and the steps belong to that newer call.
-internal sealed class CheckpointApiClient : ICheckpointApi
+// 409 is never retried: Inngest has dispatched the run again, and the steps belong to that newer call. The runs of
+// durable endpoint requests are created and extended the same way, through POST {api}/v1/checkpoint and
+// {api}/v1/checkpoint/{runId}/steps.
+internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointApi
 {
     internal const int MaxAttempts = 5;
 
+    // The execution version of the calls Inngest makes when it resumes the run.
+    private const int RequestVersion = 2;
+
+    // How a 409 to an async checkpoint reads: Inngest has dispatched the run again.
+    private const string DispatchedAgain = "because the run was dispatched again";
+
     private static readonly JsonEncodedText RunIdProperty = JsonEncodedText.Encode("run_id");
     private static readonly JsonEncodedText FunctionIdProperty = JsonEncodedText.Encode("fn_id");
+    private static readonly JsonEncodedText AppIdProperty = JsonEncodedText.Encode("app_id");
     private static readonly JsonEncodedText QueueItemIdProperty = JsonEncodedText.Encode("qi_id");
     private static readonly JsonEncodedText RequestIdProperty = JsonEncodedText.Encode("request_id");
     private static readonly JsonEncodedText GenerationIdProperty = JsonEncodedText.Encode("generation_id");
     private static readonly JsonEncodedText RequestStartedAtProperty = JsonEncodedText.Encode("request_started_at");
     private static readonly JsonEncodedText StepsProperty = JsonEncodedText.Encode("steps");
     private static readonly JsonEncodedText TimestampProperty = JsonEncodedText.Encode("ts");
+    private static readonly JsonEncodedText EventProperty = JsonEncodedText.Encode("event");
+    private static readonly JsonEncodedText RequestVersionProperty = JsonEncodedText.Encode("request_version");
+    private static readonly JsonEncodedText RetriesProperty = JsonEncodedText.Encode("retries");
 
     private readonly InngestApiTransport _transport;
     private readonly TimeProvider _timeProvider;
@@ -44,17 +56,53 @@ internal sealed class CheckpointApiClient : ICheckpointApi
         ArgumentException.ThrowIfNullOrEmpty(checkpoint.RunId);
 
         var url = _transport.Url($"/v1/checkpoint/{Uri.EscapeDataString(checkpoint.RunId)}/async");
-        using var body = new PooledBufferWriter(checkpoint.Steps.Length + 512);
+        await SendAsync(url, checkpoint.Steps.Length, (body, now) => WriteBody(body, checkpoint, now), checkpoint.RunId, DispatchedAgain, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<EndpointRun> CheckpointNewRunAsync(NewEndpointRun run, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(run.RunId);
+
+        var reply = await SendAsync(
+            _transport.Url("/v1/checkpoint"),
+            run.Event.Length + run.Steps.Length,
+            (body, now) => WriteBody(body, run, now),
+            run.RunId,
+            "because the run already exists",
+            cancellationToken).ConfigureAwait(false);
+        return ReadRun(reply, run.RunId);
+    }
+
+    public async Task CheckpointEndpointStepsAsync(EndpointRun run, ReadOnlyMemory<byte> steps, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        var url = _transport.Url($"/v1/checkpoint/{Uri.EscapeDataString(run.RunId)}/steps");
+        await SendAsync(url, steps.Length, (body, now) => WriteBody(body, run, steps, now), run.RunId, "with a conflict", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    // Returns Inngest's reply to the attempt that succeeded.
+    private async Task<byte[]> SendAsync(
+        Uri url,
+        int payloadLength,
+        Action<PooledBufferWriter, DateTimeOffset> writeBody,
+        string runId,
+        string conflict,
+        CancellationToken cancellationToken)
+    {
+        using var body = new PooledBufferWriter(payloadLength + 512);
         for (var attempt = 1; ; attempt++)
         {
             // Rewritten for every attempt, so that "ts" says when Inngest was asked.
             body.Clear();
-            WriteBody(body, checkpoint, _timeProvider.GetUtcNow());
+            writeBody(body, _timeProvider.GetUtcNow());
 
-            var (error, retryable) = await TrySendAsync(url, body.WrittenMemory, checkpoint.RunId, cancellationToken).ConfigureAwait(false);
+            var (reply, error, retryable) = await TrySendAsync(url, body.WrittenMemory, runId, conflict, cancellationToken).ConfigureAwait(false);
             if (error is null)
             {
-                return;
+                return reply!;
             }
 
             if (attempt == MaxAttempts || !retryable)
@@ -63,9 +111,39 @@ internal sealed class CheckpointApiClient : ICheckpointApi
             }
 
             var delay = InngestClient.GetBackoffDelay(attempt, Random.Shared.NextDouble());
-            Log.RetryingCheckpoint(_logger, checkpoint.RunId, attempt, MaxAttempts, error.Message, (int)delay.TotalMilliseconds);
+            Log.RetryingCheckpoint(_logger, runId, attempt, MaxAttempts, error.Message, (int)delay.TotalMilliseconds);
             await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // The reply's data holds the ids of the run Inngest created and the token for its output.
+    internal static EndpointRun ReadRun(ReadOnlySpan<byte> reply, string runId)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(reply);
+            using var document = JsonDocument.ParseValue(ref reader);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("data"u8, out var data)
+                && data.ValueKind == JsonValueKind.Object
+                && String(data, "fn_id"u8) is { } functionId
+                && String(data, "app_id"u8) is { } appId)
+            {
+                return new EndpointRun(String(data, "run_id"u8) ?? runId, functionId, appId, String(data, "token"u8));
+            }
+        }
+        catch (JsonException)
+        {
+            // Reported below with what Inngest sent.
+        }
+
+        throw new InngestException(
+            $"Inngest created run {runId} but its reply did not say which function and app it belongs to: {ApiHttp.ToText(reply) ?? "(empty)"}");
+
+        static string? String(JsonElement data, ReadOnlySpan<byte> name) =>
+            data.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
+                ? text
+                : null;
     }
 
     // The order of inngest-js; ids Inngest did not send are left out.
@@ -93,39 +171,69 @@ internal sealed class CheckpointApiClient : ICheckpointApi
         writer.WriteEndObject();
     }
 
-    private async Task<(InngestException? Error, bool Retryable)> TrySendAsync(
+    // The order of inngest-js.
+    internal static void WriteBody(PooledBufferWriter body, NewEndpointRun run, DateTimeOffset now)
+    {
+        using var writer = new Utf8JsonWriter(body);
+        writer.WriteStartObject();
+        writer.WriteString(RunIdProperty, run.RunId);
+        writer.WritePropertyName(EventProperty);
+        writer.WriteRawValue(run.Event.Span, skipInputValidation: true);
+        writer.WritePropertyName(StepsProperty);
+        writer.WriteRawValue(run.Steps.IsEmpty ? "[]"u8 : run.Steps.Span, skipInputValidation: true);
+        writer.WriteNumber(TimestampProperty, now.ToUnixTimeMilliseconds());
+        writer.WriteNumber(RequestVersionProperty, RequestVersion);
+        writer.WriteNumber(RetriesProperty, run.Retries);
+        writer.WriteEndObject();
+    }
+
+    internal static void WriteBody(PooledBufferWriter body, EndpointRun run, ReadOnlyMemory<byte> steps, DateTimeOffset now)
+    {
+        using var writer = new Utf8JsonWriter(body);
+        writer.WriteStartObject();
+        writer.WriteString(FunctionIdProperty, run.FunctionId);
+        writer.WriteString(AppIdProperty, run.AppId);
+        writer.WriteString(RunIdProperty, run.RunId);
+        writer.WritePropertyName(StepsProperty);
+        writer.WriteRawValue(steps.Span, skipInputValidation: true);
+        writer.WriteNumber(TimestampProperty, now.ToUnixTimeMilliseconds());
+        writer.WriteEndObject();
+    }
+
+    private async Task<(byte[]? Reply, InngestException? Error, bool Retryable)> TrySendAsync(
         Uri url,
         ReadOnlyMemory<byte> body,
         string runId,
+        string conflict,
         CancellationToken cancellationToken)
     {
         try
         {
             using var response = await _transport.SendAsync(new ApiCall(HttpMethod.Post, url, body), HttpCompletionOption.ResponseContentRead, cancellationToken)
                 .ConfigureAwait(false);
+            var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
-                return (null, false);
+                return (content, null, false);
             }
 
             var status = (int)response.StatusCode;
-            var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             var reason = ApiHttp.DescribeError(status, content);
             if (response.StatusCode == HttpStatusCode.Conflict)
             {
-                return (new InngestException($"Inngest refused the checkpoint of run {runId} because the run was dispatched again: {reason}", status), false);
+                return (null, new InngestException($"Inngest refused the checkpoint of run {runId} {conflict}: {reason}", status), false);
             }
 
-            return (new InngestException($"Inngest answered {status} to the checkpoint of run {runId}: {reason}", status), IsRetryable(response.StatusCode));
+            return (null, new InngestException($"Inngest answered {status} to the checkpoint of run {runId}: {reason}", status), IsRetryable(response.StatusCode));
         }
         catch (HttpRequestException exception)
         {
-            return (new InngestException($"Could not reach Inngest to checkpoint run {runId}: {exception.Message}", exception), true);
+            return (null, new InngestException($"Could not reach Inngest to checkpoint run {runId}: {exception.Message}", exception), true);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             // HttpClient reports its own timeout this way.
-            return (new InngestException($"Checkpointing run {runId} timed out.", exception), true);
+            return (null, new InngestException($"Checkpointing run {runId} timed out.", exception), true);
         }
     }
 

@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Text.Json;
 using Inngest.Events;
 using Inngest.Execution;
+using Inngest.Internal;
 using Inngest.Json;
 
 namespace Inngest.Testing;

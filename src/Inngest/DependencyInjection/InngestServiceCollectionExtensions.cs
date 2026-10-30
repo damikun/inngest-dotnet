@@ -53,7 +53,15 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<RequestSigner>();
         services.TryAddSingleton<IInngestApi, InngestApiClient>();
         services.TryAddSingleton<ISignalApi, SignalApi>();
-        services.TryAddSingleton<ICheckpointApi, CheckpointApiClient>();
+        services.TryAddSingleton<CheckpointApiClient>();
+        services.TryAddSingleton<ICheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());
+        services.TryAddSingleton<IEndpointCheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());
+
+        // The steps of the durable endpoint or function whose code is running, for handlers that take them as a
+        // parameter or a constructor argument.
+        services.TryAddTransient<IStepTools>(static _ => Invocation.AmbientSteps ?? throw new InvalidOperationException(
+            "IStepTools is only available while a durable endpoint or an Inngest function runs, outside the handler of a step. " +
+            "Mark the endpoint with WithDurableEndpoint() and add app.UseInngestDurableEndpoints()."));
         services.TryAddSingleton<InngestClient>();
         services.TryAddSingleton<IInngestClient>(static provider => provider.GetRequiredService<InngestClient>());
         services.TryAddSingleton<IInngestRunsClient, InngestRunsClient>();

@@ -8,6 +8,7 @@ using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Functions;
+using Inngest.Internal;
 using Inngest.Realtime;
 using Inngest.Registration;
 using Microsoft.Extensions.DependencyInjection;

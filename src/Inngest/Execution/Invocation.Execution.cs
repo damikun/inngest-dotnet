@@ -151,6 +151,10 @@ internal sealed partial class Invocation
         // The steps this decision was about. Steps the function finds while the handler runs come after them.
         var decided = _window.Count;
         var outcome = await RunStepAsync(step).ConfigureAwait(false);
+        if (_endpoint is not null && outcome.Error is not null)
+        {
+            return await HandOverStepErrorAsync(step, outcome).ConfigureAwait(false);
+        }
 
         // A retry answers after its first successful step, as inngest-js does, so that Inngest counts the attempts of
         // the next step from zero instead of carrying this call's attempt over to it.
@@ -161,7 +165,9 @@ internal sealed partial class Invocation
 
         if (Buffer(step, outcome) is { } error)
         {
-            return await AnswerAsync(step, outcome with { Error = error }).ConfigureAwait(false);
+            return _endpoint is null
+                ? await AnswerAsync(step, outcome with { Error = error }).ConfigureAwait(false)
+                : await HandOverStepErrorAsync(step, outcome with { Error = error }).ConfigureAwait(false);
         }
 
         if (_pipeline is not null)

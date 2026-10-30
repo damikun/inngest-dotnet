@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Inngest.Functions;
+using Inngest.Internal;
 
 namespace Inngest.Testing;
 

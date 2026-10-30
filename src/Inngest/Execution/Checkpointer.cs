@@ -18,9 +18,9 @@ internal sealed class Checkpointer : IDisposable
     // Connect has no HTTP request timeout to stay under.
     public static readonly TimeSpan ConnectMaxRuntime = TimeSpan.FromMinutes(5);
 
-    private readonly ICheckpointApi _api;
+    // Where the buffered ops go, as a JSON array.
+    private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _save;
     private readonly TimeProvider _time;
-    private readonly AsyncCheckpoint _call;
     private readonly int _bufferedSteps;
     private readonly TimeSpan _maxRuntime;
     private readonly TimeSpan? _maxInterval;
@@ -29,25 +29,24 @@ internal sealed class Checkpointer : IDisposable
     // A step's output sits one level down in its op, so the op is read with room for whatever the serializer wrote.
     private readonly JsonReaderOptions _readerOptions;
 
-    // The buffered StepRun ops as a JSON array, without its closing bracket until it is sent.
+    // The buffered ops as a JSON array, without its closing bracket until it is sent.
     private PooledBufferWriter? _steps;
     private bool _closed;
     private long _oldest;
 
     private Checkpointer(
-        ICheckpointApi api,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task> save,
         TimeProvider time,
-        AsyncCheckpoint call,
-        CheckpointingOptions options,
+        int bufferedSteps,
         TimeSpan maxRuntime,
+        TimeSpan? maxInterval,
         JsonSerializerOptions serializerOptions)
     {
-        _api = api;
+        _save = save;
         _time = time;
-        _call = call;
-        _bufferedSteps = options.BufferedSteps;
+        _bufferedSteps = bufferedSteps;
         _maxRuntime = maxRuntime;
-        _maxInterval = options.MaxInterval;
+        _maxInterval = maxInterval;
         _started = time.GetTimestamp();
         _readerOptions = new JsonReaderOptions { MaxDepth = JsonPayload.DocumentOptions(serializerOptions).MaxDepth };
     }
@@ -89,8 +88,19 @@ internal sealed class Checkpointer : IDisposable
         }
 
         var call = new AsyncCheckpoint(run.RunId, functionId, queueItemId, request.RequestId, request.GenerationId, time.GetUtcNow(), default);
-        return new Checkpointer(api, time, call, options, options.MaxRuntime ?? request.DefaultCheckpointMaxRuntime, settings.SerializerOptions);
+        return new Checkpointer(
+            (steps, cancellationToken) => api.CheckpointAsync(call with { Steps = steps }, cancellationToken),
+            time,
+            options.BufferedSteps,
+            options.MaxRuntime ?? request.DefaultCheckpointMaxRuntime,
+            options.MaxInterval,
+            settings.SerializerOptions);
     }
+
+    // A durable endpoint request keeps its steps until the run is handed to Inngest or the endpoint is done, so that
+    // a request that finishes costs Inngest one call, made after the response.
+    public static Checkpointer ForEndpoint(EndpointSaver saver, TimeProvider time, JsonSerializerOptions serializerOptions) =>
+        new(saver.SaveAsync, time, int.MaxValue, Timeout.InfiniteTimeSpan, maxInterval: null, serializerOptions);
 
     // Buffers a StepRun op and returns its data as a later call reads it from Inngest, so the function sees the same
     // value now as on every replay. The copy outlives the buffer, which is reused once the op is sent.
@@ -98,7 +108,13 @@ internal sealed class Checkpointer : IDisposable
     {
         var reader = new Utf8JsonReader(op, _readerOptions);
         var data = JsonElement.ParseValue(ref reader).GetProperty("data");
+        AddOp(op);
+        return data;
+    }
 
+    // Buffers any op, such as the planned steps and errors a durable endpoint hands over.
+    public void AddOp(ReadOnlySpan<byte> op)
+    {
         var steps = _steps ??= new PooledBufferWriter(op.Length + 2);
         if (Count == 0)
         {
@@ -112,14 +128,21 @@ internal sealed class Checkpointer : IDisposable
 
         steps.Write(op);
         Count++;
-        return data;
     }
 
     // Saves the buffered steps. Throws InngestException when Inngest did not save them; they stay buffered then.
     public async Task SaveAsync(CancellationToken cancellationToken)
     {
-        await _api.CheckpointAsync(_call with { Steps = Close() }, cancellationToken).ConfigureAwait(false);
+        await _save(Close(), cancellationToken).ConfigureAwait(false);
         Discard();
+    }
+
+    // The buffered ops as a JSON array that outlives the call, which then saves them after its answer.
+    public byte[] TakeSteps()
+    {
+        var steps = Close().ToArray();
+        Discard();
+        return steps;
     }
 
     // Takes the buffered steps as the answer to the call, for when Inngest could not save them: Inngest then saves

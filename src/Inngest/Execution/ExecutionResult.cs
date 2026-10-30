@@ -19,5 +19,11 @@ internal sealed class ExecutionResult(int statusCode, PooledBufferWriter body) :
     // Sent as Retry-After when the error asked for a specific retry time.
     public string? RetryAfter { get; init; }
 
+    // What became of a durable endpoint request that started a run; null for every call from Inngest. Its status and
+    // body are then empty, since the request is answered by the endpoint's host.
+    public EndpointOutcome? Endpoint { get; init; }
+
     public void Dispose() => Body.Dispose();
+
+    public static ExecutionResult ForEndpoint(EndpointOutcome outcome) => new(200, new PooledBufferWriter(0)) { Endpoint = outcome };
 }

@@ -69,6 +69,10 @@ internal sealed partial class Invocation
     // Set when this call runs consecutive steps itself and saves them to Inngest as it goes.
     private readonly Checkpointer? _checkpoint;
 
+    // Set for a durable endpoint request that starts a run. Its steps run here and wait in the checkpoint buffer until
+    // the run is handed to Inngest or the endpoint is done.
+    private readonly EndpointSaver? _endpoint;
+
     // Under checkpointing, the WrapStepAsync chains of new steps wait here for the result of running them in this call.
     private Dictionary<FoundStep, TaskCompletionSource<Task<object?>>>? _inlineResults;
 
@@ -94,7 +98,17 @@ internal sealed partial class Invocation
         _services = request.Services;
         _functionId = request.Function.Id;
         _target = string.IsNullOrEmpty(request.StepId) || request.StepId == "step" ? null : request.StepId;
-        _checkpoint = _target is null ? Checkpointer.Create(engine.Checkpoints, _settings, request, run, _time) : null;
+        if (request.Endpoint is { } endpoint)
+        {
+            var api = engine.EndpointCheckpoints
+                ?? throw new InvalidOperationException("Durable endpoints need the checkpoint API that services.AddInngest() registers.");
+            _endpoint = new EndpointSaver(api, run.RunId, endpoint);
+            _checkpoint = Checkpointer.ForEndpoint(_endpoint, _time, _settings.SerializerOptions);
+        }
+        else
+        {
+            _checkpoint = _target is null ? Checkpointer.Create(engine.Checkpoints, _settings, request, run, _time) : null;
+        }
         _unseen = run.Order.Count;
         _function = request.Function.Resolve(request.Services);
         _runLogger = engine.GetFunctionLogger(_functionId);
@@ -170,7 +184,9 @@ internal sealed partial class Invocation
             var function = _scheduler.Run(StartFunction);
             var result = await LoopAsync(function).ConfigureAwait(false);
             WarnIfStepsWereMissed();
-            return _checkpoint is { Count: > 0 } ? await SaveBeforeAnswerAsync(result).ConfigureAwait(false) : result;
+
+            // A durable endpoint request has dealt with its buffered steps on each of its ways out.
+            return _endpoint is null && _checkpoint is { Count: > 0 } ? await SaveBeforeAnswerAsync(result).ConfigureAwait(false) : result;
         }
         finally
         {

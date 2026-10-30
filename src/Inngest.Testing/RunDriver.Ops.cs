@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using Inngest.Errors;
+using Inngest.Internal;
 
 namespace Inngest.Testing;
 
