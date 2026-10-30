@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Encryption</RootNamespace>
+    <Description>End-to-end encryption for the Inngest .NET SDK: encrypts event data, step results and function output before they leave the app, compatible with @inngest/middleware-encryption of the TypeScript SDK.</Description>
+    <PackageTags>$(PackageTags);encryption;middleware;security</PackageTags>
+    <!-- This package has no release yet to compare with. Set it to the first release, as for the others. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- XSalsa20, Poly1305 and BLAKE2b, the primitives of libsodium's secretbox that .NET lacks. It is managed code, so
+         there is no native library to ship for each platform. -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>
