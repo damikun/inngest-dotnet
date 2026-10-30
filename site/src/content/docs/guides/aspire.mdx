@@ -48,7 +48,8 @@ builder.Build().Run();
 Run the AppHost and the dashboard shows two resources. `inngest` is healthy once the server answers `GET /health`
 and its Connect gateway answers `GET /ready`, and its row links to the server's UI as **Inngest UI**. `shop` starts
 once the server is healthy, because of `WaitFor`. The server then syncs `shop` and lists its functions in the UI;
-sending an event runs them.
+sending an event runs them. The repository has such an AppHost for its sample app, in
+[`samples/Inngest.Sample.AppHost`](https://github.com/damikun/inngest-dotnet/tree/main/samples/Inngest.Sample.AppHost).
 
 What the three calls do:
 
@@ -168,7 +169,9 @@ inngest.WithApp(shop);
 The keys are secret parameters, which Aspire reads from the user secrets or the configuration of the AppHost, or
 asks for in the dashboard. The server takes them from `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` in its environment,
 so they are not in its command line. `inngest start` accepts only a signing key that is a hex string of even length,
-without a `signkey-` prefix. The SDK accepts that key as it is.
+without a `signkey-` prefix, such as the output of `openssl rand -hex 32`. The SDK accepts that key as it is. When the
+server starts, the AppHost checks the keys and reports one that `inngest start` would refuse, instead of leaving you
+with a container that stopped.
 
 Leave the keys out and the integration generates them, as Aspire does for the passwords of other containers:
 

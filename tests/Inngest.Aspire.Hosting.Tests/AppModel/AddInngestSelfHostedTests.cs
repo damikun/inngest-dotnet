@@ -91,6 +91,36 @@ public sealed class AddInngestSelfHostedTests
         (await Model.ValueAsync(first.Resource.EventKeyParameter!)).ShouldNotBe(await Model.ValueAsync(second.Resource.EventKeyParameter!));
     }
 
+    // inngest start exits on these, which shows up as a container that stopped, so the AppHost reports them first.
+    [Theory]
+    [InlineData("signkey-prod-0a1b2c3d4e5f60718293a4b5c6d7e8f9")]
+    [InlineData("0a1b2c3d4e5f6071829")]
+    [InlineData("not hex at all")]
+    [InlineData("")]
+    public async Task A_signing_key_that_the_server_would_refuse_is_reported_when_the_server_starts(string signingKey)
+    {
+        var builder = Model.CreateBuilder();
+        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", signingKey), Model.Secret(builder, "events", "event-key-1"));
+
+        var failure = await Should.ThrowAsync<DistributedApplicationException>(() => Model.EnvironmentAsync(inngest.Resource));
+
+        failure.Message.ShouldContain("'inngest'");
+        failure.Message.ShouldContain("'signing'");
+        failure.Message.ShouldContain("hex string of even length");
+    }
+
+    [Fact]
+    public async Task An_event_key_that_is_empty_is_reported_when_the_server_starts()
+    {
+        var builder = Model.CreateBuilder();
+        var inngest = builder.AddInngestSelfHosted("inngest", Model.Secret(builder, "signing", SigningKey), Model.Secret(builder, "events", " "));
+
+        var failure = await Should.ThrowAsync<DistributedApplicationException>(() => Model.EnvironmentAsync(inngest.Resource));
+
+        failure.Message.ShouldContain("'events'");
+        failure.Message.ShouldContain("must not be empty");
+    }
+
     [Fact]
     public void A_self_hosted_server_needs_both_keys_and_the_dev_server_takes_neither()
     {

@@ -216,14 +216,36 @@ public static class InngestResourceBuilderExtensions
                     context.Args.Add("--no-discovery");
                 }
             })
-            .WithEnvironment(context =>
+            .WithEnvironment(async context =>
             {
                 // Read from the environment rather than the arguments, so that the keys are not in the command line.
                 if (resource.SigningKeyParameter is { } signingKey && resource.EventKeyParameter is { } eventKey)
                 {
+                    if (context.ExecutionContext.IsRunMode)
+                    {
+                        await RequireKeysAsync(resource, signingKey, eventKey, context.CancellationToken).ConfigureAwait(false);
+                    }
+
                     context.EnvironmentVariables["INNGEST_SIGNING_KEY"] = signingKey;
                     context.EnvironmentVariables["INNGEST_EVENT_KEY"] = eventKey;
                 }
             });
+    }
+
+    // inngest start exits when the signing key is not hex of even length, which shows up as a container that stopped. A key
+    // with a signkey- prefix, as Inngest Cloud hands out, is the likely mistake, so the AppHost says what is wrong instead.
+    private static async Task RequireKeysAsync(InngestServerResource resource, ParameterResource signingKey, ParameterResource eventKey, CancellationToken cancellationToken)
+    {
+        var signingKeyValue = await signingKey.GetValueAsync(cancellationToken).ConfigureAwait(false);
+        if (signingKeyValue is not { Length: > 0 } || signingKeyValue.Length % 2 != 0 || !signingKeyValue.All(char.IsAsciiHexDigit))
+        {
+            throw new DistributedApplicationException(
+                $"The signing key of the Inngest server '{resource.Name}' (parameter '{signingKey.Name}') must be a hex string of even length without a 'signkey-' prefix, which is all that 'inngest start' accepts.");
+        }
+
+        if (string.IsNullOrWhiteSpace(await eventKey.GetValueAsync(cancellationToken).ConfigureAwait(false)))
+        {
+            throw new DistributedApplicationException($"The event key of the Inngest server '{resource.Name}' (parameter '{eventKey.Name}') must not be empty.");
+        }
     }
 }
