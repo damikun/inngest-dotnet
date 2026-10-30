@@ -175,8 +175,8 @@ Give the probe itself a few seconds: the first request after a start opens a con
 - **Whether Inngest can reach the app.** The check runs inside the app and calls Inngest, not the other way round. A
   firewall, a wrong `INNGEST_SERVE_ORIGIN` or a proxy that blocks Inngest shows up as failed syncs and calls in the
   Inngest dashboard.
-- **Whether the event key is valid.** Only that it is set: Inngest has no request that validates an event key without
-  sending an event. The address events go to is not probed either.
+- **Whether the event key is valid.** Only that it is set. Finding out whether Inngest accepts it would take a
+  request to the Event API, which the check does not send, and the address events go to is not probed either.
 - **Whether the app is synced**, unless you ask for it, as below.
 
 ### Whether the app is synced

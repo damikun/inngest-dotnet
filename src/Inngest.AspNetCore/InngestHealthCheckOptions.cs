@@ -11,8 +11,8 @@ public sealed class InngestHealthCheckOptions
     /// <summary>
     /// Whether the check fails while no event key is configured. An app that only receives calls from Inngest needs
     /// none, so this is off by default; turn it on for an app that sends events. The dev server accepts any key, so
-    /// dev mode is never held to it. The key is only checked for being set: Inngest has no request that validates an
-    /// event key without sending an event.
+    /// dev mode is never held to it. The key is only checked for being set; finding out whether Inngest accepts it would
+    /// take a request to the Event API, which the check does not send.
     /// </summary>
     public bool RequireEventKey { get; set; }
 
