@@ -584,10 +584,10 @@ in inngest-js.
   built outside it, where the headers and the signature are made, calls that would have finished lose their last
   moments, and the abandoned work stays alive in an environment that a timeout would have reset. Checkpointing's
   `MaxRuntime` limits the time steps may start within.
-- **Streaming.** The answer is a single buffered response; `InngestOptions.Streaming` is not consulted. Lambda can
-  stream responses to .NET functions (`Amazon.Lambda.Core.ResponseStreaming`, function URLs in `RESPONSE_STREAM` mode,
-  REST APIs with a streaming integration), but the 201 keep-alive exists for connections that idle, which a buffered
-  Lambda response does not have.
+- **Streaming.** The answer is a single buffered response, which cannot write the 201 and the spaces of
+  `InngestOptions.Streaming` while a call runs, so `Streaming` is not consulted. Lambda can stream responses to .NET
+  functions (`Amazon.Lambda.Core.ResponseStreaming` with function URLs in `RESPONSE_STREAM` mode, or REST APIs with a
+  streaming integration), which would be a second response path with its own prelude; the handler does not use it.
 - **Native AOT.** Nothing reflects. The event types come from `Amazon.Lambda.APIGatewayEvents`, which the app lists in
   its own `JsonSerializerContext` for `SourceGeneratorLambdaJsonSerializer`. The package ships none: a context fixes the
   shape of types it does not own, cannot hold the REST and HTTP API event types together (their nested types share

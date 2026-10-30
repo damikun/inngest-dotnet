@@ -319,9 +319,9 @@ between, and the function's timeout is the only limit.
   retries anyway into an error of the handler's own, take time from calls that would have finished, and keep stuck
   work alive in an environment that Lambda would otherwise reset. `MaxRuntime` is the setting that keeps calls inside
   their time.
-- **Streaming.** The response is one buffered response, so `InngestOptions.Streaming` has no effect. Lambda can
-  stream responses to .NET functions, but that exists for connections that sit idle, and a buffered response has no
-  idle time: only the limits above apply.
+- **Streaming.** The response is one buffered response. It cannot send the 201 and the spaces that streaming writes
+  while a call runs, so `InngestOptions.Streaming` has no effect. Lambda can stream responses to .NET functions, through
+  function URLs in `RESPONSE_STREAM` mode and REST APIs with a streaming integration, which this package does not use.
 - **Background work.** Lambda freezes the execution environment once the handler returns, which pauses anything left
   running, such as a batch exporter's timer. Flush telemetry before the invocation ends, as `Inngest.Sentry` does
   when the call's scope ends.
