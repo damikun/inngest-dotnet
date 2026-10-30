@@ -126,6 +126,11 @@ public sealed class FunctionConfigTests
         },
         {
             "batchEvents",
+            Orders with { BatchEvents = new BatchEvents(10, TimeSpan.FromHours(25)) },
+            """{"maxSize":10,"timeout":"25h"}"""
+        },
+        {
+            "batchEvents",
             Orders with { BatchEvents = new BatchEvents(100, TimeSpan.FromSeconds(45)) },
             """{"maxSize":100,"timeout":"45s"}"""
         },

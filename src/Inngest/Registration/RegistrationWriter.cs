@@ -246,9 +246,9 @@ internal static class RegistrationWriter
         json.WriteStartObject("batchEvents");
         json.WriteNumber("maxSize", batch.MaxSize);
 
-        // Inngest reads this timeout with Go's time.ParseDuration, which has no day or week units. The 60s limit
-        // keeps the string to seconds and minutes.
-        json.WriteString("timeout", TimeString.Format(batch.Timeout));
+        // Inngest reads this timeout with Go's time.ParseDuration, which has no day or week units, and refuses the
+        // whole sync when it cannot.
+        json.WriteString("timeout", TimeString.FormatInHours(batch.Timeout));
         WriteIfSet(json, "key", batch.Key);
         WriteIfSet(json, "if", batch.If);
         json.WriteEndObject();

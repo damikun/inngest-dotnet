@@ -18,7 +18,12 @@ internal static class TimeString
         ('s', TimeSpan.TicksPerSecond),
     ];
 
-    public static string Format(TimeSpan duration)
+    public static string Format(TimeSpan duration) => Format(duration, Units);
+
+    // For a setting Inngest reads with Go's time.ParseDuration, which has no day or week units: a day is "24h".
+    public static string FormatInHours(TimeSpan duration) => Format(duration, Units.AsSpan(2));
+
+    private static string Format(TimeSpan duration, ReadOnlySpan<(char Suffix, long Ticks)> units)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
 
@@ -35,7 +40,7 @@ internal static class TimeString
 
         Span<char> buffer = stackalloc char[64];
         var length = 0;
-        foreach (var (suffix, ticks) in Units)
+        foreach (var (suffix, ticks) in units)
         {
             var count = remaining / ticks;
             if (count == 0)
