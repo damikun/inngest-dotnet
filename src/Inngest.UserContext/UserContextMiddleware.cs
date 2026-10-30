@@ -4,18 +4,16 @@ using System.Text.Json;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Registration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Inngest.UserContext;
 
-// Both directions of the user context. When a function starts it restores the user from the triggering event into the
-// call's accessor. When events are sent it attaches the user: the one the source names when the send is outside a run, or
+// Both directions of the user context. When a function starts it restores the user from the triggering event for the
+// run's context. When events are sent it attaches the user: the one the source names when the send is outside a run, or
 // the run's own when it is inside one. Like all middleware it is scoped to one call.
 internal sealed class UserContextMiddleware(
     UserContextCodec codec,
-    UserContextAccessor accessor,
     IOptions<UserContextOptions> options,
     InngestSettings settings,
     IFunctionRegistry registry,
@@ -45,21 +43,15 @@ internal sealed class UserContextMiddleware(
 
     private void Restore(FunctionContext context)
     {
-        if (!TryFindUser(context, out var user))
+        if (!TryFindUser(context, out var user) || !user.Json.TryGetProperty(UserContextCodec.Key, out var envelope))
         {
-            accessor.Set(null);
-            return;
-        }
-
-        if (!user.Json.TryGetProperty(UserContextCodec.Key, out var envelope))
-        {
-            accessor.Set(null);
+            RunUsers.Set(context, null);
             return;
         }
 
         // A run's id says when Inngest created it; anything else is judged by the clock of this call.
         var read = codec.Read(envelope, user.EventName, RunIds.StartOf(user.RunId) ?? time.GetUtcNow());
-        accessor.Set(read.Snapshot);
+        RunUsers.Set(context, read.Snapshot);
         if (read.Snapshot is null)
         {
             Reject(context, user.EventName, read.Problem);
@@ -150,7 +142,7 @@ internal sealed class UserContextMiddleware(
         var run = context ?? Invocation.AmbientContext;
         if (run is not null)
         {
-            return _options.Propagate ? run.Services.GetService<UserContextAccessor>()?.Snapshot : null;
+            return _options.Propagate ? RunUsers.Of(run).Snapshot : null;
         }
 
         return source is null ? null : codec.Capture(await source.GetUserAsync(cancellationToken).ConfigureAwait(false));

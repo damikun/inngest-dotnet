@@ -18,6 +18,6 @@ public static class UserContextInvokeExtensions
         ArgumentNullException.ThrowIfNull(user);
 
         // A fake in a unit test has nothing to protect.
-        return user is UserContextAccessor accessor ? accessor.ForInvocation(options) : options;
+        return user is CurrentUser current ? current.ForInvocation(options) : options;
     }
 }

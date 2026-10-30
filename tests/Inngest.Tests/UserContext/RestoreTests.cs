@@ -23,6 +23,12 @@ public sealed class RestoreTests
 
     private static Call Event(string user, string name = UserContextApp.EventName) => Call.New().Event(UserContextApp.EventJson(user, name));
 
+    // A singleton that finds out who is running, the way a logging or audit service would.
+    private sealed class Audit(ICurrentUser user)
+    {
+        public string? Who() => user.Principal.Identity?.Name;
+    }
+
     private static readonly string[] AdaClaims = ["sub=u-42", "name=Ada Lovelace", "email=ada@example.com", "role=admin", "role=support"];
 
     [Fact]
@@ -287,6 +293,94 @@ public sealed class RestoreTests
         result.OpCodes.ShouldBe(["StepRun"]);
         result.Op().GetProperty("data").GetProperty("isAuthenticated").GetBoolean().ShouldBeTrue();
         result.Op().GetProperty("data").GetProperty("principal").GetInt32().ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task A_scope_made_inside_a_step_sees_the_same_user_as_the_function()
+    {
+        // What a scoped step does: its handler gets a scope next to the call's, made from the same factory.
+        await using var app = NewApp();
+        var function = TestFunction.Define(async context =>
+            await context.Step.RunAsync("in-a-scope", async () =>
+            {
+                await using var scope = context.Services.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+                var user = scope.ServiceProvider.GetRequiredService<ICurrentUser>();
+                return new
+                {
+                    SameService = ReferenceEquals(user, context.Services.GetRequiredService<ICurrentUser>()),
+                    user.IsAuthenticated,
+                    Claims = user.Principal.Claims.Count(),
+                    FromThePrincipalService = scope.ServiceProvider.GetRequiredService<ClaimsPrincipal>().Claims.Count(),
+                    SamePrincipal = ReferenceEquals(user.Principal, context.Services.GetRequiredService<ICurrentUser>().Principal),
+                };
+            }));
+
+        var result = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        var data = result.Op().GetProperty("data");
+        data.GetProperty("sameService").GetBoolean().ShouldBeTrue();
+        data.GetProperty("isAuthenticated").GetBoolean().ShouldBeTrue();
+        data.GetProperty("claims").GetInt32().ShouldBe(5);
+        data.GetProperty("fromThePrincipalService").GetInt32().ShouldBe(5);
+        data.GetProperty("samePrincipal").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_singleton_and_code_run_off_the_scheduler_see_the_user_of_the_run_that_calls_them()
+    {
+        await using var app = NewApp(inngest: inngest => inngest.Services.AddSingleton<Audit>());
+        var function = TestFunction.Define(async context =>
+            await context.Step.RunAsync("audit", async () =>
+            {
+                var audit = context.Services.GetRequiredService<Audit>();
+                var inThePool = await Task.Run(() => audit.Who());
+                return new { Direct = audit.Who(), InThePool = inThePool };
+            }));
+
+        var result = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        result.Op().GetProperty("data").GetProperty("direct").GetString().ShouldBe("Ada Lovelace");
+        result.Op().GetProperty("data").GetProperty("inThePool").GetString().ShouldBe("Ada Lovelace");
+    }
+
+    [Fact]
+    public async Task Concurrent_runs_each_see_their_own_user()
+    {
+        await using var app = NewApp(inngest: inngest => inngest.Services.AddSingleton<Audit>());
+        var gate = new TaskCompletionSource();
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.RunAsync("audit", async () =>
+            {
+                await gate.Task;
+                return context.Services.GetRequiredService<Audit>().Who();
+            });
+            return "done";
+        });
+        var ada = Event(app.Seal(UserContextApp.Ada()));
+        var grace = Event(app.Seal(UserContextApp.Principal("Cookies", new Claim("sub", "u-7"), new Claim("name", "Grace Hopper"))));
+
+        var adaCall = app.CallAsync(function, ada, runStart: app.Time.GetUtcNow());
+        var graceCall = app.CallAsync(function, grace, runStart: app.Time.GetUtcNow());
+        gate.SetResult();
+        var results = await Task.WhenAll(adaCall, graceCall);
+
+        results[0].Op().GetProperty("data").GetString().ShouldBe("Ada Lovelace");
+        results[1].Op().GetProperty("data").GetString().ShouldBe("Grace Hopper");
+    }
+
+    [Fact]
+    public async Task Outside_a_run_the_current_user_is_nobody_and_the_view_of_the_last_run_is_not_kept()
+    {
+        await using var app = NewApp();
+        var user = app.Services.GetRequiredService<ICurrentUser>();
+
+        await app.CallAsync(UserContextApp.Observe(), Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        user.IsAuthenticated.ShouldBeFalse();
+        user.IssuedAt.ShouldBeNull();
+        user.Principal.Claims.ShouldBeEmpty();
+        user.Principal.ShouldNotBeSameAs(user.Principal);
     }
 
     [Fact]

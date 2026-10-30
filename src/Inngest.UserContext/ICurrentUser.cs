@@ -8,8 +8,9 @@ namespace Inngest;
 /// The user who caused the current run: the claims that were attached to the event when it was sent, restored for every
 /// call of the run. It is a snapshot of the user as they were at send time, not a fresh authorization. The user may have
 /// lost a role or been deleted since, and a run can start long after the send, so check permissions against current data
-/// for anything that matters. It is scoped to one call from Inngest and is filled in when the function starts, so a
-/// service that receives it through its constructor must read it when it uses it, not keep what it read there.
+/// for anything that matters. It always answers for the run whose code is running, so it is the same in every scope of
+/// the run: the call's own, the scope a scoped step makes for itself, and a singleton's. Outside a run it is nobody. The
+/// user is restored when the function starts, so read it when you use it, not in a constructor, which runs before.
 /// </summary>
 public interface ICurrentUser
 {

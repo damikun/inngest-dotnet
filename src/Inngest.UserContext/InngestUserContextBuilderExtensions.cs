@@ -44,11 +44,13 @@ public static class InngestUserContextBuilderExtensions
                 "The user context protects users with ASP.NET Core Data Protection, which is not set up. Call services.AddDataProtection() " +
                 "with a key store and application name that the apps sending and restoring users share, or register an IUserContextProtector.")));
         services.TryAddSingleton<UserContextCodec>();
-        services.TryAddScoped<UserContextAccessor>();
-        services.TryAddScoped<ICurrentUser>(static provider => provider.GetRequiredService<UserContextAccessor>());
+
+        // The current user looks the run up from the async flow, so it is the same in every scope of the run, the scope
+        // of a scoped step included.
+        services.TryAddSingleton<ICurrentUser, CurrentUser>();
 
         // Resolves to the user as it is when the service is created, which is anonymous before the function starts.
-        services.TryAddScoped<ClaimsPrincipal>(static provider => provider.GetRequiredService<UserContextAccessor>().Principal);
+        services.TryAddScoped<ClaimsPrincipal>(static provider => provider.GetRequiredService<ICurrentUser>().Principal);
         return builder.AddMiddleware<UserContextMiddleware>();
     }
 }
