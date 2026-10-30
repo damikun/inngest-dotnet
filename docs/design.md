@@ -257,10 +257,10 @@ of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exa
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
 each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers`
-packages and `dotnet-inngest` have no release to compare with yet, so their project files clear the baseline until their
-first one; `Inngest.Templates` has no assembly to compare. The container packages are not `IsAotCompatible`, which every
-other package is: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are
-for test projects, which are neither trimmed nor compiled ahead of time.
+packages, `Inngest.Templates` and `dotnet-inngest` have no release to compare with yet, so their project files clear the
+baseline until their first one. The container packages are not `IsAotCompatible`, which every other package is:
+Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects,
+which are neither trimmed nor compiled ahead of time.
 
 ### Code layout
 
