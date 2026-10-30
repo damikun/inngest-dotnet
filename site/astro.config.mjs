@@ -66,6 +66,7 @@ export default defineConfig({
             'guides/invoking-functions',
             'guides/sending-events',
             'guides/realtime',
+            'guides/durable-endpoints',
           ],
         },
         {

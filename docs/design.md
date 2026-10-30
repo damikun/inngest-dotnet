@@ -393,7 +393,8 @@ per call.
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
 | Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
-| `defer`, durable endpoints | Not yet |
+| `defer` | Not yet |
+| Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGEST001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, step output and function output. The data an invoke sends is not transformed. |
 | `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |

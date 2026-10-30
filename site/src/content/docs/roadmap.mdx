@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from realtime, sessions and Sentry and encryption packages to checkpointing by default.
+description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from realtime, sessions, durable endpoints and Sentry and encryption packages to checkpointing by default.
 ---
 
 The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
@@ -31,6 +31,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   with the app, the function, the run and the event. `Inngest.Encryption` encrypts event data, step results and
   function output in the format of the TypeScript SDK's encryption middleware, so .NET and TypeScript services read
   each other's data. See [Middleware](/inngest-dotnet/guides/middleware/#encryption).
+- **Durable endpoints.** An ASP.NET Core endpoint whose handler runs steps like a function. The caller gets the
+  response directly, and Inngest takes the run over only when a step has to wait or fails. `UseInngestDurableEndpoints`
+  and `WithDurableEndpoint`, or `[DurableEndpoint]` on a controller, set it up. Inngest calls the feature beta, so the
+  .NET API is marked experimental and may change. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/).
 
 ## New in 0.1.0-preview.3
 
@@ -91,6 +95,6 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 
 ## After that
 
-- Roslyn analyzers, `defer`, and Inngest's durable endpoints, which build on checkpointing.
+- Roslyn analyzers and `defer`.
 
 Ideas and pull requests are welcome on [GitHub](https://github.com/damikun/inngest-dotnet/issues).

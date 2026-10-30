@@ -96,6 +96,8 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 - Middleware with observer and wrap hooks, resolved from DI.
 - Signed requests in cloud mode, with a fallback key for key rotation.
 - Serve from ASP.NET Core with `MapInngest`, or from a worker with `AddConnect`.
+- Durable endpoints: ASP.NET Core endpoints whose handlers run steps and answer the caller directly, with Inngest taking
+  over when a step has to wait or fails. Beta in Inngest, so the API is marked experimental.
 
 ## Documentation
 

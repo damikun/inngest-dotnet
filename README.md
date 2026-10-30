@@ -107,6 +107,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **AI calls** | `InferAsync` has Inngest make the model call; `AIWrapAsync` runs your own call as a step that the Inngest UI shows with its input. |
 | **Realtime** | `PublishAsync` and `PublishStreamAsync` send updates and model output from a run, `SubscribeAsync` receives them in .NET, and `MapInngestRealtime` relays them to browsers as server-sent events. |
 | **Sessions** | Events name the sessions they belong to, and what a run sends or invokes inherits them, so related runs group together. |
+| **Durable endpoints** | `WithDurableEndpoint` or `[DurableEndpoint]` makes an ASP.NET Core endpoint run steps like a function. The caller gets the response directly, and Inngest takes the run over when a step has to wait or fails. Beta in Inngest, so the .NET API is marked experimental. |
 | **Two ways to serve** | `MapInngest` adds the endpoint Inngest calls to an ASP.NET Core app, and can stream long calls through load balancers. `AddConnect` runs a worker over an outbound WebSocket instead. |
 | **Signed requests** | In cloud mode every request from Inngest is verified and every response is signed, with a fallback key for key rotation. |
 | **.NET conventions** | Functions are classes resolved from DI, or delegates. Settings come from `IOptions` and the usual `INNGEST_*` variables. Logs go to `ILogger`. |
@@ -297,6 +298,7 @@ data.
   [Invoking functions](https://damikun.github.io/inngest-dotnet/guides/invoking-functions/) ·
   [Sending events](https://damikun.github.io/inngest-dotnet/guides/sending-events/) ·
   [Realtime](https://damikun.github.io/inngest-dotnet/guides/realtime/) ·
+  [Durable endpoints](https://damikun.github.io/inngest-dotnet/guides/durable-endpoints/) ·
   [Flow control](https://damikun.github.io/inngest-dotnet/guides/flow-control/) ·
   [Errors and retries](https://damikun.github.io/inngest-dotnet/guides/errors-and-retries/) ·
   [Middleware](https://damikun.github.io/inngest-dotnet/guides/middleware/) ·

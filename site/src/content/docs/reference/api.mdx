@@ -26,10 +26,13 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IEndpointRouteBuilder.MapInngestRealtime(string pattern, Func<HttpContext, ValueTask<RealtimeSubscription?>> subscription)` | Serves realtime messages to browsers as server-sent events; the callback returns the `RealtimeSubscription(string Channel, IReadOnlyList<string> Topics)` a request may receive, or null for 403. Package `Inngest.AspNetCore`. See [Realtime](/inngest-dotnet/guides/realtime/#with-server-sent-events). |
 | `IHealthChecksBuilder.AddInngest(string? name = null, HealthStatus? failureStatus = null, IEnumerable<string>? tags = null, TimeSpan? timeout = null)` | Adds a health check that tells a readiness probe whether an app that serves functions can work with Inngest: its keys are configured and Inngest answers a request that carries the signing key. Name `"inngest"` unless given. Package `Inngest.AspNetCore`, in `Microsoft.Extensions.DependencyInjection`. See [Health checks](/inngest-dotnet/guides/deploying/#health-checks). |
 | `IHealthChecksBuilder.AddInngest(Action<InngestHealthCheckOptions>, string? name = null, HealthStatus? failureStatus = null, IEnumerable<string>? tags = null, TimeSpan? timeout = null)` | The same, with the options set by the callback. |
+| `IApplicationBuilder.UseInngestDurableEndpoints()` | Runs the endpoints marked as durable as Inngest runs. Add it after routing. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/). |
+| `IEndpointConventionBuilder.WithDurableEndpoint(DurableEndpointOptions? options = null)` | Marks an endpoint as durable, so that its handler can take `IStepTools` and run steps. Also `WithDurableEndpoint(string id)`. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
 | `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
 
-`AddInngest` also registers `IInngestClient`, `IInngestRunsClient` and `IInngestRealtime`.
+`AddInngest` also registers `IInngestClient`, `IInngestRunsClient` and `IInngestRealtime`, and `IStepTools`, which
+resolves to the steps of the durable endpoint or function that is running.
 
 ## Options
 
@@ -232,6 +235,29 @@ string Channel, string Topic)` with `Data`, `StreamId`, `Text`, `RunId` and `Cre
 `Data`, `StreamStart`, `StreamChunk`, `StreamEnd`, `Run` or `Other`. **`RealtimeToken`**, a record `(string Channel,
 IReadOnlyList<string> Topics, string Key)` with `ApiBaseUrl`; serialized with camelCase names, it is the token object
 that `useRealtime` and `subscribe` of the TypeScript SDK take.
+
+## Durable endpoints
+
+Package `Inngest.AspNetCore`. The API is marked `[Experimental("INNGEST001")]`, because Inngest calls durable endpoints
+beta; [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#beta) shows how to suppress the diagnostic.
+
+**`DurableEndpointOptions`**, the argument of `WithDurableEndpoint`:
+
+| Property | Type | Default |
+|---|---|---|
+| `Id` | `string?` | The method and the route pattern, such as `POST /orders/{id}` |
+| `Retries` | `int?` | 3 |
+| `AsyncResponse` | `DurableEndpointResponse` | `Redirect` |
+| `RedirectUrl` | `Func<DurableEndpointRun, Uri>?` | The output URL on the Inngest API |
+| `MaxRequestBodySize` | `int` | 1 MiB; a larger request gets 413 |
+
+**`DurableEndpointResponse`** is what the client gets when Inngest takes the run over: `Redirect`, a 303 to the URL that
+answers with the endpoint's response, or `Token`, a 200 with `{"run_id", "token"}`. **`DurableEndpointRun`**, a record
+`(string RunId, string Token)`, is what `RedirectUrl` receives.
+
+**`DurableEndpointAttribute`** marks a controller or an action, as `WithDurableEndpoint` does for a minimal API
+endpoint. Its constructor is `(string? id = null)`, and its properties are `Retries`, where a negative number means the
+default, and `AsyncResponse`. **`DurableEndpointDiagnostics.Id`** is `"INNGEST001"`, the diagnostic that marks the API.
 
 ## Errors
 

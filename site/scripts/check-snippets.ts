@@ -402,8 +402,9 @@ const props = `<Project>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Warnings the wrappers cause rather than the snippets: async methods without await, the return after a
-         snippet's own return, unused local functions and variables of fragments. -->
-    <NoWarn>$(NoWarn);CS1998;CS0162;CS8321;CS0219;CS0168;CS1591;xUnit1051</NoWarn>
+         snippet's own return, unused local functions and variables of fragments. INNGEST001 marks the durable
+         endpoint API as experimental; the durable endpoints guide has readers suppress it in their project file. -->
+    <NoWarn>$(NoWarn);CS1998;CS0162;CS8321;CS0219;CS0168;CS1591;xUnit1051;INNGEST001</NoWarn>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,410 @@
+---
+title: Durable endpoints in ASP.NET Core
+description: Make an ASP.NET Core endpoint durable, so that its handler runs steps like an Inngest function, answers the caller directly and hands the run to Inngest when a step has to wait or fails.
+sidebar:
+  label: Durable endpoints
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A durable endpoint is an HTTP endpoint whose handler runs steps, as an Inngest function does. The caller gets the
+handler's response directly. Inngest takes the run over only when a step has to wait or fails. It finishes the run, and
+the caller is sent to a URL that answers with the final response.
+
+A function started by an event works the other way round: the sender gets no result, and Inngest calls the app for
+every step. A durable endpoint suits work that a caller waits for, which Inngest advises to keep under 60 seconds. Work
+that nobody waits for, or that takes longer, belongs in a function.
+
+## Beta
+
+Inngest calls durable endpoints beta, so the protocol and the .NET API may still change. The API is marked
+`[Experimental("INNGEST001")]`. Code that names one of its types, such as `DurableEndpointOptions` or the
+`[DurableEndpoint]` attribute, is a compile error until the app suppresses that diagnostic. Suppress it in the project
+file:
+
+```xml title="Shop.csproj"
+<PropertyGroup>
+  <NoWarn>$(NoWarn);INNGEST001</NoWarn>
+</PropertyGroup>
+```
+
+Or put `#pragma warning disable INNGEST001` above the code that uses it.
+[Durable Endpoints](https://www.inngest.com/docs/durable-execution/durable-endpoints) in the Inngest docs describes
+the feature itself.
+
+## Setup
+
+Durable endpoints come with `Inngest.AspNetCore`, which brings in `Inngest`.
+[Getting started](/inngest-dotnet/guides/getting-started/) shows how to install it and start the dev server. Three
+things make an endpoint durable: `AddInngest` registers the SDK, `UseInngestDurableEndpoints` adds the middleware,
+and the endpoint is marked with `[DurableEndpoint]` or `WithDurableEndpoint`. The handler takes the step tools as an
+`IStepTools` parameter.
+
+<Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+On a controller, the attribute goes on the action. Without an id it can go on the controller, which marks every
+action:
+
+{/* check: program */}
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register IInventory and IPaymentGateway as usual.
+builder.Services.AddControllers();
+builder.Services.AddInngest(options => options.AppId = "shop");
+
+var app = builder.Build();
+
+app.UseInngestDurableEndpoints();
+app.MapControllers();
+
+app.Run();
+```
+
+{/* check: file */}
+```csharp title="CheckoutController.cs"
+using Inngest;
+using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("checkout")]
+public sealed class CheckoutController(IInventory inventory, IPaymentGateway payments) : ControllerBase
+{
+    [HttpPost]
+    [DurableEndpoint("checkout")]
+    public async Task<IActionResult> Post(CheckoutRequest request, [FromServices] IStepTools step)
+    {
+        var reservationId = await step.RunAsync("reserve-stock", ct => inventory.ReserveAsync(request.OrderId, ct));
+        var paymentId = await step.RunAsync("charge-card", ct => payments.ChargeAsync(request.CustomerId, request.Total, ct));
+
+        return Ok(new { request.OrderId, reservationId, paymentId });
+    }
+}
+
+public sealed record CheckoutRequest(string OrderId, string CustomerId, decimal Total);
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+On a minimal API endpoint, call `WithDurableEndpoint`:
+
+{/* check: program isolated */}
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register IInventory and IPaymentGateway as usual.
+builder.Services.AddInngest(options => options.AppId = "shop");
+
+var app = builder.Build();
+
+app.UseInngestDurableEndpoints();
+
+app.MapPost("/checkout", async (CheckoutRequest request, IStepTools step, IInventory inventory, IPaymentGateway payments) =>
+{
+    var reservationId = await step.RunAsync("reserve-stock", ct => inventory.ReserveAsync(request.OrderId, ct));
+    var paymentId = await step.RunAsync("charge-card", ct => payments.ChargeAsync(request.CustomerId, request.Total, ct));
+
+    return Results.Ok(new { request.OrderId, reservationId, paymentId });
+})
+.WithDurableEndpoint("checkout");
+
+app.Run();
+
+public sealed record CheckoutRequest(string OrderId, string CustomerId, decimal Total);
+```
+
+</TabItem>
+</Tabs>
+
+`UseInngestDurableEndpoints` goes after routing, because it looks for the endpoint the request was routed to. A
+`WebApplication` adds routing on its own; with another host, call `UseRouting` first. Everything after it in the
+pipeline runs inside the run. Put exception handling, such as `UseExceptionHandler`, before it, so that the SDK sees an
+exception first and can have it retried.
+
+`MapInngest` is not needed. Inngest calls a durable endpoint at its own URL and learns of it when the first run is
+saved, so there is nothing to sync. An app that has functions as well maps `MapInngest` as usual.
+
+`AddInngest` registers `IStepTools` as a service that resolves to the steps of the call that is running. Resolving it
+outside a durable endpoint or a function throws an `InvalidOperationException`. The step tools are the ones a
+function uses; see [Steps](/inngest-dotnet/guides/steps/).
+
+To try it, run the app in dev mode and start the dev server, as in
+[Getting started](/inngest-dotnet/guides/getting-started/). `curl -L` follows the redirect that comes when a step has
+to wait:
+
+```bash wrap
+curl -L -H 'Content-Type: application/json' -d '{"orderId":"o-1001","customerId":"c-42","total":59.90}' http://localhost:5280/checkout
+```
+
+The run appears under **Runs** in the dev server. If the dev server runs in Docker, set `ServeOrigin` first, as
+described under [Configuration](#configuration).
+
+## What happens to a request
+
+A request starts a run. The handler runs inside the request, and so do the steps that run your code, such as
+`RunAsync`. The SDK keeps their results in memory and tells Inngest about the run only when it has to hand the run
+over, or when the endpoint is done.
+
+### The endpoint finishes
+
+The client gets the response, with the run's id in an `X-Run-ID` header. After the response, the SDK records the run
+in Inngest, with the steps that ran and the response. A request that ran no steps leaves no run, and its response has
+no `X-Run-ID`.
+
+If Inngest cannot be reached for the recording, the SDK logs it. The client has its response already.
+
+### A step has to wait
+
+A sleep, a wait for an event or a signal, an invoke, a fetch or inference step, and steps in parallel do not run in
+the request: Inngest carries them out. The SDK saves the steps so far, which creates the run in Inngest, and the
+client gets a 303 See Other to a URL that answers with the final response. That URL waits up to five minutes for the
+run to finish.
+
+This handler runs `reserve-stock` in the request and then waits for a person to approve a large order. The body of
+the handler:
+
+{/* check: statements; CheckoutRequest request; IStepTools step; IInventory inventory; IPaymentGateway payments */}
+```csharp
+var reservationId = await step.RunAsync("reserve-stock", ct => inventory.ReserveAsync(request.OrderId, ct));
+
+if (request.Total > 1000m)
+{
+    var approval = await step.WaitForSignalAsync(
+        "wait-for-approval",
+        new WaitForSignalOptions($"approve-order-{request.OrderId}", TimeSpan.FromMinutes(2)));
+
+    if (approval is null)
+    {
+        await step.RunAsync("release-stock", ct => inventory.ReleaseAsync(reservationId, ct));
+        return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+    }
+}
+
+var paymentId = await step.RunAsync("charge-card", ct => payments.ChargeAsync(request.CustomerId, request.Total, ct));
+
+return Results.Ok(new { request.OrderId, reservationId, paymentId });
+```
+
+A small order never leaves the request. For a large one the client gets the 303 as soon as the handler reaches
+`wait-for-approval`. Another request ends the wait by sending the signal:
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapPost("/orders/{orderId}/approve", async (string orderId, IInngestClient inngest, CancellationToken cancellationToken) =>
+{
+    var runId = await inngest.SendSignalAsync(new InngestSignal($"approve-order-{orderId}"), cancellationToken);
+    return runId is null ? Results.NotFound() : Results.Accepted();
+});
+```
+
+If Inngest cannot be reached when the run is handed over, the request fails with that exception, which the app's
+error handling answers.
+
+### Inngest calls the endpoint again
+
+When the run can go on, Inngest calls the endpoint again, at the same URL, with the original method, body and query.
+The handler runs from the top, as a function does on every call. Steps that already ran return their saved results
+and do not run again. The code between steps does run again, so keep side effects in steps, as
+[Steps](/inngest-dotnet/guides/steps/#keep-side-effects-in-steps) explains.
+
+When the handler returns, its response goes to Inngest, which keeps it for the client that waits at the URL. In cloud
+mode the SDK checks the signature of the call, as it does for every call from Inngest.
+
+### A step fails
+
+Inngest retries a step that throws while it has retries left, so a step that fails can run again: make its effects
+safe to repeat. The SDK saves the failure, which hands the run over, and the client waits as above. When the last
+attempt fails, Inngest calls the endpoint again and the step throws a `StepFailedException` where the handler awaits
+it, as in a function. The handler can catch it and answer:
+
+{/* check: statements; CheckoutRequest request; IStepTools step; IPaymentGateway payments */}
+```csharp
+try
+{
+    var paymentId = await step.RunAsync("charge-card", ct => payments.ChargeAsync(request.CustomerId, request.Total, ct));
+    return Results.Ok(new { request.OrderId, paymentId });
+}
+catch (StepFailedException exception)
+{
+    return Results.Conflict(new { request.OrderId, error = exception.Error.Message });
+}
+```
+
+Left uncaught, it fails the run. Throw `NonRetriableException` in a step to fail it at once. See
+[Errors and retries](/inngest-dotnet/guides/errors-and-retries/).
+
+### The endpoint throws
+
+While attempts remain, Inngest retries an exception from the handler. The SDK hands the run over, Inngest calls the
+endpoint again, and the client waits as above. The steps that ran return their saved results.
+
+When the request itself is the last attempt, because `Retries` is 0 or the exception is a `NonRetriableException`, the
+exception goes to the app's own error handling, which answers the client as it would without Inngest. If the request
+ran steps, the SDK records the run as failed, with the error. A call from Inngest that throws on the last attempt
+fails the run.
+
+Only an exception makes Inngest retry. A handler that returns a 500 response has finished, and the run records that
+response.
+
+## What Inngest stores
+
+Inngest creates the run from an `inngest/http.request` event. Its data holds the method, the path, the query, the
+content type, the body as base64, the address of the client and the origin that Inngest calls back. Inngest keeps them
+with the run and sends the method, content type, body and query back on every call that resumes it. The request's
+headers are not stored. Treat the body and the query like step results: Inngest stores them.
+
+The run does not belong to the app that `MapInngest` serves. Inngest creates an app named after the domain of the
+endpoint, with one function for each endpoint id.
+
+## Options
+
+`WithDurableEndpoint` takes `DurableEndpointOptions`, or only the id as a string. `[DurableEndpoint]` takes the id as
+its argument, with `Retries` and `AsyncResponse` as properties.
+
+| Option | Meaning | Default |
+|---|---|---|
+| `Id` | The id of the endpoint's function in Inngest. | The method and the route pattern, such as `POST /orders/{id}` |
+| `Retries` | How many times Inngest retries a failed step, or the endpoint when it throws, after the first attempt. | 3 |
+| `AsyncResponse` | What the client gets when Inngest takes the run over: `Redirect` or `Token`. | `Redirect` |
+| `RedirectUrl` | Where the redirect goes. | The output URL on the Inngest API |
+| `MaxRequestBodySize` | The largest request body, in bytes. A larger request is refused with 413. | 1 MiB |
+
+<Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: attributes */}
+```csharp
+[DurableEndpoint("checkout", Retries = 5, AsyncResponse = DurableEndpointResponse.Token)]
+```
+
+`RedirectUrl` and `MaxRequestBodySize` have no attribute property. Set them with `DurableEndpointOptions`.
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: expression DurableEndpointOptions */}
+```csharp
+new DurableEndpointOptions
+{
+    Id = "checkout",
+    Retries = 5,
+    AsyncResponse = DurableEndpointResponse.Token,
+    MaxRequestBodySize = 256 * 1024,
+}
+```
+
+</TabItem>
+</Tabs>
+
+### The function id
+
+Without an `Id`, the id is the method and the route pattern, not the path, so `POST /orders/1` and `POST /orders/2`
+are one function, `POST /orders/{id}`. Set `Id` to name the function yourself. Inngest knows the function by its id,
+so keep it stable.
+
+### Retries
+
+The count applies to each step on its own, as it does for functions, and to the endpoint when it throws. Without
+`Retries` it is 3, one fewer than for functions, as in the TypeScript SDK. With 0, a step that fails is final.
+
+### What the client gets when Inngest takes over
+
+`Redirect`, the default, answers 303 See Other with a `Location` header. A 303 makes every client fetch the output
+with a GET, whatever the method of the request. `HttpClient` and `fetch` follow it by themselves, and so does `curl`
+with `-L`. The default location is `{ApiBaseUrl}/v1/http/runs/{run id}/output?token={token}`: the Inngest API, which in
+dev mode is the dev server.
+
+`Token` answers 200 with JSON, for a client that waits for the run itself:
+
+```json
+{ "run_id": "01JEXAMPLERUNID000000000000", "token": "eyJ..." }
+```
+
+The client reads the response from the output URL above with a GET. The token is all it needs, so treat it like the
+response itself.
+
+Both answers carry the run's id in `X-Run-ID`. `RedirectUrl` replaces the location of the redirect. It gets a
+`DurableEndpointRun` with the run's id and token and returns the `Uri` to redirect to, such as a page of your own app:
+
+{/* check: expression DurableEndpointOptions */}
+```csharp
+new DurableEndpointOptions
+{
+    RedirectUrl = run => new Uri($"https://shop.example.com/checkout/{run.RunId}?token={Uri.EscapeDataString(run.Token)}"),
+}
+```
+
+The default location is not on the app's origin, so a script in a browser follows the redirect under cross-origin
+rules.
+
+### Request size
+
+Inngest stores the request's body and sends it back on every call that resumes the run, so the body has a limit. The
+SDK reads the whole body into memory before the handler runs, and refuses one larger than `MaxRequestBodySize` with
+413. This holds for every request to the endpoint, whether or not it ends up waiting. Inngest accepts about 3 MiB at
+most.
+
+## Configuration
+
+The run records the origin that Inngest calls the endpoint back on. By default that is the origin of the request.
+Behind a reverse proxy, a load balancer or in a container, it may be an address that Inngest cannot reach. Set
+`ServeOrigin`, or `INNGEST_SERVE_ORIGIN`, to the public origin, as for
+[syncs](/inngest-dotnet/guides/configuration/#behind-a-proxy):
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.ServeOrigin = new Uri("https://shop.example.com");
+```
+
+Only the scheme, host and port of `ServeOrigin` are used. The path comes from the request. The proxy has to pass on
+the headers of the calls from Inngest, `X-Run-ID` and `X-Inngest-Signature` among them. A call without them is taken
+for a new request from a client, which starts a second run.
+
+In dev mode the SDK talks to the dev server, so the redirect goes to the dev server, at `http://localhost:8288` unless
+`DevServerUrl` says otherwise. A dev server in Docker reaches the app as `host.docker.internal`, not as `localhost`,
+so set `ServeOrigin` to `http://host.docker.internal:5280` for the app of the example above.
+
+In cloud mode the endpoint needs the signing key, as functions do: it authenticates the SDK's calls to the Inngest API,
+and the SDK verifies the calls from Inngest with it. See [Configuration](/inngest-dotnet/guides/configuration/).
+
+## Limitations
+
+- **No flow control, `defer` or `group.experiment`.** Inngest does not support them for durable endpoints. The options
+  above are all that an endpoint has.
+- **The response is buffered and recorded as text.** The SDK holds the whole response in memory until the endpoint has
+  finished, so streaming responses, such as server-sent events, do not work. Inngest records the body as text, so do
+  not return binary content from a durable endpoint.
+- **A call that resumes a run has no original headers and no user.** It carries the method, the body and the query,
+  and nothing else of the request. A handler that needs the user, or a header, reads it in a step before its first
+  wait. The saved result then comes back on every call:
+
+  {/* check: statements; WebApplication app */}
+  ```csharp
+  app.MapPost("/orders/{orderId}/ship", async (string orderId, HttpContext http, IStepTools step, IEmailSender email) =>
+  {
+      var recipient = await step.RunAsync("read-recipient", () => http.User.FindFirst("email")?.Value ?? "");
+
+      await step.SleepAsync("wait-for-packing", TimeSpan.FromSeconds(30));
+
+      await step.RunAsync("send-confirmation", ct => email.SendAsync(recipient, "Your order has shipped", ct));
+      return Results.Accepted();
+  })
+  .WithDurableEndpoint();
+  ```
+
+- **Endpoints that require authorization cannot be resumed yet.** The call from Inngest has no user, so authorization
+  refuses it. Such an endpoint works only while all of its steps run in the request.
+- **Code that outlives the call must not use `HttpContext`.** When a run is handed over, the handler is abandoned at
+  its step, and ASP.NET Core reuses the `HttpContext` once the request is over. Code the handler started that goes on
+  running, such as a task that is not awaited, must not touch it.
+- **Steps are saved when the run is handed over or the endpoint has finished.** Until then they wait in memory. If the
+  process stops or the client disconnects before that, Inngest knows nothing of the run, and the client's retry runs
+  the steps again.
+- **`InngestTestHost` does not run durable endpoints yet.** Test an endpoint against the dev server, as described in
+  [Testing](/inngest-dotnet/guides/testing/#end-to-end-against-the-dev-server).
