@@ -158,6 +158,29 @@ Tools the model asks for in one response are steps like any others made together
 other, each a step, and every step is a call to your function, unless
 [checkpointing](/inngest-dotnet/guides/configuration/) runs consecutive steps in one request.
 
+## Letting Inngest call the model
+
+`InngestInferChatClient` is an `IChatClient` whose calls Inngest makes. Each call is an
+[inference step](/inngest-dotnet/guides/steps/#calls-to-ai-models): Inngest sends the request to a provider that
+speaks the OpenAI chat completions API, and no worker waits for the answer. The client turns the messages, tools and
+options into the request body and reads the response back into a `ChatResponse`, with its tool calls and usage.
+
+{/* check: statements; string apiKey */}
+```csharp
+using Microsoft.Extensions.AI;
+
+IChatClient chat = new ChatClientBuilder(new InngestInferChatClient(
+        new Uri("https://api.openai.com/v1/chat/completions"), "gpt-4o-mini", apiKey))
+    .UseInngestFunctionInvocation()
+    .Build();
+```
+
+It is a step already, so it needs no `UseInngestSteps`; `UseInngestFunctionInvocation` still makes the tools steps.
+Like every inference step it works inside a run only and throws elsewhere. Inngest stores the request with the run, the
+API key included. A streaming call returns the saved response as updates once the model has finished, as Inngest does
+not stream the answer to the SDK. It speaks the OpenAI chat format only; for another provider's format, call
+`InferAsync` yourself.
+
 ## Editing the input
 
 The Inngest UI can rerun a step with an edited input. For a model call, the edited `messages` and `options` are what
@@ -193,7 +216,7 @@ a warning once.
 The test host of [`Inngest.Testing`](/inngest-dotnet/guides/testing/) runs these steps like any others. The simplest
 test gives the pipeline a fake `IChatClient` as the model, runs the function and counts the calls: the model is called
 once per step however many times the host replays the function. A step can also be answered by id, with the JSON of a
-`ChatResponse`:
+`ChatResponse`; the steps of `InngestInferChatClient` are answered with `StepMocks.Infer` and the provider's response:
 
 {/* check: statements; InngestTestHost host; InngestEvent @event; CancellationToken cancellationToken */}
 ```csharp
@@ -210,7 +233,7 @@ var run = await host.RunAsync("send-note", @event, mocks, cancellationToken);
 
 ## What it does not do
 
-- It wraps `IChatClient` only. Other Microsoft.Extensions.AI clients, such as `IEmbeddingGenerator`, are not steps;
+- It wraps `IChatClient` only, and `InngestInferChatClient` is for the OpenAI chat format only. Other Microsoft.Extensions.AI clients, such as `IEmbeddingGenerator`, are not steps;
   wrap them with `RunAsync`.
 - The updates of a stream arrive after the model has finished, not as it writes; publish to a realtime topic for that.
 - Calls made inside a step handler are not steps of their own, so an agent loop run entirely inside one `RunAsync`

@@ -372,6 +372,10 @@ Package `Inngest.Extensions.AI`. The extension methods are in `Microsoft.Extensi
 | `ChatOptions.WithInngestStepId(string)` | Names the step of one call, in place of `chat`, for calls that reach the client from other threads in no fixed order. The client removes the name before the options reach the model. |
 | `ChatOptions.WithInngestRealtimeStream(RealtimeTopic)` | Publishes the text of a streaming call to the topic while the model produces it. Failing to publish does not fail the call. |
 
+**`InngestInferChatClient(Uri endpoint, string model, string? apiKey = null, IReadOnlyDictionary<string, string>? headers = null)`**,
+in the `Inngest` namespace, is an `IChatClient` whose calls are inference steps in the OpenAI chat completions format: Inngest
+makes the request, and no worker waits for it. It works inside a run only.
+
 **`InngestStepsOptions`**, in the `Inngest` namespace: `RecordInput` (default `true`) records the messages and options of a
 model call, or the arguments of a tool call, as the input of its step; without it the step is a plain run step.
 

@@ -89,6 +89,18 @@ internal static class ChatJson
 
     public static JsonTypeInfo<T> Info<T>() => (JsonTypeInfo<T>)Options.GetTypeInfo(typeof(T));
 
+    // The value as JSON on one line, for the places where it is text of its own. The options of Microsoft.Extensions.AI indent.
+    public static string Compact(object value, JsonTypeInfo info)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            JsonSerializer.Serialize(writer, value, info);
+        }
+
+        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
     public static JsonElement Parse(ArrayBufferWriter<byte> buffer)
     {
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
