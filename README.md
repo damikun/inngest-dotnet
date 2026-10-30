@@ -178,6 +178,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.EntityFrameworkCore`](https://www.nuget.org/packages/Inngest.EntityFrameworkCore/) | A transactional outbox for Entity Framework Core: events saved in the same transaction as your data and sent to Inngest afterwards, under the same id on every attempt. |
 | [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/) | `dotnet new inngest-web` and `dotnet new inngest-worker`: a project with a typed event, a function and dev mode in its Development settings. |
 | [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/) | A .NET tool: `dotnet inngest dev` downloads the Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder. |
+| [`Inngest.SignalR`](https://www.nuget.org/packages/Inngest.SignalR/) | Forwards Inngest realtime messages to the clients of a SignalR hub, with one subscription to Inngest shared by the clients of a channel. |
 
 Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`;
 the template package holds files only.

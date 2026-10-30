@@ -1,0 +1,317 @@
+---
+title: "SignalR: realtime messages for SignalR clients"
+description: Forward Inngest realtime messages to the clients of a SignalR hub with Inngest.SignalR, authorize who may join a channel, and scale out on Redis or Azure SignalR Service without duplicates.
+sidebar:
+  label: SignalR
+---
+
+If your app already uses SignalR, `Inngest.SignalR` brings the [realtime](/inngest-dotnet/guides/realtime/) messages of
+your functions to its clients. A client calls a hub method to join the topics of a channel, and every message that a
+function publishes there reaches it as a call of a client method. The app decides who may join what, the browser holds
+no Inngest token, and clients that join the same topics share one subscription to Inngest.
+
+## Set up
+
+Install `Inngest.SignalR` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`. The version is a preview, so add
+`--prerelease`:
+
+```bash
+dotnet add package Inngest.SignalR --prerelease
+```
+
+Then add SignalR, the SDK and the bridge, and map the hub. `Authorize` is required, because nobody is let in by
+default:
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSignalR();
+builder.Services.AddInngest(options => options.AppId = "shop");
+builder.Services.AddInngestSignalR(options =>
+{
+    // Check here that the signed-in user may see the channel.
+    options.Authorize = request => ValueTask.FromResult<RealtimeSubscription?>(request.Requested);
+});
+
+var app = builder.Build();
+
+app.MapInngestRealtimeHub("/hubs/inngest").RequireAuthorization();
+app.Run();
+```
+
+`MapInngestRealtimeHub` maps `InngestRealtimeHub`, a hub with two methods: `Subscribe(channel, topics)` and
+`Unsubscribe(channel, topics)`. Like any hub endpoint it follows the app's authorization, so `RequireAuthorization()`
+decides who may connect, and `Authorize` decides what a connected user may join.
+
+## Decide who may join
+
+`Authorize` runs each time a client asks to join. The request holds the client's connection, with its user, the
+channel and topics it asked for, and a scope to resolve services from, such as a database context, which ends when the
+callback returns. The callback returns the subscription to join:
+
+- `request.Requested` lets the client in as it asked.
+- The same channel with fewer topics narrows the request.
+- Another channel gives the client something it did not name, such as one derived from its user.
+- `null` refuses, and the client gets a `HubException` saying so. Throw a `HubException` yourself to say why; SignalR
+  sends its message to the client.
+
+{/* check: file */}
+```csharp
+using System.Security.Claims;
+
+public interface IOrderAccess
+{
+    ValueTask<bool> CanSeeAsync(ClaimsPrincipal? user, string orderId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.AspNetCore.SignalR;
+
+builder.Services.AddInngestSignalR(options =>
+{
+    options.Authorize = async request =>
+    {
+        var requested = request.Requested;
+        if (!requested.Channel.StartsWith("order:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var orders = request.Services.GetRequiredService<IOrderAccess>();
+        if (!await orders.CanSeeAsync(request.Caller.User, requested.Channel["order:".Length..], request.CancellationToken))
+        {
+            throw new HubException("That order is not yours.");
+        }
+
+        // The tokens of a model's reply are for staff.
+        return request.Caller.User?.IsInRole("staff") == true
+            ? requested
+            : requested with { Topics = [.. requested.Topics.Where(topic => topic != "tokens")] };
+    };
+});
+```
+
+The callback is asked when the client joins and not again while it stays, so to cut a user off, end their connection.
+
+## Join from a client
+
+### With the JavaScript client
+
+The client listens to `Realtime`, where each message arrives as the JSON Inngest sends it, in a string, and joins with
+`Subscribe`. The format is that of the [server-sent events relay](/inngest-dotnet/guides/realtime/#with-server-sent-events):
+`{ kind, channel, topic, data, run_id, created_at }`, and for the text of a stream `{ kind: "chunk", stream_id, data }`
+between a `datastream-start` and a `datastream-end`.
+
+```js
+import * as signalR from "@microsoft/signalr";
+
+const connection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/inngest")
+  .withAutomaticReconnect()
+  .build();
+
+connection.on("Realtime", (json) => {
+  const message = JSON.parse(json);
+  if (message.kind === "data") showStatus(message.topic, message.data);
+  if (message.kind === "chunk") appendText(message.data);
+});
+
+// Inngest ended the subscription. The client is out of it and joins again to try anew.
+connection.on("RealtimeError", (channel, text) => showProblem(channel, text));
+
+const join = () => connection.invoke("Subscribe", `order:${orderId}`, ["status", "tokens"]);
+
+// A reconnect is a new connection with a new id, and the server has forgotten the old one: join again.
+connection.onreconnected(join);
+
+await connection.start();
+await join();
+```
+
+`Subscribe` resolves once the client has joined, and rejects with an error that holds the message of the `HubException`
+when it may not. A client that leaves a page calls `connection.invoke("Unsubscribe", channel, topics)` with the arguments it joined with,
+and a connection that closes leaves everything at once. Joining what a client is in already, and leaving what it is not
+in, change nothing.
+
+Inngest keeps no messages for later and delivers only to subscribers that are connected. `Subscribe` returns when the
+client has joined, a moment before the app's subscription to Inngest is open, so join before the function starts
+publishing, or read the current state after joining.
+
+### With the .NET client
+
+```csharp
+using System.Text.Json;
+using Microsoft.AspNetCore.SignalR.Client;
+
+var connection = new HubConnectionBuilder()
+    .WithUrl("https://shop.example.com/hubs/inngest")
+    .WithAutomaticReconnect()
+    .Build();
+
+connection.On<string>("Realtime", json =>
+{
+    using var message = JsonDocument.Parse(json);
+    Console.WriteLine(message.RootElement.GetProperty("kind").GetString());
+});
+connection.Reconnected += _ => connection.InvokeAsync("Subscribe", "order:o-1", new[] { "status" });
+
+await connection.StartAsync();
+await connection.InvokeAsync("Subscribe", "order:o-1", new[] { "status" });
+```
+
+The JSON and MessagePack protocols carry a message alike, because it is a string.
+
+## Join from a hub of your own
+
+An app that has a hub calls the bridge from its methods instead of mapping `InngestRealtimeHub`. The hub injects
+`InngestRealtimeBridge<THub>`, which `AddInngestSignalR<THub>` registers. A typed topic names the channel and topic
+once for the function that publishes and the hub that joins:
+
+{/* check: file */}
+```csharp
+using Inngest;
+using Microsoft.AspNetCore.SignalR;
+
+public sealed record OrderStatus(string Text, int Percent);
+
+public static class Topics
+{
+    public static RealtimeTopic<OrderStatus> Status(string orderId) => new($"order:{orderId}", "status");
+}
+
+public sealed class OrdersHub(InngestRealtimeBridge<OrdersHub> bridge) : Hub
+{
+    public Task Watch(string orderId) =>
+        bridge.SubscribeAsync(Context, Topics.Status(orderId), Context.ConnectionAborted).AsTask();
+
+    public void Unwatch(string orderId) => bridge.Unsubscribe(Context, Topics.Status(orderId));
+}
+```
+
+{/* check: statements; WebApplicationBuilder builder; WebApplication app */}
+```csharp
+builder.Services.AddInngestSignalR<OrdersHub>(options =>
+    options.Authorize = request => ValueTask.FromResult<RealtimeSubscription?>(request.Requested));
+
+app.MapHub<OrdersHub>("/hubs/orders");
+```
+
+`SubscribeAsync` asks the same `Authorize` callback, returns the subscription that was joined, and throws the
+`HubException` the client sees. The hub needs no base class and no filter: the bridge leaves a connection's
+subscriptions when SignalR aborts the connection, whichever hub it belongs to. Messages reach the client method
+`Realtime` unless `MessageMethod` says otherwise; `ErrorMethod` names the one for errors.
+
+## What the bridge does
+
+- **One subscription to Inngest for each channel and set of topics**, whatever the order of the topics. It opens with the
+  first client that joins, and closes with the last that leaves or disconnects.
+- **Every connection has a queue of its own** and a loop that sends it to the client, one message at a time and in
+  order. A client that reads slowly delays only itself. One that falls 512 messages behind is disconnected, as a page
+  is by the server-sent events relay, and its client reconnects and joins again. A send that fails disconnects the
+  client too, for it would otherwise miss a message without knowing.
+- **A subscription Inngest refuses**, such as one with a signing key it does not accept, is logged. Every client that had
+  joined it hears of it in `RealtimeError(channel, text)` and is out of it, and joining again tries anew.
+- **A subscription that drops** is opened again with a new token, as `SubscribeAsync` does, and what is published
+  meanwhile is missed. A client whose connection drops is a new connection when it returns, and joins again.
+- **When the app stops**, the subscriptions to Inngest close at once and nobody joins any more.
+- **A connection may be joined to 32 subscriptions** by default, for each is a connection from the app to Inngest that
+  nobody else shares. `MaxSubscriptionsPerConnection` changes it.
+
+## Scale out
+
+SignalR keeps a connection on one app instance. With several instances, a backplane lets one instance send to a
+connection, a user or a group that is on another: Redis, or Azure SignalR Service, which holds the client connections
+itself. See [Microsoft's guide](https://learn.microsoft.com/aspnet/core/signalr/scale). Every instance of the app
+subscribes to Inngest for the clients it has, so a bridge that sent each message to a group would deliver it again and
+again: a send to a group reaches its members on every instance, whichever sent it. With the same group name on three
+instances that all forward a message, a client would receive it three times.
+
+So the bridge never sends to a group or to everyone. An instance sends each message to the connections that joined
+through it, by connection id, and the other instances do the same for theirs. Each client receives each message once,
+however many instances there are, on Redis and on Azure SignalR Service. What that costs and saves:
+
+- **Redis.** A send to a connection that is on the instance is written straight to it, without Redis, so the bridge's
+  messages put no load on Redis and do not wait for it. A group send is published to Redis, where every instance that
+  has a member of the group delivers it.
+- **Azure SignalR Service.** The instance sends the service one message for each client, and the service delivers it. A
+  group send would be one message for all its members, which is cheaper for the instance when a channel has a great
+  many clients.
+- **Instance-scoped group names** (`<group>:<instance id>`) would also be exact, and send one message for all the clients
+  of an instance. They need a call to the backplane on every join and leave (a round trip to the service on Azure), and
+  with the default in-process manager a group send waits for every member, so a client that reads slowly holds up its
+  group. The bridge sends to connections so that it can disconnect that one client and no other.
+- **Each instance opens its own subscription to Inngest** for each channel its clients joined, so a channel that clients
+  of three instances watch has three subscriptions, not one.
+- **A reconnect** can land on another instance with a new connection id. The client joins again, which opens a
+  subscription on that instance if it has none, and the old instance has already dropped the old connection.
+
+If thousands of clients watch one channel, consider letting their browsers subscribe to Inngest themselves with a token
+and `useRealtime`: Inngest does the fan-out, and no instance of your app sends a message for each client.
+
+## Trimming and Native AOT
+
+The package's own code is trim and Native AOT compatible. SignalR's support is narrower, and it is SignalR's:
+
+- On .NET 8, Microsoft lists SignalR as not supported with Native AOT. .NET 9 added trimming and Native AOT for the
+  SignalR server and client.
+- Only the JSON protocol, with a `System.Text.Json` source-generated context. MessagePack is not supported.
+- No strongly typed hubs with Native AOT, and the asynchronous return types of hub methods are limited to `Task`,
+  `Task<T>`, `ValueTask` and `ValueTask<T>`.
+- Every type that crosses the wire needs a place in the context, registered with SignalR's JSON protocol.
+
+In a trimmed or Native AOT app `AddInngestSignalR` registers the two types of its own hub, `string` and `string[]` (the
+text of a message and the topics of `Subscribe`), after your context. A hub of your own and its client calls add their
+types to the context as they would without the bridge:
+
+{/* check: file */}
+```csharp
+using System.Text.Json.Serialization;
+
+public sealed record OrderRef(string OrderId);
+
+[JsonSerializable(typeof(OrderRef))]
+internal sealed partial class AppJsonContext : JsonSerializerContext;
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.AspNetCore.SignalR;
+
+builder.Services.Configure<JsonHubProtocolOptions>(options =>
+    options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
+```
+
+See [Native AOT](/inngest-dotnet/guides/native-aot/) for the SDK itself.
+
+## Compared with server-sent events
+
+[`MapInngestRealtime`](/inngest-dotnet/guides/realtime/#with-server-sent-events) relays the same messages as
+server-sent events, with no client library.
+
+| | `MapInngestRealtime` | `Inngest.SignalR` |
+|---|---|---|
+| Client | `EventSource` | `@microsoft/signalr` or the .NET client |
+| What a connection receives | The topics of one channel, named by the URL | Any channels, joined and left by calls on one connection |
+| Who decides | A callback on the request, and the endpoint's authorization | A callback on each join, and the hub's authorization |
+| After a drop | The browser reconnects, and the callback runs again | The client reconnects and joins again |
+| Subscriptions to Inngest | One for each channel and topics, shared | One for each channel and topics, shared, in each instance |
+| A slow client | Disconnected after 512 messages | Disconnected after 512 messages |
+| With several instances | Nothing to set up | Each instance sends only to its own clients |
+
+SignalR suits an app that has it already and wants these messages on the connection the page uses for the rest. A page
+that only listens needs nothing but `EventSource`. A browser can also subscribe to Inngest itself with a token and
+`useRealtime`, as [Realtime](/inngest-dotnet/guides/realtime/#with-the-typescript-client) shows, which leaves the
+fan-out to Inngest.
+
+## Limits
+
+- Each message is a string of the JSON Inngest sent, up to Inngest's own limit of 512 KB. SignalR's
+  `MaximumReceiveMessageSize` applies to what clients send, such as the topics of `Subscribe`.
+- Delivery follows Inngest's: to the clients that have joined, from the moment the subscription to Inngest is open, and
+  nothing is kept for later.
+- `Authorize` runs when a client joins.
+- A client that joined through one instance of the app is served by that instance until its connection ends.

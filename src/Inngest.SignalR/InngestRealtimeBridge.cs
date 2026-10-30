@@ -287,7 +287,7 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             // However the connection ends, it leaves its feeds. A token that is cancelled already calls back at once.
             Action ended = () => End(listener);
             caller.ConnectionAborted.UnsafeRegister(static state => ((Action)state!)(), ended);
-            RunDetached(() => SendAsync(listener));
+            RunDetached(() => SendLoopAsync(listener));
         }
 
         if (newFeed)
@@ -405,12 +405,13 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
                 }
             }
         }
-        catch (OperationCanceledException) when (feed.Stop.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
+        catch (Exception exception) when (!feed.Stop.IsCancellationRequested)
         {
             Fail(feed, exception);
+        }
+        catch (Exception)
+        {
+            // The feed was closed, and what ends the read is the cancellation, whatever form it takes.
         }
     }
 
@@ -454,7 +455,7 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
     }
 
     // Sends the queue to the connection, one message at a time and in order. Only this connection waits for a slow client.
-    private async Task SendAsync(Listener listener)
+    private async Task SendLoopAsync(Listener listener)
     {
         var client = _hub.Clients.Client(listener.ConnectionId);
         var stop = listener.Stop.Token;

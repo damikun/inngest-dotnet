@@ -435,6 +435,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.3.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.1" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
   </ItemGroup>
   <ItemGroup>
 ${references}
@@ -452,6 +453,7 @@ ${reference('Inngest.Extensions.AI')}
     <ProjectReference Include="${join(repo, 'src', 'Inngest.SourceGeneration', 'Inngest.SourceGeneration.csproj')}" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 ${reference('Inngest.AwsLambda')}
 ${reference('Inngest.AzureFunctions')}
+${reference('Inngest.SignalR')}
   </ItemGroup>
   <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>

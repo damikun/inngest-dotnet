@@ -6,7 +6,7 @@ description: Publish updates and streams of text from a run, receive them in .NE
 A durable function can run for minutes, retry and go on after the request that started it has ended. Realtime lets
 it report back as it goes: it publishes messages to a channel, and the subscribers of that channel receive them. The
 SDK publishes data and streams of text, receives messages in .NET, mints the tokens the TypeScript SDK's
-`useRealtime` subscribes with, and relays messages to browsers as server-sent events. Everything goes through Inngest
+`useRealtime` subscribes with, and relays messages to browsers as server-sent events or through SignalR. Everything goes through Inngest
 Realtime, which delivers a message to the subscribers connected when it is published and keeps none for later.
 
 ## Channels and topics
@@ -134,6 +134,13 @@ id. Requests for the same topics of a channel share one subscription to Inngest,
 order cost one connection to it. The browser holds no token, the app's own sign-in guards the endpoint, and an
 `EventSource` reconnects by itself. Every connection gets a comment every 15 seconds, so proxies keep it open, and a
 page that falls 512 messages behind is disconnected rather than holding the others up.
+
+### With SignalR
+
+An app that has SignalR can bring the messages to its clients through a hub, where a client joins and leaves channels
+with method calls and the app's callback decides who may join what. Clients that join the same topics share one
+subscription to Inngest, and an app with several instances on Redis or Azure SignalR Service delivers each message
+once. See [SignalR](/inngest-dotnet/guides/signalr/).
 
 ### With the TypeScript client
 

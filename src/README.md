@@ -46,6 +46,8 @@ which are never compiled ahead of time.
   `dotnet new inngest-worker`, projects with a typed event, a function and dev mode in their Development settings.
 - [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/): a .NET tool; `dotnet inngest dev` downloads the
   Inngest CLI, checks its SHA-256 and runs the dev server for the app in the current folder.
+- [`Inngest.SignalR`](https://www.nuget.org/packages/Inngest.SignalR/): forwards Inngest realtime messages to the
+  clients of a SignalR hub, with one subscription to Inngest shared by the clients of a channel.
 
 Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`:
 

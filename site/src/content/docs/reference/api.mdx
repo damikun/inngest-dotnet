@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.SignalR, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -483,6 +483,41 @@ under; at most 255 characters, as `Name` and `Version` are), `Name`, `Data`, `Us
 | `LeaseDuration`, `SendTimeout` | How long a dispatcher owns the events it claimed (1 minute) and how long one request may take (20 seconds). The lease must be at least twice the timeout. |
 | `RetryDelay`, `MaxRetryDelay` | The wait after the first failed attempt, doubled with each failure, and its cap. 5 seconds and 5 minutes by default. |
 | `Retention`, `CleanupInterval`, `CleanupBatchSize` | How long sent events stay (1 day), how often older ones are deleted (5 minutes) and how many one `DELETE` removes (1000). |
+
+## SignalR
+
+Package `Inngest.SignalR`, which also brings in `Inngest.AspNetCore`. See [SignalR](/inngest-dotnet/guides/signalr/).
+
+| Member | Purpose |
+|---|---|
+| `IServiceCollection.AddInngestSignalR(Action<InngestSignalROptions>)` | Registers the bridge for `InngestRealtimeHub`. Call `AddSignalR` and `AddInngest` as well. In `Microsoft.Extensions.DependencyInjection`. |
+| `IServiceCollection.AddInngestSignalR<THub>(Action<InngestSignalROptions>)` | Registers the bridge for a hub of your own, which injects `InngestRealtimeBridge<THub>`. The options are read at once, so a missing `Authorize` fails the app at startup. |
+| `IEndpointRouteBuilder.MapInngestRealtimeHub(string pattern)` | Maps `InngestRealtimeHub` and returns its `HubEndpointConventionBuilder`. In `Microsoft.AspNetCore.Builder`. |
+
+**`InngestRealtimeHub`**, a sealed hub with `Subscribe(string channel, string[] topics)` and `Unsubscribe(string channel,
+string[] topics)`.
+
+**`InngestRealtimeBridge<THub>`** forwards the messages to the clients of `THub`. It sends to connections by id, never to
+a group, so that instances on a backplane deliver each message once.
+
+| Member | Purpose |
+|---|---|
+| `SubscribeAsync(HubCallerContext caller, string channel, IReadOnlyList<string> topics, CancellationToken)` | `ValueTask<RealtimeSubscription>`: asks `Authorize`, joins the caller and returns what it joined. Joining again changes nothing. Throws `HubException` when the request is incomplete, refused, over the limit, or the app is stopping. |
+| `SubscribeAsync<T>(HubCallerContext caller, RealtimeTopic<T> topic, CancellationToken)` | The same for a typed topic. |
+| `Unsubscribe(HubCallerContext caller, string channel, IReadOnlyList<string> topics)` | Takes the caller out of what it joined with these arguments, or with the subscription `Authorize` returned. Leaving what it is not in changes nothing. |
+| `Unsubscribe<T>(HubCallerContext caller, RealtimeTopic<T> topic)` | The same for a typed topic. |
+
+**`InngestSignalROptions`**:
+
+| Member | Purpose |
+|---|---|
+| `Authorize` | `Func<RealtimeSubscribeRequest, ValueTask<RealtimeSubscription?>>`, required: returns the subscription to join, which may have fewer topics or another channel, or null to refuse. |
+| `MessageMethod` | The client method that receives each message as a string of JSON. `"Realtime"` by default. |
+| `ErrorMethod` | The client method that hears of a subscription Inngest ended, with the channel and a text. `"RealtimeError"` by default. |
+| `MaxSubscriptionsPerConnection` | How many subscriptions one connection may be in. 32 by default. |
+
+**`RealtimeSubscribeRequest`**: `Caller` (the `HubCallerContext`), `Requested` (a `RealtimeSubscription`), `Services` (a
+scope of its own) and `CancellationToken`.
 
 ## Test host
 
