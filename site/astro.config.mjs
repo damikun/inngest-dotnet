@@ -54,7 +54,7 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Start here',
-          items: ['how-it-works', 'guides/getting-started'],
+          items: ['how-it-works', 'guides/getting-started', 'guides/ai-assistants'],
         },
         {
           label: 'Writing functions',

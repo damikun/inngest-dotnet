@@ -1,0 +1,436 @@
+---
+title: Writing Inngest .NET code with AI coding assistants
+description: The names that differ from the TypeScript SDK and the rules that keep a function correct when it replays, for AI coding assistants and the people who use them, with a block for AGENTS.md, CLAUDE.md or Cursor rules.
+sidebar:
+  label: AI coding assistants
+---
+
+AI coding assistants have seen far more of the Inngest TypeScript SDK than of this one, so they tend to write
+inngest-js patterns in C#: methods that do not exist, and code that goes wrong when a run replays. This page lists
+the names that differ and the rules that keep a function correct. Point your assistant at it before it writes code
+with the SDK, or [paste the rules](#add-the-rules-to-your-repository) into your own repository's instructions.
+
+## Give the assistant the docs
+
+The docs come in forms made for tools:
+
+- [`llms.txt`](https://damikun.github.io/inngest-dotnet/llms.txt) lists every page with a one-line description, in the
+  llms.txt format.
+- [`llms-full.txt`](https://damikun.github.io/inngest-dotnet/llms-full.txt) holds every page in one file, for tools that
+  take a single file.
+- Every page has a Markdown copy next to it, at its address with `.md` in place of the trailing slash.
+  `https://damikun.github.io/inngest-dotnet/guides/steps/` has
+  `https://damikun.github.io/inngest-dotnet/guides/steps.md`, and the home page has `index.md`. The footer of every
+  page links to its copy.
+
+The copies are plain Markdown: code blocks keep their language, links are absolute and point at other copies, and the
+interactive tools are left out.
+
+## Names
+
+The step tools are methods of `context.Step`, and they end in `Async`. A function is a class, or a delegate, not a
+callback given to `createFunction`, and an event's data is a record.
+
+| inngest-js | inngest-dotnet |
+|---|---|
+| `inngest.createFunction` | A class that derives from `InngestFunction<TEventData>` and overrides `ExecuteAsync`, with `[InngestFunction("id")]` and `[EventTrigger("name")]` on it, registered with `AddFunction<T>()`. Or `AddFunction(FunctionOptions, handler)`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| `serve` | `AddInngest(...)` on the services, then `app.MapInngest("/api/inngest")`. `AddConnect()` instead for a worker with no endpoint; see [Connect](/inngest-dotnet/guides/connect/). |
+| `inngest.send` | `IInngestClient.SendAsync(new InngestEvent("name", data))`, or `SendAsync(record)` for a record that implements `IInngestEventData`. See [Sending events](/inngest-dotnet/guides/sending-events/). |
+| `step.run` | `context.Step.RunAsync(id, handler)` |
+| `step.sleep` | `SleepAsync(id, TimeSpan.FromHours(1))` |
+| `step.sleepUntil` | `SleepUntilAsync(id, DateTimeOffset)` |
+| `step.waitForEvent` | `WaitForEventAsync<TData>(id, new WaitForEventOptions(event, timeout) { Match = "data.userId" })`; returns `null` at the timeout. See [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/). |
+| `step.waitForSignal` | `WaitForSignalAsync<TData>(id, new WaitForSignalOptions(signal, timeout))`; returns `null` at the timeout. `SendSignalAsync` sends one. |
+| `step.invoke` | `InvokeAsync<TResult>(id, new InvokeOptions(functionId) { Data = data })`, or `InvokeAsync<TFunction, TResult>(id, data)` for a function class of the app. See [Invoking functions](/inngest-dotnet/guides/invoking-functions/). |
+| `step.sendEvent` | `SendEventAsync(id, events)`: a list of `InngestEvent`, one event, or records. |
+| `step.fetch` | `FetchAsync(id, HttpRequestMessage)`; returns an `HttpResponseMessage`. |
+| `step.ai.infer` | `InferAsync<TResponse>(id, new InferOptions(AIFormat.OpenAIChat, url, body))` |
+| `step.ai.wrap` | `AIWrapAsync(id, input, handler)` |
+| `step.realtime.publish` | `PublishAsync(id, topic, data)`, with a `RealtimeTopic(channel, name)`. `PublishStreamAsync` streams text. See [Realtime](/inngest-dotnet/guides/realtime/). |
+| `Promise.all` over steps | Start the steps, then `await Task.WhenAll(...)`. See [Parallel steps](/inngest-dotnet/guides/parallel-steps/). |
+| `NonRetriableError`, `RetryAfterError` | `NonRetriableException`, `RetryAfterException` |
+
+By default event data is serialized with camelCase names, so the property `OrderId` is `data.orderId` in the
+expressions of `Match`, `If` and the flow control options. [The API overview](/inngest-dotnet/reference/api/) lists every signature.
+
+A function, its registration and a send, in the .NET forms:
+
+{/* check: file */}
+```csharp title="ChargeOrder.cs"
+using Inngest;
+
+[InngestFunction("charge-order")]
+[EventTrigger<OrderPlaced>]
+public sealed class ChargeOrder(IPaymentGateway payments) : InngestFunction<OrderPlaced>
+{
+    public override async Task<object?> ExecuteAsync(
+        FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var paymentId = await context.Step.RunAsync("charge",
+            ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+        return new { order.OrderId, paymentId };
+    }
+}
+```
+
+```csharp title="Program.cs"
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<ChargeOrder>();
+
+var app = builder.Build();
+app.MapInngest("/api/inngest");
+app.Run();
+```
+
+{/* check: statements; IInngestClient inngest; OrderPlaced order */}
+```csharp
+// IInngestClient is injected where it is needed. The record names the event.
+await inngest.SendAsync(order);
+```
+
+Every step tool, with the ids and values that the rules below ask for:
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IChatModel chat */}
+```csharp
+var order = context.Event.Data;
+
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(30));
+
+var dueAt = await context.Step.RunAsync("compute-due", () => DateTimeOffset.UtcNow.AddDays(1));
+await context.Step.SleepUntilAsync("wait-until-due", dueAt);
+
+var shipped = await context.Step.WaitForEventAsync("wait-for-shipment",
+    new WaitForEventOptions("shop/order.shipped", TimeSpan.FromDays(3)) { Match = "data.orderId" });
+
+var approval = await context.Step.WaitForSignalAsync("wait-for-approval",
+    new WaitForSignalOptions($"approval/{order.OrderId}", TimeSpan.FromDays(1)));
+
+var score = await context.Step.InvokeAsync<ScoreAccount, AccountScore>("score-customer",
+    new ScoreRequest(order.CustomerId));
+
+await context.Step.SendEventAsync("announce",
+    new InngestEvent("shop/order.paid", new { orderId = order.OrderId }));
+
+var rates = await context.Step.FetchAsync("get-rates",
+    new HttpRequestMessage(HttpMethod.Get, "https://example.com/rates"));
+
+var verdict = await context.Step.InferAsync("check-fraud",
+    new InferOptions(
+        AIFormat.OpenAIChat,
+        new Uri("https://api.openai.com/v1/chat/completions"),
+        new
+        {
+            model = "gpt-4o-mini",
+            messages = new[] { new { role = "user", content = "Is this order fraud?" } },
+        }));
+
+var note = await context.Step.AIWrapAsync("draft-note",
+    $"Thank customer {order.CustomerId} for order {order.OrderId}.",
+    prompt => chat.CompleteAsync(prompt, cancellationToken));
+
+await context.Step.PublishAsync("publish-status",
+    new RealtimeTopic($"order:{order.OrderId}", "status"), new { percent = 50 });
+```
+
+## Replay rules
+
+Inngest calls the function again after every step, and every call runs it from the top. A step that finished returns
+its saved result at once. The call that reaches a new step ends there: the SDK runs the step or reports it, and drops
+the rest of the function. Everything that is not in a step runs on every call.
+[How it works](/inngest-dotnet/how-it-works/) shows a run call by call, and
+[Steps](/inngest-dotnet/guides/steps/) covers ids and results. The rules follow from that.
+
+### 1. Put side effects in steps
+
+Code outside a step runs on every call, so an email, a database write or an API call there is repeated once per call.
+
+{/* check: body UserSignedUp; IEmailSender email */}
+```csharp
+var user = context.Event.Data;
+
+// Wrong: this runs on every call, so the user gets one email for each call.
+await email.SendAsync(user.Email, "Welcome!", cancellationToken);
+
+await context.Step.SleepAsync("wait-a-day", TimeSpan.FromDays(1));
+```
+
+{/* check: body UserSignedUp; IEmailSender email */}
+```csharp
+var user = context.Event.Data;
+
+// Right: the step sends the email once and saves the result.
+await context.Step.RunAsync("send-welcome", ct => email.SendAsync(user.Email, "Welcome!", ct));
+
+await context.Step.SleepAsync("wait-a-day", TimeSpan.FromDays(1));
+```
+
+### 2. Keep step ids the same on every call
+
+Inngest finds a saved result by the step's id. An id that changes between calls never finds one, so the step runs
+again on every call and the run does not get past it. Use a constant, or build the id from the event's data, the
+results of earlier steps and loop indexes. Never build it from the clock, `Guid.NewGuid()` or `Random`.
+[Steps](/inngest-dotnet/guides/steps/#step-ids) explains how repeated ids are numbered.
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: a new id on every call, so no call finds a saved result and the charge runs every time.
+var paymentId = await context.Step.RunAsync($"charge-{Guid.NewGuid()}",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.RunAsync($"mark-paid-{DateTimeOffset.UtcNow.Ticks}",
+    ct => orders.MarkPaidAsync(order.OrderId, paymentId, ct));
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Right: constant ids, or ids built from the event's data and loop indexes.
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.RunAsync($"mark-paid-{order.OrderId}",
+    ct => orders.MarkPaidAsync(order.OrderId, paymentId, ct));
+
+for (var week = 1; week <= 3; week++)
+{
+    await context.Step.SleepAsync($"wait-week-{week}", TimeSpan.FromDays(7));
+}
+```
+
+### 3. Get values that change from steps
+
+The time, random numbers and anything read from a database or an API can differ from one call to the next. A step
+saves the value it reads, so every call sees the same one. A list read outside a step can change between calls, and
+with it the steps that a loop over it creates.
+
+{/* check: body JsonElement; IBilling billing; string customerId */}
+```csharp
+// Wrong: the list is read again on every call. If it changes, so do the steps the loop creates.
+var invoices = await billing.GetOpenInvoicesAsync(customerId, cancellationToken);
+
+foreach (var invoice in invoices)
+{
+    await context.Step.RunAsync($"charge-{invoice.Id}", ct => billing.ChargeAsync(invoice.Id, ct));
+}
+```
+
+{/* check: body JsonElement; IBilling billing; string customerId */}
+```csharp
+// Right: a step reads each value and saves it. Later calls get the saved one.
+var invoices = await context.Step.RunAsync("load-invoices",
+    ct => billing.GetOpenInvoicesAsync(customerId, ct));
+var now = await context.Step.RunAsync("read-clock", () => DateTimeOffset.UtcNow);
+var reference = await context.Step.RunAsync("new-reference", () => Guid.NewGuid().ToString("N"));
+
+foreach (var invoice in invoices)
+{
+    await context.Step.RunAsync($"charge-{invoice.Id}", ct => billing.ChargeAsync(invoice.Id, ct));
+}
+```
+
+### 4. Use the step's result, not a variable its handler sets
+
+A handler does not run again once its step has a saved result, so a variable it assigned is empty on every later call.
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: on later calls the handler does not run, so paymentId stays null.
+string? paymentId = null;
+await context.Step.RunAsync("charge", async ct =>
+{
+    paymentId = await payments.ChargeAsync(order.CustomerId, order.Total, ct);
+});
+
+await context.Step.RunAsync("mark-paid", ct => orders.MarkPaidAsync(order.OrderId, paymentId!, ct));
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Right: the result is saved and handed back on every call.
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.RunAsync("mark-paid", ct => orders.MarkPaidAsync(order.OrderId, paymentId, ct));
+```
+
+### 5. Do not rely on `finally` or `using` around a step
+
+The call that reaches a new step is dropped inside the block, so the `finally` block and the `Dispose` of a `using`
+do not run in that call. A lock released in `finally` stays held. Inside a step handler they run as usual.
+[Middleware](/inngest-dotnet/guides/middleware/#when-next-never-returns) has the same rule. To allow one run at a
+time for a key, across every instance of the app, use `[Concurrency(1, Key = "event.data.customerId")]`; see
+[Flow control](/inngest-dotnet/guides/flow-control/).
+
+{/* check: body OrderPlaced; IPaymentGateway payments; SemaphoreSlim gate */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: the call that reaches the new step is dropped inside the try, so the finally never runs
+// and the lock stays held.
+await gate.WaitAsync(cancellationToken);
+try
+{
+    await context.Step.RunAsync("charge",
+        ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+}
+finally
+{
+    gate.Release();
+}
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments; SemaphoreSlim gate */}
+```csharp
+var order = context.Event.Data;
+
+// Right: the lock lives inside the step handler, which runs to its end.
+await context.Step.RunAsync("charge", async ct =>
+{
+    await gate.WaitAsync(ct);
+    try
+    {
+        return await payments.ChargeAsync(order.CustomerId, order.Total, ct);
+    }
+    finally
+    {
+        gate.Release();
+    }
+});
+```
+
+### 6. Never block on a step
+
+`.Result`, `.Wait()` and `GetAwaiter().GetResult()` on a step's task hang the call, whether or not the step has run
+before. The SDK hands results back on the function's own thread, which the blocked code is holding. Always `await`.
+To run steps in parallel, start them and `await Task.WhenAll(...)`; see
+[Parallel steps](/inngest-dotnet/guides/parallel-steps/).
+
+{/* check: body OrderPlaced; IPaymentGateway payments */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: the call hangs.
+var paymentId = context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct)).Result;
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments */}
+```csharp
+var order = context.Event.Data;
+
+// Right: await the step.
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+```
+
+### 7. Do not nest steps
+
+A step tool called inside another step's handler throws an `InvalidOperationException`. Call the steps from the
+function, one after the other.
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: "charge" is called inside the handler of "pay-order".
+await context.Step.RunAsync("pay-order", async ct =>
+{
+    var paymentId = await context.Step.RunAsync("charge",
+        c => payments.ChargeAsync(order.CustomerId, order.Total, c));
+
+    await orders.MarkPaidAsync(order.OrderId, paymentId, ct);
+});
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+```csharp
+var order = context.Event.Data;
+
+// Right: one step after the other, the second using the result of the first.
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+await context.Step.RunAsync("mark-paid", ct => orders.MarkPaidAsync(order.OrderId, paymentId, ct));
+```
+
+### 8. Keep step outputs small
+
+A step's output is saved with the run, and Inngest limits it to 4 MiB. Store large data elsewhere and return a
+reference to it. Inngest's other limits: 32 MiB of state for a run, 1,000 steps in a run and 5,000 events in one send.
+The SDK does not check them; Inngest does. The [limits](https://www.inngest.com/docs/durable-execution/limits) page
+has the rest.
+
+```csharp
+public interface IExports
+{
+    // The file itself, which can be larger than a step may return.
+    Task<byte[]> RenderAsync(string orderId, CancellationToken cancellationToken);
+
+    // Saves the file to storage and returns where it is.
+    Task<Uri> StoreAsync(string orderId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: body OrderPlaced; IExports exports */}
+```csharp
+var order = context.Event.Data;
+
+// Wrong: the whole file becomes the step's output.
+var file = await context.Step.RunAsync("render-export",
+    ct => exports.RenderAsync(order.OrderId, ct));
+```
+
+{/* check: body OrderPlaced; IExports exports */}
+```csharp
+var order = context.Event.Data;
+
+// Right: the handler stores the file and returns where it is.
+var location = await context.Step.RunAsync("store-export",
+    ct => exports.StoreAsync(order.OrderId, ct));
+```
+
+## Add the rules to your repository
+
+Paste this block into `AGENTS.md`, `CLAUDE.md` or a Cursor rules file in the repository that uses the SDK. It holds the
+names and the rules above in a form an assistant can follow without reading the page. Cursor reads `AGENTS.md` and
+takes rules from `.cursor/rules` too. To keep one copy for Claude Code, put the block in `AGENTS.md` and import it
+from `CLAUDE.md` with `@AGENTS.md`.
+
+```markdown title="AGENTS.md" wrap
+## Inngest .NET SDK (inngest-dotnet)
+
+This project uses inngest-dotnet, a community .NET port of the Inngest TypeScript SDK. Its API is not inngest-js's. Do not write inngest-js code in C#, and do not invent member names: look them up.
+
+- Docs for tools: https://damikun.github.io/inngest-dotnet/llms.txt lists every page as Markdown, each page is also at its address with `.md` in place of the trailing slash, and https://damikun.github.io/inngest-dotnet/llms-full.txt holds all of them. Read https://damikun.github.io/inngest-dotnet/guides/ai-assistants.md before writing code with the SDK. Signatures are in https://damikun.github.io/inngest-dotnet/reference/api.md.
+- A function is a class that derives from `InngestFunction<TEventData>`, with `[InngestFunction("id")]` and `[EventTrigger("event/name")]` on it and `public override async Task<object?> ExecuteAsync(FunctionContext<TEventData> context, CancellationToken cancellationToken)`. Register it with `AddFunction<T>()` after `AddInngest(...)`, and serve it with `app.MapInngest("/api/inngest")`.
+- Steps are methods of `context.Step`: `RunAsync`, `SleepAsync`, `SleepUntilAsync`, `WaitForEventAsync`, `WaitForSignalAsync`, `InvokeAsync`, `SendEventAsync`, `FetchAsync`, `InferAsync`, `AIWrapAsync`, `PublishAsync`. Application code sends events with `IInngestClient.SendAsync`. Run steps in parallel with `Task.WhenAll`.
+
+Inngest calls the function again after every step, and every call runs it from the top. A step that finished returns its saved result. The call that reaches a new step ends there. So:
+
+1. Side effects (emails, database writes, API calls) go inside steps only. Code outside a step runs on every call.
+2. A step id is a constant, or is built from event data, results of earlier steps and loop indexes. Never from the clock, `Guid.NewGuid()` or `Random`.
+3. Values that change between calls (the time, random numbers, anything read from a database or an API) come from a step: `var now = await context.Step.RunAsync("read-clock", () => DateTimeOffset.UtcNow);`
+4. Use the value a step returns. A variable that a step handler assigns is empty on later calls, because the handler does not run again.
+5. `finally` blocks, and the `Dispose` of a `using` around a step, do not run in the call that reaches a new step. Do not release a lock or a resource there. Take it inside the step handler.
+6. Never block on a step's task with `.Result`, `.Wait()` or `GetAwaiter().GetResult()`. Always `await` it.
+7. Never call a step inside another step's handler. Call the steps one after the other.
+8. Keep a step's output under 4 MiB and return a reference to large data. A run holds at most 32 MiB of state and 1,000 steps, and one send takes at most 5,000 events.
+```
