@@ -62,4 +62,8 @@ internal static partial class Log
     [LoggerMessage(152, LogLevel.Warning,
         "Could not record run {RunId} of durable endpoint {FunctionId} in Inngest after its response; the client has the response.")]
     public static partial void EndpointRunNotRecorded(ILogger logger, string runId, string functionId, Exception exception);
+
+    [LoggerMessage(160, LogLevel.Error,
+        "Disposing the services of step {StepId} of run {RunId} of function {FunctionId} failed; the step's outcome stands.")]
+    public static partial void StepScopeDisposalFailed(ILogger logger, string stepId, string runId, string functionId, Exception exception);
 }

@@ -5,6 +5,7 @@ using System.Net;
 using System.Text.Json;
 using Inngest.Errors;
 using Inngest.Internal;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Execution;
 
@@ -416,6 +417,33 @@ internal sealed partial class Invocation
         {
             ExecutingStep.Value = null;
             SynchronizationContext.SetSynchronizationContext(synchronizationContext);
+        }
+    }
+
+    // Runs the handler of a scoped run step in a scope of its own, made from the call's services as a second scope, not
+    // a child of the call's. It lives exactly as long as the handler does: an attempt, a step of a parallel group and
+    // a step of a checkpointed call each get a new one. A scoped service that throws when it is disposed must neither
+    // fail a step that has done its work, which a retry would do again, nor hide the exception that failed it.
+    public async Task<T> RunInScopeAsync<T>(
+        string stepId,
+        Func<IServiceProvider, CancellationToken, Task<T>> handler,
+        CancellationToken cancellationToken)
+    {
+        var scope = _services.CreateAsyncScope();
+        try
+        {
+            return await handler(scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                await scope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                Log.StepScopeDisposalFailed(_runLogger, stepId, _run.RunId, _functionId, exception);
+            }
         }
     }
 }

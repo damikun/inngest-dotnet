@@ -66,6 +66,11 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
     public Task<TResult> AIWrapAsync<TInput, TResult>(StepOptions stepOptions, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
         AIWrap(IdOf(stepOptions), stepOptions, input, handler);
 
+    public Task<T> RunScopedAsync<T>(string id, Func<IServiceProvider, CancellationToken, Task<T>> handler) => RunScoped(id, null, handler);
+
+    public Task<T> RunScopedAsync<T>(StepOptions stepOptions, Func<IServiceProvider, CancellationToken, Task<T>> handler) =>
+        RunScoped(IdOf(stepOptions), stepOptions, handler);
+
     public Task<T> PublishAsync<T>(string id, RealtimeTopic topic, T data) => Publish(id, null, topic, data);
 
     public Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => Publish(IdOf(stepOptions), stepOptions, topic, data);
@@ -88,6 +93,15 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentNullException.ThrowIfNull(handler);
         return Register(new RunStep<T>(id, handler), stepOptions);
+    }
+
+    // A run step like any other, so that Inngest, middleware and the test host see no difference. Only its handler is
+    // wrapped, and the scope is created when the handler starts, so a memoized or mocked step creates none.
+    private Task<T> RunScoped<T>(string id, StepOptions? stepOptions, Func<IServiceProvider, CancellationToken, Task<T>> handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        ArgumentNullException.ThrowIfNull(handler);
+        return Register(new RunStep<T>(id, cancellationToken => invocation.RunInScopeAsync(id, handler, cancellationToken)), stepOptions);
     }
 
     private Task Sleep(string id, StepOptions? stepOptions, TimeSpan duration)

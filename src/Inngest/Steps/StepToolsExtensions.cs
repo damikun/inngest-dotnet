@@ -2,6 +2,7 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest;
 
@@ -85,6 +86,37 @@ public static class StepToolsExtensions
         return step.AIWrapAsync<TInput, TResult>(id, input, (value, _) => handler(value));
     }
 
+    /// <summary>Runs a handler without a result in a scope of its own, as IStepTools.RunScopedAsync does.</summary>
+    public static Task RunScopedAsync(this IStepTools step, string id, Func<IServiceProvider, CancellationToken, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync<object?>(id, async (services, cancellationToken) =>
+        {
+            await handler(services, cancellationToken).ConfigureAwait(false);
+            return null;
+        });
+    }
+
+    /// <summary>
+    /// Runs the handler in a scope of its own, as IStepTools.RunScopedAsync does, and passes it the TService resolved from
+    /// that scope, such as a DbContext. The compiler infers TService from a lambda whose first parameter has its type
+    /// written, as in (ShopDbContext db, CancellationToken cancellationToken) => ....
+    /// </summary>
+    public static Task<T> RunScopedAsync<TService, T>(this IStepTools step, string id, Func<TService, CancellationToken, Task<T>> handler)
+        where TService : notnull
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync(id, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
+    }
+
+    /// <summary>Runs a handler without a result in a scope of its own, with the TService resolved from that scope.</summary>
+    public static Task RunScopedAsync<TService>(this IStepTools step, string id, Func<TService, CancellationToken, Task> handler)
+        where TService : notnull
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync(id, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
+    }
+
     public static Task RunAsync(this IStepTools step, StepOptions stepOptions, Func<CancellationToken, Task> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -165,6 +197,37 @@ public static class StepToolsExtensions
     {
         ArgumentNullException.ThrowIfNull(handler);
         return step.AIWrapAsync<TInput, TResult>(stepOptions, input, (value, _) => handler(value));
+    }
+
+    /// <summary>Runs a handler without a result in a scope of its own, as IStepTools.RunScopedAsync does.</summary>
+    public static Task RunScopedAsync(this IStepTools step, StepOptions stepOptions, Func<IServiceProvider, CancellationToken, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync<object?>(stepOptions, async (services, cancellationToken) =>
+        {
+            await handler(services, cancellationToken).ConfigureAwait(false);
+            return null;
+        });
+    }
+
+    /// <summary>
+    /// Runs the handler in a scope of its own, as IStepTools.RunScopedAsync does, and passes it the TService resolved from
+    /// that scope, such as a DbContext. The compiler infers TService from a lambda whose first parameter has its type
+    /// written, as in (ShopDbContext db, CancellationToken cancellationToken) => ....
+    /// </summary>
+    public static Task<T> RunScopedAsync<TService, T>(this IStepTools step, StepOptions stepOptions, Func<TService, CancellationToken, Task<T>> handler)
+        where TService : notnull
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync(stepOptions, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
+    }
+
+    /// <summary>Runs a handler without a result in a scope of its own, with the TService resolved from that scope.</summary>
+    public static Task RunScopedAsync<TService>(this IStepTools step, StepOptions stepOptions, Func<TService, CancellationToken, Task> handler)
+        where TService : notnull
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.RunScopedAsync(stepOptions, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
     }
 
     public static Task ParallelAsync(this IStepTools step, ParallelMode mode, Func<Task> steps)
