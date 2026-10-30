@@ -26,8 +26,8 @@ out, so Inngest applies its defaults. A few details worth knowing:
 - A class that implements `IFailureHandler` registers a second function, `<id>-failure`, triggered by
   `inngest/function.failed`.
 
-The checks are the ones `FunctionOptionsValidator` makes when the app starts. The SDK stops at the first problem;
-the builder lists all of them.
+The checks are the ones `FunctionOptionsValidator` makes when the app starts, and the SDK, like the builder, reports
+all the problems at once.
 
 ## Attributes
 

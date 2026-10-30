@@ -399,7 +399,7 @@ Behaviour that differs on purpose, beyond the API shape:
 
 | Area | TypeScript SDK | This SDK |
 |---|---|---|
-| Function options | Invalid options produce a warning at sync | Rejected at startup with an exception naming the function |
+| Function options | Invalid options produce a warning at sync | Rejected at startup with one exception that lists every problem, each naming its function |
 | Sync URL | Keeps `deployId` in the registered URLs | Strips it, as the spec requires |
 | Failure handlers | Always registered with runtime type `http` | Same runtime type as the function they belong to |
 | Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |

@@ -136,6 +136,20 @@ public sealed class FunctionMiddlewareTests
     }
 
     [Fact]
+    public void A_type_listed_three_times_is_reported_once()
+    {
+        var options = new FunctionOptions
+        {
+            Id = "fn",
+            Triggers = [Trigger.Event("test/event")],
+            Middleware = [FunctionMiddleware.Of<Scoped>(), FunctionMiddleware.Of<Scoped>(), FunctionMiddleware.Of<Scoped>()],
+        };
+
+        Should.Throw<InvalidOperationException>(() => FunctionOptionsValidator.Validate(options))
+            .Message.ShouldBe("Function \"fn\": Middleware lists Scoped more than once.");
+    }
+
+    [Fact]
     public void A_type_listed_twice_or_a_null_entry_is_rejected_at_startup()
     {
         var options = new FunctionOptions { Id = "fn", Triggers = [Trigger.Event("test/event")] };

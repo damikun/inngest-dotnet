@@ -375,9 +375,10 @@ inside your steps timeouts of their own. See
 ## Validation
 
 The SDK checks these options when the app starts, against the limits Inngest enforces, whether they come from code
-or attributes. It throws an `InvalidOperationException` that names the function and the problem, for example
-`Function "import-rows": BatchEvents cannot be combined with Debounce.` A duration in an attribute that is not a
-time string fails the same way, when `AddFunction` reads it. A mistake fails the deploy instead of the sync.
+or attributes. It throws one `InvalidOperationException` that lists every problem of every function, each naming
+its function, for example `Function "import-rows": BatchEvents cannot be combined with Debounce.` A duration in an
+attribute that is not a time string fails as well, when `AddFunction` reads it. A mistake fails the deploy instead
+of the sync.
 
 The [flow control overview](https://www.inngest.com/docs/durable-execution/flow-control) in the Inngest docs explains
 how the options interact and in which order Inngest applies them.

@@ -371,6 +371,53 @@ public sealed class FunctionOptionsValidatorTests
         ShouldAccept(options);
     }
 
+    [Fact]
+    public void Lists_every_problem_of_a_function_at_once()
+    {
+        var options = Valid with
+        {
+            Retries = 21,
+            Throttle = new Throttle(0, TimeSpan.FromMinutes(1)) { Burst = -1 },
+            Debounce = new Debounce(TimeSpan.FromSeconds(5)),
+            BatchEvents = new BatchEvents(10, TimeSpan.FromSeconds(5)),
+        };
+
+        var exception = Should.Throw<InvalidOperationException>(() => FunctionOptionsValidator.Validate(options));
+
+        exception.Message.ShouldBe(string.Join(
+            Environment.NewLine,
+            "The function configuration has 4 problems:",
+            "1. Function \"orders\": Retries must be between 0 and 20, but was 21.",
+            "2. Function \"orders\": Throttle.Limit must be greater than 0, but was 0.",
+            "3. Function \"orders\": Throttle.Burst must not be negative, but was -1.",
+            "4. Function \"orders\": BatchEvents cannot be combined with Debounce."));
+    }
+
+    [Fact]
+    public void Checks_each_concurrency_limit_even_when_there_are_too_many()
+    {
+        var limits = new[] { new ConcurrencyLimit(1), new ConcurrencyLimit(0), new ConcurrencyLimit(5) { Scope = ConcurrencyScope.Account } };
+
+        var exception = Should.Throw<InvalidOperationException>(() => FunctionOptionsValidator.Validate(Valid with { Concurrency = limits }));
+
+        exception.Message.ShouldBe(string.Join(
+            Environment.NewLine,
+            "The function configuration has 3 problems:",
+            "1. Function \"orders\": Concurrency allows at most 2 limits, but 3 were given.",
+            "2. Function \"orders\": A concurrency limit must be greater than 0, but one was 0.",
+            "3. Function \"orders\": A concurrency limit with the Account scope needs a Key. Only the Function scope can go without one."));
+    }
+
+    // The other problems would name the function by its id, so they wait until it has one.
+    [Fact]
+    public void Reports_only_the_missing_id_until_the_function_has_one()
+    {
+        var exception = Should.Throw<InvalidOperationException>(
+            () => FunctionOptionsValidator.Validate(Valid with { Id = "", Retries = 21, Priority = new Priority("") }));
+
+        exception.Message.ShouldBe("A function has no Id. Set FunctionOptions.Id to an id that is unique in the app and never changes.");
+    }
+
     private static EventTrigger[] Events(int count) =>
         [.. Enumerable.Range(0, count).Select(i => Trigger.Event($"order/event.{i}"))];
 

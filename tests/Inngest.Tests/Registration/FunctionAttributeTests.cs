@@ -259,6 +259,19 @@ public sealed class FunctionAttributeTests
     }
 
     [Fact]
+    public void Startup_lists_every_problem_of_the_attributes_at_once()
+    {
+        var exception = Should.Throw<InvalidOperationException>(() => Registry(FunctionAttributes.Read(typeof(ManyProblems))));
+
+        exception.Message.ShouldBe(string.Join(
+            Environment.NewLine,
+            "The function configuration has 3 problems:",
+            "1. Function \"many-problems\": Retries must be between 0 and 20, but was 25.",
+            "2. Function \"many-problems\": Throttle.Period must be at least 1s, but was 0s.",
+            "3. Function \"many-problems\": BatchEvents cannot be combined with CancelOn."));
+    }
+
+    [Fact]
     public void A_class_with_attributes_that_handles_its_failures_gets_its_failure_function()
     {
         var registry = RegistryOf(inngest => inngest.AddFunction<HandlesFailures>());
@@ -369,6 +382,12 @@ public sealed class FunctionAttributeTests
 
     [InngestFunction(" ")]
     public sealed class BlankId : NoOp;
+
+    [InngestFunction("many-problems", Retries = 25)]
+    [Throttle(5, "0s")]
+    [BatchEvents(10, "5s")]
+    [CancelOn<OrderRefunded>]
+    public sealed class ManyProblems : NoOp;
 
     [InngestFunction("handles-failures", Name = "Handles failures")]
     [EventTrigger<OrderPaid>]

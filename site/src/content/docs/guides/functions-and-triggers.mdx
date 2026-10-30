@@ -311,11 +311,11 @@ The id is required and must be unique within the app. Inngest knows the function
 id, or the app id, makes a new function and leaves the old one without code. The name is only for display and
 defaults to the id.
 
-The SDK checks every function's options when the app starts, whether they come from code or attributes, and throws
-an `InvalidOperationException` that names the function if something is invalid, such as a duplicate id or an option
-out of range. It does not wait for Inngest to reject the sync. Attribute durations are time strings, such as
-`"30s"`, `"5m"` or `"1h30m"`, because attribute arguments must be constants; one that is not a time string fails
-when `AddFunction` reads it.
+The SDK checks every function's options when the app starts, whether they come from code or attributes. If
+something is invalid, such as a duplicate id or an option out of range, it throws one `InvalidOperationException`
+that lists every problem it found, each naming its function. It does not wait for Inngest to reject the sync.
+Attribute durations are time strings, such as `"30s"`, `"5m"` or `"1h30m"`, because attribute arguments must be
+constants; one that is not a time string fails when `AddFunction` reads it.
 
 To change a function while runs are in flight, keep its id and the ids of the steps those runs have already
 reached. Inngest's [versioning guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/versioning)

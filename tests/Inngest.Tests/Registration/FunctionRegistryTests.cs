@@ -133,6 +133,34 @@ public sealed class FunctionRegistryTests
     }
 
     [Fact]
+    public void Lists_the_problems_of_every_function_and_every_repeated_id_at_once()
+    {
+        var exception = Should.Throw<InvalidOperationException>(() => Registry(
+            Orders with { Retries = 21 },
+            Orders with { Id = "refunds", Throttle = new Throttle(0, TimeSpan.FromMinutes(1)) },
+            Orders with { Name = "Again" }));
+
+        exception.Message.ShouldBe(string.Join(
+            Environment.NewLine,
+            "The function configuration has 3 problems:",
+            "1. Function \"orders\": Retries must be between 0 and 20, but was 21.",
+            "2. Function \"refunds\": Throttle.Limit must be greater than 0, but was 0.",
+            "3. Function \"orders\" is registered more than once. Function ids must be unique within an app."));
+    }
+
+    [Fact]
+    public void Functions_without_an_id_are_not_also_reported_as_registered_twice()
+    {
+        var exception = Should.Throw<InvalidOperationException>(() => Registry(Orders with { Id = "" }, Orders with { Id = "", Name = "Refunds" }));
+
+        exception.Message.ShouldBe(string.Join(
+            Environment.NewLine,
+            "The function configuration has 2 problems:",
+            "1. A function has no Id. Set FunctionOptions.Id to an id that is unique in the app and never changes.",
+            "2. The function named \"Refunds\" has no Id. Set FunctionOptions.Id to an id that is unique in the app and never changes."));
+    }
+
+    [Fact]
     public void Ids_that_differ_only_in_case_are_different_functions()
     {
         var registry = Registry(Orders, Orders with { Id = "Orders" });

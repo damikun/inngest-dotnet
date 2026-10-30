@@ -17,8 +17,8 @@ internal sealed class FunctionRegistry : IFunctionRegistry
     private readonly FrozenDictionary<string, FunctionDefinition> _byCompositeId;
     private readonly FrozenDictionary<Type, string[]> _idsByType;
 
-    // Throws InvalidOperationException, naming the function, for options Inngest would reject and for ids that are
-    // empty or used twice.
+    // Throws one InvalidOperationException for options Inngest would reject and for ids that are empty or used twice.
+    // It lists every such problem of every function, each naming its function.
     public FunctionRegistry(IEnumerable<FunctionDefinition> definitions, InngestSettings settings)
     {
         ArgumentNullException.ThrowIfNull(definitions);
@@ -29,17 +29,18 @@ internal sealed class FunctionRegistry : IFunctionRegistry
         var functions = definitions.ToArray();
         _registered = new RegisteredFunction[functions.Length];
 
+        var problems = new ConfigurationProblems();
         var byCompositeId = new Dictionary<string, FunctionDefinition>(functions.Length, StringComparer.Ordinal);
         var idsByType = new Dictionary<Type, List<string>>();
         for (var i = 0; i < functions.Length; i++)
         {
             var function = RegisteredFunction.Create(functions[i], settings.AppId);
-            FunctionOptionsValidator.Validate(function.Options);
+            FunctionOptionsValidator.Validate(function.Options, problems);
 
-            if (!byCompositeId.TryAdd(function.CompositeId, functions[i]))
+            // An empty id is already a problem, and two of them would add a confusing duplicate.
+            if (!string.IsNullOrWhiteSpace(function.Options.Id) && !byCompositeId.TryAdd(function.CompositeId, functions[i]))
             {
-                throw new InvalidOperationException(
-                    $"Function \"{function.Options.Id}\" is registered more than once. Function ids must be unique within an app.");
+                problems.Add($"Function \"{function.Options.Id}\" is registered more than once. Function ids must be unique within an app.");
             }
 
             // A class may be registered under several ids; only invoking it by its class then fails.
@@ -55,6 +56,8 @@ internal sealed class FunctionRegistry : IFunctionRegistry
 
             _registered[i] = function;
         }
+
+        problems.ThrowIfAny();
 
         _byCompositeId = byCompositeId.ToFrozenDictionary(StringComparer.Ordinal);
         _idsByType = idsByType.ToFrozenDictionary(static pair => pair.Key, static pair => pair.Value.ToArray());
