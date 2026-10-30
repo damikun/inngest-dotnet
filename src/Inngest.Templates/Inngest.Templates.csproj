@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A template package holds files and no assembly. The project exists so that dotnet pack can make the package, and
+         it takes the one framework whose targeting pack ships with the SDK instead of the packages' two. -->
+    <TargetFrameworks />
+    <TargetFramework>$(LatestTargetFramework)</TargetFramework>
+    <PackageId>Inngest.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Description>dotnet new templates for the Inngest .NET SDK: inngest-web, an ASP.NET Core app, and inngest-worker, a Connect worker, each with a typed event and a durable function.</Description>
+    <PackageTags>$(PackageTags);templates;dotnet-new</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- Nothing in the package is an assembly, so there is nothing to compare with the last release. -->
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!-- NuGet leaves out folders that start with a dot by default, and every template has .template.config. -->
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <!-- The package has no lib folder, which is what NU5128 asks about. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TemplateFile Include="templates/**" />
+  </ItemGroup>
+
+  <!-- Rewrites text files, replacing the tokens of the Tokens items by their Value. A file without a token is left alone. -->
+  <UsingTask TaskName="ReplaceTokens" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <Tokens ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        foreach (var file in Files)
+        {
+            var text = File.ReadAllText(file.ItemSpec);
+            var replaced = text;
+            foreach (var token in Tokens)
+            {
+                replaced = replaced.Replace(token.ItemSpec, token.GetMetadata("Value"));
+            }
+
+            if (replaced != text)
+            {
+                File.WriteAllText(file.ItemSpec, replaced);
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!-- The templates are real projects with a token where the version of a package goes. The package gets a copy with the
+       tokens replaced, made on every pack because the version can change while the files do not. BeforePack runs before
+       the package files are collected, also when the pack skips the build. -->
+  <PropertyGroup>
+    <BeforePack>StageTemplates;$(BeforePack)</BeforePack>
+  </PropertyGroup>
+  <Target Name="StageTemplates">
+    <PropertyGroup>
+      <StagedTemplatesDirectory>$([MSBuild]::NormalizeDirectory('$(IntermediateOutputPath)', 'templates'))</StagedTemplatesDirectory>
+      <!-- The generated worker references the Microsoft.Extensions.Hosting that this repository tests against. -->
+      <HostingVersion>@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.Extensions.Hosting')->'%(Version)')</HostingVersion>
+    </PropertyGroup>
+    <Error Condition="'$(HostingVersion)' == '' or $(HostingVersion.Contains(';'))" Text="Directory.Packages.props must name one version of Microsoft.Extensions.Hosting for the worker template." />
+
+    <RemoveDir Directories="$(StagedTemplatesDirectory)" />
+    <Copy SourceFiles="@(TemplateFile)" DestinationFiles="@(TemplateFile->'$(StagedTemplatesDirectory)%(RecursiveDir)%(Filename)%(Extension)')" />
+
+    <ItemGroup>
+      <StagedTemplateFile Include="@(TemplateFile->'$(StagedTemplatesDirectory)%(RecursiveDir)%(Filename)%(Extension)')" />
+      <Token Include="!!INNGEST_VERSION!!" Value="$(PackageVersion)" />
+      <Token Include="!!HOSTING_VERSION!!" Value="$(HostingVersion)" />
+    </ItemGroup>
+    <ReplaceTokens Files="@(StagedTemplateFile)" Tokens="@(Token)" />
+
+    <!-- A token left in a file would reach every new project, so the pack fails instead. -->
+    <ItemGroup>
+      <TokenLeftOver Include="@(StagedTemplateFile)" Condition="$([System.IO.File]::ReadAllText('%(FullPath)').Contains('!!'))" />
+    </ItemGroup>
+    <Error Condition="'@(TokenLeftOver)' != ''" Text="A token is still in %(TokenLeftOver.Identity)." />
+
+    <ItemGroup>
+      <None Include="$(StagedTemplatesDirectory)**" Pack="true" PackagePath="content/%(RecursiveDir)" />
+    </ItemGroup>
+  </Target>
+</Project>

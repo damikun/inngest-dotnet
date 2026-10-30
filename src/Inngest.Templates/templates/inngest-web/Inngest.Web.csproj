@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>88c93898-0f2b-4b0a-8cb2-8f8fe6c5fed2</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Inngest.AspNetCore" Version="!!INNGEST_VERSION!!" />
+  </ItemGroup>
+
+</Project>

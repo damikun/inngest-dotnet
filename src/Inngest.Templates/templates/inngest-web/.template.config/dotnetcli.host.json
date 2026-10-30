@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/dotnetcli.host",
+  "symbolInfo": {
+    "Framework": {
+      "longName": "framework",
+      "shortName": "f"
+    },
+    "HttpPort": {
+      "longName": "http-port",
+      "shortName": ""
+    },
+    "skipRestore": {
+      "longName": "no-restore",
+      "shortName": ""
+    }
+  }
+}

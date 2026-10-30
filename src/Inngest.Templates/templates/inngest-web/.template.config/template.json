@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json.schemastore.org/template",
+  "author": "inngest-dotnet contributors",
+  "classifications": [ "Web", "API", "Inngest" ],
+  "identity": "Inngest.Web.CSharp",
+  "name": "Inngest ASP.NET Core app",
+  "description": "An ASP.NET Core app that serves a durable Inngest function: a typed event, a step, MapInngest, and dev mode in the Development settings.",
+  "shortName": "inngest-web",
+  "sourceName": "Inngest.Web",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "guids": [ "88c93898-0f2b-4b0a-8cb2-8f8fe6c5fed2" ],
+  "symbols": {
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project.",
+      "datatype": "choice",
+      "choices": [
+        { "choice": "net10.0", "description": "Target net10.0" },
+        { "choice": "net8.0", "description": "Target net8.0" }
+      ],
+      "replaces": "net10.0",
+      "defaultValue": "net10.0"
+    },
+    "HttpPort": {
+      "type": "parameter",
+      "datatype": "integer",
+      "description": "Port number to use for the HTTP endpoint in launchSettings.json. Without it, a free port from 5000 to 5300 is picked."
+    },
+    "HttpPortGenerated": {
+      "type": "generated",
+      "generator": "port",
+      "parameters": { "low": 5000, "high": 5300 }
+    },
+    "HttpPortReplacer": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "HttpPort",
+        "fallbackVariableName": "HttpPortGenerated"
+      },
+      "replaces": "5280"
+    },
+    "AppId": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "kebab",
+      "replaces": "inngest-web"
+    },
+    "skipRestore": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "If specified, skips the automatic restore of the project on create.",
+      "defaultValue": "false"
+    }
+  },
+  "forms": {
+    "kebab": { "identifier": "kebabCase" }
+  },
+  "primaryOutputs": [
+    { "path": "Inngest.Web.csproj" }
+  ],
+  "postActions": [
+    {
+      "id": "restore",
+      "condition": "(!skipRestore)",
+      "description": "Restore NuGet packages required by this project.",
+      "manualInstructions": [
+        { "text": "Run 'dotnet restore'" }
+      ],
+      "actionId": "210D431B-A78B-4D2F-B762-4ED3E3EA9025",
+      "continueOnError": true
+    }
+  ]
+}

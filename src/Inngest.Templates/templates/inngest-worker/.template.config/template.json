@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/template",
+  "author": "inngest-dotnet contributors",
+  "classifications": [ "Service", "Worker", "Inngest" ],
+  "identity": "Inngest.Worker.CSharp",
+  "name": "Inngest worker",
+  "description": "A worker that runs a durable Inngest function over Connect, with no endpoint to expose: a typed event, a step, AddConnect, and dev mode in the Development settings.",
+  "shortName": "inngest-worker",
+  "sourceName": "Inngest.Worker",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "guids": [ "f77a55b4-9e07-47fd-a195-2bda5a8d2a86" ],
+  "symbols": {
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project.",
+      "datatype": "choice",
+      "choices": [
+        { "choice": "net10.0", "description": "Target net10.0" },
+        { "choice": "net8.0", "description": "Target net8.0" }
+      ],
+      "replaces": "net10.0",
+      "defaultValue": "net10.0"
+    },
+    "AppId": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "kebab",
+      "replaces": "inngest-worker"
+    },
+    "skipRestore": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "If specified, skips the automatic restore of the project on create.",
+      "defaultValue": "false"
+    }
+  },
+  "forms": {
+    "kebab": { "identifier": "kebabCase" }
+  },
+  "primaryOutputs": [
+    { "path": "Inngest.Worker.csproj" }
+  ],
+  "postActions": [
+    {
+      "id": "restore",
+      "condition": "(!skipRestore)",
+      "description": "Restore NuGet packages required by this project.",
+      "manualInstructions": [
+        { "text": "Run 'dotnet restore'" }
+      ],
+      "actionId": "210D431B-A78B-4D2F-B762-4ED3E3EA9025",
+      "continueOnError": true
+    }
+  ]
+}

@@ -14,6 +14,7 @@
     <Project Path="src/Inngest.Extensions.AI/Inngest.Extensions.AI.csproj" />
     <Project Path="src/Inngest.OpenTelemetry/Inngest.OpenTelemetry.csproj" />
     <Project Path="src/Inngest.Sentry/Inngest.Sentry.csproj" />
+    <Project Path="src/Inngest.Templates/Inngest.Templates.csproj" />
     <Project Path="src/Inngest/Inngest.csproj" />
     <Project Path="src/Inngest.Testing/Inngest.Testing.csproj" />
     <Project Path="src/Inngest.Testing.Containers/Inngest.Testing.Containers.csproj" />
