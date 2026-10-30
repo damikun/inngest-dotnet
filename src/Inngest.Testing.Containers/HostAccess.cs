@@ -19,10 +19,18 @@ internal static class HostAccess
             throw new ArgumentException($"The app URL must be an absolute http or https URL, not '{url}'.", nameof(url));
         }
 
-        return IsHost(url) ? new UriBuilder(url) { Host = ContainerHostName }.Uri : url;
+        return url.IsLoopback || IsAnyAddress(url) ? new UriBuilder(url) { Host = ContainerHostName }.Uri : url;
     }
 
-    // An app that listens on all interfaces is reached on any of its addresses, so 0.0.0.0 and [::] stand for the host too.
-    private static bool IsHost(Uri url) =>
-        url.IsLoopback || (IPAddress.TryParse(url.DnsSafeHost, out var address) && (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any)));
+    // Kestrel names an app that listens on all interfaces [::] or 0.0.0.0. Those are not addresses a client can connect to
+    // everywhere, Windows refuses them, so the test connects to localhost instead.
+    public static Uri ForTest(Uri url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        return IsAnyAddress(url) ? new UriBuilder(url) { Host = "localhost" }.Uri : url;
+    }
+
+    // An app that listens on all interfaces is reached on any of its addresses, so it is the host to the container too.
+    private static bool IsAnyAddress(Uri url) =>
+        url.IsAbsoluteUri && IPAddress.TryParse(url.DnsSafeHost, out var address) && (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any));
 }

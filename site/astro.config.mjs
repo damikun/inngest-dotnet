@@ -75,7 +75,14 @@ export default defineConfig({
         },
         {
           label: 'Running and shipping',
-          items: ['guides/configuration', 'guides/connect', 'guides/testing', 'guides/native-aot', 'guides/deploying'],
+          items: [
+            'guides/configuration',
+            'guides/connect',
+            'guides/testing',
+            'guides/testing-with-containers',
+            'guides/native-aot',
+            'guides/deploying',
+          ],
         },
         {
           label: 'Examples',

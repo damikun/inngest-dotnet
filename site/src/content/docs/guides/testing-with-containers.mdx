@@ -1,0 +1,333 @@
+---
+title: Testing against a real Inngest server
+description: Start the Inngest dev server or a self-hosted server in Docker from your tests with Inngest.Testing.Containers, point an app at it and sync it, and run an ASP.NET Core app under WebApplicationFactory with Inngest.Testing.Containers.AspNetCore.
+sidebar:
+  label: Testing with containers
+---
+
+The [test host](/inngest-dotnet/guides/testing/) runs your functions in memory and plays Inngest's part. It cannot tell
+you what only Inngest does: flow control, cancellation, the expressions of triggers and waits, signed requests, or
+how the server calls an app that is really listening on a port. For those, run the app against an Inngest server.
+
+[`Inngest.Testing.Containers`](https://www.nuget.org/packages/Inngest.Testing.Containers/) is a
+[Testcontainers](https://dotnet.testcontainers.org/) module for that. It starts the `inngest/inngest` image, either as
+the dev server or as a self-hosted server with signing and event keys, and gives you what a test needs to use it: its
+address, the settings that point an app at it, and a call that has it sync the app.
+[`Inngest.Testing.Containers.AspNetCore`](https://www.nuget.org/packages/Inngest.Testing.Containers.AspNetCore/) adds a
+`WebApplicationFactory` that runs your ASP.NET Core app on a real port for the server to call.
+
+You need Docker running on the machine that runs the tests, with Linux containers. Like every Testcontainers module, the
+builder takes the image you choose; the module is tested with `inngest/inngest:v1.49.0`, and starts the server with
+command line flags that older images may not know.
+
+```bash
+dotnet add package Inngest.Testing.Containers --prerelease
+```
+
+## The dev server
+
+`InngestBuilder` takes the image and builds an `InngestContainer`. Start it, and tell the app where it is with
+`Configure`, which sets the options of the SDK: dev mode, and the address of the server.
+
+The server and the app have to reach each other, so neither can be told the other's address before it starts. Start the
+container first, then the app, and then have the container sync the app at the address it listens on. This fixture runs
+an ASP.NET Core app on a port the system picks:
+
+```csharp title="InngestFixture.cs"
+using Inngest;
+using Inngest.Testing.Containers;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+public sealed class InngestFixture : IAsyncLifetime
+{
+    private WebApplication? _app;
+
+    public InngestContainer Server { get; } = new InngestBuilder("inngest/inngest:v1.49.0").Build();
+
+    public async ValueTask InitializeAsync()
+    {
+        await Server.StartAsync();
+
+        var builder = WebApplication.CreateBuilder();
+
+        // All interfaces, not loopback: the container reaches the app through the Docker bridge on Linux.
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenAnyIP(0));
+        builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        builder.Services
+            .AddInngest(options =>
+            {
+                options.AppId = "shop";
+                Server.Configure(options);
+            })
+            .AddFunction<OnboardUser>();
+
+        _app = builder.Build();
+        _app.MapInngest("/api/inngest");
+        await _app.StartAsync();
+
+        await Server.SyncAsync(new Uri(new Uri(_app.Urls.First()), "/api/inngest"));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_app is not null)
+        {
+            await _app.DisposeAsync();
+        }
+
+        await Server.DisposeAsync();
+    }
+}
+```
+
+`StartAsync` returns when the server answers its health check. If it never does, the exception carries the server's log.
+
+`Configure` sets `IsDev`, `DevServerUrl` and `BaseUrl`, replacing addresses the app set in code, and it must run after
+the container has started, since the port is only known then. The container publishes the API on a free port of the
+machine, so parallel test runs never collide. `GetBaseAddress()` is that address, for a test that talks to the server
+itself, for instance to send an event or read a run over its [REST API](https://www.inngest.com/docs/reference/rest-api).
+
+### How the server finds the app
+
+`SyncAsync` sends the app's Inngest endpoint a `PUT`, which an SDK answers by registering its functions with the
+server. The request carries `host.docker.internal` as its host name, whatever address you gave: inside the container,
+`localhost` is the container itself, so the app has to register the name that reaches the machine the test runs on.
+Docker Desktop resolves that name by itself, and on Linux the builder maps it to the host gateway. `SyncAsync` returns
+once the server knows the app's functions, and throws when the app does not answer or refuses. An address such as
+`http://[::]:5000/api/inngest`, which Kestrel reports for an app on all interfaces, is accepted. Syncing again is
+harmless.
+
+When the app's port is known before anything starts, the container can do the syncing: `WithAppUrl` adds the address to
+the command line, and the server syncs the app when it starts and keeps trying every second until the app answers. The
+app may start before or after the server.
+
+{/* check: statements */}
+```csharp
+using Inngest.Testing.Containers;
+
+var server = new InngestBuilder("inngest/inngest:v1.49.0")
+    .WithAppUrl("http://localhost:5280/api/inngest")
+    .Build();
+```
+
+A loopback address in the URL is rewritten to `host.docker.internal`, and `WithAppUrl` can be called once for each app.
+
+## An app under WebApplicationFactory
+
+A `WebApplicationFactory` runs the app in memory, and an in-memory server has no port for Inngest to call. From .NET 10
+the factory can run Kestrel instead, and `InngestWebApplicationFactory` in
+[`Inngest.Testing.Containers.AspNetCore`](https://www.nuget.org/packages/Inngest.Testing.Containers.AspNetCore/) does
+everything the fixture above does: it listens on all interfaces on a free port, applies `Configure` to the app's options
+after the app's own, and syncs the app.
+
+```bash
+dotnet add package Inngest.Testing.Containers.AspNetCore --prerelease
+```
+
+Derive from it where you would derive from `WebApplicationFactory`, and override `ConfigureWebHost` for the fakes of
+your own. This one replaces the email service with one that tells the test when it sent something, which is how a test
+sees what a function did:
+
+{/* check: file */}
+```csharp title="Program.cs"
+// The last line of the app's Program.cs, which makes the class that top-level statements generate visible to tests.
+public partial class Program;
+```
+
+```csharp title="OnboardingTests.cs"
+using Inngest;
+using Inngest.Testing.Containers;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+public sealed class SignalingEmailSender : IEmailSender
+{
+    private readonly TaskCompletionSource<string> _sent = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task<string> Sent => _sent.Task;
+
+    public Task<string> SendAsync(string to, string subject, CancellationToken cancellationToken)
+    {
+        _sent.TrySetResult($"{subject} to {to}");
+        return Task.FromResult("message-id");
+    }
+}
+
+public sealed class ShopFactory(InngestContainer inngest, IEmailSender email)
+    : InngestWebApplicationFactory<Program>(inngest)
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        builder.ConfigureServices(services => services.AddSingleton(email));
+}
+
+public sealed class OnboardingTests : IAsyncLifetime
+{
+    private readonly SignalingEmailSender _email = new();
+    private readonly InngestContainer _server = new InngestBuilder("inngest/inngest:v1.49.0").Build();
+    private ShopFactory? _app;
+
+    public async ValueTask InitializeAsync()
+    {
+        await _server.StartAsync();
+
+        _app = new ShopFactory(_server, _email);
+        await _app.StartAsync();
+    }
+
+    [Fact]
+    public async Task A_user_who_signs_up_gets_a_welcome_email()
+    {
+        var inngest = _app!.Services.GetRequiredService<IInngestClient>();
+
+        await inngest.SendAsync(new UserSignedUp("u_1", "ada@example.com"));
+
+        Assert.Equal("Welcome! to ada@example.com", await _email.Sent.WaitAsync(TimeSpan.FromSeconds(30)));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_app is not null)
+        {
+            await _app.DisposeAsync();
+        }
+
+        await _server.DisposeAsync();
+    }
+}
+```
+
+The event goes from the app's own `IInngestClient` to the container, the server calls the app's endpoint over the
+socket, and the function sends the email through the fake. `factory.CreateClient()` returns a client for the same
+socket, so a test can also call the app's own endpoints, such as one that sends the event.
+
+Some things to know about the factory:
+
+- It targets .NET 10. `WebApplicationFactory.UseKestrel` was added in that release; before it, a real port needs a
+  second host built next to the in-memory one, which runs the app's hosted services twice and splits its state in two.
+  On .NET 8 and 9, host the app yourself as above.
+- Start the container first. The app's settings hold its address, so creating the host throws while the container is
+  not running.
+- Call `StartAsync` before `CreateClient()`. It starts the app, then syncs it.
+- Customize the app by overriding `ConfigureWebHost`. A factory returned by `WithWebHostBuilder` keeps the Inngest
+  settings but is on the in-memory server again, because ASP.NET Core does not carry the Kestrel choice over to it.
+- The server calls the app over plain HTTP, so turn off HTTPS redirection in the test.
+- One container serves one instance of an app id. Syncing a second app with the same id replaces the first.
+
+## The self-hosted server
+
+The dev server signs nothing. `inngest start` is the self-hosted server: it signs every request it makes to the app,
+wants the signing key on its REST API and an event key on events, so an app in cloud mode with the same keys
+exercises request signing for real. `WithSelfHosting` runs it. Keys you do not give are generated, and the container
+tells them:
+
+{/* check: statements */}
+```csharp
+using Inngest.Testing.Containers;
+
+var server = new InngestBuilder("inngest/inngest:v1.49.0")
+    .WithSelfHosting()
+    .Build();
+await server.StartAsync();
+
+// Hexadecimal digits in pairs: inngest start accepts nothing else as a signing key.
+string signingKey = server.SigningKey!;
+string eventKey = server.EventKey!;
+```
+
+`Configure` then sets cloud mode with the keys and the server's address. `SyncAsync` signs its request with the signing
+key. To use keys of your own, call `WithSigningKey` and `WithEventKey` after `WithSelfHosting`; the signing key must be
+plain hexadecimal digits in pairs, without the `signkey-env-` prefix that Inngest Cloud keys carry, and the builder
+rejects anything else when it builds.
+
+## Connect workers
+
+A worker that uses [Connect](/inngest-dotnet/guides/connect/) reaches the server through its gateway, and the server
+hands the worker the gateway's address as it is inside the container. `WithConnectGateway` publishes the gateway on the
+same port on the machine, picks a free one when you give none, and makes the container wait for the gateway as well as
+the API. The worker needs no URL to sync and no `SyncAsync`:
+
+{/* check: statements; InngestContainer server */}
+```csharp
+using Inngest.Connect;
+using Inngest.Testing.Containers;
+using Microsoft.Extensions.Hosting;
+
+var builder = Host.CreateApplicationBuilder();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services
+    .AddInngest(options =>
+    {
+        options.AppId = "shop-worker";
+        server.Configure(options);
+    })
+    .AddFunction<OnboardUser>()
+    .AddConnect();
+
+using var worker = builder.Build();
+await worker.StartAsync();
+```
+
+Build the container with `new InngestBuilder("inngest/inngest:v1.49.0").WithConnectGateway()`. `ConnectGatewayPort`
+tells the port.
+
+## Apps that read their settings from the environment
+
+`Configure` is for apps that take an `Action<InngestOptions>`. For an app that reads the `INNGEST_*` variables, such as
+a project that starts another process, `GetSdkEnvironment` lists the same settings as variables: `INNGEST_DEV` for the
+dev server, and `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. The names are
+those every Inngest SDK reads.
+
+{/* check: statements; InngestContainer server */}
+```csharp
+using System.Diagnostics;
+using Inngest.Testing.Containers;
+
+var start = new ProcessStartInfo("dotnet", ["run", "--project", "src/Shop"]);
+foreach (var (name, value) in server.GetSdkEnvironment())
+{
+    start.Environment[name] = value;
+}
+```
+
+## Options
+
+| Method of `InngestBuilder` | What it does |
+|---|---|
+| `WithSelfHosting()` | Runs `inngest start` in place of `inngest dev`. |
+| `WithSigningKey(key)`, `WithEventKey(key)` | Sets the keys of the self-hosted server instead of generating them. |
+| `WithAppUrl(url)` | Has the server sync the app at this address when it starts, and retry every second until the app answers. Once for each app. |
+| `WithConnectGateway(port)` | Publishes the Connect gateway on the same port inside the container and on the machine. Picks a free port without an argument. |
+| `WithFastTiming(false)` | Leaves the server's own timing. On by default: failed syncs are tried again after a second, failed steps are retried after a second instead of the server's backoff, and the queue is polled every 50 ms instead of every 150 ms. |
+| `WithCommand(...)` | Adds arguments after the ones the builder makes. |
+
+Everything else is the Testcontainers builder, such as `WithImagePullPolicy`, `WithNetwork` and `WithWaitStrategy`. The
+container is ready when the API answers `/health`, and the gateway `/ready` when it is published; a wait strategy with
+conditions of its own replaces that.
+
+| Member of `InngestContainer` | What it holds |
+|---|---|
+| `GetBaseAddress()` | The address of the server's API: events, the REST and GraphQL APIs, syncs and the health check. `GetConnectionString()` returns it as text. |
+| `Configure(options)` | Sets an app's `InngestOptions` to use the server. |
+| `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables. |
+| `SyncAsync(appUrl)` | Has the server register the app that listens at this address. |
+| `IsDevServer`, `SigningKey`, `EventKey` | Which server it is, and the keys of the self-hosted one; both keys are null for the dev server, which takes any event key. |
+| `ConnectGatewayPort` | The gateway's port, or null. |
+
+The server runs with `--no-discovery` and `--no-poll` so that it syncs only the apps you name, and with
+`DO_NOT_TRACK=1`. One more setting is the builder's to make: the server binds its Connect ports only after it has
+opened connections, and the kernel may give one of those connections such a port as its source port, which fails the
+start. The builder reserves the ports in the container, so the kernel never hands them out.
+
+## What this does not do
+
+- The server keeps nothing between containers. Its runs, events and apps are gone when the container is, and parallel
+  tests that share a container share its apps and events, so give each test its own event data to tell them apart.
+- It talks to Docker on the machine that runs the tests. A container reaches the app on that machine as
+  `host.docker.internal`, which does not hold for a remote Docker host.
+- It waits for nothing the server does. A test that follows a run polls the REST or GraphQL API, or has the function
+  signal the test as above; the server caches some REST answers for a number of seconds, so a poll that must be quick
+  adds a unique query parameter to each request.

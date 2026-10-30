@@ -424,11 +424,10 @@ serialization of step results, which the test host does.
 
 Flow control, cancellation and the expressions of triggers and waits are applied by Inngest, so only a run against
 Inngest exercises them. To test the whole path, run the app against an
-[Inngest dev server](https://www.inngest.com/docs/local-development) in a container, send an event and poll the dev
-server's API until the run finishes. The SDK's own integration tests do this with
-[Testcontainers](https://dotnet.testcontainers.org/) and the `inngest/inngest` image; see
-`tests/Inngest.IntegrationTests` in the [repository](https://github.com/damikun/inngest-dotnet) for a harness that
-starts the server, starts the app and waits for runs.
+[Inngest dev server](https://www.inngest.com/docs/local-development) in a container, send an event and wait for the
+function to do its work. The [`Inngest.Testing.Containers`](https://www.nuget.org/packages/Inngest.Testing.Containers/)
+package starts the server from your tests and has it sync the app, and a `WebApplicationFactory` for ASP.NET Core apps
+comes with it; see [Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
 
 Inngest's [testing guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/testing) covers the
 same ideas for its other SDKs.

@@ -22,6 +22,16 @@ public sealed class HostAccessTests
         HostAccess.ForContainer(new Uri(url)).AbsoluteUri.ShouldBe(expected);
     }
 
+    [Theory]
+    [InlineData("http://[::]:5000/api/inngest", "http://localhost:5000/api/inngest")]
+    [InlineData("http://0.0.0.0:5000/api/inngest", "http://localhost:5000/api/inngest")]
+    [InlineData("http://127.0.0.1:5000/api/inngest", "http://127.0.0.1:5000/api/inngest")]
+    [InlineData("http://shop:5000/api/inngest", "http://shop:5000/api/inngest")]
+    public void The_test_connects_to_localhost_where_kestrel_names_all_interfaces(string url, string expected)
+    {
+        HostAccess.ForTest(new Uri(url)).AbsoluteUri.ShouldBe(expected);
+    }
+
     [Fact]
     public void A_relative_url_is_rejected()
     {

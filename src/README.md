@@ -17,6 +17,10 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   calls over an outbound WebSocket, with no endpoint to expose.
 - [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/): an in-memory test host that runs your functions
   on the real execution engine.
+- [`Inngest.Testing.Containers`](https://www.nuget.org/packages/Inngest.Testing.Containers/): a Testcontainers module
+  that runs the Inngest dev server or a self-hosted server in Docker for end-to-end tests.
+- [`Inngest.Testing.Containers.AspNetCore`](https://www.nuget.org/packages/Inngest.Testing.Containers.AspNetCore/): a
+  `WebApplicationFactory` that runs an ASP.NET Core app on a real port against that server (.NET 10).
 - [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/): traces and metrics for function
   calls and steps.
 - [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/): end-to-end encryption of event data, step

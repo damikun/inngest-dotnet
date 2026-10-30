@@ -85,7 +85,10 @@ public sealed class InngestContainer : DockerContainer
     /// the app on it. A self-hosted server's apps verify signatures, so the request is signed with its signing key.
     /// Returns once the server knows the app's functions, and throws if the app refuses.
     /// </summary>
-    /// <param name="appUrl">The URL of the app's Inngest endpoint as the test reaches it, such as <c>http://localhost:5000/api/inngest</c>.</param>
+    /// <param name="appUrl">
+    /// The URL of the app's Inngest endpoint as the test reaches it, such as <c>http://localhost:5000/api/inngest</c>.
+    /// An app that listens on all interfaces may be named <c>http://[::]:5000/api/inngest</c>, as Kestrel reports it.
+    /// </param>
     /// <param name="cancellationToken">A token that cancels the wait for the answer.</param>
     /// <returns>A task that completes when the app is registered.</returns>
     /// <exception cref="InvalidOperationException">The app did not answer with a registration.</exception>
@@ -94,7 +97,7 @@ public sealed class InngestContainer : DockerContainer
         ArgumentNullException.ThrowIfNull(appUrl);
         var urlForContainer = HostAccess.ForContainer(appUrl);
 
-        using var request = new HttpRequestMessage(HttpMethod.Put, appUrl);
+        using var request = new HttpRequestMessage(HttpMethod.Put, HostAccess.ForTest(appUrl));
         request.Headers.Host = urlForContainer.Authority;
         if (SigningKey is { } signingKey)
         {

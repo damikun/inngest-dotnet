@@ -240,16 +240,21 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
 | `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
+| `Inngest.Testing.Containers` | A Testcontainers module (`InngestBuilder`, `InngestContainer`, `InngestConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
+| `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
 
 `Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing` and `Inngest.Encryption` use internals of `Inngest` through
 `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
 `Inngest.Encryption` only reads the serializer options. Internals can change in any release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
-the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API.
+the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and the two
+`Inngest.Testing.Containers` packages only `InngestOptions`.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption` and `Inngest.Sentry` have no release to compare with yet, so their project files
-clear the baseline until their first one.
+each release. `Inngest.Encryption`, `Inngest.Sentry` and the two `Inngest.Testing.Containers` packages have no release
+to compare with yet, so their project files clear the baseline until their first one. The container packages are not
+`IsAotCompatible`, which every other package is: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on
+reflection, and the packages are for test projects, which are neither trimmed nor compiled ahead of time.
 
 ### Code layout
 
@@ -403,6 +408,7 @@ per call.
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook. |
 | Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
+| End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 
 
 ## Spec deviations
@@ -504,3 +510,39 @@ deadline covers both requests of a check.
 **What the result holds.** `signingKeyFallback`, `signingKey` and `eventKey` are `set`, `not set` or `missing`, never
 values. The address is shown as scheme, host and port. The tests look for the keys, the hashed token and the event
 key in the description, the data and the log of every kind of answer.
+
+## Test containers
+
+`Inngest.Testing.Containers` follows the module pattern of testcontainers-dotnet 4.16: `InngestBuilder` derives from
+`ContainerBuilder`, `InngestConfiguration` from `ContainerConfiguration`, `InngestContainer` from `DockerContainer`, and
+the builder takes the image, as every module has since 4.10, so there is no default image to go stale. The builder
+keeps what the caller chose (the mode, the keys, the app URLs, the gateway) in the configuration and turns it into the
+command line in `Build`, so the order of its methods never matters and one builder can build several containers, each
+with keys and a gateway port of its own. Arguments added with `WithCommand` come last.
+
+- **Command.** `inngest dev --no-discovery --no-poll`, or `inngest start --signing-key K --event-key E`, then the timing
+  flags (`--poll-interval 1 --retry-interval 1 --tick 50`), `--connect-gateway-port` and a `-u` for each app. The
+  `inngest start` signing key must be plain hexadecimal digits in pairs. With `-u` the server retries a failed sync
+  at the poll interval and stops once it succeeds; it does not poll the app afterwards.
+- **Reaching the host.** Inside the container localhost is the container, so a loopback app URL becomes
+  `host.docker.internal`, which the builder maps to `host-gateway` for Linux. The app must listen on all interfaces,
+  since on Linux the container comes in over the Docker bridge, not loopback.
+- **Ports.** The API is published on a random host port. The Connect gateway is published on the same port inside and
+  outside, because the start API hands workers the port as the container knows it; the builder picks a free one at
+  `Build`. The server binds its gRPC ports (50052 and 50053) and the gateway only after it has opened connections, and
+  the kernel may give such a port to one of them as a source port, so the container reserves them with
+  `net.ipv4.ip_local_reserved_ports`.
+- **Syncing after the start.** A `PUT` to the app's endpoint makes an SDK register itself with the server, under the URL
+  the request arrived on. `SyncAsync` sends it with `host.docker.internal` as the `Host` header, so neither the app
+  nor the server needs the other's address before it starts and no port is picked up front. For the self-hosted server
+  the request carries `X-Inngest-Signature`, a MAC of the (empty) body and the timestamp, which keeps the app from
+  logging an unsigned sync. The GraphQL `createApp` mutation of the dev UI also has the server sync an app, and was
+  not used: against `inngest start` the sync it makes arrives unsigned, a failed one stays in the app list, and the
+  error is a bare code such as `unreachable` or `url_not_found`.
+- **WebApplicationFactory.** The server needs a real socket, which `TestServer` does not have. .NET 10 added
+  `UseKestrel`; earlier versions can only get one with a second host built beside the in-memory one, which runs hosted
+  services twice and splits the app's state, so `InngestWebApplicationFactory` targets net10.0 and lives in a package of
+  its own: `Microsoft.AspNetCore.Mvc.Testing` brings build targets and a version that must not be forced on users of
+  the container module. The factory calls `UseKestrel` with `ListenAnyIP(0)`. It has to be called on the factory that
+  starts, because a factory made by `WithWebHostBuilder` does not inherit it. The options are applied with
+  `PostConfigure` from `CreateHost`, so the container wins whatever the app or an override of `ConfigureWebHost` set.
