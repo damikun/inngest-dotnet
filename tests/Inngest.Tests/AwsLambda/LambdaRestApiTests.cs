@@ -52,6 +52,25 @@ public sealed class LambdaRestApiTests
     }
 
     [Fact]
+    public async Task An_in_band_sync_reports_the_url_in_its_body_whatever_the_event_shows()
+    {
+        var handler = _lambda.Create(CommHandlerHarness.DevSettings);
+        var request = LambdaEvents.Rest(
+            "PUT",
+            contextPath: null,
+            host: null,
+            headers: [("X-Inngest-Sync-Kind", "in_band")],
+            body: """{"url":"https://shop.example.com/prod/api/inngest"}""");
+
+        var response = LambdaEvents.Wire(await handler.HandleAsync(request, _lambda.Context));
+
+        response.StatusCode.ShouldBe(200);
+        response.Header("X-Inngest-Sync-Kind").ShouldBe("in_band");
+        _lambda.Serving.Registry.Registrations.ShouldHaveSingleItem().ServeUrl.ShouldBe(new Uri("https://shop.example.com/prod/api/inngest"));
+        _lambda.Serving.Api.Registrations.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task A_custom_domain_without_a_base_path_has_no_stage_in_the_url()
     {
         var url = await SyncUrlAsync(LambdaEvents.Rest("PUT", contextPath: "/api/inngest", host: "api.example.com"));

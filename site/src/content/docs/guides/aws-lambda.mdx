@@ -240,10 +240,12 @@ API includes its stage.
 
 ## The URL Inngest calls
 
-A sync reports the URL Inngest should call, which the SDK builds from the event: the scheme from `X-Forwarded-Proto`
-(the first value; `https` when the header is missing or says anything but `http`), the host from the `Host` header
-(the domain name of the request context when there is none), and the path as the caller used it, with the query
-string, minus `deployId`. What API Gateway puts in the path decides whether the stage is part of it:
+A sync tells Inngest which URL to call. An in-band sync, which Inngest starts when you add the app in its dashboard,
+carries the URL Inngest used in its signed body, and the SDK reports that one. An out-of-band sync, a `PUT` from a
+deploy script or from the dev server, carries none, so the SDK builds the URL from the event: the scheme from
+`X-Forwarded-Proto` (the first value; `https` when the header is missing or says anything but `http`), the host from
+the `Host` header (the domain name of the request context when there is none), and the path as the caller used it,
+with the query string, minus `deployId`. What API Gateway puts in the path decides whether the stage is part of it:
 
 | Invoked through | Path in the URL |
 |---|---|
@@ -255,11 +257,11 @@ string, minus `deployId`. What API Gateway puts in the path decides whether the 
 `requestContext.path` is used when it is `path` with something in front, and `path` otherwise.
 `Amazon.Lambda.AspNetCoreServer` finds the stage the same way, as the request context's path minus the path.
 
-Some setups hide the public address from the event, and then the sync reports the wrong URL. A custom domain with an
-API mapping is one: AWS notes that the `rawPath` of an HTTP API leaves the mapping out, and a REST API shows only what
-API Gateway puts in `requestContext.path`. A CloudFront distribution in front of the API or the function URL is
-another, since the function sees the host CloudFront used to reach it. Check the URL in the Inngest dashboard after
-the first sync, and give the SDK the address when it is wrong, as in
+Some setups hide the public address from the event, and then an out-of-band sync reports the wrong URL. A custom
+domain with an API mapping is one: AWS notes that the `rawPath` of an HTTP API leaves the mapping out, and a REST API
+shows only what API Gateway puts in `requestContext.path`. A CloudFront distribution in front of the API or the
+function URL is another, since the function sees the host CloudFront used to reach it. Check the URL in the Inngest
+dashboard after the first sync, and give the SDK the address when it is wrong, as in
 [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
 
 {/* check: statements; InngestOptions options */}

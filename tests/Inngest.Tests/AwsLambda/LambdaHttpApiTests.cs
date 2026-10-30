@@ -50,6 +50,28 @@ public sealed class LambdaHttpApiTests
     }
 
     [Fact]
+    public async Task An_in_band_sync_reports_the_url_in_its_body_whatever_the_event_shows()
+    {
+        var handler = _lambda.Create(CommHandlerHarness.CloudSettings);
+        const string Body = """{"url":"https://shop.example.com/prod/api/inngest"}""";
+        var request = LambdaEvents.HttpApi(
+            "PUT",
+            rawQueryString: string.Empty,
+            host: null,
+            domainName: string.Empty,
+            headers: [("X-Inngest-Sync-Kind", "in_band"), ("X-Inngest-Signature", _lambda.Sign(Body))],
+            body: Body);
+
+        var response = LambdaEvents.Wire(await handler.HandleAsync(request, _lambda.Context));
+
+        response.StatusCode.ShouldBe(200);
+        response.Header("X-Inngest-Sync-Kind").ShouldBe("in_band");
+        response.Body.ShouldEndWith("\"url\":\"https://shop.example.com/prod/api/inngest\"}");
+        _lambda.Serving.Registry.Registrations.ShouldHaveSingleItem().ServeUrl.ShouldBe(new Uri("https://shop.example.com/prod/api/inngest"));
+        _lambda.Serving.Api.Registrations.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task A_named_stage_is_already_in_the_raw_path_and_is_kept_once()
     {
         var url = await _lambda.SyncUrlAsync(LambdaEvents.HttpApi("PUT", rawPath: "/beta/api/inngest", rawQueryString: string.Empty, stage: "beta"));

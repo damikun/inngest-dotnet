@@ -574,9 +574,10 @@ in inngest-js.
 - **URL.** The scheme comes from the first value of `X-Forwarded-Proto` (`https` unless it says `http`) and the host
   from `Host`, or the request context's domain name. The path is `rawPath` for HTTP APIs, which already starts with a
   named stage, and `requestContext.path` for REST APIs when it extends `path`, which is when it holds the stage (API
-  Gateway fills it with the path the client called). inngest-js uses `path`, which leaves the stage out. The URL is built on first use,
-  since only syncs need it. Anything the event cannot show, such as an API mapping of an HTTP API or a CloudFront host,
-  is left to `ServeOrigin` and `ServePath`.
+  Gateway fills it with the path the client called). inngest-js uses `path`, which leaves the stage out. The URL is
+  built on first use, and only out-of-band syncs use it: an in-band sync names the URL in its signed body. Anything the
+  event cannot show, such as an API mapping of an HTTP API or a CloudFront host, is left to `ServeOrigin` and
+  `ServePath`.
 - **Time.** The call's cancellation token is `CancellationToken.None`. Lambda gives no signal before it ends an
   invocation, and cancelling shortly before `RemainingTime` runs out could only turn the 5xx that Inngest retries anyway
   into an error of the handler's own: the serve handler rethrows a cancellation, so an error response would have to be
