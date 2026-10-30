@@ -12,8 +12,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 - **AI calls as steps.** `AIWrapAsync` runs your own model call as a step that the Inngest UI shows with its input,
   and a rerun with an input edited there hands the handler the edited one. An input edited for `InferAsync` now
   reaches the request too.
-- **Realtime.** `PublishAsync` on the step tools publishes a message once, `IInngestRealtime` publishes at once and
-  mints the subscription tokens browsers use with the TypeScript SDK's `useRealtime`. See
+- **Realtime.** Steps publish messages and stream text, such as a model's reply, once each; typed topics check what is
+  published; `IInngestRealtime` publishes from anywhere, receives messages in .NET as an `IAsyncEnumerable` and mints
+  tokens for the TypeScript SDK's `useRealtime`; and `MapInngestRealtime` relays messages to browsers as server-sent
+  events, one subscription to Inngest for all the pages that watch a channel. See
   [Realtime](/inngest-dotnet/guides/realtime/).
 - **Streaming.** `InngestOptions.Streaming`, or `INNGEST_STREAMING=true`, keeps a long call open behind proxies and
   load balancers that close idle connections. See [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy).

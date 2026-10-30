@@ -12,6 +12,8 @@ public interface IEmailSender
 public interface IChatModel
 {
     Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken);
+
+    IAsyncEnumerable<string> StreamAsync(string prompt, CancellationToken cancellationToken);
 }
 
 public sealed record UserSignedUp(string UserId, string Email) : Inngest.IInngestEventData

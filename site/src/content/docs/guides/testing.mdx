@@ -297,7 +297,8 @@ it from a step to send it once. Events sent from a run carry the run's [sessions
 in `Meta.PropagatedSessions`, and the host delivers an event's sessions to the run it starts.
 
 `run.SentSignals` and `host.SentSignals` hold the signals sent without a mock, each with its data as JSON, and
-`run.Published` and `host.Published` the [realtime](/inngest-dotnet/guides/realtime/) messages.
+`run.Published` and `host.Published` the [realtime](/inngest-dotnet/guides/realtime/) messages, a stream as one
+message with all its text and `IsStream` set.
 
 ### Running up to one step
 

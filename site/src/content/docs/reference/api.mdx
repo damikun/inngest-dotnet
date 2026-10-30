@@ -23,6 +23,7 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IInngestBuilder.AddMiddleware(InngestMiddleware)` | Registers one middleware instance for all calls. |
 | `IInngestBuilder.AddConnect(Action<ConnectOptions>?)` | Runs the functions in a Connect worker. Package `Inngest.Connect`. |
 | `IEndpointRouteBuilder.MapInngest(string pattern = "/api/inngest")` | Maps the endpoint Inngest calls. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
+| `IEndpointRouteBuilder.MapInngestRealtime(string pattern, Func<HttpContext, ValueTask<RealtimeSubscription?>> subscription)` | Serves realtime messages to browsers as server-sent events; the callback returns the `RealtimeSubscription(string Channel, IReadOnlyList<string> Topics)` a request may receive, or null for 403. Package `Inngest.AspNetCore`. See [Realtime](/inngest-dotnet/guides/realtime/#with-server-sent-events). |
 | `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
 
@@ -145,12 +146,13 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `FetchAsync(string id, HttpRequestMessage request)` | `Task<HttpResponseMessage>`; Inngest makes the request, and the response is memoized |
 | `InferAsync<TResponse>(string id, InferOptions options)` | `Task<TResponse>`; Inngest sends the request to the AI provider, and the response is memoized |
 | `AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler)` | `Task<TResult>`; runs your own model call like a run step that the Inngest UI shows as one, with the input; a rerun with an input edited there passes the edited input |
-| `PublishAsync<T>(string id, RealtimeTopic topic, T data)` | `Task<T>`; publishes a [realtime](#realtime) message once, tagged with the run |
+| `PublishAsync<T>(string id, RealtimeTopic topic, T data)` | `Task<T>`; publishes a [realtime](#realtime) message once, tagged with the run; also for a `RealtimeTopic<T>` |
+| `PublishStreamAsync(string id, RealtimeTopic topic, IAsyncEnumerable<string> chunks)` | `Task<string>`; streams the text to the topic as it arrives and memoizes all of it, so a replay does not read the chunks again |
 | `ParallelAsync<T>(ParallelMode mode, Func<Task<T>> steps)` | `Task<T>`; runs the callback with the mode applied to every step it creates |
 
 The members after the first six have default implementations, so a fake only has to implement the six. The defaults
 of `InvokeAsync<TFunction, TResult>`, `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`, `InferAsync`,
-`AIWrapAsync` and `PublishAsync` throw `NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
+`AIWrapAsync`, `PublishAsync` and `PublishStreamAsync` throw `NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
 the id.
 
 `StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
@@ -208,15 +210,21 @@ for sure that a run is over. Failures throw `InngestException` with Inngest's me
 
 ## Realtime
 
-**`IInngestRealtime`** publishes realtime messages and mints subscription tokens through the Inngest API, with the
-app's signing key. See [Realtime](/inngest-dotnet/guides/realtime/).
+**`IInngestRealtime`** publishes, streams and receives realtime messages and mints subscription tokens through the
+Inngest API, with the app's signing key. See [Realtime](/inngest-dotnet/guides/realtime/).
 
 | Method | Returns |
 |---|---|
-| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one. Text goes out as it is, anything else as JSON. |
+| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one. Text goes out as it is, anything else as JSON. Also for a `RealtimeTopic<T>`. |
+| `PublishStreamAsync(RealtimeTopic topic, IAsyncEnumerable<string> chunks, CancellationToken)` | `Task<string>`: all the text, streamed to the topic in one request as it arrives |
+| `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on, with the data read as a `T` |
+| `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |
 | `GetSubscriptionTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `Task<RealtimeToken>` for a browser to subscribe to these topics of the channel |
 
-**`RealtimeTopic`**, a record `(string Channel, string Name)`. **`RealtimeToken`**, a record `(string Channel,
+**`RealtimeTopic`**, a record `(string Channel, string Name)`, and **`RealtimeTopic<T>`**, the same for data of type
+`T`, with `Untyped` for the members that take any topic. **`RealtimeMessage<T>`**, a record `(RealtimeMessageKind Kind,
+string Channel, string Topic)` with `Data`, `StreamId`, `Text`, `RunId` and `CreatedAt`; `RealtimeMessageKind` is
+`Data`, `StreamStart`, `StreamChunk`, `StreamEnd`, `Run` or `Other`. **`RealtimeToken`**, a record `(string Channel,
 IReadOnlyList<string> Topics, string Key)` with `ApiBaseUrl`; serialized with camelCase names, it is the token object
 that `useRealtime` and `subscribe` of the TypeScript SDK take.
 
@@ -334,7 +342,7 @@ Package `Inngest.Testing`, namespace `Inngest.Testing`. See [Testing functions](
 | `ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | The same for the function registered as `TFunction`. Also without `mocks`. |
 | `SentEvents` | Every event sent through the app's client since the host was created. |
 | `SentSignals` | Every signal sent through the app's client since the host was created. None resumes a run. |
-| `Published` | Every realtime message published since the host was created, as `PublishedMessage(RealtimeTopic Topic, JsonElement Data)`. Tokens the host mints are placeholders. |
+| `Published` | Every realtime message published since the host was created, as `PublishedMessage(RealtimeTopic Topic, JsonElement Data)` with `IsStream` for a stream, recorded with all its text. Tokens the host mints are placeholders, and subscribing fails. |
 | `Services` | The app's services, as functions resolve them. Disposing the host, which is `IAsyncDisposable` and `IDisposable`, disposes them. |
 
 **`StepMocks`** answers steps by id, and every method returns a new set: `Run<T>(id, T result)`,
