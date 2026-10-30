@@ -71,7 +71,7 @@ public sealed class InngestHealthCheckTests
         entry.Data["api"].ShouldBe("ok");
         entry.Data.ContainsKey("acceptedKey").ShouldBeFalse();
 
-        // Every dev server answers /health, including those older than the REST API that /v2/apps belongs to.
+        // The dev server's own health endpoint, which does not depend on the REST API that /v2/apps belongs to.
         app.Handler.Single.Uri.ShouldBe(new Uri("http://localhost:8288/health"));
         app.Handler.Single.Header("Authorization").ShouldBeNull();
     }

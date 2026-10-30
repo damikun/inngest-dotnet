@@ -269,6 +269,19 @@ public sealed class InngestHealthCheckSyncTests
     }
 
     [Fact]
+    public async Task Reports_an_answer_that_breaks_off_while_it_is_read_as_unreachable()
+    {
+        await using var app = HealthHarness.Cloud(WithSync(), functions: 2);
+        app.Handler.Respond(HttpStatusCode.OK, AppsList).RespondWithTruncatedBody(HttpStatusCode.OK, "{\"data\":{\"functionCount\":");
+
+        var entry = await app.CheckAsync(cancellationToken: Cancellation);
+
+        entry.Status.ShouldBe(HealthStatus.Unhealthy);
+        entry.Description.ShouldBe("Could not reach Inngest at https://api.inngest.com: The response ended prematurely.");
+        entry.Data["api"].ShouldBe("unreachable");
+    }
+
+    [Fact]
     public async Task Shares_the_timeout_between_the_two_requests()
     {
         await using var app = HealthHarness.Cloud(WithSync(), functions: 2);

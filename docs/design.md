@@ -474,8 +474,8 @@ answered, which the result shows.
 **The request.** In cloud mode, and against a self-hosted server, `GET {api}/v2/apps?limit=1`: it needs the key, lists
 at most one app and changes nothing. `GET /v2/health` would be lighter, but Inngest Cloud answers it to anyone (an
 unauthenticated request gets a 200), so it would pass with a key Inngest has never seen. A self-hosted server does check
-the key there. In dev mode, `GET {dev server}/health`, which every dev server answers; `/v2/apps` came with Inngest
-v1.40.0 and `/v2/apps/{id}` with v1.27.1. A 2xx is healthy, 401 and 403 are a refused key, 429 is Degraded and
+the key there. In dev mode, `GET {dev server}/health`, the server's own health endpoint, which does not depend on the
+v2 REST API: `/v2/apps` came with Inngest v1.40.0 and `/v2/apps/{id}` with v1.27.1. A 2xx is healthy, 401 and 403 are a refused key, 429 is Degraded and
 anything else is a failure. The body of that request is not read, and no error text of Inngest's goes into a
 description, so a gateway's error page cannot reach one.
 

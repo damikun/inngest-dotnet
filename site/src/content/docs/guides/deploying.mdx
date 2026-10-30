@@ -129,7 +129,7 @@ description. It checks two things:
 In cloud mode, and against a self-hosted server, the request is `GET /v2/apps?limit=1` on the API address
 (`https://api.inngest.com`, or `INNGEST_BASE_URL`). It lists at most one app and changes nothing. A self-hosted
 server needs Inngest v1.40.0 or later for it. The dev server holds no keys, so in dev mode the request is
-`GET /health`, which every version answers.
+`GET /health`, its own health endpoint.
 
 The result never shows a key, the hashed token the SDK sends in its place, or the event key; the data says whether
 each is set. Nor does the address: only its scheme, host and port.

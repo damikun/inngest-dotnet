@@ -15,19 +15,20 @@ public static class InngestHealthChecksBuilderExtensions
     private const string DefaultName = "inngest";
 
     /// <summary>
-    /// Adds a check that an app serving functions with MapInngest can work with Inngest: it has the signing key that
-    /// Inngest Cloud needs, and Inngest answers a request that carries the key. In dev mode it checks that the dev
-    /// server answers. It reports failureStatus (Unhealthy unless given) when it cannot tell so, and Degraded when
-    /// Inngest rate limits the request. Inngest's answer is kept for the registration's
-    /// <see cref="InngestHealthCheckOptions.CacheDuration" />, so frequent probes send few requests, and the request
-    /// is cancelled when the probe is, or when <paramref name="timeout" /> has passed (10 seconds unless given),
-    /// whichever is first.
-    /// Unless <see cref="InngestHealthCheckOptions.CheckSync" /> is set, it does not tell whether Inngest has synced the
-    /// app. It is meant for readiness probes: tag it and keep it out of the liveness probe, because restarting the app
-    /// does not bring Inngest back. Whether an Inngest outage should
-    /// take the app out of rotation is for failureStatus to say: use Degraded for an app that mostly serves its own
-    /// users and only runs background work through Inngest.
+    /// Adds a check that an app serving functions with MapInngest can work with Inngest: its signing key is configured,
+    /// and Inngest answers a request that carries the key. In dev mode the check is that the dev server answers.
+    /// Inngest's answer is kept for <see cref="InngestHealthCheckOptions.CacheDuration" />, so frequent probes send few
+    /// requests, and a request is cancelled with the probe, or when <paramref name="timeout" /> has passed (10 seconds
+    /// unless given), whichever is first.
     /// </summary>
+    /// <remarks>
+    /// The check reports failureStatus (Unhealthy unless given) when it finds a problem, and Degraded when Inngest rate
+    /// limits the request. Use Degraded as the failureStatus for an app that mostly serves its own users and only runs
+    /// background work through Inngest, so that an outage of Inngest does not take it out of rotation. The check is meant
+    /// for readiness probes: tag it and keep it out of the liveness probe, because restarting the app does not bring
+    /// Inngest back. Unless <see cref="InngestHealthCheckOptions.CheckSync" /> is set, it does not tell whether Inngest
+    /// has synced the app.
+    /// </remarks>
     public static IHealthChecksBuilder AddInngest(
         this IHealthChecksBuilder builder,
         string? name = null,

@@ -99,8 +99,9 @@ internal sealed class InngestHealthProbe
 
             return await RequestSyncAsync(statusCode, usedFallbackKey, linked.Token).ConfigureAwait(false);
         }
-        catch (HttpRequestException exception)
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
+            // The body of the second request can break off after its headers came, which reads as an IOException.
             return Result(ApiStatus.Unreachable, 0, usedFallbackKey: false, Shorten(exception.Message));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -111,8 +112,9 @@ internal sealed class InngestHealthProbe
 
     private async Task<(ApiStatus Api, int StatusCode, bool UsedFallbackKey)> RequestApiAsync(CancellationToken cancellationToken)
     {
-        // Dev servers of every version answer /health. The authenticated read is for servers that hold a signing key:
-        // Inngest Cloud answers /v2/health to anyone, so it would pass with a key Inngest has never seen.
+        // The dev server holds no key and has a health endpoint of its own, apart from the REST API. Servers that hold a
+        // signing key get an authenticated read: Inngest Cloud answers /v2/health to anyone, so that would pass with a
+        // key Inngest has never seen.
         var path = _settings.IsDev ? "/health" : "/v2/apps?limit=1";
         var answer = await _transport.SendKeyedAsync(
             new ApiCall(HttpMethod.Get, _transport.Url(path)),
