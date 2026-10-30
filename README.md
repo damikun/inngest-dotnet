@@ -273,9 +273,9 @@ The documentation has complete examples:
 
 ## Quality and testing
 
-- **2,126 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
+- **2,145 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
   invocations at once.
-- **204 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **207 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
