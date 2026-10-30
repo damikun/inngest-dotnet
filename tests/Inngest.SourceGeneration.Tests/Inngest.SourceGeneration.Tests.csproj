@@ -10,8 +10,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" />
-    <!-- The generator is built against Roslyn 4.8 and loads into any newer compiler. The tests run it on the compiler of the
-         .NET 10 SDK, 5.0, which is what an app built with the repository's SDK meets. -->
+    <!-- The generator is built against Roslyn 4.8 and loads into any newer compiler. The tests run it on 5.0, the compiler of
+         the first .NET 10 SDK, so that it is checked on a compiler newer than the one it is built against. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Shouldly" />
