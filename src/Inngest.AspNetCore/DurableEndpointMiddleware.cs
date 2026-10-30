@@ -17,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Primitives;
 
 namespace Inngest.AspNetCore;
 
@@ -97,6 +98,10 @@ internal sealed class DurableEndpointMiddleware
         var runId = Ulid.New(now);
         var retries = options.RetriesOrDefault;
         var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now);
+
+        // What middleware before this one has set, such as security headers. An answer that replaces the endpoint's
+        // response keeps them and drops what the endpoint set.
+        KeyValuePair<string, StringValues>[] earlierHeaders = [.. context.Response.Headers];
         var capture = new CapturedResponse(context);
         ExecutionResult result;
         try
@@ -145,13 +150,13 @@ internal sealed class DurableEndpointMiddleware
                     break;
 
                 case EndpointOutcomeKind.HandedOver:
-                    response.Clear();
+                    Reset(response, earlierHeaders);
                     response.Headers[EndpointCalls.RunIdHeader] = outcome.RunId;
                     await WriteHandoverAsync(response, options, new DurableEndpointRun(outcome.RunId, outcome.Token!), cancellationToken).ConfigureAwait(false);
                     break;
 
                 default:
-                    response.Clear();
+                    Reset(response, earlierHeaders);
                     if (outcome.Finish is { } finishFailed)
                     {
                         await finishFailed(_stopping).ConfigureAwait(false);
@@ -183,6 +188,20 @@ internal sealed class DurableEndpointMiddleware
             // Inngest gets the answer of the SDK, never what the endpoint wrote.
             context.Response.Clear();
             await InngestEndpoint.WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // Takes back what the endpoint did to the response, which has not started: its status, body and headers. The
+    // headers that were there before it ran are kept, except a length, which belongs to the body that replaces it.
+    private static void Reset(HttpResponse response, KeyValuePair<string, StringValues>[] earlierHeaders)
+    {
+        response.Clear();
+        foreach (var (name, value) in earlierHeaders)
+        {
+            if (!string.Equals(name, "Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                response.Headers[name] = value;
+            }
         }
     }
 

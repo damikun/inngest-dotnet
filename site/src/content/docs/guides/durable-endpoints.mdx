@@ -329,7 +329,9 @@ dev mode is the dev server.
 The client reads the response from the output URL above with a GET. The token is all it needs, so treat it like the
 response itself.
 
-Both answers carry the run's id in `X-Run-ID`. `RedirectUrl` replaces the location of the redirect. It gets a
+Both answers carry the run's id in `X-Run-ID`. They keep the headers that middleware before
+`UseInngestDurableEndpoints` set, such as security headers, and leave out those the endpoint set before the hand-over.
+`RedirectUrl` replaces the location of the redirect. It gets a
 `DurableEndpointRun` with the run's id and token and returns the `Uri` to redirect to, such as a page of your own app:
 
 {/* check: expression DurableEndpointOptions */}

@@ -102,6 +102,30 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_hand_over_keeps_the_headers_of_earlier_middleware_and_drops_the_endpoints_own()
+    {
+        var client = await StartAsync();
+
+        using var redirect = await client.PostAsync("/orders/42/ship", Json(OrderBody), CancellationToken);
+        using var token = await client.PostAsync("/orders/42/ship-with-token", Json(OrderBody), CancellationToken);
+
+        redirect.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        redirect.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
+        redirect.Headers.Contains("X-Packed-By").ShouldBeFalse();
+        token.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
+    }
+
+    [Fact]
+    public async Task A_finished_request_keeps_the_headers_of_earlier_middleware()
+    {
+        var client = await StartAsync();
+
+        using var response = await client.GetAsync("/ping", CancellationToken);
+
+        response.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
+    }
+
+    [Fact]
     public async Task The_token_response_gives_the_run_and_its_token()
     {
         var client = await StartAsync();
@@ -247,6 +271,13 @@ public sealed class DurableEndpointTests : IAsyncDisposable
             var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
             return context.Response.WriteAsync($"handled: {error?.Message}");
         }));
+
+        // A header that middleware before the durable one sets, which every answer keeps.
+        app.Use((context, next) =>
+        {
+            context.Response.Headers["X-Frame-Options"] = "DENY";
+            return next(context);
+        });
         app.UseInngestDurableEndpoints();
 
         app.MapPost("/orders/{id}", async (string id, Order order, IStepTools step) =>
@@ -259,8 +290,10 @@ public sealed class DurableEndpointTests : IAsyncDisposable
             return Results.Ok(new { id, total, note = order.Note });
         }).WithDurableEndpoint();
 
-        app.MapPost("/orders/{id}/ship", async (IStepTools step) =>
+        app.MapPost("/orders/{id}/ship", async (HttpResponse response, IStepTools step) =>
         {
+            // Set by the endpoint before its run is handed over, so the redirect leaves it out.
+            response.Headers["X-Packed-By"] = "endpoint";
             await step.RunAsync("pack", () => "packed");
             await step.SleepAsync("cool-off", TimeSpan.FromMinutes(5));
             return Results.Ok("shipped");
