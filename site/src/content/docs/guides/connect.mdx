@@ -88,6 +88,9 @@ INNGEST_DEV=1 dotnet run
 The app appears in the dev server's Apps page as soon as the worker connects. `--no-discovery` stops the dev
 server from looking for HTTP apps, which a worker does not have.
 
+In an Aspire AppHost, [`AddInngest`](/inngest-dotnet/guides/aspire/) runs the dev server for you, and `WithReference`
+gives the worker the address of the gateway, which Aspire publishes on a port of its own.
+
 ## What the worker does
 
 Once connected, the worker:
