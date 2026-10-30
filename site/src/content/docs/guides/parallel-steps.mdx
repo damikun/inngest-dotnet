@@ -54,6 +54,10 @@ so a limit of 5 runs at most five of these charges at once, across all runs of t
 consider [invoking a function](/inngest-dotnet/guides/invoking-functions/) per item, or sending an event per item,
 so that each item is a run of its own with its own retries.
 
+`MapAsync` does this for a list, with ids for the steps, a limit on how many run at once, and a choice of stopping at
+the first failure or collecting every outcome, and its chunked form sends lists that are too long for one run to child
+runs. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/).
+
 ## Racing steps
 
 `Task.WhenAny` works too. It completes with the step that finished first:

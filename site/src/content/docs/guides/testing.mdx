@@ -276,6 +276,9 @@ A mock that does not fit its step makes `RunAsync` throw `InvalidOperationExcept
 step, such as `Run` for a sleep, or a wait mock whose event has another name. Send steps take no mock; the host
 records their events. A signal sent without a mock resumes no run and is recorded too, and so are realtime messages.
 
+The steps of a [fan-out over a list](/inngest-dotnet/guides/fan-out/#testing) are mocked by their ids, such as
+`charge[0]`.
+
 Steps that start together, as with `Task.WhenAll`, hold each other up: without race mode Inngest calls the function
 again only once all of them have finished, so a wait without a mock keeps the run waiting even when the other steps
 of the group are mocked.

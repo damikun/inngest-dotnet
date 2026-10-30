@@ -1,0 +1,319 @@
+---
+title: Fan-out over a list
+description: Run a step for each item of a list with a limit on how many run at once, get the results back in order, stop at the first failure or collect every outcome, and send lists too long for one run to child runs in chunks.
+sidebar:
+  label: Fan-out over a list
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`MapAsync` runs a step for each item of a list and returns the results in the order of the items. It is
+`Task.WhenAll` over a list, with an id for every step, a limit on how many steps run at the same time, and a choice
+of what a failure does.
+
+{/* check: body JsonElement; IBilling billing; string customerId */}
+```csharp
+var invoices = await context.Step.RunAsync("load-invoices",
+    ct => billing.GetOpenInvoicesAsync(customerId, ct));
+
+IReadOnlyList<string> paymentIds = await context.Step.MapAsync("charge", invoices,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
+    new FanOutOptions { MaxParallelism = 5 });
+```
+
+Each item is a step with the id `charge[0]`, `charge[1]` and so on, retried on its own like any other step. The
+methods are extensions of `IStepTools`, so they work on `context.Step` and on any fake of it. `ForEachAsync` is the same
+for a handler without a result:
+
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<string> customerIds */}
+```csharp
+await context.Step.ForEachAsync("notify", customerIds, (customerId, ct) => billing.NotifyAsync(customerId, ct));
+```
+
+| You have | Use |
+|---|---|
+| A list of up to a few hundred items, and want the results | `MapAsync` |
+| The same, and want no results | `ForEachAsync` |
+| The same, and want to know which items failed instead of failing the run | `MapOutcomesAsync` |
+| More items than one run can hold | `MapInChunksAsync` or `MapOutcomesInChunksAsync`, which run the list in [child runs](#lists-too-long-for-one-run) |
+| Work per item that has steps of its own | [`InvokeAsync`](/inngest-dotnet/guides/invoking-functions/#fan-out-with-results) per item, or an event per item |
+
+The handler of an item is the handler of a step, so it cannot call steps. `Parallel.ForEachAsync` is not a
+replacement: it would run the handlers in the call itself and repeat them on every replay.
+
+## The list has to be the same on every call
+
+Inngest runs a function by calling it again for every step, and the code before the fan-out runs each time. The steps
+of a fan-out are matched to the results Inngest recorded by their position, so the list must come out the same on
+every call: take it from the event, or from the result of a step, as `load-invoices` does above. A list read outside a
+step, from a database or from the clock, may differ between calls, and then `charge[3]` gets the result that was
+recorded for another item.
+
+`MapAsync` takes an `IReadOnlyList<T>` on purpose. A lazy `IEnumerable<T>` would run its query again on every call.
+
+Give each fan-out in a function an id of its own. With the same id, the second one gets numbered ids like any repeated
+step id, `charge[0]:1`, and which of two fan-outs that run in parallel is the second can depend on timing.
+
+## How many run at once
+
+Without `MaxParallelism` every item starts at once. With it, the first items fill the window, and each time Inngest
+calls the function again with a result, the next item takes the place of the one that finished:
+
+| `MaxParallelism = 2`, five items | Items started |
+|---|---|
+| First call | 0 and 1 |
+| After both have finished | 2 and 3 |
+| After both have finished | 4 |
+
+Inngest calls the function again once all the steps started together have finished, as the
+[parallel steps](/inngest-dotnet/guides/parallel-steps/) guide describes, so by default the window moves on in groups:
+a slow item holds back the next group. `ParallelMode = ParallelMode.Race` has Inngest call the function after each item,
+and the window moves on as soon as one item has finished, at the cost of more calls:
+
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<Invoice> invoices */}
+```csharp
+var paymentIds = await context.Step.MapAsync("charge", invoices,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
+    new FanOutOptions { MaxParallelism = 5, ParallelMode = ParallelMode.Race });
+```
+
+`MaxParallelism` bounds the items of this run. The function's own
+[concurrency limit](/inngest-dotnet/guides/flow-control/#concurrency) bounds the steps of all its runs together, and
+the plan of your Inngest account bounds the steps that run at once overall.
+
+### What a list costs
+
+Every call replays the function: the results of all the steps that finished are in the request, and the function
+reads them one by one before it reaches new work. A list of `n` items with `MaxParallelism = w` takes these calls:
+
+| Mode | Calls |
+|---|---|
+| Default | For each window of two or more items, one call that finds the items and one call per item. A window of one item runs in the call that finds it, when Inngest allows that. One more call returns the result. |
+| `Race` | One call that finds the first items, one per item, and one per finished item that calls the function again: `2n + 1`. A step of a race never runs in the call that finds it. |
+
+Seven items with `MaxParallelism = 3` are windows of 3, 3 and 1, so `(1 + 3) + (1 + 3) + 1 + 1 = 10` calls, which is
+what the dev server makes. The replay work and the size of each request grow with the number of results so far, so
+keep the result of an item small, an id rather than a document, and run long lists in chunks.
+
+## When an item fails
+
+An item whose step fails for good, after its retries, throws `StepFailedException` where it is awaited. `MapAsync` and
+`ForEachAsync` stop at the first one:
+
+- no item starts after the failure was seen;
+- the call throws that item's `StepFailedException`, whose `StepId` is `charge[3]`, without waiting for the items in
+  flight. The SDK cannot recall a step it has planned. By default Inngest calls the function again only once the whole
+  window has finished, so the failure surfaces then; in race mode it surfaces as soon as that item has failed;
+- when several items failed, the exception is the one Inngest recorded first, the same on every replay.
+
+An item that started before the failure was seen is not recalled either. If the function catches the exception and goes
+on, the SDK still reports that item to Inngest, as it does for any step the function started and did not wait for.
+
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<Invoice> invoices */}
+```csharp
+try
+{
+    await context.Step.MapAsync("charge", invoices, (invoice, ct) => billing.ChargeAsync(invoice.Id, ct));
+}
+catch (StepFailedException exception)
+{
+    context.Logger.LogWarning("{StepId} failed: {Error}", exception.StepId, exception.Error.Message);
+    throw;
+}
+```
+
+Left uncaught, the exception fails the run without retries, like any uncaught `StepFailedException`.
+
+To keep going and learn which items failed, use `MapOutcomesAsync`. It runs every item and returns one `FanOutOutcome`
+per item, in the order of the items, instead of throwing:
+
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<Invoice> invoices */}
+```csharp
+var outcomes = await context.Step.MapOutcomesAsync("charge", invoices,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct));
+
+foreach (var outcome in outcomes.Where(outcome => !outcome.Succeeded))
+{
+    context.Logger.LogWarning("{Invoice} was not charged: {Error}", invoices[outcome.Index].Id, outcome.Error!.Message);
+}
+
+var paymentIds = outcomes.Where(outcome => outcome.Succeeded).Select(outcome => outcome.Value!).ToList();
+```
+
+`Index` is the position in the list, `Value` is the result, and `Error` is the `FunctionError` the step failed with. Only
+failed steps become outcomes. Anything else the fan-out meets, such as a result that cannot be read as the item's type,
+is thrown.
+
+## Cancellation
+
+Every method takes a `CancellationToken`. Once it is canceled, the next item does not start, and the call throws
+`OperationCanceledException`. Items already planned are not recalled. The token has to be canceled the same way on every
+replay, or two calls start different items. Cancel it from what the function decides from the results of steps, and not
+from a timer or another thread. The token of the call, which Inngest cancels when it abandons the call, is safe to pass
+and changes nothing, since the call ends then anyway.
+
+## Lists too long for one run
+
+A run has at most 1,000 steps, those of parallel groups included, so `MapAsync` refuses a longer list. Such a list goes
+to child runs in chunks: the parent invokes one function per chunk, and each of those runs has a step for every item of
+its chunk. The limits that decide the sizes, from Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits):
+
+| Limit | Value | What it bounds |
+|---|---|---|
+| Steps in a run | 1,000 | The chunk size, and the number of chunks of the parent |
+| Size of an event | 256 KiB on Free, 3 MiB on Pro and Business | The items of a chunk, since the chunk is the data of the event that starts its run |
+| Output of a step | 4 MiB | The outcomes of a chunk, which the parent's invoke step returns |
+| State of a run | 32 MiB for event, steps and output together | The outcomes of every chunk, which all land in the parent's state |
+
+Inngest's documentation gives no separate limit for the payload of an invoke; it is the data of the
+`inngest/function.invoked` event, so the limit of events applies.
+
+### The function of a chunk
+
+The app provides the child by deriving from `FanOutFunction<TItem, TResult>` and implementing `ProcessAsync` for one
+item. The base class runs it for each item of its chunk, as a step of its own with the id `item[index]`, and returns the
+outcomes. Register the class like any function, with an id and no trigger, because only the fan-out starts it:
+
+```csharp title="ChargeInvoices.cs"
+using Inngest;
+
+[InngestFunction("charge-invoices", Retries = 3)]
+[Concurrency(10)]
+public sealed class ChargeInvoices(IBilling billing) : FanOutFunction<Invoice, string>
+{
+    // How many items of a chunk run at the same time. The default is all of them.
+    protected override int? MaxParallelism => 5;
+
+    protected override Task<string> ProcessAsync(Invoice invoice, CancellationToken cancellationToken) =>
+        billing.ChargeAsync(invoice.Id, cancellationToken);
+}
+```
+
+<Tabs syncKey="function-style">
+<TabItem label="Attributes">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddFunction<ChargeInvoices>();
+```
+
+</TabItem>
+<TabItem label="Code first">
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddFunction<ChargeInvoices>(new FunctionOptions
+{
+    Id = "charge-invoices",
+    Triggers = [],
+    Retries = 3,
+    Concurrency = [new ConcurrencyLimit(10)],
+});
+```
+
+</TabItem>
+</Tabs>
+
+The options of the function are those of the chunk's run. Its `Retries` are the retries of each item's step, and a
+concurrency limit bounds the steps of all the chunks at once.
+
+### Running the chunks
+
+The parent names the class and the types, and says how many items go to a chunk:
+
+{/* check: body JsonElement; IReadOnlyList<Invoice> invoices */}
+```csharp
+IReadOnlyList<string> paymentIds = await context.Step.MapInChunksAsync<ChargeInvoices, Invoice, string>(
+    "charge", invoices, chunkSize: 100, new FanOutOptions { MaxParallelism = 4 });
+```
+
+The parent has an invoke step for every chunk, with the id `charge[0-99]`, `charge[100-199]` and so on, which holds the
+position of both ends so that a chunk size changed between two calls cannot give a chunk the result of another.
+`MaxParallelism` is the number of chunks in flight, and `ChunkTimeout` is how long a chunk's run may take; without it
+Inngest waits as long as its [default for an invoke](https://www.inngest.com/docs/reference/typescript/v4/functions/step-invoke),
+a year. A chunk that times out fails its step and its run goes on.
+
+Failures work as in `MapAsync`, with the difference that the failing step ran in another run:
+
+- a chunk stops starting items once one has failed for good, and the parent starts no more chunks. The call throws a
+  `StepFailedException` whose `StepId` is `charge[137]`, the position of the item, and whose `Error` is the item's error;
+- a chunk whose run fails or times out throws a `StepFailedException` with the id of the chunk's step;
+- `MapOutcomesInChunksAsync` runs every item and returns an outcome for each. When a chunk's run fails or times out, each
+  of its items gets the error of the chunk's step.
+
+### Choosing the sizes
+
+A run holds up to 1,000 chunks of up to 1,000 items. What decides the sizes in practice is what has to fit:
+
+- **The items of a chunk fit in an event.** `chunkSize` times the size of an item as JSON must stay under the event limit
+  of your plan, with a little room for the rest of the data. A hundred items of about a kilobyte are about 100 KB.
+- **The outcomes of a chunk fit in a step.** An outcome is the result as JSON in `{"index":…,"value":…}`, which adds
+  about 25 bytes to it, and a chunk's outcomes must stay under 4 MiB.
+- **All the outcomes fit in the parent's state.** They add up over the chunks, with the event and the other steps, to
+  32 MiB at most. Keep the result of an item small, a few numbers or an id. For work with no result, return a `bool`.
+- **The items themselves are small.** A list that is too big for an event is a list of ids or ranges, such as page
+  numbers, and `ProcessAsync` loads what it needs.
+
+The call refuses a `chunkSize` above 1,000, and a list that makes more than 1,000 chunks. A list beyond that is split
+between several runs, for example by an event per part.
+
+Under Native AOT or trimming, add the chunk and its outcomes to your `JsonSerializerContext`, for each function of a
+chunk. See [Native AOT](/inngest-dotnet/guides/native-aot/):
+
+```csharp
+using System.Text.Json.Serialization;
+using Inngest;
+
+[JsonSerializable(typeof(FanOutChunk<Invoice>))]
+[JsonSerializable(typeof(IReadOnlyList<FanOutOutcome<string>>))]
+internal sealed partial class FanOutJson : JsonSerializerContext;
+```
+
+## Checkpointing
+
+With checkpointing on (`CheckpointingOptions`, see the [API overview](/inngest-dotnet/reference/api/#options)), steps
+that follow one another run in one call. A fan-out with `MaxParallelism = 1` is such a sequence, and runs in a single
+call up to the checkpointing `MaxRuntime`. A window of several items is a parallel group, which goes back to one call
+per step.
+
+## Testing
+
+Mock the steps of the items by their ids, `charge[0]`, `charge[1]`, with the [test host](/inngest-dotnet/guides/testing/):
+
+{/* check: statements; InngestTestHost host */}
+```csharp
+using Inngest.Testing;
+
+var mocks = new StepMocks()
+    .Run("charge[0]", "pay_1")
+    .Run("charge[1]", "pay_2");
+
+var run = await host.RunAsync("settle-invoices", new InngestEvent("billing/settle", new { customerId = "acme" }), mocks);
+```
+
+A parent that runs chunks mocks the invoke steps by their ids and class. The host runs one function at a time, so run
+the function of the chunk with its own event, a `FanOutChunk<TItem>` named `inngest/function.invoked`, and hand its
+output to the parent's mock:
+
+{/* check: statements; InngestTestHost host; IReadOnlyList<Invoice> firstChunk */}
+```csharp
+using Inngest.Testing;
+
+var chunk = await host.RunAsync<ChargeInvoices>(
+    new InngestEvent("inngest/function.invoked", new FanOutChunk<Invoice>(0, firstChunk, FailFast: true)));
+
+var mocks = new StepMocks().Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<string>>>(
+    "charge[0-99]", chunk.GetOutput<IReadOnlyList<FanOutOutcome<string>>>()!);
+```
+
+A fake of `IStepTools` that runs handlers on the spot, as in
+[the testing guide](/inngest-dotnet/guides/testing/#a-fake-for-the-step-tools), runs `MapAsync` too. If the test is about
+failures, the fake has to throw `StepFailedException` for a handler that failed, as Inngest reports it.
+
+## Related
+
+[Parallel steps](/inngest-dotnet/guides/parallel-steps/) explains how Inngest runs steps started together,
+[Invoking functions](/inngest-dotnet/guides/invoking-functions/) the child runs, and
+[Fan-out with invoke](/inngest-dotnet/examples/fan-out-with-invoke/) one function per item with its own flow control.
+The Inngest docs describe [parallel steps](https://www.inngest.com/docs/durable-execution/primitives/group-parallel) and
+[fan-out with events](https://www.inngest.com/docs/durable-execution/guides-and-advanced/patterns/fan-out).

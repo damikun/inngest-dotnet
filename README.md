@@ -98,6 +98,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Steps that run once** | `context.Step.RunAsync(id, handler)` saves the result, and a retry resumes after the last step that finished. |
 | **Sleep and wait for events** | `SleepAsync`, `SleepUntilAsync` and `WaitForEventAsync<T>` pause a run without holding a thread, a request or a worker. |
 | **Parallel steps** | Start steps together and `await Task.WhenAll(...)`. Inngest runs each in its own call. |
+| **Fan-out over a list** | `MapAsync` runs a step per item with a limit on how many run at once and returns the results in order. Lists too long for one run go to child runs in chunks. |
 | **A scope per step** | `RunScopedAsync` runs a step in a dependency injection scope of its own, so a `DbContext` never carries state from one step or call to the next. |
 | **Functions that call functions** | `InvokeAsync<T>` runs another function and returns its result. `SendEventAsync` sends events exactly once. |
 | **Triggers** | Events, events filtered with an expression, and cron schedules with a time zone. |

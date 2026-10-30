@@ -332,6 +332,9 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   `SleepUntilAsync`, `WaitForEventAsync`, `InvokeAsync`, `SendEventAsync`. Members added later have default
   implementations, and convenience overloads are extension methods over those six. Parallel steps are plain
   `Task.WhenAll`/`Task.WhenAny`.
+- Fan-out over a list is extension methods over those six: `MapAsync`, `ForEachAsync` and `MapOutcomesAsync` run a step per
+  item with a window of items in flight, and `MapInChunksAsync` and `MapOutcomesInChunksAsync` send long lists to child
+  runs of a `FanOutFunction<TItem, TResult>` class. See [Fan-out](#fan-out).
 - `RunScopedAsync` is a run step whose handler runs in a dependency injection scope of its own. The invocation makes
   the scope from its services (a sibling of the invocation's scope, as `IServiceScopeFactory` makes them) when the
   handler starts and disposes it, asynchronously, when the handler ends, so a `DbContext` is new for every attempt and
@@ -404,6 +407,38 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
 - Once the call has answered, work posted to the scheduler, and work still queued, runs on the thread pool instead
   of being dropped. A task the function started may outlive the call, such as one a singleton caches, or a
   `SemaphoreSlim` wait whose `finally` releases it. The abandoned function's own steps still never complete.
+
+### Fan-out
+
+`MapAsync` and its siblings are extension methods over `IStepTools`, written against nothing but `RunAsync` and
+`InvokeAsync<TFunction, TResult>`, so a fake of the step tools runs them too.
+
+- **Ids.** An item is the step `<id>[<index>]` and a chunk is `<id>[<first>-<last>]`. The engine appends `:<n>` to a
+  repeated id, so `<id>:<index>` could be taken by the second use of `<id>` in a run. The ids here end in `]`, which
+  that suffix never does, and the index is the run of digits after the last `[`, so two items or an item and a chunk
+  never share an id. What can still repeat is an id the code passes twice, and the engine numbers that as ever. A chunk
+  has both of its ends in its id so that a run replayed with another chunk size does not hand one chunk the result of
+  another.
+- **The window.** `FanOutRun` starts one lane per unit in flight, as the workers of `Parallel.ForEachAsync` do: a lane
+  starts a unit, waits for it, and takes the next. The engine hands memoized results back in the order the run recorded
+  them, one at a time, and each hand-back lets its lane start the next unit, so a replay starts the units in the order the
+  run first did, whichever order the results arrived in. Under the default mode Inngest calls the function again only when
+  every step of a group has finished, so the window moves on in groups; under race mode after each step, so it slides.
+  The lanes await with `ConfigureAwait(true)` on purpose: `false` would move their continuations to the thread pool,
+  away from the invocation's scheduler, and the next unit would start while the engine decides what to report.
+- **Calls.** A list of `n` items in windows of `w` takes one call per window of two or more items that finds its items,
+  one call per item, one call for a last window of one item that runs in the call that finds it, and one that returns:
+  seven items in windows of three are 10 calls. In race mode it is `2n + 1`. Every call replays the function and carries
+  the results so far, which is why lists beyond a few hundred items go to chunks.
+- **Failures.** A fail-fast run starts nothing after the first failure it sees and throws it without waiting for the
+  units in flight, since a planned step cannot be recalled. The failure it sees first is the one Inngest recorded first,
+  because hand-backs follow the record. A step that failed for good is the only thing that counts as an item's failure;
+  anything else a unit throws ends the run with that exception.
+- **Chunks.** The function of a chunk is a class, because the code of an item cannot travel to another run. The parent
+  invokes it by class with a `FanOutChunk<TItem>` as the event data and reads `IReadOnlyList<FanOutOutcome<TResult>>`
+  back; the function never fails because of an item, it reports it, so the parent can name the item that failed.
+  Sizes are the limits of Inngest: 1,000 steps in a run, the size of an event, 4 MiB for a step's output and 32 MiB for
+  a run's state.
 
 ### Serialization
 
@@ -580,6 +615,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, step output and function output. The data an invoke sends is not transformed. |
 | `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |
+| Fan-out over a list: a step per item with stable ids, a window of parallel items, fail-fast or collected outcomes, chunks in child runs for lists beyond the 1,000 steps of a run | Supported (.NET only): `MapAsync`, `ForEachAsync`, `MapOutcomesAsync`, `MapInChunksAsync` and `MapOutcomesInChunksAsync` over `IStepTools`, and `FanOutFunction` for the function of a chunk |
 | REST API for runs: get a run, list the runs of an event, cancel a run | Supported (`IInngestRunsClient`) |
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook, nor the input of AI wrap steps and the request of inference steps, which no payload hook covers. |

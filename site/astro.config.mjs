@@ -63,6 +63,7 @@ export default defineConfig({
             'guides/steps',
             'guides/scoped-steps',
             'guides/parallel-steps',
+            'guides/fan-out',
             'guides/sleep-and-wait-for-events',
             'guides/invoking-functions',
             'guides/sending-events',

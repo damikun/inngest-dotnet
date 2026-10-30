@@ -120,6 +120,8 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 ## Features
 
 - Steps that run once, sleeps, waits for events, parallel steps with `Task.WhenAll`, and invoking other functions.
+- Fan-out over a list with `MapAsync`: a step per item, a limit on how many run at once, results in order, and child runs
+  for lists beyond the 1,000 steps of a run.
 - Triggers from events, filtered events and cron schedules.
 - Flow control as attributes or options: concurrency, throttling, rate limits, debounce, batching, priority, idempotency,
   singletons, cancellation and timeouts.

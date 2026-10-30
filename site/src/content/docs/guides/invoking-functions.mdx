@@ -118,7 +118,9 @@ await context.Step.SendEventAsync("announce-scores",
     new InngestEvent("reports/scores.ready", new { total = scores.Sum(score => score.Score) }));
 ```
 
-The [fan-out example](/inngest-dotnet/examples/fan-out-with-invoke/) builds on this.
+The [fan-out example](/inngest-dotnet/examples/fan-out-with-invoke/) builds on this. For a long list,
+[`MapInChunksAsync`](/inngest-dotnet/guides/fan-out/#lists-too-long-for-one-run) invokes one function per chunk of
+items and gathers the results in order.
 
 ## When the invoked function fails
 
