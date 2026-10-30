@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace Inngest.Templates.Tests;
 
@@ -111,17 +112,20 @@ public sealed partial class TemplateTests(TemplateFixture fixture) : IClassFixtu
     }
 
     // The worker template gets the version of Microsoft.Extensions.Hosting from the central package versions when the
-    // package is packed, so that it is the one this repository's tests run with.
+    // package is packed, so that it is the one this repository's tests run with. The project that packs targets net10.0.
     private static string CentralHostingVersion(string repositoryRoot)
     {
-        var match = HostingVersion().Match(File.ReadAllText(Path.Combine(repositoryRoot, "Directory.Packages.props")));
-        match.Success.ShouldBeTrue("Directory.Packages.props names Microsoft.Extensions.Hosting");
-        return match.Groups[1].Value;
+        var versions = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"))
+            .Descendants("PackageVersion")
+            .Where(package => (string?)package.Attribute("Include") == "Microsoft.Extensions.Hosting")
+            .Where(package => ((string?)package.Attribute("Condition")) is not { } condition || condition.Contains("net10.0", StringComparison.Ordinal))
+            .Select(package => (string?)package.Attribute("Version"))
+            .ToList();
+
+        versions.Count.ShouldBe(1, "Directory.Packages.props names one version of Microsoft.Extensions.Hosting for net10.0");
+        return versions[0]!;
     }
 
     [GeneratedRegex("""<UserSecretsId>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}</UserSecretsId>""")]
     private static partial Regex UserSecretsId();
-
-    [GeneratedRegex("""<PackageVersion Include="Microsoft\.Extensions\.Hosting" Version="([^"]+)" />""")]
-    private static partial Regex HostingVersion();
 }
