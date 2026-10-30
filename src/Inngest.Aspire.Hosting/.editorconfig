@@ -1,0 +1,3 @@
+# The code of this package is not ported from the TypeScript SDK, so its files carry only the license line.
+[*.cs]
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.

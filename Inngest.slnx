@@ -8,6 +8,7 @@
     <Project Path="samples/Inngest.Sample/Inngest.Sample.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Inngest.Aspire.Hosting/Inngest.Aspire.Hosting.csproj" />
     <Project Path="src/Inngest.AspNetCore/Inngest.AspNetCore.csproj" />
     <Project Path="src/Inngest.Connect/Inngest.Connect.csproj" />
     <Project Path="src/Inngest.Encryption/Inngest.Encryption.csproj" />

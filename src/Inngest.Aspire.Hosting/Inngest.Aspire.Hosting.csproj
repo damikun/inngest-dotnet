@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.Aspire.Hosting</RootNamespace>
+    <Description>Aspire hosting integration for Inngest: runs the Inngest dev server, or a self-hosted server, as a container in the AppHost, links its UI in the dashboard and gives projects the settings the Inngest .NET SDK reads.</Description>
+    <PackageTags>$(PackageTags);aspire;integration;hosting;apphost</PackageTags>
+    <!-- Aspire.Hosting declares neither IsTrimmable nor IsAotCompatible, and its code is not annotated for trimming or
+         Native AOT, so the analyzers behind IsAotCompatible would check this package against nothing. An AppHost
+         orchestrates containers and processes on a developer machine and is never trimmed or published as a native
+         binary, so the package does not claim a compatibility nothing could test. -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Aspire.Hosting.Tests" />
+  </ItemGroup>
+</Project>
