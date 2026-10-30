@@ -44,12 +44,14 @@ internal abstract class FoundStep(string id)
 
     public MemoEntry? Memo { get; private set; }
 
-    public bool HasState => Memo.HasValue;
-
     public bool Fulfilled => Memo is { IsResult: true };
 
-    // Found without a result, and not answered by middleware that skipped next(): Inngest has to carry it out.
-    public bool IsNew => !HasState && Chain is not { IsCompleted: true };
+    // Found without a result, and not answered by middleware that skipped next(): Inngest has to carry it out. A step
+    // whose input was edited in the Inngest UI has state but no result, so it is reported again with that input.
+    public bool IsNew => !Fulfilled && Chain is not { IsCompleted: true };
+
+    // The input array Inngest sent for a step whose input was edited in its UI, before the step has a result.
+    public JsonElement? EditedInput => Memo is { Kind: MemoKind.Input, Value.ValueKind: JsonValueKind.Array } memo ? memo.Value : null;
 
     // The memoized result has been handed back, or is on its way.
     public bool Handled { get; set; }

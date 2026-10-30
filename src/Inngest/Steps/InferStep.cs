@@ -56,7 +56,37 @@ internal sealed class InferStep<TResponse>(string id, InferOptions infer) : Foun
         writer.WriteString(AuthKeyProperty, infer.AuthKey ?? string.Empty);
         writer.WriteString(FormatProperty, FormatName(infer.Format));
         writer.WritePropertyName(BodyProperty);
-        JsonSerializer.Serialize(writer, infer.Body, settings.SerializerOptions.GetTypeInfo(infer.Body.GetType()));
+        var typeInfo = settings.SerializerOptions.GetTypeInfo(infer.Body.GetType());
+        if (EditedInput is { } edited && edited.GetArrayLength() > 0 && edited[0].ValueKind == JsonValueKind.Object)
+        {
+            WriteEditedBody(writer, JsonSerializer.SerializeToElement(infer.Body, typeInfo), edited[0]);
+        }
+        else
+        {
+            JsonSerializer.Serialize(writer, infer.Body, typeInfo);
+        }
+    }
+
+    // A body edited in the Inngest UI comes back as the first input. As inngest-js spreads it over the body, its
+    // properties replace those of the body in place, and the ones the body lacks follow.
+    private static void WriteEditedBody(Utf8JsonWriter writer, JsonElement body, JsonElement edited)
+    {
+        writer.WriteStartObject();
+        foreach (var property in body.EnumerateObject())
+        {
+            writer.WritePropertyName(property.Name);
+            (edited.TryGetProperty(property.Name, out var replacement) ? replacement : property.Value).WriteTo(writer);
+        }
+
+        foreach (var property in edited.EnumerateObject())
+        {
+            if (!body.TryGetProperty(property.Name, out _))
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
     }
 
     protected override TResponse Read(JsonElement value, JsonSerializerOptions options) =>

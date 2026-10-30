@@ -43,6 +43,8 @@ public sealed class StepToolsSurfaceTests
             .Message.ShouldBe("UnusedStepTools does not implement FetchAsync.");
         Should.Throw<NotSupportedException>(() => step.InferAsync<JsonElement>("s", new InferOptions(AIFormat.OpenAIChat, new Uri("https://example.com/"), new { })))
             .Message.ShouldBe("UnusedStepTools does not implement InferAsync.");
+        Should.Throw<NotSupportedException>(() => step.AIWrapAsync<string, string>("s", "prompt", (prompt, _) => Task.FromResult(prompt)))
+            .Message.ShouldBe("UnusedStepTools does not implement AIWrapAsync.");
     }
 
     private sealed class TypeRecorder(List<StepType> types) : InngestMiddleware

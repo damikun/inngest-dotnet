@@ -45,6 +45,13 @@ public interface IStepTools
     Task<TResponse> InferAsync<TResponse>(string id, InferOptions options) =>
         throw new NotSupportedException($"{GetType().Name} does not implement InferAsync.");
 
+    /// <summary>
+    /// Runs the handler once, like RunAsync, as a step that Inngest shows as a call to an AI model, with the input
+    /// recorded so its UI can show it. A rerun with an input edited in that UI hands the handler the edited input.
+    /// </summary>
+    Task<TResult> AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
+        throw new NotSupportedException($"{GetType().Name} does not implement AIWrapAsync.");
+
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
@@ -85,6 +92,13 @@ public interface IStepTools
 
     /// <summary>Has Inngest send the request to an AI provider and returns the provider's memoized response.</summary>
     Task<TResponse> InferAsync<TResponse>(StepOptions stepOptions, InferOptions options) => InferAsync<TResponse>(IdOf(stepOptions), options);
+
+    /// <summary>
+    /// Runs the handler once, like RunAsync, as a step that Inngest shows as a call to an AI model, with the input
+    /// recorded so its UI can show it. A rerun with an input edited in that UI hands the handler the edited input.
+    /// </summary>
+    Task<TResult> AIWrapAsync<TInput, TResult>(StepOptions stepOptions, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
+        AIWrapAsync(IdOf(stepOptions), input, handler);
 
     /// <summary>Runs the function of this app registered as TFunction and returns its result, which must be a TResult.</summary>
     Task<TResult> InvokeAsync<TFunction, TResult>(StepOptions stepOptions, object? data = null, TimeSpan? timeout = null)

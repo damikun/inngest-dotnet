@@ -47,6 +47,23 @@ public sealed class InferStepTests : IDisposable
         result.Op().GetProperty("opts").GetProperty("format").GetString().ShouldBe(name);
     }
 
+    // inngest-js spreads the edited input over the body, so its properties replace the body's in place.
+    [Fact]
+    public async Task A_body_edited_in_the_Inngest_UI_is_spread_over_the_body_and_reported_again()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.InferAsync<Completion>("summarize", new InferOptions(AIFormat.OpenAIChat, ChatUrl, Chat("Hi")));
+            return null;
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Input("summarize", """[{"model":"gpt-4o-mini","temperature":0}]"""));
+
+        result.OpCodes.ShouldBe(["AIGateway"]);
+        result.Op().GetProperty("opts").GetProperty("body").GetRawText()
+            .ShouldBe("""{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hi"}],"temperature":0}""");
+    }
+
     [Fact]
     public async Task The_memoized_provider_response_is_deserialized()
     {

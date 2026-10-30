@@ -58,6 +58,12 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
     public Task<TResponse> InferAsync<TResponse>(StepOptions stepOptions, InferOptions options) =>
         Infer<TResponse>(IdOf(stepOptions), stepOptions, options);
 
+    public Task<TResult> AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
+        AIWrap(id, null, input, handler);
+
+    public Task<TResult> AIWrapAsync<TInput, TResult>(StepOptions stepOptions, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler) =>
+        AIWrap(IdOf(stepOptions), stepOptions, input, handler);
+
     public Task<TResult> InvokeAsync<TFunction, TResult>(string id, object? data = null, TimeSpan? timeout = null)
         where TFunction : InngestFunction, IReturns<TResult> =>
         Invoke<TResult>(id, null, InvokeOptionsFor<TFunction>(data, timeout));
@@ -179,6 +185,17 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
 
         JsonPayload.EnsureObject(options.Body, invocation.SerializerOptions, "body", "infer step", id);
         return Register(new InferStep<TResponse>(id, options), stepOptions);
+    }
+
+    private Task<TResult> AIWrap<TInput, TResult>(
+        string id,
+        StepOptions? stepOptions,
+        TInput input,
+        Func<TInput, CancellationToken, Task<TResult>> handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        ArgumentNullException.ThrowIfNull(handler);
+        return Register(new AIWrapStep<TInput, TResult>(id, input, handler), stepOptions);
     }
 
     // The registry knows the id of every class it registered, whether the class has attributes or not.

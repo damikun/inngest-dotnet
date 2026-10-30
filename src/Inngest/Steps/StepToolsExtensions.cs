@@ -79,6 +79,12 @@ public static class StepToolsExtensions
     public static Task<JsonElement> InferAsync(this IStepTools step, string id, InferOptions options) =>
         step.InferAsync<JsonElement>(id, options);
 
+    public static Task<TResult> AIWrapAsync<TInput, TResult>(this IStepTools step, string id, TInput input, Func<TInput, Task<TResult>> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.AIWrapAsync<TInput, TResult>(id, input, (value, _) => handler(value));
+    }
+
     public static Task RunAsync(this IStepTools step, StepOptions stepOptions, Func<CancellationToken, Task> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -150,6 +156,16 @@ public static class StepToolsExtensions
 
     public static Task<JsonElement> InferAsync(this IStepTools step, StepOptions stepOptions, InferOptions options) =>
         step.InferAsync<JsonElement>(stepOptions, options);
+
+    public static Task<TResult> AIWrapAsync<TInput, TResult>(
+        this IStepTools step,
+        StepOptions stepOptions,
+        TInput input,
+        Func<TInput, Task<TResult>> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return step.AIWrapAsync<TInput, TResult>(stepOptions, input, (value, _) => handler(value));
+    }
 
     public static Task ParallelAsync(this IStepTools step, ParallelMode mode, Func<Task> steps)
     {

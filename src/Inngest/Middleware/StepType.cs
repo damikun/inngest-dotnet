@@ -14,4 +14,5 @@ public enum StepType
     SendSignal,
     Fetch,
     AIInfer,
+    AIWrap,
 }

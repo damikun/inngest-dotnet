@@ -127,6 +127,7 @@ internal sealed class InngestTelemetry : IDisposable
         StepType.SendSignal => "send_signal",
         StepType.Fetch => "fetch",
         StepType.AIInfer => "ai_infer",
+        StepType.AIWrap => "ai_wrap",
         _ => type.ToString(),
     };
 
