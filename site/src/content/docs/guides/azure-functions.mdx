@@ -28,6 +28,10 @@ creates. It needs version 2.0 or later of `Microsoft.Azure.Functions.Worker`, an
 dotnet add package Inngest.AzureFunctions --prerelease
 ```
 
+Like `Inngest.AspNetCore`, the package references the ASP.NET Core shared framework, so the runtime that runs the app
+needs it, as it does for the worker's own ASP.NET Core integration. An app that uses the built-in HTTP model needs it
+now too.
+
 A function is a class, as in [Getting started](/inngest-dotnet/guides/getting-started/#2-write-a-function). It is
 resolved from the services of the invocation, so it can take what you registered:
 
