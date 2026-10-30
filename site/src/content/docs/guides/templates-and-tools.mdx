@@ -180,7 +180,7 @@ curl -X POST http://localhost:8288/e/dev -d '{"name": "app/hello.requested", "da
 A new project references the Inngest packages at the version of the template package that made it. `dotnet new update`
 updates the template package, so that the next project gets newer packages. The reference is an ordinary
 `PackageReference`: raise its version to update the SDK in a project that exists. `Microsoft.Extensions.Hosting` in the
-worker is the version the SDK's own tests run with.
+worker is the version the SDK's own tests run with. `dotnet new uninstall Inngest.Templates` removes the templates.
 
 ## The dotnet inngest command
 
