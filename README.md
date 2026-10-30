@@ -172,7 +172,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 | [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/) | End-to-end encryption of event data, step results and function output, in the format of the TypeScript SDK's encryption middleware. |
 | [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) | Reports the errors of functions and steps to Sentry, tagged with the app, the function, the run and the event. |
 
-Each package targets `net8.0` and `net10.0`.
+Each package targets `net8.0` and `net10.0`, except `Inngest.Testing.Containers.AspNetCore`, which targets `net10.0`.
 
 ## Quick start
 

@@ -213,6 +213,8 @@ Some things to know about the factory:
 - Start the container first. The app's settings hold its address, so creating the host throws while the container is
   not running.
 - Call `StartAsync` before `CreateClient()`. It starts the app, then syncs it.
+- The app runs on Kestrel, so the factory's `Server` property, the in-memory `TestServer`, throws
+  `NotSupportedException`. `Services` and `CreateClient()` work as usual.
 - Customize the app by overriding `ConfigureWebHost`. A factory returned by `WithWebHostBuilder` keeps the Inngest
   settings but is on the in-memory server again, because ASP.NET Core does not carry the Kestrel choice over to it.
 - The server calls the app over plain HTTP, so turn off HTTPS redirection in the test.
