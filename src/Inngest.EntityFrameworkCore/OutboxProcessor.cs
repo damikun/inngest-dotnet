@@ -14,10 +14,11 @@ namespace Inngest.EntityFrameworkCore;
 // Dispatchers in any number of processes share the table and take no lock on it. A claim is an UPDATE that writes a token
 // of its own and an expiry on the due rows that are not leased, and the dispatcher then reads the rows that hold its token:
 // those are its events, and nobody else's. It takes two statements. Choosing the rows and updating them in one, with the
-// test for "due" inside a subquery, would not do: a database that makes the UPDATE wait for a row another one is updating
-// does not run a subquery again when the row is free, so both could claim the row, the second overwriting the token of the
-// first. In its own WHERE clause the test is made again on the current version of the row, and the claim of the loser
-// changes nothing. A dispatcher that dies keeps its rows until the lease expires; Inngest drops the repeat by event id.
+// test for "due" inside a subquery, would not do: when the UPDATE has to wait for a row that another one is updating,
+// PostgreSQL does not run the subquery again once the row is free, so the second UPDATE takes the row as well and
+// overwrites the token of the first. In the WHERE clause of the UPDATE itself the test is made again on the current version
+// of the row, and the claim of the loser changes nothing. A dispatcher that dies keeps its rows until the lease expires;
+// Inngest drops the repeat by event id.
 internal sealed partial class OutboxProcessor<TContext>(
     IServiceScopeFactory scopes,
     IInngestClient client,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.EntityFrameworkCore.Tests;
 
@@ -177,6 +178,39 @@ public sealed class DeliveryTests
 
         host.Client.Events.Select(@event => ((JsonElement)@event.Data!).GetProperty("orderNumber").GetString())
             .ShouldBe(["A-1", "A-2", "A-3"]);
+    }
+
+    [Fact]
+    public async Task An_app_that_registers_a_context_factory_instead_of_the_context_works_too()
+    {
+        using var database = SqliteDatabase.Single();
+        var client = new RecordingInngestClient();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IInngestClient>(client);
+        services.AddInngest(options =>
+        {
+            options.AppId = "shop";
+            options.IsDev = true;
+        }).AddEntityFrameworkOutbox<ShopContext>();
+        services.AddDbContextFactory<ShopContext>((provider, options) =>
+        {
+            database.Configure(options);
+            options.UseInngestOutbox(provider);
+        });
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IDbContextFactory<ShopContext>>();
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            await context.Database.EnsureCreatedAsync();
+            context.Orders.Add(new Order { Number = "A-1" });
+            context.AddInngestEvent(new OrderPlaced("A-1", 10));
+            await context.SaveChangesAsync();
+        }
+
+        (await provider.GetRequiredService<OutboxProcessor<ShopContext>>().DispatchAsync(CancellationToken.None)).ShouldBe(1);
+
+        client.Events.ShouldHaveSingleItem().Name.ShouldBe("shop/order.placed");
     }
 
     [Fact]
