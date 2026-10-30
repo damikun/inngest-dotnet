@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Inngest.Execution;
 using Inngest.Functions;
+using Inngest.Registration;
 using Inngest.Tests.Client;
 using Inngest.Tests.Execution;
 using Inngest.UserContext;
@@ -154,6 +155,27 @@ internal sealed class UserContextApp : IAsyncDisposable
             user.IssuedAt?.ToUnixTimeSeconds(),
             user.Principal.Identity?.AuthenticationType,
             principal.Claims.Count());
+    }
+
+    // A function the app registered, as the registry has it.
+    public FunctionDefinition Function(string id) =>
+        _services.GetRequiredService<IFunctionRegistry>().TryGet($"test-app-{id}", out var function)
+            ? function
+            : throw new InvalidOperationException($"No function {id} is registered.");
+
+    public static Seen SeenIn(CallResult result) =>
+        JsonSerializer.Deserialize<Seen>(result.Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    // The events of the nth request this app sent to Inngest, as JSON.
+    public JsonElement[] SentEvents(int request = 0) =>
+        [.. JsonDocument.Parse(Http.Requests[request].BodyText).RootElement.EnumerateArray().Select(@event => @event.Clone())];
+
+    // What the protected text in the user of a sent event holds.
+    public JsonElement PayloadOf(JsonElement user)
+    {
+        var text = user.GetProperty(UserContextCodec.Key).GetProperty("t").GetString()!;
+        Protector.TryUnprotect(text, out var plaintext).ShouldBeTrue();
+        return JsonDocument.Parse(plaintext!).RootElement.Clone();
     }
 
     public ValueTask DisposeAsync() => _services.DisposeAsync();
