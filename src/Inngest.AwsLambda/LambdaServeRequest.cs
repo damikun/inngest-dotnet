@@ -168,15 +168,16 @@ internal sealed class LambdaServeRequest : IServeRequest
     }
 
     // API Gateway and function URLs always call https, but an emulator may use http. After proxies the header lists
-    // every hop, and the first is the caller's.
+    // every hop, and the closest proxy appends the last entry: that is the one ASP.NET Core's forwarded headers
+    // middleware trusts, since a caller can put anything in front of it.
     private string Scheme()
     {
         if (GetHeader(ForwardedProtoHeader) is { } forwarded)
         {
-            var first = forwarded.AsSpan();
-            var comma = first.IndexOf(',');
-            first = (comma < 0 ? first : first[..comma]).Trim();
-            if (first.Equals("http", StringComparison.OrdinalIgnoreCase))
+            var last = forwarded.AsSpan();
+            var comma = last.LastIndexOf(',');
+            last = (comma < 0 ? last : last[(comma + 1)..]).Trim();
+            if (last.Equals("http", StringComparison.OrdinalIgnoreCase))
             {
                 return Uri.UriSchemeHttp;
             }

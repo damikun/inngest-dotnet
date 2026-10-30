@@ -2,9 +2,13 @@ using System.Text;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using Inngest.Configuration;
+using Inngest.Execution;
+using Inngest.Serving;
 using Inngest.Signing;
 using Inngest.Tests.Serving;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace Inngest.Tests.AwsLambda;
 
@@ -17,8 +21,34 @@ internal sealed class LambdaHarness
 
     public InngestLambdaHandler Create(InngestSettings settings)
     {
-        var services = new ServiceCollection().AddSingleton(Serving.CreateHandler(settings)).BuildServiceProvider();
+        var services = new ServiceCollection().AddSingleton(Serving.CreateHandler(settings)).AddSingleton(settings).BuildServiceProvider();
         return new InngestLambdaHandler(services);
+    }
+
+    // The same over an engine of the test's own, for calls that the fake engine, which answers at once, cannot hold.
+    public InngestLambdaHandler Create(InngestSettings settings, IExecutionEngine engine)
+    {
+        var commHandler = new InngestCommHandler(
+            settings,
+            Serving.Registry,
+            engine,
+            Serving.Api,
+            new RequestSigner(Serving.Time),
+            Serving.RootServices.GetRequiredService<IServiceScopeFactory>(),
+            Serving.Logger);
+        var services = new ServiceCollection().AddSingleton(commHandler).AddSingleton(settings).BuildServiceProvider();
+        return new InngestLambdaHandler(services);
+    }
+
+    // The same in an app that logs, with what the handler writes to its log.
+    public (InngestLambdaHandler Handler, FakeLogCollector Logs) CreateLogged(InngestSettings settings)
+    {
+        var services = new ServiceCollection()
+            .AddLogging(logging => logging.AddFakeLogging())
+            .AddSingleton(Serving.CreateHandler(settings))
+            .AddSingleton(settings)
+            .BuildServiceProvider();
+        return (new InngestLambdaHandler(services), services.GetFakeLogCollector());
     }
 
     // The signature header Inngest would send for a body, made with the key the settings verify against.

@@ -28,7 +28,6 @@ public sealed class LambdaBodyTests
     }
 
     [Theory]
-    [InlineData("")]
     [InlineData("a")]
     [InlineData("ab")]
     [InlineData("abc")]
@@ -36,11 +35,6 @@ public sealed class LambdaBodyTests
     [InlineData("""{"name":"Zoë 😀 日本語"}""")]
     public void Base64_is_the_bytes_it_decodes_to_for_every_padding(string text)
     {
-        if (text.Length == 0)
-        {
-            return;
-        }
-
         using var buffer = LambdaBody.Decode(Convert.ToBase64String(Encoding.UTF8.GetBytes(text)), isBase64Encoded: true);
 
         buffer.ShouldNotBeNull().WrittenMemory.ToArray().ShouldBe(Encoding.UTF8.GetBytes(text));

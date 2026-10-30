@@ -111,12 +111,15 @@ public sealed class LambdaHttpApiTests
     [InlineData("http", "http")]
     [InlineData("HTTP", "http")]
     [InlineData("https", "https")]
-    [InlineData("https,http", "https")]
-    [InlineData("http, https", "http")]
+    [InlineData("https,http", "http")]
+    [InlineData("http, https", "https")]
+    [InlineData("https, https, http", "http")]
+    [InlineData("http,http, https", "https")]
+    [InlineData("http,", "https")]
     [InlineData("ftp", "https")]
     [InlineData("", "https")]
     [InlineData(null, "https")]
-    public async Task The_scheme_is_the_first_one_the_forwarded_proto_header_lists_and_otherwise_https(string? forwardedProto, string expected)
+    public async Task The_scheme_is_the_last_one_the_forwarded_proto_header_lists_because_the_closest_proxy_adds_it(string? forwardedProto, string expected)
     {
         var url = await _lambda.SyncUrlAsync(LambdaEvents.HttpApi("PUT", rawQueryString: string.Empty, forwardedProto: forwardedProto));
 

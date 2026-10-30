@@ -4,8 +4,11 @@
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
 using Inngest.AwsLambda;
+using Inngest.Configuration;
 using Inngest.Serving;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest;
 
@@ -18,7 +21,8 @@ namespace Inngest;
 /// <remarks>
 /// Each invocation runs in a service scope of its own. The cancellation token that functions receive is never
 /// cancelled, since Lambda gives an invocation no signal before it ends one that runs out of time. The response is
-/// buffered, so <see cref="InngestOptions.Streaming"/> has no effect.
+/// buffered, so <see cref="InngestOptions.Streaming"/> has no effect, and building the handler logs a warning when it is
+/// on.
 /// </remarks>
 public sealed class InngestLambdaHandler
 {
@@ -35,6 +39,13 @@ public sealed class InngestLambdaHandler
         // Resolving here fails at startup, not on the first invocation, when AddInngest was not called.
         _handler = services.GetService<InngestCommHandler>()
             ?? throw new InvalidOperationException("Call services.AddInngest() before creating the Lambda handler.");
+
+        // The answer is one buffered response, so streaming would otherwise be on and silently do nothing.
+        if (services.GetService<InngestSettings>() is { Streaming: true })
+        {
+            var logger = (services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance).CreateLogger<InngestLambdaHandler>();
+            AwsLambda.Log.StreamingHasNoEffect(logger);
+        }
     }
 
     /// <summary>
