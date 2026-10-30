@@ -44,6 +44,7 @@ internal sealed partial class RunDriver
 
     private readonly PriorityQueue<Work, (DateTimeOffset At, long Sequence)> _queue = new();
     private readonly ConcurrentQueue<InngestEvent> _sent = new();
+    private readonly ConcurrentQueue<InngestSignal<JsonElement>> _signals = new();
 
     // What the host's middleware saw during the call in progress.
     private readonly Dictionary<string, Exception> _stepErrors = new(StringComparer.Ordinal);
@@ -128,7 +129,7 @@ internal sealed partial class RunDriver
     // A send-signal step is a run step whose handler calls Inngest, so a run mock stands in for it as well.
     public RunMock? FindRunMock(StepInfo step)
     {
-        if (step.Type is not (StepType.Run or StepType.SendSignal) || _mocks.Find(step.Id) is not RunMock mock)
+        if (step.Type is not (StepType.Run or StepType.AIWrap or StepType.SendSignal) || _mocks.Find(step.Id) is not RunMock mock)
         {
             return null;
         }
@@ -142,6 +143,8 @@ internal sealed partial class RunDriver
     public void CaptureRunError(Exception exception) => _runError = exception;
 
     public void Sent(InngestEvent @event) => _sent.Enqueue(@event);
+
+    public void Signaled(InngestSignal<JsonElement> signal) => _signals.Enqueue(signal);
 
     private async Task<TestRun?> DiscoverAsync(Work work, CancellationToken cancellationToken)
     {

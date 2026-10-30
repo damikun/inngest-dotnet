@@ -12,6 +12,21 @@ public sealed class TestHostProtocolTests
     [InlineData("WaitForSignal", """{"signal":"order-1","timeout":"1h"}""", StepType.WaitForSignal)]
     [InlineData("Gateway", """{"url":"https://example.com","method":"GET"}""", StepType.Fetch)]
     [InlineData("AIGateway", """{"type":"step.ai.infer"}""", StepType.AIInfer)]
+    public async Task A_step_without_a_mock_leaves_the_run_waiting_on_it(string op, string opts, StepType type)
+    {
+        var engine = new ScriptedEngine((206, $"[{ScriptedEngine.Op("approval", op, opts)}]"));
+        await using var host = Host(engine);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Waiting);
+        var step = run.WaitingOn.ShouldHaveSingleItem();
+        step.Type.ShouldBe(type);
+        step.Status.ShouldBe(TestStepStatus.Pending);
+        run.ToString().ShouldBe($"Waiting on step \"approval\" ({op}).");
+    }
+
+    [Theory]
     [InlineData("DeferAdd", "{}", null)]
     public async Task A_step_the_host_does_not_carry_out_leaves_the_run_waiting_on_it(string op, string opts, StepType? type)
     {
@@ -49,13 +64,13 @@ public sealed class TestHostProtocolTests
     [Fact]
     public async Task A_step_the_host_does_not_know_cannot_be_mocked()
     {
-        var engine = new ScriptedEngine((206, $"[{ScriptedEngine.Op("approval", "WaitForSignal", "{}")}]"));
+        var engine = new ScriptedEngine((206, $"[{ScriptedEngine.Op("approval", "DeferAdd", "{}")}]"));
         await using var host = Host(engine);
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() =>
             host.RunAsync("fn", Event(), new StepMocks().Sleep("approval"), Cancel));
 
-        exception.Message.ShouldBe("Step \"approval\" is a WaitForSignal step, which the test host does not support, so it cannot be mocked.");
+        exception.Message.ShouldBe("Step \"approval\" is a DeferAdd step, which the test host does not support, so it cannot be mocked.");
     }
 
     [Fact]

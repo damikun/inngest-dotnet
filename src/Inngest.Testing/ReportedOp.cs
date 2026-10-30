@@ -32,7 +32,7 @@ internal readonly record struct ReportedOp(
 
     // The step types the host carries out or mocks. Others leave the run waiting on them.
     public static bool IsSupported(StepType? type) =>
-        type is StepType.Run or StepType.SendEvent or StepType.Sleep or StepType.WaitForEvent or StepType.Invoke;
+        type is not null;
 
     public static ReportedOp Read(JsonElement op)
     {
@@ -42,12 +42,17 @@ internal readonly record struct ReportedOp(
         var runnable = code is StepPlanned or StepRun or StepError or StepFailed;
         StepType? type = code switch
         {
-            _ when runnable => Text(options, "type") == "step.sendEvent" ? StepType.SendEvent : StepType.Run,
+            _ when runnable => Text(options, "type") switch
+            {
+                "step.sendEvent" => StepType.SendEvent,
+                "step.sendSignal" => StepType.SendSignal,
+                "step.ai.wrap" => StepType.AIWrap,
+                _ => StepType.Run,
+            },
             Sleep => StepType.Sleep,
             WaitForEvent => StepType.WaitForEvent,
             InvokeFunction => StepType.Invoke,
 
-            // Typed so that a run waiting on one says what it waits on; the host carries none of them out.
             WaitForSignal => StepType.WaitForSignal,
             Gateway => StepType.Fetch,
             AIGateway => StepType.AIInfer,

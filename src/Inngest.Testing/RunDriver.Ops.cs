@@ -138,10 +138,26 @@ internal sealed partial class RunDriver
 
                 Enqueue(new Work(WorkKind.Complete, Step: step, Memo: invoke.ToMemo(_host.SerializerOptions), Error: invoke.Error), _clock.Now);
                 break;
+
+            case ReportedOp.WaitForSignal when mock is SignalMock { TimesOut: true }:
+                step.Mocked = true;
+                Enqueue(new Work(WorkKind.Complete, Step: step, Memo: Null), _clock.Now + Timeout(op));
+                break;
+
+            case ReportedOp.WaitForSignal when mock is SignalMock signal:
+                step.Mocked = true;
+                var name = ReportedOp.Text(op.Options, "signal") ?? string.Empty;
+                Enqueue(new Work(WorkKind.Complete, Step: step, Memo: signal.ToMemo(name, _host.SerializerOptions)), _clock.Now);
+                break;
+
+            case ReportedOp.Gateway or ReportedOp.AIGateway when mock is GatewayMock gateway:
+                step.Mocked = true;
+                Enqueue(new Work(WorkKind.Complete, Step: step, Memo: gateway.ToMemo(_host.SerializerOptions)), _clock.Now);
+                break;
         }
     }
 
-    // A mock completes a sleep, wait or invoke.
+    // A mock completes a sleep, wait, invoke, fetch or inference.
     private TestRun? Complete(Work work)
     {
         var step = work.Step!;
@@ -154,7 +170,7 @@ internal sealed partial class RunDriver
         }
 
         var memo = Parse(work.Memo!);
-        step.Output = step.Type == StepType.Invoke && memo.TryGetProperty("data", out var data) ? data : memo;
+        step.Output = step.Type is StepType.Invoke or StepType.Fetch or StepType.AIInfer && memo.TryGetProperty("data", out var data) ? data : memo;
         Settle(step, work.Memo!, TestStepStatus.Completed);
         return null;
     }
@@ -163,7 +179,7 @@ internal sealed partial class RunDriver
     {
         if (!_steps.TryGetValue(op.HashedId, out var step))
         {
-            if (_mocks.Find(op.Id) is { } mock && mock.Answers != op.Type)
+            if (_mocks.Find(op.Id) is { } mock && (op.Type is not { } type || !mock.CanAnswer(type)))
             {
                 throw new InvalidOperationException(ReportedOp.IsSupported(op.Type)
                     ? $"The mock for step \"{op.Id}\" answers a {Describe(mock.Answers)}, but the step is a {Describe(op.Type!.Value)}."
@@ -199,6 +215,7 @@ internal sealed partial class RunDriver
         StepType.SendSignal => "send-signal step",
         StepType.Fetch => "fetch",
         StepType.AIInfer => "call to an AI model",
+        StepType.AIWrap => "AI wrap step",
         _ => type.ToString(),
     };
 

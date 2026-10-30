@@ -6,7 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Inngest.Testing;
 
-/// <summary>A run as the test host left it: its outcome, every step it reached and the events it sent.</summary>
+/// <summary>A run as the test host left it: its outcome, every step it reached and the events and signals it sent.</summary>
 public sealed class TestRun
 {
     private readonly JsonSerializerOptions _serializerOptions;
@@ -20,6 +20,7 @@ public sealed class TestRun
         IReadOnlyList<TestStep> steps,
         IReadOnlyList<TestStep> waitingOn,
         IReadOnlyList<InngestEvent> sentEvents,
+        IReadOnlyList<InngestSignal<JsonElement>> sentSignals,
         JsonSerializerOptions serializerOptions)
     {
         RunId = runId;
@@ -30,6 +31,7 @@ public sealed class TestRun
         Steps = steps;
         WaitingOn = waitingOn;
         SentEvents = sentEvents;
+        SentSignals = sentSignals;
         _serializerOptions = serializerOptions;
     }
 
@@ -56,6 +58,12 @@ public sealed class TestRun
 
     /// <summary>Every event the run sent, from send steps and from the client, in the order it sent them.</summary>
     public IReadOnlyList<InngestEvent> SentEvents { get; }
+
+    /// <summary>
+    /// Every signal the run sent that was not mocked, from send-signal steps and from the client, in the order it
+    /// sent them. None of them resumed a run.
+    /// </summary>
+    public IReadOnlyList<InngestSignal<JsonElement>> SentSignals { get; }
 
     /// <summary>
     /// The run of the function's failure handler, which the host starts when the function fails for good, as

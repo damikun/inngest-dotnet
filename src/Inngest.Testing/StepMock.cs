@@ -13,11 +13,17 @@ namespace Inngest.Testing;
 internal abstract class StepMock
 {
     public abstract StepType Answers { get; }
+
+    public virtual bool CanAnswer(StepType type) => type == Answers;
 }
 
+// Also answers the steps that run in the SDK like a run step: an AI wrap and a sent signal, whose answer is the id
+// of the run it resumed.
 internal sealed class RunMock(Func<int, object?> answer) : StepMock
 {
     public override StepType Answers => StepType.Run;
+
+    public override bool CanAnswer(StepType type) => type is StepType.Run or StepType.AIWrap or StepType.SendSignal;
 
     public object? Answer(int attempt) => answer(attempt);
 }
@@ -72,12 +78,50 @@ internal sealed class InvokeMock : StepMock
         writer.WriteEndObject();
     });
 
-    public byte[] ToMemo(JsonSerializerOptions options)
+    public byte[] ToMemo(JsonSerializerOptions options) => Memo.Write(options, writer => _write(writer, options));
+}
+
+// Writes what Inngest memoizes when a signal arrives: {"signal": <name>, "data": <data>}. A mock without data
+// times the wait out.
+internal sealed class SignalMock(Action<Utf8JsonWriter, JsonSerializerOptions>? writeData) : StepMock
+{
+    public override StepType Answers => StepType.WaitForSignal;
+
+    public bool TimesOut => writeData is null;
+
+    public byte[] ToMemo(string signal, JsonSerializerOptions options) => Memo.Write(options, writer =>
+    {
+        writer.WriteStartObject();
+        writer.WriteString("signal", signal);
+        writer.WritePropertyName("data");
+        writeData!(writer, options);
+        writer.WriteEndObject();
+    });
+}
+
+// Writes what Inngest memoizes for a request it made itself, {"data": <result>}: the response of a fetch step, or
+// the provider's response to an inference step.
+internal sealed class GatewayMock(StepType answers, Action<Utf8JsonWriter, JsonSerializerOptions> write) : StepMock
+{
+    public override StepType Answers => answers;
+
+    public byte[] ToMemo(JsonSerializerOptions options) => Memo.Write(options, writer =>
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName("data");
+        write(writer, options);
+        writer.WriteEndObject();
+    });
+}
+
+internal static class Memo
+{
+    public static byte[] Write(JsonSerializerOptions options, Action<Utf8JsonWriter> write)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = WireWriter.Create(buffer, options))
         {
-            _write(writer, options);
+            write(writer);
         }
 
         return buffer.WrittenSpan.ToArray();

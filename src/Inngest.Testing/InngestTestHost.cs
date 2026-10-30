@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Functions;
@@ -30,6 +31,7 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     private readonly IFunctionRegistry _registry;
     private readonly InngestSettings _settings;
     private readonly ConcurrentQueue<InngestEvent> _sent = new();
+    private readonly ConcurrentQueue<InngestSignal<JsonElement>> _signals = new();
 
     /// <summary>
     /// Takes the app's registrations: AddInngest, the functions and middleware, and the services they use. The
@@ -68,6 +70,7 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         copy.Replace(ServiceDescriptor.Singleton(static provider =>
             InngestSettings.Create(provider.GetRequiredService<IOptions<InngestOptions>>().Value, static _ => null)));
         copy.AddHttpClient(InngestServiceCollectionExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(static () => new OfflineHandler());
+        copy.Replace(ServiceDescriptor.Singleton<ISignalApi>(new RecordingSignalApi(this)));
 
         // Registered last, so the app's middleware wraps it.
         copy.AddSingleton<InngestMiddleware>(new TestHostMiddleware(this));
@@ -96,6 +99,12 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
 
     /// <summary>Every event sent through the app's Inngest client since the host started, from runs or not.</summary>
     public IReadOnlyList<InngestEvent> SentEvents => [.. _sent];
+
+    /// <summary>
+    /// Every signal sent through the app's Inngest client since the host started, from runs or not. None of them
+    /// resumes a run: the host runs one function at a time, so the client reports that no run waits for them.
+    /// </summary>
+    public IReadOnlyList<InngestSignal<JsonElement>> SentSignals => [.. _signals];
 
     internal TimeProvider Time { get; }
 
@@ -191,6 +200,12 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         }
 
         return new SendEventsResult(ids);
+    }
+
+    internal void RecordSignal(InngestSignal<JsonElement> signal, RunDriver? run)
+    {
+        _signals.Enqueue(signal);
+        run?.Signaled(signal);
     }
 
     private async Task<TestRun> StartAsync(

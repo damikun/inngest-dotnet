@@ -2,6 +2,9 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Collections.Immutable;
+using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Inngest.Testing;
 
@@ -88,6 +91,42 @@ public sealed class StepMocks
         ArgumentNullException.ThrowIfNull(exception);
         return With(stepId, InvokeMock.Throwing(exception));
     }
+
+    /// <summary>The wait for a signal receives data, under the name of the signal the step waits for.</summary>
+    public StepMocks WaitForSignal<T>(string stepId, T data) =>
+        With(stepId, new SignalMock((writer, options) => JsonSerializer.Serialize(writer, data, (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)))));
+
+    /// <summary>The wait for a signal times out, and the step returns null.</summary>
+    public StepMocks WaitForSignalTimeout(string stepId) => With(stepId, new SignalMock(null));
+
+    /// <summary>
+    /// The send-signal step returns runId as the id of the run the signal resumed; null says no run waits for it. A
+    /// signal that is not mocked resumes no run and is recorded in the run's SentSignals.
+    /// </summary>
+    public StepMocks SendSignal(string stepId, string? runId) => With(stepId, new RunMock(_ => runId));
+
+    /// <summary>The request of the fetch step gets this response, whatever its status, as Inngest would hand it back.</summary>
+    public StepMocks Fetch(string stepId, HttpStatusCode statusCode, string? body = null, IReadOnlyDictionary<string, string>? headers = null) =>
+        With(stepId, new GatewayMock(StepType.Fetch, (writer, _) =>
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("status_code", (int)statusCode);
+            writer.WriteStartObject("headers");
+            foreach (var (name, value) in headers ?? ImmutableDictionary<string, string>.Empty)
+            {
+                writer.WriteString(name, value);
+            }
+
+            writer.WriteEndObject();
+            writer.WriteString("body", body ?? string.Empty);
+            writer.WriteEndObject();
+        }));
+
+    /// <summary>The AI provider answers the inference step with response, which the step reads as its response type.</summary>
+    public StepMocks Infer<T>(string stepId, T response) =>
+        With(stepId, new GatewayMock(
+            StepType.AIInfer,
+            (writer, options) => JsonSerializer.Serialize(writer, response, (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)))));
 
     internal StepMock? Find(string stepId) => _steps.GetValueOrDefault(stepId);
 

@@ -158,7 +158,7 @@ internal sealed partial class RunDriver
             }
         }
 
-        return new TestRun(RunId, _function.Id, status, output, error, steps, waitingOn, [.. _sent], options)
+        return new TestRun(RunId, _function.Id, status, output, error, steps, waitingOn, [.. _sent], [.. _signals], options)
         {
             ErrorJson = errorJson,
         };
