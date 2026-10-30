@@ -74,6 +74,19 @@ public sealed class DeliveryTests
     }
 
     [Fact]
+    public async Task Text_outside_ASCII_comes_out_as_it_went_in()
+    {
+        using var database = SqliteDatabase.Single();
+        await using var host = new OutboxHost(database);
+        const string Number = "Zażółć-gęślą-😀";
+
+        await host.PlaceOrderAsync(Number);
+        await host.Processor.DispatchAsync(CancellationToken.None);
+
+        host.Client.Events.ShouldHaveSingleItem().Data.ShouldBeOfType<JsonElement>().GetProperty("orderNumber").GetString().ShouldBe(Number);
+    }
+
+    [Fact]
     public async Task The_events_of_a_save_go_out_in_one_request()
     {
         using var database = SqliteDatabase.Single();
