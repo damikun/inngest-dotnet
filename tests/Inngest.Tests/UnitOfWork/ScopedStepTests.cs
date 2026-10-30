@@ -1,3 +1,4 @@
+using Inngest.Execution;
 using Inngest.Tests.Execution;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -67,6 +68,29 @@ public sealed class ScopedStepTests : IDisposable
 
         _scopes.Created.Select(probe => probe.GetType().Name).ShouldBe(["Probe", "AsyncProbe"]);
         _scopes.Created.ShouldAllBe(probe => probe.IsDisposed);
+    }
+
+    [Fact]
+    public async Task The_scope_is_disposed_when_the_call_is_canceled_during_the_handler()
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var function = TestFunction.Define(async context => await context.Step.RunScopedAsync("work", async (services, ct) =>
+        {
+            services.GetRequiredService<Probe>();
+            inside.SetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            return 1;
+        }));
+        await using var scope = _host.Services.CreateAsyncScope();
+        var request = new ExecutionRequest { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = scope.ServiceProvider };
+        var call = _host.Engine.ExecuteAsync(request, cancellation.Token);
+
+        await inside.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(call);
+        _scopes.Timeline.ShouldBe(["create 1", "dispose 1"]);
     }
 
     [Fact]
