@@ -198,6 +198,21 @@ public sealed class FanOutChunkTests
         run.Error.ShouldBeOfType<InvalidOperationException>().Message.ShouldContain("AddFunction<ChargeInvoices>()");
     }
 
+    [Fact]
+    public async Task A_chunk_function_is_registered_by_its_attributes_and_needs_no_trigger()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(new Charger());
+        services.AddInngest(options => options.AppId = AppId).AddFunction<AttributedChunk>();
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync<AttributedChunk>(Chunk(0, true, Invoices[..2]), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        run.FunctionId.ShouldBe("attributed-chunk");
+        run.GetOutput<FanOutOutcome<Receipt>[]>()!.Select(outcome => outcome.Index).ShouldBe([0, 1]);
+    }
+
     // The outputs of the chunk function for every chunk of three, as the parent's invoke steps would get them.
     private static async Task<StepMocks> ChunkMocksAsync(InngestTestHost host, bool failFast)
     {

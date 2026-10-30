@@ -42,3 +42,12 @@ public sealed class ChargeInvoices(Charger charger) : FanOutFunction<Invoice, Re
     protected override Task<Receipt> ProcessAsync(Invoice item, CancellationToken cancellationToken) =>
         Task.FromResult(charger.Charge(item));
 }
+
+// A chunk function configured by attributes, as the guide shows: an id, flow control and no trigger.
+[InngestFunction("attributed-chunk", Retries = 2)]
+[Concurrency(3)]
+public sealed class AttributedChunk(Charger charger) : FanOutFunction<Invoice, Receipt>
+{
+    protected override Task<Receipt> ProcessAsync(Invoice item, CancellationToken cancellationToken) =>
+        Task.FromResult(charger.Charge(item));
+}

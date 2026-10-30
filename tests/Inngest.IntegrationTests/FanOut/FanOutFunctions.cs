@@ -45,6 +45,7 @@ internal static class FanOutFunctions
     public const string Outcomes = "fanout/outcomes";
     public const string Race = "fanout/race";
     public const string Waves = "fanout/waves";
+    public const string RaceFailure = "fanout/race-failure";
     public const string Chunks = "fanout/chunks";
     public const string ChunkOutcomes = "fanout/chunk-outcomes";
 
@@ -126,6 +127,35 @@ internal static class FanOutFunctions
         inngest.AddFunction<RunEvent>(
             new FunctionOptions { Id = "fanout-waves", Triggers = [Trigger.Event(Waves)] },
             static (context, _) => GatedAsync(context, null));
+
+        // Item 0 is refused for good while item 1 waits at a gate. In race mode Inngest calls the function after item 0
+        // failed, and the run fails without waiting for item 1.
+        inngest.AddFunction<RunEvent>(
+            new FunctionOptions { Id = "fanout-race-failure", Triggers = [Trigger.Event(RaceFailure)] },
+            static async (context, _) =>
+            {
+                var observed = context.Observed();
+                var gates = context.Services.GetRequiredService<Gates>();
+                return await context.Step.MapAsync(
+                    "race",
+                    new[] { 0, 1, 2, 3 },
+                    async (item, cancellationToken) =>
+                    {
+                        observed.Record("start", item);
+                        if (item == 0)
+                        {
+                            throw new NonRetriableException("Card declined for item 0");
+                        }
+
+                        if (item == 1)
+                        {
+                            await gates.WaitAsync(context.Event.Data.TestId, SlowGate, GateTimeout, cancellationToken);
+                        }
+
+                        return item;
+                    },
+                    new FanOutOptions { MaxParallelism = 2, ParallelMode = ParallelMode.Race });
+            });
 
         inngest.AddFunction<ChunkedEvent>(
             new FunctionOptions { Id = "fanout-chunks", Triggers = [Trigger.Event(Chunks)] },

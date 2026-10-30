@@ -89,6 +89,23 @@ public sealed class FanOutTests(EvaluationEnvironment environment) : EvaluationS
         run.OutputAs<int[]>().ShouldBe([0, 10, 20, 30]);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task In_race_mode_a_failure_fails_the_run_without_waiting_for_the_item_that_is_still_running()
+    {
+        var eventId = await SendAsync(FanOutFunctions.RaceFailure, new RunEvent(TestId));
+
+        // Item 1 is still at its gate when the run fails, and items 2 and 3 never start.
+        var run = await WaitForEndAsync(eventId, TimeSpan.FromSeconds(20));
+        run.Status.ShouldBe(RunStatus.Failed);
+        run.Error.Message.ShouldBe("Card declined for item 0");
+        Observed.Values<int>("start").Order().ShouldBe([0, 1]);
+
+        Fixture.Gates.Open(TestId, FanOutFunctions.SlowGate);
+        await Task.Delay(TimeSpan.FromSeconds(1), Cancellation);
+        Observed.Values<int>("start").Order().ShouldBe([0, 1]);
+        (await Api.GetRunAsync(run.RunId, Cancellation)).Status.ShouldBe(RunStatus.Failed);
+    }
+
     [Fact(Timeout = 90_000)]
     public async Task Chunks_run_as_child_runs_and_the_results_come_back_in_the_order_of_the_items()
     {
