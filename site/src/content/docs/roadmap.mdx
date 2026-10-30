@@ -27,6 +27,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   sends or invokes inherits them. See [Sessions](/inngest-dotnet/guides/sending-events/#sessions).
 - **A test host for every step.** Mocks for waits for signals, sent signals, fetch and inference steps; AI wrap steps
   take run mocks; signals and realtime messages are recorded like events.
+- **An Aspire integration.** `Inngest.Aspire.Hosting` runs the Inngest dev server, or a self-hosted server that signs its
+  requests, as a container of an Aspire AppHost. It links the server's UI in the dashboard, syncs the apps of the
+  AppHost and gives projects, containers and Connect workers the settings they need. See
+  [Aspire](/inngest-dotnet/guides/aspire/).
 - **Sentry and encryption packages.** `Inngest.Sentry` reports the errors of functions and steps to Sentry, tagged
   with the app, the function, the run and the event. `Inngest.Encryption` encrypts event data, step results and
   function output in the format of the TypeScript SDK's encryption middleware, so .NET and TypeScript services read
