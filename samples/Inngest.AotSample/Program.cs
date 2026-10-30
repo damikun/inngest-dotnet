@@ -2,7 +2,8 @@ using System.Text.Json.Serialization;
 using Inngest;
 using Inngest.AotSample;
 
-// Publishes with Native AOT: dotnet publish -c Release -r <rid>. Every type the functions serialize is in AppJson.
+// Publishes with Native AOT: dotnet publish -c Release -r <rid>. Every type the functions serialize is in AppJson, and
+// AddInngestFunctions(), which the generator writes, registers the function classes below.
 var builder = WebApplication.CreateSlimBuilder(args);
 
 // The app id comes from the Inngest section of appsettings.json, which the SDK reads key by key, without the
@@ -18,8 +19,7 @@ builder.Services
             await context.Step.RunAsync("audit", () => context.Logger.LogInformation("Greeted {Name}", context.Event.Data.Name));
             return reply;
         })
-    .AddFunction<WelcomeMember>()
-    .AddFunction<ScoreMember>();
+    .AddInngestFunctions();
 
 var app = builder.Build();
 app.MapInngest();

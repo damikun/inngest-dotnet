@@ -8,4 +8,10 @@
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
   </ItemGroup>
+  <!-- A package reference to Inngest brings its generator and analyzers, and the properties they read, with it. A project
+       reference does not, so the sample takes them from the source of the repository. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Import Project="..\..\src\Inngest\buildTransitive\Inngest.props" />
 </Project>

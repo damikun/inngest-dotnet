@@ -11,12 +11,33 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The generator, the analyzers and the code fixes are compiler extensions: they are built first, so that the package
+         can carry them, and the library does not reference them. They sit in the package of the SDK rather than in a
+         package of their own because the generated code calls AddFunction of this very release, and every project that
+         defines a function already references Inngest. -->
+    <ProjectReference Include="..\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Inngest.SourceGeneration.CodeFixes\Inngest.SourceGeneration.CodeFixes.csproj" ReferenceOutputAssembly="false" />
+    <None Include="buildTransitive\Inngest.props" Pack="true" PackagePath="buildTransitive" />
+    <None Include="buildTransitive\Inngest.targets" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+  <!-- The compiler loads whatever sits in analyzers/dotnet/cs of a package. -->
+  <Target Name="IncludeCompilerExtensionsInPackage" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="..\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj;..\Inngest.SourceGeneration.CodeFixes\Inngest.SourceGeneration.CodeFixes.csproj"
+             Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" ItemName="_CompilerExtension" />
+    </MSBuild>
+    <ItemGroup>
+      <None Include="@(_CompilerExtension)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    </ItemGroup>
+  </Target>
+  <ItemGroup>
     <InternalsVisibleTo Include="Inngest.AspNetCore" />
     <InternalsVisibleTo Include="Inngest.Connect" />
     <InternalsVisibleTo Include="Inngest.Encryption" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI.Tests" />
     <InternalsVisibleTo Include="Inngest.Testing" />
+    <InternalsVisibleTo Include="Inngest.SourceGeneration.Tests" />
     <InternalsVisibleTo Include="Inngest.Tests" />
     <InternalsVisibleTo Include="Inngest.IntegrationTests" />
     <InternalsVisibleTo Include="Inngest.Benchmarks" />

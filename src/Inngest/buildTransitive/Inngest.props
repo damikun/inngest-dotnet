@@ -1,0 +1,14 @@
+<Project>
+  <!-- The analyzers and the generator of this package read these properties of the project that references it. Only the
+       project's own build can answer them, and the compiler gets no other word from MSBuild. buildTransitive, not build:
+       an app mostly references Inngest through Inngest.AspNetCore, and only buildTransitive reaches it from there. -->
+  <ItemGroup>
+    <!-- The SDK turns reflection-based System.Text.Json off for an app that is published trimmed or ahead of time. -->
+    <CompilerVisibleProperty Include="PublishAot" />
+    <CompilerVisibleProperty Include="PublishTrimmed" />
+    <CompilerVisibleProperty Include="JsonSerializerIsReflectionEnabledByDefault" />
+    <!-- Name and accessibility of the generated AddInngestFunctions(). -->
+    <CompilerVisibleProperty Include="InngestFunctionsMethodName" />
+    <CompilerVisibleProperty Include="InngestFunctionsAccessibility" />
+  </ItemGroup>
+</Project>
