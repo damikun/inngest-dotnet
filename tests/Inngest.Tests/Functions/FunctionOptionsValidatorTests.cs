@@ -73,6 +73,27 @@ public sealed class FunctionOptionsValidatorTests
     public void Rejects_a_cron_trigger_without_a_schedule(string schedule) =>
         ShouldReject(Valid with { Triggers = [new CronTrigger(schedule)] }, "A cron trigger needs a schedule.");
 
+    // Inngest refuses the whole sync for these, as pkg/inngest/trigger.go does.
+    [Fact]
+    public void Rejects_the_same_event_trigger_twice() =>
+        ShouldReject(
+            Valid with { Triggers = [Trigger.Event("order/created", "event.data.total > 100"), Trigger.Event("order/created", "event.data.total > 100")] },
+            "The event trigger \"order/created\" is given twice.");
+
+    [Fact]
+    public void Accepts_one_event_under_different_conditions() =>
+        ShouldAccept(Valid with { Triggers = [Trigger.Event("order/created"), Trigger.Event("order/created", "event.data.total > 100")] });
+
+    [Fact]
+    public void Rejects_the_same_cron_schedule_twice_even_with_different_jitter() =>
+        ShouldReject(
+            Valid with { Triggers = [new CronTrigger("0 9 * * *"), new CronTrigger("0 9 * * *") { Jitter = TimeSpan.FromMinutes(1) }] },
+            "The cron schedule \"0 9 * * *\" is given twice, which Inngest refuses even with different jitter.");
+
+    [Fact]
+    public void Accepts_one_schedule_in_two_time_zones() =>
+        ShouldAccept(Valid with { Triggers = [new CronTrigger("0 9 * * *") { Timezone = "Europe/Prague" }, new CronTrigger("0 9 * * *") { Timezone = "America/New_York" }] });
+
     [Fact]
     public void Accepts_one_or_two_concurrency_limits()
     {
@@ -89,20 +110,22 @@ public sealed class FunctionOptionsValidatorTests
         ShouldReject(Valid with { Concurrency = limits }, "Concurrency allows at most 2 limits, but 3 were given.");
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-3)]
-    public void Rejects_a_concurrency_limit_that_is_not_positive(int limit) =>
+    [Fact]
+    public void Rejects_a_negative_concurrency_limit() =>
         ShouldReject(
-            Valid with { Concurrency = [new ConcurrencyLimit(limit)] },
-            $"A concurrency limit must be greater than 0, but one was {limit}.");
+            Valid with { Concurrency = [new ConcurrencyLimit(-3)] },
+            "A concurrency limit cannot be negative, but one was -3. Use 0 for no limit.");
+
+    // As in the Inngest docs, 0 is the same as no limit.
+    [Fact]
+    public void Accepts_a_concurrency_limit_of_0() => ShouldAccept(Valid with { Concurrency = [new ConcurrencyLimit(0)] });
 
     [Fact]
     public void Checks_every_concurrency_limit()
     {
-        var limits = new[] { new ConcurrencyLimit(5), new ConcurrencyLimit(0) };
+        var limits = new[] { new ConcurrencyLimit(5), new ConcurrencyLimit(-1) };
 
-        ShouldReject(Valid with { Concurrency = limits }, "A concurrency limit must be greater than 0, but one was 0.");
+        ShouldReject(Valid with { Concurrency = limits }, "A concurrency limit cannot be negative, but one was -1. Use 0 for no limit.");
     }
 
     [Theory]
@@ -396,7 +419,7 @@ public sealed class FunctionOptionsValidatorTests
     [Fact]
     public void Checks_each_concurrency_limit_even_when_there_are_too_many()
     {
-        var limits = new[] { new ConcurrencyLimit(1), new ConcurrencyLimit(0), new ConcurrencyLimit(5) { Scope = ConcurrencyScope.Account } };
+        var limits = new[] { new ConcurrencyLimit(1), new ConcurrencyLimit(-1), new ConcurrencyLimit(5) { Scope = ConcurrencyScope.Account } };
 
         var exception = Should.Throw<InvalidOperationException>(() => FunctionOptionsValidator.Validate(Valid with { Concurrency = limits }));
 
@@ -404,7 +427,7 @@ public sealed class FunctionOptionsValidatorTests
             Environment.NewLine,
             "The function configuration has 3 problems:",
             "1. Function \"orders\": Concurrency allows at most 2 limits, but 3 were given.",
-            "2. Function \"orders\": A concurrency limit must be greater than 0, but one was 0.",
+            "2. Function \"orders\": A concurrency limit cannot be negative, but one was -1. Use 0 for no limit.",
             "3. Function \"orders\": A concurrency limit with the Account scope needs a Key. Only the Function scope can go without one."));
     }
 

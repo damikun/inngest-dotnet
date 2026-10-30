@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using Inngest.Internal;
+using Inngest.Registration;
 
 namespace Inngest.Functions;
 
@@ -68,6 +69,8 @@ internal static class FunctionOptionsValidator
             problems.Add(options, $"A function can have at most {MaxTriggers} triggers, but has {options.Triggers.Count}.");
         }
 
+        var events = new HashSet<(string Event, string? If)>();
+        var schedules = new HashSet<string>(StringComparer.Ordinal);
         foreach (var trigger in options.Triggers)
         {
             switch (trigger)
@@ -81,6 +84,19 @@ internal static class FunctionOptionsValidator
                 case CronTrigger { Jitter: { } jitter } cron when jitter < MinPeriod || jitter > MaxCronJitter:
                     problems.Add(options, $"The jitter of cron trigger \"{cron.Schedule}\" must be between 1s and 5m, but was {Describe(jitter)}.");
                     break;
+            }
+
+            // Inngest refuses a sync that has the same trigger twice, and the same cron schedule twice even with
+            // different jitter.
+            if (trigger is EventTrigger eventTrigger
+                && !events.Add((eventTrigger.Event, string.IsNullOrEmpty(eventTrigger.If) ? null : eventTrigger.If)))
+            {
+                problems.Add(options, $"The event trigger \"{eventTrigger.Event}\" is given twice.");
+            }
+
+            if (trigger is CronTrigger cronTrigger && !schedules.Add(RegistrationWriter.CronSchedule(cronTrigger)))
+            {
+                problems.Add(options, $"The cron schedule \"{cronTrigger.Schedule}\" is given twice, which Inngest refuses even with different jitter.");
             }
         }
     }
@@ -99,9 +115,10 @@ internal static class FunctionOptionsValidator
 
         foreach (var limit in limits)
         {
-            if (limit.Limit <= 0)
+            // 0 means no limit, as in the Inngest docs.
+            if (limit.Limit < 0)
             {
-                problems.Add(options, $"A concurrency limit must be greater than 0, but one was {limit.Limit}.");
+                problems.Add(options, $"A concurrency limit cannot be negative, but one was {limit.Limit}. Use 0 for no limit.");
             }
 
             if (!Enum.IsDefined(limit.Scope))

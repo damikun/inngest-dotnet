@@ -117,7 +117,7 @@ internal static class RegistrationWriter
     }
 
     // Inngest reads the time zone from a "TZ=" or "CRON_TZ=" prefix. A prefix the schedule already has wins.
-    private static string CronSchedule(CronTrigger trigger)
+    internal static string CronSchedule(CronTrigger trigger)
     {
         var hasTimezone = trigger.Schedule.StartsWith("TZ=", StringComparison.Ordinal)
             || trigger.Schedule.StartsWith("CRON_TZ=", StringComparison.Ordinal);
@@ -153,9 +153,10 @@ internal static class RegistrationWriter
         json.WriteEndObject();
     }
 
+    // A limit of 0 means no limit, as in the Inngest docs, so it is left out rather than sent.
     private static void WriteConcurrency(Utf8JsonWriter json, IReadOnlyList<ConcurrencyLimit>? limits)
     {
-        if (limits is not { Count: > 0 })
+        if (limits is null || !limits.Any(static limit => limit.Limit > 0))
         {
             return;
         }
@@ -163,6 +164,11 @@ internal static class RegistrationWriter
         json.WriteStartArray("concurrency");
         foreach (var limit in limits)
         {
+            if (limit.Limit == 0)
+            {
+                continue;
+            }
+
             json.WriteStartObject();
             json.WriteNumber("limit", limit.Limit);
             WriteIfSet(json, "key", limit.Key);

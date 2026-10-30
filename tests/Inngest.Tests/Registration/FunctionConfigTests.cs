@@ -34,6 +34,11 @@ public sealed class FunctionConfigTests
         },
         {
             "concurrency",
+            Orders with { Concurrency = [new ConcurrencyLimit(0), new ConcurrencyLimit(10) { Key = "event.data.accountId" }] },
+            """[{"limit":10,"key":"event.data.accountId","scope":"fn"}]"""
+        },
+        {
+            "concurrency",
             Orders with { Concurrency = [new ConcurrencyLimit(10) { Key = "event.data.accountId" }] },
             """[{"limit":10,"key":"event.data.accountId","scope":"fn"}]"""
         },
@@ -202,6 +207,9 @@ public sealed class FunctionConfigTests
     public static TheoryData<string, FunctionOptions> UnsetOptions => new()
     {
         { "concurrency", Orders with { Concurrency = [] } },
+
+        // 0 means no limit.
+        { "concurrency", Orders with { Concurrency = [new ConcurrencyLimit(0)] } },
         { "idempotency", Orders with { Idempotency = "" } },
         { "idempotency", Orders with { Idempotency = " " } },
         { "cancel", Orders with { CancelOn = [] } },
