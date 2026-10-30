@@ -12,8 +12,12 @@ internal sealed class FakeInngestApi : IInngestApi
 
     public Exception? Failure { get; set; }
 
+    // The token the latest registration was given.
+    public CancellationToken RegisterToken { get; private set; }
+
     public Task<RegisterResult> RegisterAsync(ReadOnlyMemory<byte> payload, string? deployId, string? serverKind, CancellationToken cancellationToken)
     {
+        RegisterToken = cancellationToken;
         Registrations.Add(new Registration(Encoding.UTF8.GetString(payload.Span), deployId, serverKind));
         return Failure is null ? Task.FromResult(Result) : Task.FromException<RegisterResult>(Failure);
     }

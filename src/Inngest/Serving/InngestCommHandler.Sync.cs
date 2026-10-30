@@ -32,7 +32,7 @@ internal sealed partial class InngestCommHandler
         return new Reply(200, body.WrittenMemory, body);
     }
 
-    private async Task<Reply> SyncAsync(IServeRequest request, SignatureCheck caller, CancellationToken cancellationToken)
+    private async Task<Reply> SyncAsync(IServeRequest request, SignatureCheck caller)
     {
         if (settings.AllowInBandSync && request.GetHeader(Headers.SyncKind) == InBand)
         {
@@ -45,13 +45,17 @@ internal sealed partial class InngestCommHandler
             return Unauthorized;
         }
 
-        return await SyncOutOfBandAsync(request, caller, cancellationToken).ConfigureAwait(false);
+        return await SyncOutOfBandAsync(request, caller).ConfigureAwait(false);
     }
 
     // The app posts its configuration to Inngest and reports how that went. Unsigned requests are accepted by
-    // default, as in the TypeScript SDK, because the app only ever calls the Inngest it is configured for; they are
-    // told only whether it worked.
-    private async Task<Reply> SyncOutOfBandAsync(IServeRequest request, SignatureCheck caller, CancellationToken cancellationToken)
+    // default, as in the TypeScript SDK: the app only ever calls the Inngest it is configured for, and an unsigned
+    // caller is told only whether it worked. Without ServeOrigin, though, the URL the app registers comes from the
+    // request's Host header, which such a caller chooses, so that case is logged as a warning.
+    //
+    // The registration does not stop when the caller hangs up, such as a deploy script with a short timeout; it would
+    // otherwise be cut off halfway. The HTTP client's own timeout still applies.
+    private async Task<Reply> SyncOutOfBandAsync(IServeRequest request, SignatureCheck caller)
     {
         var deployId = request.GetQuery(ServeUrl.DeployIdParameter);
         if (deployId is "" or "undefined")
@@ -67,12 +71,17 @@ internal sealed partial class InngestCommHandler
             try
             {
                 serveUrl = ServeUrl.Resolve(request.Url, settings.ServeOrigin, settings.ServePath);
+                if (!caller.IsValid && settings.ServeOrigin is null)
+                {
+                    Log.UnsignedSyncFromRequestUrl(logger, serveUrl);
+                }
+
                 registry.WriteRegistration(registration, serveUrl, request.Framework);
                 result = await api
-                    .RegisterAsync(registration.WrittenMemory, deployId, request.GetHeader(Headers.ServerKind), cancellationToken)
+                    .RegisterAsync(registration.WrittenMemory, deployId, request.GetHeader(Headers.ServerKind), CancellationToken.None)
                     .ConfigureAwait(false);
             }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception exception)
             {
                 Log.SyncFailed(logger, exception);
                 return SyncResult(500, caller.IsValid ? $"Failed to register; {exception.Message}" : "Failed to register", modified: false);

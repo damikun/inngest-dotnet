@@ -75,14 +75,15 @@ public sealed class SyncTests
     }
 
     [Fact]
-    public async Task A_cancelled_sync_is_not_reported_as_a_failure()
+    public async Task A_registration_that_times_out_is_reported_as_a_failure()
     {
-        using var cancellation = new CancellationTokenSource();
-        await cancellation.CancelAsync();
-        _harness.Api.Failure = new OperationCanceledException(cancellation.Token);
-        var handler = _harness.CreateHandler(CommHandlerHarness.DevSettings);
+        // The registration has no token of the request's, so a cancellation can only be the HTTP client's timeout.
+        _harness.Api.Failure = new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.");
 
-        await Should.ThrowAsync<OperationCanceledException>(() => handler.HandleAsync(new FakeServeRequest("PUT"), cancellation.Token));
+        using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
+
+        response.StatusCode.ShouldBe(500);
+        _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
     }
 
     [Fact]
@@ -172,6 +173,42 @@ public sealed class SyncTests
 
         response.StatusCode.ShouldBe(401);
         _harness.Api.Registrations.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_unsigned_sync_that_takes_the_url_from_the_request_is_warned_about()
+    {
+        // The Host header is whatever the caller sends.
+        using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, new FakeServeRequest("PUT", "http://evil.example/api/inngest"));
+
+        response.StatusCode.ShouldBe(200);
+        var warning = _harness.Logger.Collector.GetSnapshot().Where(record => record.Id.Id == 414).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain("http://evil.example/api/inngest");
+    }
+
+    [Fact]
+    public async Task An_unsigned_sync_registers_the_serve_origin_without_a_warning()
+    {
+        var settings = CommHandlerHarness.CloudSettings with { ServeOrigin = new Uri("https://shop.example.com") };
+
+        using var response = await _harness.SendAsync(settings, new FakeServeRequest("PUT", "http://evil.example/api/inngest"));
+
+        response.StatusCode.ShouldBe(200);
+        _harness.Api.Registrations.ShouldHaveSingleItem().Payload.ShouldContain("\"url\":\"https://shop.example.com/api/inngest\"");
+        _harness.Logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == 414);
+    }
+
+    [Fact]
+    public async Task The_registration_goes_on_when_the_caller_hangs_up()
+    {
+        using var hangUp = new CancellationTokenSource();
+
+        using var response = await _harness.CreateHandler(CommHandlerHarness.DevSettings).HandleAsync(new FakeServeRequest("PUT"), hangUp.Token);
+
+        // A deploy script with a short timeout must not cut the registration off halfway.
+        response.StatusCode.ShouldBe(200);
+        _harness.Api.RegisterToken.CanBeCanceled.ShouldBeFalse();
     }
 
     [Fact]

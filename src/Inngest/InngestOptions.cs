@@ -60,8 +60,9 @@ public sealed class InngestOptions
 
     /// <summary>
     /// In cloud mode, lets an unsigned PUT trigger an out-of-band sync, as the TypeScript SDK does by default. The
-    /// app then only calls the Inngest it is configured for. Null reads INNGEST_ENABLE_UNAUTHED_SYNC and defaults
-    /// to true.
+    /// app then only calls the Inngest it is configured for, but without <see cref="ServeOrigin"/> the URL it
+    /// registers comes from the request's Host header, which the caller chooses. Null reads
+    /// INNGEST_ENABLE_UNAUTHED_SYNC and defaults to true.
     /// </summary>
     public bool? AllowUnsignedSync { get; set; }
 

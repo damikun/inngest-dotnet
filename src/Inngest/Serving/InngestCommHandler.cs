@@ -83,7 +83,7 @@ internal sealed partial class InngestCommHandler(
             }
             else if (IsMethod(method, "PUT"))
             {
-                reply = await SyncAsync(request, caller, cancellationToken).ConfigureAwait(false);
+                reply = await SyncAsync(request, caller).ConfigureAwait(false);
             }
             else
             {

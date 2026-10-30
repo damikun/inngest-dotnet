@@ -24,9 +24,12 @@ public static class InngestEndpointRouteBuilderExtensions
         var handler = endpoints.ServiceProvider.GetService<InngestCommHandler>()
             ?? throw new InvalidOperationException("Call services.AddInngest() before app.MapInngest().");
 
+        // Inngest proves who it is with the request signature, which the SDK checks, and sends nothing ASP.NET Core
+        // authorization could check. Without AllowAnonymous an app's fallback policy would turn every call away.
         return endpoints
             .MapMethods(pattern, [HttpMethods.Get, HttpMethods.Put, HttpMethods.Post], context => InngestEndpoint.HandleAsync(context, handler))
             .WithDisplayName("Inngest")
-            .ExcludeFromDescription();
+            .ExcludeFromDescription()
+            .AllowAnonymous();
     }
 }

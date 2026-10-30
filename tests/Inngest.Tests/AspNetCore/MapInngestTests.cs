@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
@@ -9,11 +10,14 @@ using Inngest.Registration;
 using Inngest.Signing;
 using Inngest.Tests.Serving;
 using Inngest.Tests.Serving.Fakes;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Inngest.Tests.AspNetCore;
@@ -245,11 +249,40 @@ public sealed class MapInngestTests
             .Message.ShouldBe("Call services.AddInngest() before app.MapInngest().");
     }
 
-    private async Task<WebApplication> StartAsync(InngestSettings settings, Action<WebApplication>? configure = null, string pattern = "/api/inngest")
+    [Fact]
+    public async Task Inngest_gets_past_an_authorization_policy_that_covers_every_endpoint()
+    {
+        await using var app = await StartAsync(
+            CommHandlerHarness.DevSettings,
+            configure: app =>
+            {
+                app.UseAuthorization();
+                app.MapGet("/orders", () => "orders");
+            },
+            services: services =>
+            {
+                services.AddAuthentication(Nobody.Name).AddScheme<AuthenticationSchemeOptions, Nobody>(Nobody.Name, null);
+                services.AddAuthorization(options => options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+            });
+        var client = app.GetTestClient();
+
+        using var inngest = await client.GetAsync("/api/inngest", CancellationToken);
+        using var orders = await client.GetAsync("/orders", CancellationToken);
+
+        inngest.StatusCode.ShouldBe(HttpStatusCode.OK);
+        orders.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    private async Task<WebApplication> StartAsync(
+        InngestSettings settings,
+        Action<WebApplication>? configure = null,
+        string pattern = "/api/inngest",
+        Action<IServiceCollection>? services = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        services?.Invoke(builder.Services);
         builder.Services.AddInngest(options => options.AppId = settings.AppId);
         builder.Services.Replace(ServiceDescriptor.Singleton(settings));
         builder.Services.Replace(ServiceDescriptor.Singleton<TimeProvider>(_time));
@@ -268,6 +301,15 @@ public sealed class MapInngestTests
     private sealed class RequestMarker
     {
         public string? Value { get; set; }
+    }
+
+    // Authenticates nobody, so a policy that requires a user answers 401.
+    private sealed class Nobody(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        public const string Name = "Nobody";
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.NoResult());
     }
 
     // Has no length, so the client sends the body chunked, as a proxy might.
