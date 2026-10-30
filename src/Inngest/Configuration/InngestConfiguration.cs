@@ -35,6 +35,7 @@ internal static class InngestConfiguration
             ServePath = ReadText(section, nameof(InngestOptions.ServePath)),
             AllowInBandSync = ReadBoolean(section, nameof(InngestOptions.AllowInBandSync)),
             AllowUnsignedSync = ReadBoolean(section, nameof(InngestOptions.AllowUnsignedSync)),
+            Streaming = ReadBoolean(section, nameof(InngestOptions.Streaming)),
             Checkpointing = ReadCheckpointing(section),
         };
     }

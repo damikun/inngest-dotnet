@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Execution;
@@ -18,7 +19,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
+using TestTimeProvider = Inngest.Tests.Execution.TestTimeProvider;
 
 namespace Inngest.Tests.AspNetCore;
 
@@ -30,7 +31,7 @@ public sealed class MapInngestTests
     private readonly FakeFunctionRegistry _registry = new();
     private readonly FakeExecutionEngine _engine = new();
     private readonly FakeInngestApi _api = new();
-    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 29, 12, 0, 0, TimeSpan.Zero));
+    private readonly TestTimeProvider _time = new(new DateTimeOffset(2026, 10, 29, 12, 0, 0, TimeSpan.Zero));
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
@@ -187,6 +188,102 @@ public sealed class MapInngestTests
         var responseBody = await response.Content.ReadAsByteArrayAsync(CancellationToken);
         var signature = response.Headers.GetValues("X-Inngest-Signature").ShouldHaveSingleItem();
         signer.Verify(signature, responseBody, CommHandlerHarness.PrimaryKey, fallbackKey: null).IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_call_still_running_after_three_seconds_is_streamed_the_way_Inngest_reads_a_201()
+    {
+        const string Operations = """[{"id":"e7d8a2f140845095749d60246ff1110c9d01d76a","op":"StepError"}]""";
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _engine.Handler = async (_, _) =>
+        {
+            await release.Task;
+            return FakeExecutionEngine.Result(206, Operations, noRetry: false, retryAfter: "30");
+        };
+        await using var app = await StartAsync(CommHandlerHarness.DevSettings with { Streaming = true });
+        using var request = new HttpRequestMessage(HttpMethod.Post, CallPath) { Content = new StringContent(CallBody) };
+
+        var sending = app.GetTestClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken);
+        await _time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(3));
+        using var response = await sending.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        await _time.TimersCreated(2).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(3));
+        await _time.TimersCreated(3).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        release.SetResult();
+        var text = await response.Content.ReadAsStringAsync(CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.Headers.GetValues("X-Accel-Buffering").ShouldBe(["no"]);
+        text.ShouldStartWith("  {");
+        using var payload = JsonDocument.Parse(text);
+        payload.RootElement.GetProperty("status").GetInt32().ShouldBe(206);
+        payload.RootElement.GetProperty("body").GetString().ShouldBe(Operations);
+        var headers = payload.RootElement.GetProperty("headers");
+        headers.GetProperty("X-Inngest-SDK").GetString().ShouldBe(SdkInfo.Header);
+        headers.GetProperty("X-Inngest-No-Retry").GetString().ShouldBe("false");
+        headers.GetProperty("Retry-After").GetString().ShouldBe("30");
+    }
+
+    [Fact]
+    public async Task A_streamed_call_carries_the_signature_of_the_body_inside_the_stream()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _engine.Handler = async (_, _) =>
+        {
+            await release.Task;
+            return FakeExecutionEngine.Result(200, "\"done\"");
+        };
+        await using var app = await StartAsync(CommHandlerHarness.CloudSettings with { Streaming = true });
+        var signer = new RequestSigner(_time);
+        var body = Encoding.UTF8.GetBytes(CallBody);
+        using var request = new HttpRequestMessage(HttpMethod.Post, CallPath) { Content = new ByteArrayContent(body) };
+        request.Headers.Add("X-Inngest-Signature", signer.Sign(body, CommHandlerHarness.PrimaryKey));
+
+        var sending = app.GetTestClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken);
+        await _time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(3));
+        using var response = await sending.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        release.SetResult();
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(CancellationToken));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var inner = payload.RootElement.GetProperty("body").GetString()!;
+        inner.ShouldBe("\"done\"");
+        var signature = payload.RootElement.GetProperty("headers").GetProperty("X-Inngest-Signature").GetString();
+        signer.Verify(signature, Encoding.UTF8.GetBytes(inner), CommHandlerHarness.PrimaryKey, fallbackKey: null).IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task With_streaming_on_a_call_that_ends_within_three_seconds_is_answered_as_usual()
+    {
+        await using var app = await StartAsync(CommHandlerHarness.DevSettings with { Streaming = true });
+
+        using var response = await app.GetTestClient().PostAsync(CallPath, new StringContent(CallBody), CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe("\"done\"");
+        response.Content.Headers.ContentLength.ShouldBe(6);
+    }
+
+    [Fact]
+    public async Task Without_streaming_a_long_call_is_answered_once_it_ends()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _engine.Handler = async (_, _) =>
+        {
+            await release.Task;
+            return FakeExecutionEngine.Result(200, "\"done\"");
+        };
+        await using var app = await StartAsync(CommHandlerHarness.DevSettings);
+
+        var sending = app.GetTestClient().PostAsync(CallPath, new StringContent(CallBody), CancellationToken);
+        _time.Advance(TimeSpan.FromMinutes(1));
+        release.SetResult();
+        using var response = await sending;
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe("\"done\"");
     }
 
     [Fact]

@@ -50,6 +50,11 @@ internal sealed partial class InngestCommHandler(
 
     private static Reply Unauthorized => new(401, UnauthorizedBody);
 
+    // Whether the transport should keep this request open while it runs, as streaming does in the TypeScript SDK: a
+    // call from Inngest when streaming is on, never a probe.
+    public bool Streams(IServeRequest request) =>
+        settings.Streaming && IsMethod(request.Method, "POST") && request.GetQuery(ProbeParameter) is null;
+
     public async Task<ServeResponse> HandleAsync(IServeRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

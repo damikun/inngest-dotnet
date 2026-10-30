@@ -399,6 +399,24 @@ public sealed class InngestSettingsConfigurationTests
         fromOptions.AllowUnsignedSync.ShouldBeFalse();
     }
 
+    [Fact]
+    public void Streaming_comes_from_the_options_then_the_variable_then_the_section_and_is_off_by_default()
+    {
+        Create([]).Streaming.ShouldBeFalse();
+        Create([("Streaming", "true")]).Streaming.ShouldBeTrue();
+        Create([("Streaming", "true")], variables: [("INNGEST_STREAMING", "false")]).Streaming.ShouldBeFalse();
+        Create([], options => options.Streaming = true, [("INNGEST_STREAMING", "off")]).Streaming.ShouldBeTrue();
+    }
+
+    // Values the TypeScript SDK still reads as true, so a deployment set up for it streams here too.
+    [Theory]
+    [InlineData("true")]
+    [InlineData("1")]
+    [InlineData("allow")]
+    [InlineData("force")]
+    public void The_streaming_variable_reads_the_values_of_the_TypeScript_SDK(string value) =>
+        Create([], variables: [("INNGEST_STREAMING", value)]).Streaming.ShouldBeTrue();
+
     [Theory]
     [InlineData("off")]
     [InlineData("no")]

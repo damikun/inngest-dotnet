@@ -64,6 +64,8 @@ internal sealed record InngestSettings
 
     public bool AllowUnsignedSync { get; init; } = true;
 
+    public bool Streaming { get; init; }
+
     // Checkpointing for functions whose own options leave it unset; null leaves it off.
     public CheckpointingOptions? Checkpointing { get; init; }
 
@@ -154,6 +156,10 @@ internal sealed record InngestSettings
                 ?? VariableSource.ParseFlag(variables.Get("INNGEST_ENABLE_UNAUTHED_SYNC"))
                 ?? section?.AllowUnsignedSync
                 ?? true,
+            Streaming = options.Streaming
+                ?? ParseStreaming(variables.Get("INNGEST_STREAMING"))
+                ?? section?.Streaming
+                ?? false,
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
@@ -194,6 +200,10 @@ internal sealed record InngestSettings
         checkpointing?.FindProblem() is { } problem
             ? throw new InvalidOperationException($"InngestOptions.Checkpointing.{problem}")
             : checkpointing;
+
+    // The TypeScript SDK still reads its older values "allow" and "force" as true.
+    private static bool? ParseStreaming(string? value) =>
+        VariableSource.ParseFlag(value) ?? (value?.Trim().ToLowerInvariant() is "allow" or "force" ? true : null);
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

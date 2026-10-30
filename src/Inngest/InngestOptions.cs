@@ -67,6 +67,14 @@ public sealed class InngestOptions
     public bool? AllowUnsignedSync { get; set; }
 
     /// <summary>
+    /// Keeps long calls from Inngest open behind proxies and load balancers that close idle connections, as streaming
+    /// does in the TypeScript SDK: a call still running after three seconds is answered with a 201 at once, then a
+    /// space every three seconds, then the result. Only the ASP.NET Core endpoint streams; Connect needs none. Null
+    /// reads INNGEST_STREAMING and defaults to false.
+    /// </summary>
+    public bool? Streaming { get; set; }
+
+    /// <summary>
     /// Runs consecutive steps of every function in one call from Inngest, saving each as it completes. Null leaves it
     /// off; FunctionOptions.Checkpointing overrides it for a single function.
     /// </summary>

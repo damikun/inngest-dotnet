@@ -33,7 +33,7 @@ internal sealed class Introspection(InngestSettings settings, IFunctionRegistry 
             writer.WriteString("event_api_origin"u8, settings.EventApiBaseUrl.AbsoluteUri);
             writer.WriteString("event_key_hash"u8, _eventKeyHash);
             writer.WriteStartObject("extra"u8);
-            writer.WriteBoolean("is_streaming"u8, false);
+            writer.WriteBoolean("is_streaming"u8, settings.Streaming);
             writer.WriteEndObject();
             writer.WriteString("framework"u8, framework);
             WriteSummary(writer);

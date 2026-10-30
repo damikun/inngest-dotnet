@@ -76,6 +76,16 @@ public sealed class IntrospectionTests
     }
 
     [Fact]
+    public async Task Cloud_mode_says_whether_calls_are_streamed()
+    {
+        var request = _harness.Sign(new FakeServeRequest("GET"), CommHandlerHarness.PrimaryKey);
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings with { Streaming = true }, request);
+
+        response.BodyText().ShouldContain("\"extra\":{\"is_streaming\":true}");
+    }
+
+    [Fact]
     public async Task Cloud_mode_writes_null_for_what_is_not_configured()
     {
         var request = _harness.Sign(new FakeServeRequest("GET"), CommHandlerHarness.PrimaryKey);
