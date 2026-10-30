@@ -203,7 +203,7 @@ public static class FanOutExtensions
             width,
             failFast: true,
             index => StartItem(step, id, index, items[index], handler, options),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(true);
         run.ThrowIfFailed();
         return run.Values;
     }
@@ -222,7 +222,7 @@ public static class FanOutExtensions
             width,
             failFast: false,
             index => StartItem(step, id, index, items[index], handler, options),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(true);
 
         var outcomes = new FanOutOutcome<TResult>[items.Count];
         for (var i = 0; i < outcomes.Length; i++)
@@ -256,7 +256,7 @@ public static class FanOutExtensions
         CancellationToken cancellationToken)
         where TFunction : FanOutFunction<TItem, TResult>
     {
-        var outcomes = await ChunksAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, failFast: true, cancellationToken).ConfigureAwait(false);
+        var outcomes = await ChunksAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, failFast: true, cancellationToken).ConfigureAwait(true);
         var results = new TResult[outcomes.Length];
         for (var i = 0; i < results.Length; i++)
         {
@@ -275,7 +275,7 @@ public static class FanOutExtensions
         FanOutOptions? options,
         CancellationToken cancellationToken)
         where TFunction : FanOutFunction<TItem, TResult> =>
-        await ChunksAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, failFast: false, cancellationToken).ConfigureAwait(false);
+        await ChunksAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, failFast: false, cancellationToken).ConfigureAwait(true);
 
     private static async Task<FanOutOutcome<TResult>[]> ChunksAsync<TFunction, TItem, TResult>(
         IStepTools step,
@@ -294,8 +294,11 @@ public static class FanOutExtensions
             chunking.Width,
             failFast,
             chunk => StartChunk<TFunction, TItem, TResult>(step, id, items, chunk, chunkSize, options, failFast),
-            cancellationToken).ConfigureAwait(false);
-        run.ThrowIfFailed();
+            cancellationToken).ConfigureAwait(true);
+        if (failFast)
+        {
+            run.ThrowIfFailed();
+        }
 
         var outcomes = new FanOutOutcome<TResult>[count];
         var filled = new bool[count];
@@ -368,7 +371,7 @@ public static class FanOutExtensions
         string id,
         Task<IReadOnlyList<FanOutOutcome<TResult>>> invoked)
     {
-        var outcomes = await invoked.ConfigureAwait(false)
+        var outcomes = await invoked.ConfigureAwait(true)
             ?? throw new InvalidOperationException($"The run of a chunk of \"{id}\" returned no outcomes.");
         foreach (var outcome in outcomes)
         {

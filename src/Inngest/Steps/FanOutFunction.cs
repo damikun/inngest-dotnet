@@ -46,7 +46,7 @@ public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChu
             index => step.RunAsync(
                 FanOutIds.Item("item", chunk.Offset + index),
                 itemToken => ProcessAsync(items[index], itemToken)),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(true);
 
         // A fail-fast chunk may end with items that never settled; the caller needs only the failure then.
         var outcomes = new List<FanOutOutcome<TResult>>(items.Count);

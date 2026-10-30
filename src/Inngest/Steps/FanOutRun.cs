@@ -63,9 +63,11 @@ internal sealed class FanOutRun<T>
             running[i] = lanes.RunAsync();
         }
 
-        // No ConfigureAwait(false) here or in the lanes: their continuations belong on the context of the function's
-        // call, where steps may be started.
-        await Task.WhenAny(Task.WhenAll(running), lanes.Stopped).ConfigureAwait(false);
+        // The awaits here, in the lanes and in the fan-out methods capture the context on purpose. The invocation's
+        // scheduler is where steps are started and where the engine tells that the function is idle, and with
+        // ConfigureAwait(false) a continuation that finds the scheduler as its context goes to the thread pool instead,
+        // so a lane would start the next unit while the engine decides what to report.
+        await Task.WhenAny(Task.WhenAll(running), lanes.Stopped).ConfigureAwait(true);
         return lanes.Finish();
     }
 
@@ -130,7 +132,7 @@ internal sealed class FanOutRun<T>
 
                 try
                 {
-                    var value = await unit.ConfigureAwait(false);
+                    var value = await unit.ConfigureAwait(true);
                     lock (_gate)
                     {
                         _values[index] = value;
