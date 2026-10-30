@@ -53,7 +53,7 @@ internal static partial class Log
     [LoggerMessage(EventId = 413, Level = LogLevel.Error, Message = "Handling an Inngest {Method} request failed")]
     public static partial void RequestFailed(ILogger logger, string method, Exception exception);
 
-    [LoggerMessage(EventId = 414, Level = LogLevel.Warning,
+    [LoggerMessage(EventId = 415, Level = LogLevel.Warning,
         Message = "An unsigned sync registered {ServeUrl}, taken from the request's Host header, which the caller chooses; set ServeOrigin, or INNGEST_SERVE_ORIGIN, to the app's public origin")]
     public static partial void UnsignedSyncFromRequestUrl(ILogger logger, Uri serveUrl);
 }

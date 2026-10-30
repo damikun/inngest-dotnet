@@ -182,7 +182,7 @@ public sealed class SyncTests
         using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, new FakeServeRequest("PUT", "http://evil.example/api/inngest"));
 
         response.StatusCode.ShouldBe(200);
-        var warning = _harness.Logger.Collector.GetSnapshot().Where(record => record.Id.Id == 414).ShouldHaveSingleItem();
+        var warning = _harness.Logger.Collector.GetSnapshot().Where(record => record.Id.Id == 415).ShouldHaveSingleItem();
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.Message.ShouldContain("http://evil.example/api/inngest");
     }
@@ -196,7 +196,7 @@ public sealed class SyncTests
 
         response.StatusCode.ShouldBe(200);
         _harness.Api.Registrations.ShouldHaveSingleItem().Payload.ShouldContain("\"url\":\"https://shop.example.com/api/inngest\"");
-        _harness.Logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == 414);
+        _harness.Logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == 415);
     }
 
     [Fact]
