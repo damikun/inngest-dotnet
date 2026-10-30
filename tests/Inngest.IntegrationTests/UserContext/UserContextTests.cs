@@ -108,7 +108,25 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
         warnings.ShouldAllBe(record => !record.Message.Contains("CfDJ8", StringComparison.Ordinal));
     }
 
-    private async Task<WebApp> StartWebAppAsync() => await WebApp.StartAsync(Api.BaseUrl);
+    [Fact(Timeout = 90_000)]
+    public async Task A_run_that_starts_later_than_the_lifetime_allows_still_has_the_user_if_Inngest_created_it_in_time()
+    {
+        // The event asks to start in 8 seconds, but the user is only valid for 4. Inngest creates the run when it
+        // receives the event, and that is what the expiry is judged by.
+        await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromSeconds(4));
+        var sentAt = DateTimeOffset.UtcNow;
+
+        var eventId = await web.SendAsync(UserContextFunctions.Report, TestId, signedIn: true, delaySeconds: 8);
+        var run = await Api.WaitForRunEndAsync(eventId, Cancellation);
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        var result = run.OutputAs<ReportResult>();
+        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(8));
+        RunIds.StartOf(result.RunId).ShouldNotBeNull().ShouldBeLessThan(sentAt.AddSeconds(4));
+        result.Direct.ShouldBe(Ada);
+    }
+
+    private async Task<WebApp> StartWebAppAsync(TimeSpan? lifetime = null) => await WebApp.StartAsync(Api.BaseUrl, lifetime);
 
     // The web app of the system: it serves requests of signed-in users, and sends events for them. It is not an app that
     // Inngest calls, so it is not synced; it only has a client.
@@ -118,7 +136,7 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
 
         private WebApp(WebApplication app) => _app = app;
 
-        public static async Task<WebApp> StartAsync(Uri devServer)
+        public static async Task<WebApp> StartAsync(Uri devServer, TimeSpan? lifetime)
         {
             var builder = WebApplication.CreateSlimBuilder();
             builder.WebHost.UseTestServer();
@@ -130,7 +148,11 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
                 options.DevServerUrl = devServer;
             });
             builder.Services.AddDataProtection().SetApplicationName(UserContextFunctions.ApplicationName).PersistKeysToFileSystem(UserContextFixture.Keys);
-            inngest.AddUserContext(options => options.Claims = ["sub", "name", "role", "email"]);
+            inngest.AddUserContext(options =>
+            {
+                options.Claims = ["sub", "name", "role", "email"];
+                options.Lifetime = lifetime ?? options.Lifetime;
+            });
             inngest.AddUserContextFromHttpContext();
             var app = builder.Build();
 
@@ -148,9 +170,13 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
 
                 return next(context);
             });
-            app.MapPost("/events/{name}/{testId}", async (string name, string testId, IInngestClient client, CancellationToken cancellationToken) =>
+            app.MapPost("/events/{name}/{testId}", async (string name, string testId, int? delaySeconds, IInngestClient client, CancellationToken cancellationToken) =>
             {
-                var result = await client.SendAsync(new InngestEvent(Uri.UnescapeDataString(name), new UserEvent(testId)), cancellationToken);
+                var @event = new InngestEvent(Uri.UnescapeDataString(name), new UserEvent(testId))
+                {
+                    Timestamp = delaySeconds is { } delay ? DateTimeOffset.UtcNow.AddSeconds(delay) : null,
+                };
+                var result = await client.SendAsync(@event, cancellationToken);
                 return Results.Ok(result.Ids[0]);
             });
             await app.StartAsync(TestContext.Current.CancellationToken);
@@ -158,9 +184,9 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
         }
 
         // Posts to the web app as a browser would, and returns the id Inngest gave the event.
-        public async Task<string> SendAsync(string eventName, string testId, bool signedIn)
+        public async Task<string> SendAsync(string eventName, string testId, bool signedIn, int? delaySeconds = null)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"/events/{Uri.EscapeDataString(eventName)}/{testId}");
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/events/{Uri.EscapeDataString(eventName)}/{testId}{(delaySeconds is { } delay ? $"?delaySeconds={delay}" : string.Empty)}");
             if (signedIn)
             {
                 request.Headers.Add("X-Signed-In", "1");
