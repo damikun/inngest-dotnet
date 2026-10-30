@@ -240,22 +240,25 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
 | `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
+| `Inngest.Extensions.AI` | `UseInngestSteps` and `UseInngestFunctionInvocation`, stages for the `ChatClientBuilder` of Microsoft.Extensions.AI that make each model call and each tool call of a run an AI wrap step. Depends on `Microsoft.Extensions.AI`. |
 | `Inngest.Testing.Containers` | A Testcontainers module (`InngestServerBuilder`, `InngestServerContainer`, `InngestServerConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
 | `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
 
-`Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing` and `Inngest.Encryption` use internals of `Inngest` through
-`InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
-`Inngest.Encryption` only reads the serializer options. Internals can change in any release, so the packages ship
+`Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption` and `Inngest.Extensions.AI` use internals of
+`Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of
+which `Inngest.Encryption` only reads the serializer options and `Inngest.Extensions.AI` only asks which invocation the
+calling code runs in, and so whether it can make a step. Internals can change in any release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
 the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption`, `Inngest.Sentry` and the two `Inngest.Testing.Containers` packages have no release
-to compare with yet, so their project files clear the baseline until their first one. The container packages are not
-`IsAotCompatible`, which every other package is: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on
-reflection, and the packages are for test projects, which are neither trimmed nor compiled ahead of time.
+each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.Extensions.AI` and the two `Inngest.Testing.Containers`
+packages have no release to compare with yet, so their project files clear the baseline until their first one. The
+container packages are not `IsAotCompatible`, which every other package is: Testcontainers and
+`Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects, which are neither
+trimmed nor compiled ahead of time.
 
 ### Code layout
 
@@ -368,7 +371,9 @@ The SDK's own wire types use System.Text.Json source generation, one `JsonSerial
 (event data, step results, function output) go through `InngestOptions.SerializerOptions`, which defaults to
 `JsonSerializerDefaults.Web` with reflection when reflection is enabled. Apps that trim or use Native AOT add their
 own source-generated context to its `TypeInfoResolverChain`. Step results are round-tripped through JSON even on
-the call that ran them, the same as every later replay sees them.
+the call that ran them, the same as every later replay sees them. Packages that save types the app does not own, such as
+`Inngest.Extensions.AI` with `ChatResponse`, write them to a `JsonElement` with the options of the library the types come
+from and hand the SDK only the element, so the app's options need no contracts for them.
 
 ### Logging
 
@@ -408,6 +413,7 @@ per call.
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook. |
 | Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
+| Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 

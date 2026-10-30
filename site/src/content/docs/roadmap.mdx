@@ -41,6 +41,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   app under `WebApplicationFactory` on a real port for it, on .NET 10. See
   [Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
 
+- **Chat clients as steps.** `Inngest.Extensions.AI` makes the model calls and the tool calls of a Microsoft.Extensions.AI
+  `IChatClient` steps of the run, so a replay or a retry of a later step never calls the model or a tool twice. See
+  [AI chat clients](/inngest-dotnet/guides/ai/).
+
 ## New in 0.1.0-preview.3
 
 - **Fixes from a code review.** A step that awaits a task the function started before it no longer hangs the call,

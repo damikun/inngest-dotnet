@@ -27,6 +27,8 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   results and function output, in the format of the TypeScript SDK's encryption middleware.
 - [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/): reports the errors of functions and steps to
   Sentry, tagged with the app, the function, the run and the event.
+- [`Inngest.Extensions.AI`](https://www.nuget.org/packages/Inngest.Extensions.AI/): makes the model calls and tool
+  calls of a Microsoft.Extensions.AI `IChatClient` steps of the run, so a replay never calls the model or a tool twice.
 
 Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`:
 

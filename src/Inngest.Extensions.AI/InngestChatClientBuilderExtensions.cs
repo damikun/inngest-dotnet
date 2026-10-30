@@ -16,9 +16,9 @@ public static class InngestChatClientBuilderExtensions
     /// the same completion twice. The messages and options are saved as the step's input, which the Inngest UI shows and
     /// which a rerun with an edit passes to the model. A streaming call runs the whole stream in its step and then hands out
     /// the saved response as updates. Outside a run, and inside a step's handler, where steps cannot be nested, calls pass
-    /// through. Add it next to the model, below <see cref="InngestChatClientBuilderExtensions.UseInngestFunctionInvocation"/>
-    /// or UseFunctionInvocation, which call it once for each round of tool calls, and above stages that should only see
-    /// the calls that really reach the model, such as UseOpenTelemetry and UseLogging.
+    /// through. The first stage added is the outermost, so add this one after UseInngestFunctionInvocation or
+    /// UseFunctionInvocation, which call it once for each round of tool calls, and before the stages that should only see
+    /// the calls that reach the model, such as UseOpenTelemetry and UseLogging.
     /// </summary>
     /// <param name="builder">The pipeline to add the stage to.</param>
     /// <param name="configure">Changes how the steps are recorded.</param>

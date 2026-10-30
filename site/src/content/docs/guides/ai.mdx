@@ -1,0 +1,218 @@
+---
+title: Chat clients as steps with Microsoft.Extensions.AI
+description: Make the model calls and tool calls of an IChatClient steps of an Inngest run, so that a retry or a replay never calls the model or a tool twice.
+sidebar:
+  label: AI chat clients
+---
+
+Inngest runs a function by calling it again after every step, so a call to a model that is not in a step is made
+again on every call, and paid for again. The [`Inngest.Extensions.AI`](https://www.nuget.org/packages/Inngest.Extensions.AI/)
+package puts the calls of an `IChatClient` of
+[Microsoft.Extensions.AI](https://learn.microsoft.com/dotnet/ai/microsoft-extensions-ai) in steps: each call to the
+model, and each tool the model asks for, is made once, saved with the run and handed back from it on every replay.
+If a later step fails, its retry does not call the model again.
+
+For a model call you make yourself, `AIWrapAsync` and `InferAsync` do the same one call at a time; see
+[Calls to AI models](/inngest-dotnet/guides/steps/#calls-to-ai-models). This package does it for a whole chat
+pipeline, tool loop included.
+
+## Setting it up
+
+```bash
+dotnet add package Inngest.Extensions.AI --prerelease
+```
+
+It adds two stages to a `ChatClientBuilder`. Stages added first are the outermost, so the stage that runs the tools
+goes first and calls the stage that makes the model call a step, once for each round:
+
+{/* check: statements; WebApplicationBuilder builder; IChatClient model */}
+```csharp
+using Microsoft.Extensions.AI;
+
+builder.Services
+    .AddChatClient(model)
+    .UseInngestFunctionInvocation() // the tools the model asks for, each a step
+    .UseInngestSteps()              // each call to the model, a step
+    .UseOpenTelemetry()             // sees only the calls that reach the model
+    .UseLogging();
+```
+
+`UseInngestFunctionInvocation` takes the place of `UseFunctionInvocation`. It adds a `FunctionInvokingChatClient`, so
+its callback changes the same properties, such as `MaximumIterationsPerRequest` and `AllowConcurrentInvocation`. A
+pipeline with `UseFunctionInvocation` instead still has its model calls saved, but runs its tools in the function
+itself, on every call, and a tool that charges a card or sends mail then does it again on every replay.
+
+Then use the client in a function as you would anywhere else:
+
+{/* check: body OrderPlaced; IChatClient chat; IEmailSender email */}
+```csharp
+using Microsoft.Extensions.AI;
+
+var reply = await chat.GetResponseAsync(
+    $"Write a short thank-you note for order {context.Event.Data.OrderId}.",
+    cancellationToken: cancellationToken);
+
+await context.Step.RunAsync("send-note", ct => email.SendAsync(context.Event.Data.CustomerId, reply.Text, ct));
+```
+
+Outside a run, and inside the handler of a step, where steps cannot be nested, the stages change nothing, so the same
+client serves a controller, a unit test and a function.
+
+## What the steps are
+
+| Call | Step | Input the Inngest UI shows | Saved with the run |
+|---|---|---|---|
+| `GetResponseAsync` | `chat`, then `chat:1`, `chat:2`, ... | `{"messages": [...], "options": {...}}` | The `ChatResponse` as JSON |
+| `GetStreamingResponseAsync` | The same ids | The same | The whole response, as JSON |
+| A tool call | `tool <name>`, then `tool <name>:1`, ... | `{"name": ..., "callId": ..., "arguments": {...}}` | `{"result": ...}` |
+
+All of them are [AI wrap steps](/inngest-dotnet/guides/steps/#calls-to-ai-models), so the Inngest UI shows them as
+calls to a model with their input. The ids follow the rules of any [step id](/inngest-dotnet/guides/steps/#step-ids):
+the same call gets the same id on every replay, and the SDK numbers repeats in the order they are made.
+
+The messages, options and responses are written with `AIJsonUtilities.DefaultOptions` of Microsoft.Extensions.AI, which
+knows `AIContent` and its subtypes. Text, reasoning, function calls and results, usage and the finish reason all make
+it through, and the app registers nothing for them in its `JsonSerializerOptions`. Those options have source-generated
+contracts, so this works under [Native AOT](/inngest-dotnet/guides/native-aot/) too. The SDK itself only handles
+`JsonElement`.
+
+What JSON cannot hold does not come back, the same as with the caching clients of Microsoft.Extensions.AI:
+`RawRepresentation` of responses, messages and content is gone, and the values in `AdditionalProperties` come back as
+`JsonElement`s. The call that makes a step gets the saved response too, as the result of every step is read back from
+JSON, so the code between calls sees the same on the first call and on replays.
+
+## Naming a step
+
+Without a name, the model calls of a run are `chat`, `chat:1` and so on, in the order they are made. That order is the
+same on every replay when the calls are made from the function itself, one after the other or together with
+`Task.WhenAll`. Calls that reach the client from other threads, such as `Task.Run` or a `Parallel.ForEachAsync` loop,
+arrive in no fixed order, so which of them gets `chat` and which `chat:1` can change from one replay to the next, and a
+result then goes to the wrong call. Name each such call, so that its id does not depend on timing:
+
+{/* check: body OrderPlaced; IChatClient chat */}
+```csharp
+using Microsoft.Extensions.AI;
+
+string[] languages = ["cs", "de", "fr"];
+
+var translations = await Task.WhenAll(languages.Select(language => Task.Run(() =>
+    chat.GetResponseAsync(
+        $"Translate the thank-you note for order {context.Event.Data.OrderId} to {language}.",
+        new ChatOptions().WithInngestStepId($"translate-{language}"),
+        cancellationToken))));
+```
+
+`WithInngestStepId` puts the name in `ChatOptions.AdditionalProperties`, and the client takes it out before the options
+reach the model, so a provider never sends it on. A name gets `:1`, `:2` for repeats like any id. Naming calls is also
+how to tell them apart in the Inngest UI.
+
+Tool steps are named for the tool, and a model that calls the same tool twice in one response gets the ids in the order
+of its calls, so they need no name.
+
+## Streaming
+
+A streaming call inside a run is one step that reads the model's whole stream, saves the complete response and then
+hands it out as updates. The consumer gets the updates when the model has finished, not while it writes. A stream that
+nobody enumerates is not a call, as with any `IChatClient`.
+
+To show the text while the model writes it, publish it to a [realtime](/inngest-dotnet/guides/realtime/) topic from
+the step:
+
+{/* check: body OrderPlaced; IChatClient chat */}
+```csharp
+using Microsoft.Extensions.AI;
+
+var tokens = new RealtimeTopic($"order:{context.Event.Data.OrderId}", "tokens");
+
+var reply = await chat
+    .GetStreamingResponseAsync("Summarize the order.", new ChatOptions().WithInngestRealtimeStream(tokens), cancellationToken)
+    .ToChatResponseAsync(cancellationToken);
+```
+
+Subscribers receive the text as a stream, as `PublishStreamAsync` sends it. This is why the step publishes through
+`IInngestRealtime` and does not use the `PublishStreamAsync` step tool: a step cannot be called inside the handler of
+another, and the model call is the step that reads the stream. A publishing step of its own would also have to save
+the text, which leaves out the function calls, usage and finish reason of the response, and the two steps could
+disagree after a failure. The consequences are small. A retry of the model step streams again, and subscribers see a
+second stream. A replay publishes nothing. Failing to publish is logged as a warning and does not fail the model call,
+which would otherwise be made, and paid for, again.
+
+## Tools
+
+A tool that the model asks for is a step named `tool <name>`. The arguments are its input, and the result is saved as
+`{"result": ...}`, so a replay hands the model the result without running the tool. The result comes back as a
+`JsonElement`, which is what a function made with `AIFunctionFactory` returns anyway; a tool without a result returns
+`null`.
+
+A tool that throws is retried like any step, up to the function's retries, and when they are used up
+`FunctionInvokingChatClient` reports the failure to the model, as it does for any tool that throws. An
+`ArgumentException` is the exception to the retries: the model chose the arguments, so the same ones fail again, and
+the step fails at once. Throw `NonRetriableException` from a tool to skip the retries for another reason.
+
+The tools run in the handler of their step, outside the async flow of the function, so state that the function keeps
+in async-local variables is not visible to them. `FunctionInvokingChatClient.CurrentContext` is set there, so a tool can
+still ask the client to stop calling the model by setting `Terminate`, and a replay stops where the run did.
+
+Tools the model asks for in one response are steps like any others made together: set
+`AllowConcurrentInvocation` and they run as parallel steps, each in a call of its own. Without it they run one after the
+other, each a step, and every step is a call to your function, unless
+[checkpointing](/inngest-dotnet/guides/configuration/) runs consecutive steps in one request.
+
+## Editing the input
+
+The Inngest UI can rerun a step with an edited input. For a model call, the edited `messages` and `options` are what
+the model is called with, and the tools and the request factory of the call are kept as the code passed them, as they
+are not JSON. For a tool call, the edited `arguments` are what the tool is called with. An edit that is not an object
+with `messages`, or with `arguments`, fails the step at once.
+
+Without an edit, the model gets the messages and options exactly as the caller passed them.
+
+## What the input costs
+
+Inngest stores the input of a step as plain JSON, which the [encryption middleware](/inngest-dotnet/guides/middleware/#encryption)
+does not cover, and the messages of a conversation repeat in the input of every model call of a run. Where the prompts
+must not be stored in the clear, or the conversations grow too large for that, leave the input out:
+
+{/* check: statements; ChatClientBuilder builder */}
+```csharp
+using Microsoft.Extensions.AI;
+
+builder
+    .UseInngestFunctionInvocation(configureSteps: options => options.RecordInput = false)
+    .UseInngestSteps(options => options.RecordInput = false);
+```
+
+The steps are then plain run steps. The results are saved either way, and so are the model's answers and the tools'
+results, which is where the sensitive data usually is as well. A step whose input cannot be written as JSON, such as
+one with an additional property of a type the app has no contract for under Native AOT, runs without its input and logs
+a warning once.
+
+## Testing
+
+The test host of [`Inngest.Testing`](/inngest-dotnet/guides/testing/) runs these steps like any others. The simplest
+test gives the pipeline a fake `IChatClient` as the model, runs the function and counts the calls: the model is called
+once per step however many times the host replays the function. A step can also be answered by id, with the JSON of a
+`ChatResponse`:
+
+{/* check: statements; InngestTestHost host; InngestEvent @event; CancellationToken cancellationToken */}
+```csharp
+using Inngest.Testing;
+using Microsoft.Extensions.AI;
+
+var answer = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Thank you for your order!"));
+var mocks = new StepMocks().Run("chat", JsonSerializer.SerializeToElement(answer, AIJsonUtilities.DefaultOptions));
+
+var run = await host.RunAsync("send-note", @event, mocks, cancellationToken);
+```
+
+`run.GetStep("chat")` and `run.GetStep("tool get_weather")` show the input and output of each step.
+
+## What it does not do
+
+- It wraps `IChatClient` only. Other Microsoft.Extensions.AI clients, such as `IEmbeddingGenerator`, are not steps;
+  wrap them with `RunAsync`.
+- The updates of a stream arrive after the model has finished, not as it writes; publish to a realtime topic for that.
+- Calls made inside a step handler are not steps of their own, so an agent loop run entirely inside one `RunAsync`
+  is one step, with no tool steps.
+- Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits) on the size of a step apply to the saved
+  responses.

@@ -67,6 +67,7 @@ export default defineConfig({
             'guides/sending-events',
             'guides/realtime',
             'guides/durable-endpoints',
+            'guides/ai',
           ],
         },
         {

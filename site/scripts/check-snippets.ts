@@ -434,6 +434,7 @@ ${reference('Inngest.Testing')}
 ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}
 ${reference('Inngest.Encryption')}
+${reference('Inngest.Extensions.AI')}
   </ItemGroup>
   <ItemGroup>
     <Using Include="Docs.Support" />

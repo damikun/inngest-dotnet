@@ -39,7 +39,7 @@ saved payment id without charging the card a second time.
 | `WaitForEventAsync<T>(id, options)` | Waits for a matching event, or returns `null` at the timeout. | [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/) |
 | `InvokeAsync<T>(id, options)` | Runs another function and returns its result. | [Invoking functions](/inngest-dotnet/guides/invoking-functions/) |
 | `SendEventAsync(id, events)` | Sends events exactly once per run. | [Sending events](/inngest-dotnet/guides/sending-events/) |
-| `AIWrapAsync(id, input, handler)` | Runs your own model call as a step that the Inngest UI shows as one. | [Calls to AI models](#calls-to-ai-models) |
+| `AIWrapAsync(id, input, handler)` | Runs your own model call as a step that the Inngest UI shows as one. | [Calls to AI models](#calls-to-ai-models), [AI chat clients](/inngest-dotnet/guides/ai/) |
 | `PublishAsync(id, topic, data)` | Publishes a realtime message once. | [Realtime](/inngest-dotnet/guides/realtime/) |
 
 All of them are on `IStepTools`, which is an interface so that functions can be
@@ -162,6 +162,9 @@ var note = await context.Step.AIWrapAsync(
 
 The input is saved with the step, and a rerun from the Inngest UI with an edited input hands the handler the edited
 one. Keep the input serializable, as a step's result is.
+
+For a whole `IChatClient` pipeline, with its tool loop, [AI chat clients](/inngest-dotnet/guides/ai/) shows how the
+`Inngest.Extensions.AI` package makes every model call and tool call a step without wrapping each one by hand.
 
 ## Retries and failures
 

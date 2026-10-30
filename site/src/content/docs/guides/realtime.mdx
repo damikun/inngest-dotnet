@@ -53,7 +53,8 @@ var summary = await context.Step.PublishStreamAsync(
     chat.StreamAsync($"Summarize order {context.Event.Data.OrderId} for the customer.", cancellationToken));
 ```
 
-With `IChatClient` of `Microsoft.Extensions.AI`, pass the `Text` of each update of `GetStreamingResponseAsync`.
+With `IChatClient` of `Microsoft.Extensions.AI`, pass the `Text` of each update of `GetStreamingResponseAsync`, or let
+[the chat client of `Inngest.Extensions.AI`](/inngest-dotnet/guides/ai/#streaming) publish it while it makes the model call a step.
 
 ## Publishing from anywhere
 

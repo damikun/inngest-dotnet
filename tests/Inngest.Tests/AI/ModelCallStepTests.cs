@@ -262,6 +262,22 @@ public sealed class ModelCallStepTests
     }
 
     [Fact]
+    public async Task A_step_mock_answers_a_model_call_with_the_JSON_of_a_chat_response()
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        await using var host = For(async context => (await chat.GetResponseAsync("Say hello")).Text);
+        var answer = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Thank you for your order!"));
+
+        var mocks = new StepMocks().Run("chat", JsonSerializer.SerializeToElement(answer, AIJsonUtilities.DefaultOptions));
+        var run = await host.RunAsync("fn", Event(), mocks, Cancel);
+
+        run.GetOutput<string>().ShouldBe("Thank you for your order!");
+        run.GetStep("chat").Mocked.ShouldBeTrue();
+        model.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task The_app_needs_no_serializer_registrations_for_the_types_of_the_chat_pipeline()
     {
         var model = new FakeChatClient((_, _) => new ChatResponse(new ChatMessage(ChatRole.Assistant,
