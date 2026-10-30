@@ -167,6 +167,25 @@ public sealed class FanOutEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task The_same_record_gives_the_same_answer_on_every_replay()
+    {
+        // A lane that continued on the thread pool instead of the call's scheduler would start its next item while the
+        // engine decides what to report, and the answer would vary from call to call.
+        var function = Upper(Nine, new FanOutOptions { MaxParallelism = 3 });
+        var recorded = Call.New()
+            .Data("charge[2]", "\"C\"").Data("charge[0]", "\"A\"").Data("charge[1]", "\"B\"")
+            .Data("charge[5]", "\"F\"").Data("charge[3]", "\"D\"").Data("charge[4]", "\"E\"")
+            .DisableImmediateExecution();
+
+        for (var i = 0; i < 200; i++)
+        {
+            var result = await _host.CallAsync(function, recorded);
+
+            result.DisplayNames.ShouldBe(["charge[6]", "charge[7]", "charge[8]"], $"replay {i}");
+        }
+    }
+
+    [Fact]
     public async Task A_completed_run_gives_the_same_results_for_every_order_the_results_were_recorded_in()
     {
         var items = Six[..4];

@@ -7,14 +7,15 @@ namespace Inngest;
 
 /// <summary>
 /// What became of one item of a fan-out: the result of its step, or the error of the step that failed for good. The
-/// chunked methods also use it as the output of the function that runs a chunk, which is why it serializes to JSON.
+/// chunked methods also use it as the output of the function that runs a chunk, which is why it serializes to JSON, with
+/// a default value and a missing error left out.
 /// </summary>
 /// <param name="Index">The position of the item in the list.</param>
 /// <param name="Value">The result of the item's step; default when it failed.</param>
 /// <param name="Error">The error the item's step failed with, after all its attempts; null when it succeeded.</param>
 public readonly record struct FanOutOutcome<TResult>(
     int Index,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TResult? Value,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] TResult? Value,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FunctionError? Error)
 {
     /// <summary>Whether the item's step produced a result.</summary>
