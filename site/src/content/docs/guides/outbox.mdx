@@ -250,6 +250,9 @@ All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as 
 - **No Native AOT.** Entity Framework Core does not support it, and the package does not declare itself compatible. The
   events are still serialized from the metadata of the serializer options, without reflection of its own.
 - **A host that stops loses nothing.** The events are in the table, and whichever instance runs next sends them.
+- **Tests.** After a save, a test can read the rows of `Set<InngestOutboxMessage>()` to see what was added. To run the
+  dispatcher too, use SQLite in memory and register a fake `IInngestClient` before `AddInngest`, which keeps a client
+  that is already registered. The package's own tests are built that way.
 
 The dispatcher logs under categories that start with `Inngest.EntityFrameworkCore`, with event ids 600 to 609.
 

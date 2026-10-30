@@ -304,6 +304,7 @@ data.
   [Parallel steps](https://damikun.github.io/inngest-dotnet/guides/parallel-steps/) ·
   [Invoking functions](https://damikun.github.io/inngest-dotnet/guides/invoking-functions/) ·
   [Sending events](https://damikun.github.io/inngest-dotnet/guides/sending-events/) ·
+  [Transactional outbox](https://damikun.github.io/inngest-dotnet/guides/outbox/) ·
   [Realtime](https://damikun.github.io/inngest-dotnet/guides/realtime/) ·
   [Durable endpoints](https://damikun.github.io/inngest-dotnet/guides/durable-endpoints/) ·
   [Flow control](https://damikun.github.io/inngest-dotnet/guides/flow-control/) ·
@@ -340,7 +341,13 @@ dotnet build Inngest.slnx
 dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj
 ```
 
-The integration tests start the Inngest server with Testcontainers, so they need Docker:
+The outbox of `Inngest.EntityFrameworkCore` has unit tests of its own, on SQLite:
+
+```bash
+dotnet test --project tests/Inngest.EntityFrameworkCore.Tests/Inngest.EntityFrameworkCore.Tests.csproj
+```
+
+The integration tests start the Inngest server, and PostgreSQL for the outbox, with Testcontainers, so they need Docker:
 
 ```bash
 dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj
