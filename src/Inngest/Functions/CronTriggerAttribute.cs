@@ -7,7 +7,7 @@ namespace Inngest;
 /// Runs the function on a cron schedule, in UTC unless Timezone names another time zone, such as "Europe/Prague".
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public sealed class CronTriggerAttribute(string schedule) : Attribute
+public sealed class CronTriggerAttribute(string schedule) : FunctionOptionsAttribute
 {
     public string Schedule { get; } = schedule;
 
@@ -18,4 +18,14 @@ public sealed class CronTriggerAttribute(string schedule) : Attribute
     /// not all start at once.
     /// </summary>
     public string? Jitter { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            Triggers =
+            [
+                .. options.Triggers,
+                new CronTrigger(Schedule) { Timezone = Timezone, Jitter = OptionalDuration(options, "CronTrigger", "Jitter", Jitter) },
+            ],
+        };
 }

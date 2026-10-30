@@ -5,8 +5,9 @@ namespace Inngest;
 
 /// <summary>
 /// Configures a function class for AddFunction&lt;TFunction&gt;(). Its members, and the trigger and flow control
-/// attributes next to it, each set the FunctionOptions member of the same name. Durations are time strings such as
-/// "30s", "5m" or "1h30m", because attribute arguments must be constants.
+/// attributes next to it, each set the FunctionOptions member of the same name; those attributes derive from
+/// FunctionOptionsAttribute and apply after it. Durations are time strings such as "30s", "5m" or "1h30m", because
+/// attribute arguments must be constants.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public sealed class InngestFunctionAttribute(string id) : Attribute

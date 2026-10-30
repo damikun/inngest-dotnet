@@ -8,11 +8,21 @@ namespace Inngest;
 /// last event. Period and Timeout are time strings such as "30s".
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class DebounceAttribute(string period) : Attribute
+public sealed class DebounceAttribute(string period) : FunctionOptionsAttribute
 {
     public string Period { get; } = period;
 
     public string? Key { get; set; }
 
     public string? Timeout { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            Debounce = new Debounce(Duration(options, "Debounce", "Period", Period))
+            {
+                Key = Key,
+                Timeout = OptionalDuration(options, "Debounce", "Timeout", Timeout),
+            },
+        };
 }

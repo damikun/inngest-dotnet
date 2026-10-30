@@ -88,7 +88,8 @@ over it, for one function.
 ## Attributes
 
 Each sets the `FunctionOptions` member of the same name; durations are time strings such as `"30s"` or `"1h30m"`.
-`AddFunction<TFunction>()` reads them when the app starts.
+`AddFunction<TFunction>()` reads them when the app starts: it starts from `[InngestFunction]` and applies the others,
+which derive from `FunctionOptionsAttribute`, in ascending `Order`, then in the order they are declared.
 
 | Attribute | Constructor | Properties |
 |---|---|---|
@@ -104,6 +105,7 @@ Each sets the `FunctionOptions` member of the same name; durations are time stri
 | `SingletonAttribute` | `(SingletonMode mode)` | `Key` |
 | `CancelOnAttribute`, `CancelOnAttribute<T>` | `(string name)`, `()` | `If`, `Match`, `Timeout`; repeatable |
 | `TimeoutsAttribute` | | `Start`, `Finish` |
+| `FunctionOptionsAttribute` | | `Order`; `Apply(FunctionOptions)` returns the options with the attribute applied. Derive from it and override `Configure(FunctionOptions)` for an attribute of your own. |
 
 The generic forms take the event's name from `T`, which implements `IInngestEventData`.
 

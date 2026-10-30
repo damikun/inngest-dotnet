@@ -5,9 +5,12 @@ namespace Inngest;
 
 /// <summary>Sets FunctionOptions.Singleton: only one run per Key is active at a time.</summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class SingletonAttribute(SingletonMode mode) : Attribute
+public sealed class SingletonAttribute(SingletonMode mode) : FunctionOptionsAttribute
 {
     public SingletonMode Mode { get; } = mode;
 
     public string? Key { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with { Singleton = new Singleton(Mode) { Key = Key } };
 }

@@ -277,10 +277,12 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   `FunctionTimeouts`, `Singleton`) are immutable records with `TimeSpan` durations.
 - A function class can carry its options as attributes (`[InngestFunction]`, `[EventTrigger<T>]`, `[CronTrigger]`,
   `[Concurrency]`, `[Throttle]`, `[CancelOn<T>]` and so on), one per `FunctionOptions` member, with durations as
-  time strings. `AddFunction<TFunction>()` reads them once at registration, with `GetCustomAttributes` on the type it
-  names, which stays trim and AOT safe; the result goes through the same startup validator. Explicit
-  `FunctionOptions` replace the attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no
-  assembly scanning.
+  time strings. All but `[InngestFunction]` derive from `FunctionOptionsAttribute` and map themselves onto the
+  options in `Configure`, so users can write their own and a source generator could call `Apply` without
+  reflection. `AddFunction<TFunction>()` reads them once at registration, with `GetCustomAttributes` on the type it
+  names, which stays trim and AOT safe: it starts from `[InngestFunction]` and applies the others in `Order`, then
+  in declaration order. The result goes through the same startup validator. Explicit `FunctionOptions` replace the
+  attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no assembly scanning.
 - Event data records implement `IInngestEventData`, whose static abstract `EventName` (and static virtual
   `EventVersion`) let `SendAsync<T>`, `Trigger.Event<T>`, `WaitForEventAsync<T>`, `CancelOn.For<T>` and
   `SendEventAsync<T>` take the name from the type without reflection. Every string form stays.

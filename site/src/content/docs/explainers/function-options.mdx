@@ -53,7 +53,9 @@ through the same checks. Each attribute sets one member:
 The trigger, concurrency and cancellation attributes can be repeated. Durations are time strings such as `"30s"`,
 `"5m"` or `"1h30m"`. `Middleware` and `Checkpointing` have no attributes; set them with
 `AddFunction<TFunction>(options => options with { ... })`, which starts from the attributes. Options passed as
-`AddFunction<TFunction>(new FunctionOptions { ... })` replace the attributes.
+`AddFunction<TFunction>(new FunctionOptions { ... })` replace the attributes. An attribute of your own derives from
+`FunctionOptionsAttribute`, as all of these but `[InngestFunction]` do;
+[Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/#attributes-of-your-own) shows how.
 
 The site's build checks this page against the SDK: the snippet check compiles the C# of every preset, registers
 it in a real app and compares the JSON the SDK sends with the JSON shown here.

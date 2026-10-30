@@ -8,7 +8,7 @@ namespace Inngest;
 /// Timeout, a time string such as "5s", passes.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class BatchEventsAttribute(int maxSize, string timeout) : Attribute
+public sealed class BatchEventsAttribute(int maxSize, string timeout) : FunctionOptionsAttribute
 {
     public int MaxSize { get; } = maxSize;
 
@@ -17,4 +17,10 @@ public sealed class BatchEventsAttribute(int maxSize, string timeout) : Attribut
     public string? Key { get; set; }
 
     public string? If { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            BatchEvents = new BatchEvents(MaxSize, Duration(options, "BatchEvents", "Timeout", Timeout)) { Key = Key, If = If },
+        };
 }

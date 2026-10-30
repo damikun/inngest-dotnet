@@ -8,11 +8,14 @@ namespace Inngest;
 /// allows two limits, so the attribute can be repeated.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public sealed class ConcurrencyAttribute(int limit) : Attribute
+public sealed class ConcurrencyAttribute(int limit) : FunctionOptionsAttribute
 {
     public int Limit { get; } = limit;
 
     public string? Key { get; set; }
 
     public ConcurrencyScope Scope { get; set; } = ConcurrencyScope.Function;
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with { Concurrency = [.. options.Concurrency ?? [], new ConcurrencyLimit(Limit) { Key = Key, Scope = Scope }] };
 }

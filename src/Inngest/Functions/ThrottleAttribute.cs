@@ -8,7 +8,7 @@ namespace Inngest;
 /// as "1m".
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class ThrottleAttribute(int limit, string period) : Attribute
+public sealed class ThrottleAttribute(int limit, string period) : FunctionOptionsAttribute
 {
     public int Limit { get; } = limit;
 
@@ -24,4 +24,10 @@ public sealed class ThrottleAttribute(int limit, string period) : Attribute
 
     // An attribute property cannot be nullable, so this tells an unset Burst from 0.
     internal int? BurstValue { get; private set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            Throttle = new Throttle(Limit, Duration(options, "Throttle", "Period", Period)) { Burst = BurstValue, Key = Key },
+        };
 }

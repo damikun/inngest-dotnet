@@ -5,9 +5,19 @@ namespace Inngest;
 
 /// <summary>Sets FunctionOptions.Timeouts. Start and Finish are time strings such as "10m" or "1h".</summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class TimeoutsAttribute : Attribute
+public sealed class TimeoutsAttribute : FunctionOptionsAttribute
 {
     public string? Start { get; set; }
 
     public string? Finish { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            Timeouts = new FunctionTimeouts
+            {
+                Start = OptionalDuration(options, "Timeouts", "Start", Start),
+                Finish = OptionalDuration(options, "Timeouts", "Finish", Finish),
+            },
+        };
 }

@@ -8,7 +8,7 @@ namespace Inngest;
 /// it for every event that cancels the function. Timeout is a time string such as "1h".
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public class CancelOnAttribute(string name) : Attribute
+public class CancelOnAttribute(string name) : FunctionOptionsAttribute
 {
     public string Event { get; } = name;
 
@@ -21,6 +21,16 @@ public class CancelOnAttribute(string name) : Attribute
     public new string? Match { get; set; }
 
     public string? Timeout { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            CancelOn =
+            [
+                .. options.CancelOn ?? [],
+                new CancelOn(Event) { If = If, Match = Match, Timeout = OptionalDuration(options, "CancelOn", "Timeout", Timeout) },
+            ],
+        };
 }
 
 /// <summary>Cancels the function when an event of type T, named T.EventName, arrives.</summary>

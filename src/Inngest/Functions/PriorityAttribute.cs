@@ -8,7 +8,9 @@ namespace Inngest;
 /// run forward or back in the queue.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class PriorityAttribute(string run) : Attribute
+public sealed class PriorityAttribute(string run) : FunctionOptionsAttribute
 {
     public string Run { get; } = run;
+
+    protected override FunctionOptions Configure(FunctionOptions options) => options with { Priority = new Priority(Run) };
 }

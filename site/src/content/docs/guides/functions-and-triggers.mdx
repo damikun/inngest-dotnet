@@ -123,6 +123,39 @@ inngest.AddFunction<ChargeOrder>(options => options with { Concurrency = [new Co
 The callback is also where function middleware and checkpointing go for a class with attributes, since they have
 no attributes.
 
+### Attributes of your own
+
+Every attribute but `[InngestFunction]` derives from `FunctionOptionsAttribute`, and an attribute of your own can
+too. It overrides `Configure` and returns the options with what it sets, which packages options that several
+functions share, such as the limits of an API they all call:
+
+```csharp title="PaymentProviderAttribute.cs"
+using Inngest;
+
+// One charge per customer at a time, and more retries, for every function that calls the payment provider.
+public sealed class PaymentProviderAttribute : FunctionOptionsAttribute
+{
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with
+        {
+            Retries = 10,
+            Concurrency = [.. options.Concurrency ?? [], new ConcurrencyLimit(1) { Key = "event.data.customerId" }],
+        };
+}
+```
+
+{/* check: attributes */}
+```csharp
+[InngestFunction("charge-order", Name = "Charge an order")]
+[EventTrigger<OrderPlaced>]
+[PaymentProvider]
+```
+
+`AddFunction` starts from `[InngestFunction]` and applies the other attributes in ascending `Order`, which is 0
+unless an attribute sets it, and those with the same `Order` in the order they are declared. Each one sees what the
+earlier ones set and replaces it where it sets the same member, so `[PaymentProvider]` replaces any `Retries` given
+on `[InngestFunction]`.
+
 ## Typed events
 
 `OrderPlaced` implements `IInngestEventData`, which puts the event's name on the record that carries its data. Code

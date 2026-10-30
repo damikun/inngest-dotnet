@@ -76,6 +76,7 @@ namespace Inngest.AotSample
 
     // Has no trigger; WelcomeMember invokes it by its class.
     [InngestFunction("score-member")]
+    [OnePerMember]
     public sealed class ScoreMember : InngestFunction<ScoreRequest, MemberScore>
     {
         public override async Task<MemberScore> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken)
@@ -83,6 +84,13 @@ namespace Inngest.AotSample
             var score = await context.Step.RunAsync("compute", () => context.Event.Data.Name.Length * 10);
             return new MemberScore(context.Event.Data.Name, score);
         }
+    }
+
+    // An attribute of the app's own, which AddFunction applies like the built-in ones: one step per member at a time.
+    public sealed class OnePerMemberAttribute : FunctionOptionsAttribute
+    {
+        protected override FunctionOptions Configure(FunctionOptions options) =>
+            options with { Concurrency = [.. options.Concurrency ?? [], new ConcurrencyLimit(1) { Key = "event.data.name" }] };
     }
 
     [JsonSerializable(typeof(Greeting))]

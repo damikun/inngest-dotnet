@@ -272,6 +272,61 @@ public sealed class FunctionAttributeTests
     }
 
     [Fact]
+    public void An_attribute_of_your_own_applies_like_the_built_in_ones()
+    {
+        var options = FunctionAttributes.Read(typeof(Charges));
+
+        options.Retries.ShouldBe(5);
+        options.Concurrency.ShouldBe([new ConcurrencyLimit(10), new ConcurrencyLimit(1) { Key = "event.data.accountId" }]);
+    }
+
+    [Fact]
+    public void Attributes_apply_in_ascending_order_and_then_in_the_order_they_are_declared()
+    {
+        FunctionAttributes.Read(typeof(Ordered)).Triggers.ShouldBe(
+            [new EventTrigger("shop/zeroth"), new EventTrigger("shop/first"), new EventTrigger("shop/second"), new EventTrigger("shop/third")]);
+    }
+
+    [Fact]
+    public void An_attribute_with_a_higher_order_replaces_what_the_others_set()
+    {
+        FunctionAttributes.Read(typeof(Replaced)).Retries.ShouldBe(4);
+    }
+
+    [Fact]
+    public void An_attribute_that_returns_no_options_fails_and_names_itself()
+    {
+        Should.Throw<InvalidOperationException>(() => FunctionAttributes.Read(typeof(ReturnsNothing)))
+            .Message.ShouldBe("The Configure method of ReturnsNullAttribute returned null instead of the function's options.");
+    }
+
+    [Fact]
+    public void Apply_returns_new_options_and_leaves_the_given_ones_alone()
+    {
+        var options = new FunctionOptions { Id = "orders", Triggers = [] };
+
+        var applied = new ThrottleAttribute(5, "1m") { Burst = 2 }.Apply(options);
+
+        applied.Throttle.ShouldBe(new Throttle(5, TimeSpan.FromMinutes(1)) { Burst = 2 });
+        options.Throttle.ShouldBeNull();
+        Should.Throw<ArgumentNullException>(() => new PriorityAttribute("0").Apply(null!));
+        Should.Throw<InvalidOperationException>(() => new DebounceAttribute("5 seconds").Apply(options))
+            .Message.ShouldStartWith("Function \"orders\": Period of [Debounce] is \"5 seconds\", which is not a time string.");
+    }
+
+    // FunctionAttributes.Read applies only FunctionOptionsAttributes, so an attribute that is not one would be ignored.
+    [Fact]
+    public void Every_attribute_of_the_SDK_but_InngestFunction_is_a_FunctionOptionsAttribute()
+    {
+        var attributes = typeof(InngestFunctionAttribute).Assembly.GetExportedTypes()
+            .Where(type => type.IsSubclassOf(typeof(Attribute)) && !type.IsAbstract && type != typeof(InngestFunctionAttribute))
+            .ToArray();
+
+        attributes.ShouldNotBeEmpty();
+        attributes.ShouldAllBe(type => type.IsSubclassOf(typeof(FunctionOptionsAttribute)));
+    }
+
+    [Fact]
     public void A_class_with_attributes_that_handles_its_failures_gets_its_failure_function()
     {
         var registry = RegistryOf(inngest => inngest.AddFunction<HandlesFailures>());
@@ -388,6 +443,52 @@ public sealed class FunctionAttributeTests
     [BatchEvents(10, "5s")]
     [CancelOn<OrderRefunded>]
     public sealed class ManyProblems : NoOp;
+
+    // A team's standard for functions that call the billing API: one step per account at a time, and five retries.
+    public sealed class BillingApiAttribute : FunctionOptionsAttribute
+    {
+        protected override FunctionOptions Configure(FunctionOptions options) =>
+            options with
+            {
+                Retries = 5,
+                Concurrency = [.. options.Concurrency ?? [], new ConcurrencyLimit(1) { Key = "event.data.accountId" }],
+            };
+    }
+
+    [InngestFunction("charges")]
+    [EventTrigger<OrderPaid>]
+    [Concurrency(10)]
+    [BillingApi]
+    public sealed class Charges : NoOp;
+
+    [InngestFunction("ordered")]
+    [EventTrigger("shop/third", Order = 1)]
+    [EventTrigger("shop/first")]
+    [EventTrigger("shop/second")]
+    [EventTrigger("shop/zeroth", Order = -1)]
+    public sealed class Ordered : NoOp;
+
+    // Sets Retries, so the result shows which attribute applied last.
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+    public sealed class RetriesAttribute(int retries) : FunctionOptionsAttribute
+    {
+        protected override FunctionOptions Configure(FunctionOptions options) => options with { Retries = retries };
+    }
+
+    [InngestFunction("replaced", Retries = 1)]
+    [Retries(4, Order = 1)]
+    [Retries(2)]
+    [Retries(3)]
+    public sealed class Replaced : NoOp;
+
+    public sealed class ReturnsNullAttribute : FunctionOptionsAttribute
+    {
+        protected override FunctionOptions Configure(FunctionOptions options) => null!;
+    }
+
+    [InngestFunction("returns-null")]
+    [ReturnsNull]
+    public sealed class ReturnsNothing : NoOp;
 
     [InngestFunction("handles-failures", Name = "Handles failures")]
     [EventTrigger<OrderPaid>]

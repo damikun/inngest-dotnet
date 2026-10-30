@@ -8,11 +8,14 @@ namespace Inngest;
 /// "event.data.total &gt; 100". A class can have several triggers, of either kind.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public class EventTriggerAttribute(string name) : Attribute
+public class EventTriggerAttribute(string name) : FunctionOptionsAttribute
 {
     public string Event { get; } = name;
 
     public string? If { get; set; }
+
+    protected override FunctionOptions Configure(FunctionOptions options) =>
+        options with { Triggers = [.. options.Triggers, new EventTrigger(Event) { If = If }] };
 }
 
 /// <summary>Runs the function for every event of type T, named T.EventName.</summary>
