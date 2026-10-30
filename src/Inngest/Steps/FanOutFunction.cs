@@ -26,6 +26,10 @@ public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChu
     /// </summary>
     protected abstract Task<TResult> ProcessAsync(TItem item, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Runs the items of the chunk in the event data, with up to <see cref="MaxParallelism"/> at a time, and returns the
+    /// outcome of each. The fan-out calls this through Inngest; app code has no reason to.
+    /// </summary>
     public sealed override async Task<IReadOnlyList<FanOutOutcome<TResult>>> ExecuteAsync(
         FunctionContext<FanOutChunk<TItem>> context,
         CancellationToken cancellationToken)
