@@ -49,7 +49,8 @@ public sealed class CheckoutService(IInngestClient inngest, ILogger<CheckoutServ
 {
     public async Task PlaceOrderAsync(Order order, CancellationToken cancellationToken)
     {
-        // Save the order first, then announce it.
+        // Save the order first, then announce it. If the app dying in between must not lose the event, use the
+        // transactional outbox, which saves the event with the order.
         var sent = await inngest.SendAsync(new OrderPlaced(order.Id, order.CustomerId, order.Total), cancellationToken);
 
         logger.LogInformation("Order {OrderId} placed as event {EventId}", order.Id, sent.Ids[0]);
@@ -113,6 +114,8 @@ type's name and version:
 Set `Id` to something that identifies the occurrence, not the attempt to send it: an order id, a webhook delivery
 id, a request id. If the same thing is sent twice, by a retry or a second server, Inngest keeps the first and
 starts no new runs for the second. Ids are global across event names, so include the name or a prefix.
+
+The [transactional outbox](/inngest-dotnet/guides/outbox/) relies on this to send an event again safely.
 
 The Inngest docs explain [event ids and deduplication](https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/send-events).
 

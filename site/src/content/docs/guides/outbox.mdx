@@ -1,0 +1,254 @@
+---
+title: Transactional outbox
+description: Save events in the same database transaction as your data with Inngest.EntityFrameworkCore, and let a hosted dispatcher send them to Inngest afterwards, under the same id on every attempt.
+sidebar:
+  label: Transactional outbox
+---
+
+Sending an event right after saving data can go wrong in two ways. If the process dies between the save and the send,
+the data is stored and the event is lost. If the event is sent first and the save fails, Inngest starts functions for
+work that never happened. `IInngestClient.SendAsync` cannot be part of a database transaction.
+
+The outbox of `Inngest.EntityFrameworkCore` makes the event part of the transaction. `AddInngestEvent` adds a row to a
+table of your database through the same `DbContext`, so `SaveChanges` stores the data and the event together, or
+neither. A hosted dispatcher reads the table and sends the events to Inngest after the commit.
+
+## Set it up
+
+Add the package. It builds on Entity Framework Core 8 for `net8.0` and Entity Framework Core 10 for `net10.0`:
+
+```bash
+dotnet add package Inngest.EntityFrameworkCore --prerelease
+```
+
+Map the table in the model of the `DbContext` that holds your data, and add a migration for it as for any other table
+(`dotnet ef migrations add AddInngestOutbox`):
+
+```csharp title="ShopContext.cs"
+using Microsoft.EntityFrameworkCore;
+
+public sealed class Order
+{
+    public int Id { get; set; }
+
+    public string Number { get; set; } = string.Empty;
+
+    public string CustomerId { get; set; } = string.Empty;
+
+    public decimal Total { get; set; }
+}
+
+public sealed class ShopContext(DbContextOptions<ShopContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        // Maps the InngestOutbox table next to the app's own.
+        modelBuilder.AddInngestOutbox();
+}
+```
+
+Register the outbox on the Inngest builder, and add `UseInngestOutbox` to the options of the context:
+
+```csharp title="Program.cs"
+using Inngest;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddInngest(options => options.AppId = "shop")
+    .AddEntityFrameworkOutbox<ShopContext>();
+
+builder.Services.AddDbContext<ShopContext>((services, options) => options
+    .UseNpgsql(builder.Configuration.GetConnectionString("Shop"))
+    .UseInngestOutbox(services));
+
+var app = builder.Build();
+app.MapInngest();
+app.Run();
+```
+
+`AddEntityFrameworkOutbox` adds the hosted dispatcher of that context. `UseInngestOutbox` is an interceptor that
+wakes the dispatcher when a save that added events has committed, so they leave within moments. Without it they leave
+at the next poll, 5 seconds later by default. Both are needed for each `DbContext` that has events to send, and each
+has its own table, settings and dispatcher.
+
+## Add events to a unit of work
+
+`AddInngestEvent` takes a record that implements `IInngestEventData`, the same records that `SendAsync` takes. It
+sends nothing: the event is a row in the unit of work that `SaveChangesAsync` stores.
+
+```csharp title="CheckoutService.cs"
+using Inngest;
+using Microsoft.EntityFrameworkCore;
+
+public sealed class CheckoutService(ShopContext db)
+{
+    public async Task PlaceOrderAsync(Order order, CancellationToken cancellationToken)
+    {
+        db.Orders.Add(order);
+        db.AddInngestEvent(new OrderPlaced(order.Number, order.CustomerId, order.Total));
+
+        // The order and the event are stored together, or neither is.
+        await db.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+The data is serialized when the event is added, with `InngestOptions.SerializerOptions`, as `SendAsync` does, so what
+the SDK could send can be added, and what it could not fails here, with the code that added the event still on the
+stack: a name that is empty or reserved, data that is not a JSON object, a type that the serializer options have no
+metadata for in an app that trims. In an app that trims, add the event types to a source-generated context in the
+options, as for `SendAsync`.
+
+The method returns the row. Its `Id` is the id the event is sent under, and the timestamp of the event is the time
+`AddInngestEvent` ran, not the time the dispatcher got to it. For events named by a string, or to set the user data, the
+version, the sessions or the timestamp, add an `InngestEvent`:
+
+{/* check: statements; ShopContext db; Order order */}
+```csharp
+using Inngest;
+using Microsoft.EntityFrameworkCore;
+
+db.AddInngestEvent(new InngestEvent("support/ticket.opened", new { TicketId = "t_42" })
+{
+    Id = "ticket-opened-t_42",
+    Version = "2026-10-01",
+});
+
+// The id of a typed event is the second argument.
+db.AddInngestEvent(new OrderPlaced(order.Number, order.CustomerId, order.Total), id: $"order-placed-{order.Number}");
+```
+
+Without an `Id`, the event gets a generated one: a ULID, the format of the ids Inngest gives its own events. Give one
+when the event stands for something the code can name, such as an order. The column is the primary key of the table,
+so a second attempt at the same work fails the save with a `DbUpdateException` instead of announcing the order twice.
+The key is checked against the rows that are still in the table, which are kept for the retention time.
+
+## How events are sent
+
+The dispatcher of each context repeats three steps. It starts when the host starts and takes no more work when it
+stops.
+
+1. **Claim.** It takes up to `BatchSize` events that are due. The claim is an `UPDATE` through `ExecuteUpdate` that writes
+   a token of its own and an expiry (`LeaseDuration`) on those rows, and then it reads the rows that hold its token.
+   Nothing is locked, so any number of dispatchers, in one process or in many, share the table and an event is
+   claimed by one of them at a time. Nothing in it is specific to a provider.
+2. **Send.** The whole batch goes to Inngest in one request, each event under its own id.
+3. **Record.** The events Inngest took get `SentAt`. The others stay, with `Attempts` counted, `LastError` set and
+   `NextAttemptAt` moved on.
+
+Three things start a pass: a save that added events and has committed, the poll interval, and the end of a pass that
+found events, which may have left more behind. When the save used a transaction of the code's own, the wake-up comes
+with its commit, not with the save. With a `TransactionScope` the commit happens later than the dispatcher can tell, so
+the wake-up comes early, finds nothing, and the poll finds the events.
+
+### At least once, and why a resend is harmless
+
+A dispatcher can send a batch and die before it records that, or lose the connection to the database at that point.
+The events are then still due when their lease runs out, and another dispatcher sends them again. Delivery is at
+least once.
+
+That is safe because an event keeps the id it was added with, on every attempt, and Inngest starts the functions of an
+event once per id. Against the dev server (`inngest/inngest:v1.49.0`) a send that repeated an id was answered with a
+success and an event id of its own, the event was stored again, and the function it triggers started no run. Inngest
+documents 24 hours as the time it remembers an id, and the server's source keeps the key of a run for that long; only a
+repeat within seconds was tried, and only against the dev server. A resend that comes later than 24 hours, which takes a
+dispatcher that was down for as long, would start runs again. What was checked is the starting of runs; whether a repeat
+can also resume a run that waits for the event was not.
+
+### When sending fails
+
+An event is never given up and never deleted before it is sent. A failed request leaves its events in the table, and
+each is tried again after `RetryDelay`, then after twice that, and so on up to `MaxRetryDelay`, counted per event from
+its own failures. `Attempts` and `LastError` say how often and why.
+
+When Inngest turns a request down because of its events (400, 409, 412, 413 or 422), for example an event that is too
+large, the events of that request are sent one at a time, so that the one it objects to does not hold back the others.
+That event stays in the table and is tried again at the retry interval, with an error in the log at every attempt that
+names it. It will not go through until the row is fixed or deleted. If Inngest is down or the event key is wrong, the
+events are not split: they fail together, as one request.
+
+A request that takes longer than `SendTimeout` counts as failed. When the host stops, the events a dispatcher had
+claimed are given back at once and do not cost an attempt, so another instance sends them without waiting for the lease.
+
+### Order
+
+Events are sent oldest first within a batch, but nothing keeps one event from arriving after a later one: batches go out
+from several dispatchers, and a failed event waits while its neighbours pass. Inngest does not promise an order between
+events either. If a function needs one, put a sequence number or a version in the data.
+
+### Cleanup
+
+Events that Inngest took stay in the table for `Retention`, one day by default, and are then deleted in batches of
+`CleanupBatchSize` with `ExecuteDelete`. The retention time keeps an id that the code chose from being added again while
+Inngest still drops it, so it should not be shorter than the time Inngest remembers ids. Events that are not sent are
+never deleted.
+
+## Options
+
+The settings are the same for every instance of the app, because each runs a dispatcher. They are checked when the
+host starts.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddEntityFrameworkOutbox<ShopContext>(options =>
+{
+    options.PollInterval = TimeSpan.FromSeconds(2);
+    options.BatchSize = 200;
+    options.Retention = TimeSpan.FromDays(2);
+});
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `DispatcherEnabled` | `true` | Runs the dispatcher in this process. Turn it off in a process that only adds events, and keep it on in at least one other. |
+| `PollInterval` | 5 seconds | How long the dispatcher waits for a wake-up before it looks anyway. This is how it finds events that other processes saved and retries that fell due. |
+| `BatchSize` | 100 | The most events one claim takes and one request sends. |
+| `LeaseDuration` | 1 minute | How long a dispatcher owns what it claimed. After a crash its events wait this long. Must be longer than `SendTimeout`. |
+| `SendTimeout` | 20 seconds | How long one request may take, the retries of the SDK's client included. |
+| `RetryDelay` | 5 seconds | The wait after an event's first failed attempt. Each further failure doubles it. |
+| `MaxRetryDelay` | 5 minutes | The longest wait between attempts. |
+| `Retention` | 1 day | How long sent events stay before they are deleted. |
+| `CleanupInterval` | 5 minutes | How often sent events past their retention time are deleted. |
+| `CleanupBatchSize` | 1000 | How many events one `DELETE` removes. |
+
+## Look at the table
+
+The rows are `InngestOutboxMessage` objects. The table shows what is waiting and why:
+
+{/* check: statements; ShopContext db; CancellationToken cancellationToken */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var cutoff = DateTime.UtcNow.AddMinutes(-5);
+var stuck = await db.Set<InngestOutboxMessage>()
+    .Where(message => message.SentAt == null && message.Timestamp < cutoff)
+    .OrderBy(message => message.Timestamp)
+    .ToListAsync(cancellationToken);
+
+foreach (var message in stuck)
+{
+    Console.WriteLine($"{message.Id} {message.Name}: {message.Attempts} attempts, {message.LastError}");
+}
+```
+
+All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as JSON text.
+
+## What to know
+
+- **The table holds the event as the SDK serialized it.** Middleware that changes events as they leave, such as
+  encryption, runs when the dispatcher sends them, so the table holds the plain data. Middleware that wraps sends
+  sees these events with no run, because no function sends them.
+- **Entity Framework Core 8 and 10.** The `net8.0` build is made for Entity Framework Core 8 and the `net10.0` build for
+  Entity Framework Core 10, where `ExecuteUpdate` lives in a different assembly. An app on .NET 9 gets the `net8.0`
+  build, so it needs Entity Framework Core 8; with Entity Framework Core 9 the host refuses to start and says so.
+- **Providers.** The dispatcher uses only LINQ that Entity Framework Core translates for relational providers. It was
+  run against SQLite and PostgreSQL; other providers were not tried.
+- **No Native AOT.** Entity Framework Core does not support it, and the package does not declare itself compatible. The
+  events are still serialized from the metadata of the serializer options, without reflection of its own.
+- **A host that stops loses nothing.** The events are in the table, and whichever instance runs next sends them.
+
+The dispatcher logs under categories that start with `Inngest.EntityFrameworkCore`, with event ids 600 to 609.
+
+See [Sending events](/inngest-dotnet/guides/sending-events/) for events that are not part of a transaction.

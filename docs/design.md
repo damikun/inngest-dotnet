@@ -241,26 +241,30 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
 | `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
 | `Inngest.Extensions.AI` | `UseInngestSteps` and `UseInngestFunctionInvocation`, stages for the `ChatClientBuilder` of Microsoft.Extensions.AI that make each model call and each tool call of a run an AI wrap step, and `InngestInferChatClient`, a chat client of inference steps in the OpenAI chat format. Depends on `Microsoft.Extensions.AI`. |
+| `Inngest.EntityFrameworkCore` | `AddEntityFrameworkOutbox`, a transactional outbox: events are rows saved with the app's data through `DbContext.AddInngestEvent`, and a hosted dispatcher sends them. Depends on `Microsoft.EntityFrameworkCore.Relational`, version 8 for net8.0 and 10 for net10.0. See [Transactional outbox](#transactional-outbox). |
 | `Inngest.Testing.Containers` | A Testcontainers module (`InngestServerBuilder`, `InngestServerContainer`, `InngestServerConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
 | `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
 | `Inngest.Templates` | The `inngest-web` and `inngest-worker` templates for `dotnet new`. A template package: files, no assembly. |
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 
-`Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption` and `Inngest.Extensions.AI` use internals of
-`Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of
-which `Inngest.Encryption` only reads the serializer options and `Inngest.Extensions.AI` only asks which invocation the
-calling code runs in, and so whether it can make a step. Internals can change in any release, so the packages ship
+`Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption`, `Inngest.EntityFrameworkCore` and
+`Inngest.Extensions.AI` use internals of `Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine,
+the registry and the resolved settings, of which `Inngest.Encryption` only reads the serializer options,
+`Inngest.EntityFrameworkCore` those and the checks the client makes on an event it sends, and `Inngest.Extensions.AI`
+only asks which invocation the calling code runs in, and so whether it can make a step. Internals can change in any
+release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
 the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers`
-packages, `Inngest.Templates` and `dotnet-inngest` have no release to compare with yet, so their project files clear the
-baseline until their first one. The container packages are not `IsAotCompatible`, which every other package is:
-Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects,
-which are neither trimmed nor compiled ahead of time.
+each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two
+`Inngest.Testing.Containers` packages, `Inngest.Templates` and `dotnet-inngest` have no release to compare with yet, so
+their project files clear the baseline until their first one. The container packages and `Inngest.EntityFrameworkCore`
+are not `IsAotCompatible`, which every other package is: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built
+on reflection, and the container packages are for test projects, which are neither trimmed nor compiled ahead of time;
+the constructors of EF Core's `DbContext` require unreferenced and dynamic code.
 
 ### Code layout
 
@@ -496,6 +500,7 @@ per call.
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook, nor the input of AI wrap steps and the request of inference steps, which no payload hook covers. |
 | Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
 | Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. `InngestInferChatClient` has Inngest call an OpenAI-compatible provider instead (`step.ai.infer`). |
+| Transactional outbox: events saved with the app's data in one transaction and sent afterwards, once per id | Supported (`Inngest.EntityFrameworkCore`) on Entity Framework Core 8 (net8.0) and 10 (net10.0), tested on SQLite and PostgreSQL; not Native AOT |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
@@ -723,3 +728,67 @@ library is for, and the tool stays free of dependencies. Its types are internal,
   gives the app's URL, plus `/api/inngest`.
 - **Docker.** The failures that mean the CLI cannot be had print the `docker run` command for the same address. Nothing is
   run for the user.
+
+## Transactional outbox
+
+`Inngest.EntityFrameworkCore` makes sending an event part of a database transaction. The app adds events to its
+`DbContext` with `AddInngestEvent`, `SaveChanges` stores them with its data, and a hosted dispatcher per context type sends them
+afterwards. Delivery is at least once; what makes a resend harmless is that every attempt carries the row's event id.
+
+- **Table.** `InngestOutboxMessage`, mapped by `ModelBuilder.AddInngestOutbox()` as `InngestOutbox`. The key is the event
+  id, a ULID unless the code gives one, so a second row for the same fact fails the save. `Data`, `User` and `Sessions` are
+  the event's JSON as text, written when the event is added; times are UTC `DateTime`s with a converter that makes the kind
+  UTC, because providers return them unspecified. One index on (`SentAt`, `NextAttemptAt`) serves the claim and the cleanup.
+- **Adding.** `AddInngestEvent` makes the checks the client makes when it sends (name, data and user as JSON objects, sessions)
+  and serializes through the `JsonTypeInfo` of `InngestSettings.SerializerOptions`, so a failure is found while the code that
+  added the event is on the stack and trimmed apps use the metadata they already registered for `SendAsync`. It finds the
+  writer in the application service provider that `AddDbContext` leaves in the context's options. The event keeps the time
+  it was added as its `ts`, not the time the dispatcher sends it. `PropagatedSessions` is refused, because it only exists for
+  events sent from a run.
+- **Waking.** One interceptor serves every context. `AddInngestEvent` marks the context; `SavedChanges` wakes the dispatcher
+  at once when no transaction of the code's own is open, and otherwise leaves the wake-up to `TransactionCommitted`, so the
+  dispatcher is not woken to find nothing. A rollback clears the mark. The signal is a one-slot channel per context type, so
+  a wake-up that comes while the dispatcher is busy is kept, and many count as one. A `TransactionScope` commits later than EF
+  can see, which only costs a poll. The poll interval is the fallback for everything else, including saves by other processes.
+- **Claiming.** Dispatchers take no lock. A claim selects the ids of the due rows (`SentAt` null, `NextAttemptAt` passed, no
+  live lease), then `ExecuteUpdate`s those ids with a token and an expiry, repeating the test for "due" in the `WHERE` of the
+  update, and reads back the rows that hold the token. The two statements matter: on PostgreSQL, an `UPDATE ... WHERE id IN
+  (SELECT ... LIMIT n)` that waited for a row another one was updating took the row as well and overwrote the token (checked
+  with two sessions), where the repeated test in the outer `WHERE` made the loser update nothing. A dispatcher that died holds its
+  rows until the lease ends. Marking sent or failed names the token, so a dispatcher that lost its lease changes nothing.
+- **Sending.** One request per claimed batch, each event with its own `id`, through `IInngestClient`, so the client's retries and
+  the middleware apply. A request Inngest refuses because of its events (400, 409, 412, 413, 422, or an event the client
+  refuses to write) is repeated event by event, so one bad event does not hold back the others; other failures fail the batch
+  together. A failed event is retried after `RetryDelay`, doubling per failure up to `MaxRetryDelay`, and is never given up; a
+  refused one is logged at error level on every attempt. When the host stops, claimed events are released without an attempt.
+- **Cleanup.** Sent rows older than `Retention` (a day, as long as Inngest remembers ids) are deleted with `ExecuteDelete` in
+  batches, on a loop of its own so that a long cleanup never delays a send.
+- **Event ids.** Inngest takes any string as an event id. The dev server (v1.49.0) starts a function's run once per id: a
+  second send under the same id is answered 200 with a new internal event id, the event is stored again, and no run starts.
+  The server's source says the id is enforced when scheduling runs and keeps the run's idempotency key for 24 hours
+  (`FunctionIdempotencyPeriod`), which is what Inngest's documentation gives for Inngest Cloud; only a repeat within seconds was
+  tested, and only against the dev server.
+
+How the established outboxes differ, where it shaped this one. CAP stores messages in the app's transaction through its own
+transaction wrapper and, after the commit, pushes them into an in-process queue; its retry processor polls for failed rows and
+serializes instances with a lock row in a table that expires (`UseStorageLock`), and its cleanup deletes expired rows in
+batches of 1000. MassTransit locks one outbox state row per unit of work with provider-specific statements (`FOR UPDATE SKIP
+LOCKED`, `UPDLOCK, READPAST`), sends in sequence order inside that transaction and deletes the rows it sent; its commit signal is
+a cancelled delay when the scope ends after the entity left the `Added` state. Wolverine stores envelopes with an owner node
+id, sends from memory after the commit, and lets a durability agent reassign the rows of nodes that left the cluster. This
+package takes no cluster membership and no provider-specific SQL: a lease column set by `ExecuteUpdate` is the only
+coordination, which suits Inngest because it does not order events and drops a repeated id.
+
+**EF Core versions.** `ExecuteUpdate` and `ExecuteDelete` are in `Microsoft.EntityFrameworkCore.Relational` in EF Core 8 and in
+`Microsoft.EntityFrameworkCore` from EF Core 9 on, so code compiled against one does not run on the other (a
+`MissingMethodException`). The net8.0 build uses EF Core 8 and the net10.0 build EF Core 10, selected in
+`Directory.Packages.props`; an app on .NET 9 gets the net8.0 build, and the dispatcher refuses to start when it finds EF Core 9
+loaded, naming the reason. EF Core is not trim or Native AOT compatible (its `DbContext` constructors are marked
+`RequiresUnreferencedCode` and `RequiresDynamicCode`), so the project sets `IsAotCompatible` to false while keeping the
+analyzers on; its own code has no warning.
+
+**Tests.** `tests/Inngest.EntityFrameworkCore.Tests` runs against SQLite on both runtimes (the net8.0 build on EF Core 8, in a
+container when the machine has no .NET 8 runtime). `tests/Inngest.IntegrationTests/Outbox` runs a dispatcher against PostgreSQL
+(Testcontainers), including four dispatchers at once and the order of claims that would overwrite a token if the update did not
+repeat the test for "due", and against the dev server: an event saved through the outbox starts its function, and a resend
+under the same id starts nothing.

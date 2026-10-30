@@ -65,6 +65,7 @@ export default defineConfig({
             'guides/sleep-and-wait-for-events',
             'guides/invoking-functions',
             'guides/sending-events',
+            'guides/outbox',
             'guides/realtime',
             'guides/durable-endpoints',
             'guides/ai',

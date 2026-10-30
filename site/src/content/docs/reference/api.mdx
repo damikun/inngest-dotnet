@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -23,6 +23,7 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |
 | `IInngestBuilder.AddMiddleware(InngestMiddleware)` | Registers one middleware instance for all calls. |
 | `IInngestBuilder.AddConnect(Action<ConnectOptions>?)` | Runs the functions in a Connect worker. Package `Inngest.Connect`. |
+| `IInngestBuilder.AddEntityFrameworkOutbox<TContext>(Action<InngestOutboxOptions>?)` | Adds the transactional outbox and its hosted dispatcher for a `DbContext`. Package `Inngest.EntityFrameworkCore`. See [Entity Framework Core outbox](#entity-framework-core-outbox). |
 | `IEndpointRouteBuilder.MapInngest(string pattern = "/api/inngest")` | Maps the endpoint Inngest calls. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
 | `IEndpointRouteBuilder.MapInngestRealtime(string pattern, Func<HttpContext, ValueTask<RealtimeSubscription?>> subscription)` | Serves realtime messages to browsers as server-sent events; the callback returns the `RealtimeSubscription(string Channel, IReadOnlyList<string> Topics)` a request may receive, or null for 403. Package `Inngest.AspNetCore`. See [Realtime](/inngest-dotnet/guides/realtime/#with-server-sent-events). |
 | `IHealthChecksBuilder.AddInngest(string? name = null, HealthStatus? failureStatus = null, IEnumerable<string>? tags = null, TimeSpan? timeout = null)` | Adds a health check that tells a readiness probe whether an app that serves functions can work with Inngest: its keys are configured and Inngest answers a request that carries the signing key. Name `"inngest"` unless given. Package `Inngest.AspNetCore`, in `Microsoft.Extensions.DependencyInjection`. See [Health checks](/inngest-dotnet/guides/deploying/#health-checks). |
@@ -411,6 +412,32 @@ The diagnostics:
 | [`INNGEST006`](/inngest-dotnet/guides/source-generator/#inngest006) | Warning | `InngestGenerateFunctionRegistration`, `InngestFunctionsMethodName` or `InngestFunctionsAccessibility` has a value the generator cannot use. |
 | [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or a type a typed step saves (`RunAsync<T>`, `WaitForEventAsync<T>`, `InvokeAsync`, `PublishAsync<T>` and the others), is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
 | [`INNGEST011`](/inngest-dotnet/guides/source-generator/#inngest011) | Warning | The same type is anonymous, which no context can list. |
+
+## Entity Framework Core outbox
+
+Package `Inngest.EntityFrameworkCore`. See [Transactional outbox](/inngest-dotnet/guides/outbox/).
+
+| Member | Purpose |
+|---|---|
+| `ModelBuilder.AddInngestOutbox(Action<EntityTypeBuilder<InngestOutboxMessage>>?)` | Maps the `InngestOutbox` table in the model of a `DbContext`; the callback changes the mapping, for example its name or schema. In `Microsoft.EntityFrameworkCore`. |
+| `DbContextOptionsBuilder.UseInngestOutbox(IServiceProvider)` | Lets saves wake the dispatcher once they have committed, instead of at the next poll. In `Microsoft.EntityFrameworkCore`. |
+| `DbContext.AddInngestEvent<T>(T data, string? id = null)` | Adds the data as an event named `T.EventName` to the unit of work, serialized with the SDK's serializer options, and returns the row. The id is generated unless given. In `Microsoft.EntityFrameworkCore`. |
+| `DbContext.AddInngestEvent(InngestEvent @event)` | The same for an `InngestEvent`, which keeps its `Id`, `User`, `Timestamp`, `Version` and the sessions of `Meta`. In `Microsoft.EntityFrameworkCore`. |
+
+**`InngestOutboxMessage`**, the entity of the table, with all times in UTC: `Id` (the key, and the id the event is sent
+under), `Name`, `Data`, `User` and `Sessions` (JSON text), `Version`, `Timestamp` (when the event happened),
+`NextAttemptAt`, `Attempts`, `LastError`, `LeaseToken`, `LeaseExpiresAt` and `SentAt`.
+
+**`InngestOutboxOptions`**:
+
+| Member | Purpose |
+|---|---|
+| `DispatcherEnabled` | Runs the dispatcher in this process. `true` by default. |
+| `PollInterval` | How long the dispatcher waits for a wake-up before it looks anyway. 5 seconds by default. |
+| `BatchSize` | The most events one claim takes and one request sends. 100 by default. |
+| `LeaseDuration`, `SendTimeout` | How long a dispatcher owns the events it claimed (1 minute) and how long one request may take (20 seconds). The lease must be longer. |
+| `RetryDelay`, `MaxRetryDelay` | The wait after the first failed attempt, doubled with each failure, and its cap. 5 seconds and 5 minutes by default. |
+| `Retention`, `CleanupInterval`, `CleanupBatchSize` | How long sent events stay (1 day), how often older ones are deleted (5 minutes) and how many one `DELETE` removes (1000). |
 
 ## Test host
 

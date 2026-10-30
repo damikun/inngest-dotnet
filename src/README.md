@@ -30,6 +30,9 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   Sentry, tagged with the app, the function, the run and the event.
 - [`Inngest.Extensions.AI`](https://www.nuget.org/packages/Inngest.Extensions.AI/): makes the model calls and tool
   calls of a Microsoft.Extensions.AI `IChatClient` steps of the run, so a replay never calls the model or a tool twice.
+- [`Inngest.EntityFrameworkCore`](https://www.nuget.org/packages/Inngest.EntityFrameworkCore/): a transactional outbox
+  for Entity Framework Core: events saved in the same transaction as your data and sent to Inngest afterwards, under
+  the same id on every attempt.
 - [`Inngest.Templates`](https://www.nuget.org/packages/Inngest.Templates/): `dotnet new inngest-web` and
   `dotnet new inngest-worker`, projects with a typed event, a function and dev mode in their Development settings.
 - [`dotnet-inngest`](https://www.nuget.org/packages/dotnet-inngest/): a .NET tool; `dotnet inngest dev` downloads the

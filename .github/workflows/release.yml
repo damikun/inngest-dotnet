@@ -54,8 +54,11 @@ jobs:
       - name: Pack
         run: dotnet pack Inngest.slnx -c Release --no-build -p:Version="$VERSION" -o packages
       - run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release --no-build
+      - run: dotnet test --project tests/Inngest.EntityFrameworkCore.Tests/Inngest.EntityFrameworkCore.Tests.csproj -c Release --no-build
       - name: Unit tests on .NET 8
         run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release -p:Version="$VERSION" -p:TestAllFrameworks=true --framework net8.0
+      - name: Outbox unit tests on .NET 8
+        run: dotnet test --project tests/Inngest.EntityFrameworkCore.Tests/Inngest.EntityFrameworkCore.Tests.csproj -c Release -p:Version="$VERSION" -p:TestAllFrameworks=true --framework net8.0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
