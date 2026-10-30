@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>dotnet-inngest</AssemblyName>
+    <RootNamespace>Inngest.Tool</RootNamespace>
+    <PackageId>dotnet-inngest</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <!-- dotnet looks for dotnet-<name> to run "dotnet <name>", which is how dotnet ef works. -->
+    <ToolCommandName>dotnet-inngest</ToolCommandName>
+    <Description>The dotnet inngest command for the Inngest .NET SDK: dotnet inngest dev downloads the Inngest CLI, checks its SHA-256 and runs the Inngest dev server for the app in the current folder.</Description>
+    <PackageTags>$(PackageTags);dotnet-tool;dev-server;cli</PackageTags>
+    <!-- A tool built for .NET 8 also runs on the newer runtimes a machine may have instead. -->
+    <RollForward>Major</RollForward>
+    <!-- The shims dotnet tool install makes on Windows, which dotnet-ef lists in full as well. -->
+    <PackAsToolShimRuntimeIdentifiers>win-x64;win-x86;win-arm64</PackAsToolShimRuntimeIdentifiers>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

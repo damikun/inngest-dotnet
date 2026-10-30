@@ -19,6 +19,7 @@
     <Project Path="src/Inngest.Testing/Inngest.Testing.csproj" />
     <Project Path="src/Inngest.Testing.Containers/Inngest.Testing.Containers.csproj" />
     <Project Path="src/Inngest.Testing.Containers.AspNetCore/Inngest.Testing.Containers.AspNetCore.csproj" />
+    <Project Path="src/dotnet-inngest/dotnet-inngest.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Inngest.Extensions.AI.Tests/Inngest.Extensions.AI.Tests.csproj" />
