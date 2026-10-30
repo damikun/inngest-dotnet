@@ -427,6 +427,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
     <PackageReference Include="Sentry.AspNetCore" Version="6.12.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
   <ItemGroup>
 ${references}
@@ -435,6 +436,7 @@ ${reference('Inngest.Testing')}
 ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}
 ${reference('Inngest.Encryption')}
+${reference('Inngest.EntityFrameworkCore')}
 ${reference('Inngest.Extensions.AI')}
     <!-- The generator and the analyzers come with the Inngest package, and so does the file that tells the compiler the project
          asked for the generator. A project reference brings neither, so the snippets that call AddInngestFunctions() get both

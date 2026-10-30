@@ -275,7 +275,7 @@ The documentation has complete examples:
 |---|---|
 | .NET | .NET 8 and .NET 10 (`net8.0`, `net10.0`) |
 | Hosting | ASP.NET Core with `MapInngest`, or any generic host with `AddConnect` |
-| Native AOT and trimming | Compatible. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
+| Native AOT and trimming | Compatible, except `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and the Aspire app host, which are never compiled ahead of time. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
 | Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
 | Ported from | inngest-js v4.26.2 |
 

@@ -112,6 +112,13 @@ class, sends it a typed event and invokes another function by its class, and pub
 from a configuration section, `AddInngest(builder.Configuration.GetSection("Inngest"))`, are read key by key, not
 through the configuration binder, so they work in AOT apps as well.
 
+## Packages that are not compatible
+
+`Inngest.EntityFrameworkCore` is the exception among the packages. Entity Framework Core is not trimming or Native AOT
+compatible, and the outbox runs on it, so the package does not declare itself compatible. Its code has no trim or AOT
+warning, and the events it stores are serialized from the same `InngestOptions.SerializerOptions` metadata as every
+other event, but an app that publishes with Native AOT cannot use it. See [Transactional outbox](/inngest-dotnet/guides/outbox/).
+
 Microsoft's [Native AOT deployment](https://learn.microsoft.com/dotnet/core/deploying/native-aot/) and
 [source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation)
 docs cover the general rules.
