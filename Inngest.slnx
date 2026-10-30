@@ -24,6 +24,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Inngest.Extensions.AI.Tests/Inngest.Extensions.AI.Tests.csproj" />
     <Project Path="tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj" />
+    <Project Path="tests/Inngest.Templates.Tests/Inngest.Templates.Tests.csproj" />
     <Project Path="tests/Inngest.Tests/Inngest.Tests.csproj" />
   </Folder>
 </Solution>

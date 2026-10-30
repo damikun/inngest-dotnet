@@ -1,7 +1,7 @@
 name: CI
 
-# Builds everything, runs the unit tests on every supported runtime, packs the NuGet packages as a build artifact and
-# checks the Native AOT sample. Nothing is published to NuGet from here.
+# Builds everything, runs the unit tests on every supported runtime, packs the NuGet packages as a build artifact,
+# builds what the project templates make and checks the Native AOT sample. Nothing is published to NuGet from here.
 on:
   push:
     branches: [main]
@@ -61,6 +61,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
+
+  # Packs the packages of this repository into a folder, installs the template package from it and builds what the
+  # templates make against it, so nuget.org is needed for the rest of what those projects use. That takes a few minutes,
+  # which is why it is a job of its own.
+  templates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test --project tests/Inngest.Templates.Tests/Inngest.Templates.Tests.csproj -c Release
 
   # The analyzers behind IsAotCompatible cannot see what only happens in a native binary, such as reading the function
   # attributes at startup, so the sample is published and started. Warnings are errors, so a trimming or AOT warning
