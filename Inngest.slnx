@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Inngest.AotSample/Inngest.AotSample.csproj" />
+    <Project Path="samples/Inngest.Sample.AppHost/Inngest.Sample.AppHost.csproj" />
     <Project Path="samples/Inngest.Sample/Inngest.Sample.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -26,6 +27,8 @@
     <Project Path="src/dotnet-inngest/dotnet-inngest.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj" />
+    <Project Path="tests/Inngest.Aspire.Hosting.Tests/TestApp/TestApp.csproj" />
     <Project Path="tests/Inngest.EntityFrameworkCore.Tests/Inngest.EntityFrameworkCore.Tests.csproj" />
     <Project Path="tests/Inngest.Extensions.AI.Tests/Inngest.Extensions.AI.Tests.csproj" />
     <Project Path="tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj" />

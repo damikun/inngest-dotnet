@@ -1,0 +1,20 @@
+<!-- An Aspire AppHost for the sample app. Running it starts the Inngest dev server in Docker, the sample next to it, and
+     the Aspire dashboard, which links the server's UI. -->
+<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+  <PropertyGroup>
+    <TargetFramework>$(LatestTargetFramework)</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>inngest-dotnet-sample-apphost</UserSecretsId>
+    <!-- ASPIRE010: the AppHost packages carry the orchestrator and the dashboard, so the Aspire CLI bundle is not needed. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- A library, not a project the AppHost runs. -->
+    <ProjectReference Include="..\..\src\Inngest.Aspire.Hosting\Inngest.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
+    <!-- The app. The SDK turns this reference into Projects.Inngest_Sample. -->
+    <ProjectReference Include="..\Inngest.Sample\Inngest.Sample.csproj" />
+  </ItemGroup>
+</Project>

@@ -41,6 +41,10 @@ jobs:
       # The source generator, the analyzers and the code fix of the Inngest package, on the compiler of this SDK. The tests
       # that pack the package and build an app from it take minutes, and run in the job below.
       - run: dotnet test --project tests/Inngest.SourceGeneration.Tests/Inngest.SourceGeneration.Tests.csproj -c Release --no-build --filter-not-namespace "Inngest.SourceGeneration.Tests.Packaging"
+      # The tests of the Aspire integration that only read the application model. The ones that run the servers in Docker
+      # are in the integration job.
+      - name: Aspire integration tests without containers
+        run: dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --no-build --filter-namespace "Inngest.Aspire.Hosting.Tests.AppModel"
       - name: Unit tests on .NET 8
         run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release -p:TestAllFrameworks=true --framework net8.0
       - name: Chat client unit tests on .NET 8
@@ -90,6 +94,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
+      # Aspire starts both Inngest servers in Docker next to a project and a Connect worker, and the tunnel it uses to reach
+      # the host is likewise unproven on Linux runners.
+      - name: Aspire integration tests with containers
+        run: dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --filter-namespace "Inngest.Aspire.Hosting.Tests.Containers"
 
   # Packs the packages of this repository into a folder, installs the template package from it and builds what the
   # templates make against it, so nuget.org is needed for the rest of what those projects use. That packs four projects

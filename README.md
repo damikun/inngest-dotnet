@@ -256,6 +256,7 @@ with the other ways to install the dev server.
 |---|---|
 | [`samples/Inngest.Sample`](samples/Inngest.Sample) | An ASP.NET Core app with an onboarding flow that waits for the user to activate and stops when the account is deleted, a cron job that fans out with `InvokeAsync`, and a delegate function. It comes with a Dockerfile and a Compose file with dev and cloud profiles. |
 | [`samples/Inngest.AotSample`](samples/Inngest.AotSample) | An app published as a Native AOT binary, with no trimming or AOT warnings. |
+| [`samples/Inngest.Sample.AppHost`](samples/Inngest.Sample.AppHost) | An Aspire AppHost for `Inngest.Sample`: `dotnet run --project samples/Inngest.Sample.AppHost` starts the dev server in Docker, the sample next to it and the Aspire dashboard, with no other setup. |
 
 The documentation has complete examples:
 
@@ -312,6 +313,7 @@ data.
   [Errors and retries](https://damikun.github.io/inngest-dotnet/guides/errors-and-retries/) ·
   [Middleware](https://damikun.github.io/inngest-dotnet/guides/middleware/) ·
   [Connect](https://damikun.github.io/inngest-dotnet/guides/connect/) ·
+  [Aspire](https://damikun.github.io/inngest-dotnet/guides/aspire/) ·
   [Configuration](https://damikun.github.io/inngest-dotnet/guides/configuration/) ·
   [Deploying](https://damikun.github.io/inngest-dotnet/guides/deploying/) ·
   [Native AOT](https://damikun.github.io/inngest-dotnet/guides/native-aot/) ·
