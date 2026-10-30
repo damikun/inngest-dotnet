@@ -1,7 +1,7 @@
 using Inngest.Tests.Execution;
 using Microsoft.Extensions.AI;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // The wire between the chat steps and Inngest, on the engine alone: what Inngest memoizes for a step, and the input it sends
 // back after an edit in its UI.

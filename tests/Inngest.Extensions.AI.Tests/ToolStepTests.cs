@@ -3,7 +3,7 @@ using Inngest.Testing;
 using Microsoft.Extensions.AI;
 using static Inngest.Tests.Testing.TestHosts;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // The tools that FunctionInvokingChatClient invokes for the model are steps of the run: a tool runs once, and a replay
 // gets its result from the memo, with the model calls around it also steps.

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.AI;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // A model that answers from a script and keeps what it was asked, standing in for a provider's client.
 internal sealed class FakeChatClient(Func<int, IList<ChatMessage>, ChatResponse>? respond = null) : IChatClient

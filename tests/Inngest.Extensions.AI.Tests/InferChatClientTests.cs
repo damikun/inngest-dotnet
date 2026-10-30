@@ -3,7 +3,7 @@ using Inngest.Testing;
 using Microsoft.Extensions.AI;
 using static Inngest.Tests.Testing.TestHosts;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // A chat client whose calls are inference steps: Inngest sends the request in the OpenAI chat format, and the response of
 // the provider is what the step saves.

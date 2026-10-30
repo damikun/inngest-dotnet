@@ -17,6 +17,6 @@
     <ProjectReference Include="..\Inngest\Inngest.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Inngest.Tests" />
+    <InternalsVisibleTo Include="Inngest.Extensions.AI.Tests" />
   </ItemGroup>
 </Project>

@@ -3,7 +3,7 @@ using Inngest.Tests.Execution;
 using Microsoft.Extensions.AI;
 using static Inngest.Tests.Checkpointing.Checkpointed;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // With checkpointing, the steps of a chat run one after the other in one call, and each is saved before the next runs.
 public sealed class CheckpointedChatTests : IDisposable

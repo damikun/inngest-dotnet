@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using static Inngest.Tests.Testing.TestHosts;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // A model call of a run is a step on the real engine: made once, and handed back from the run's memo on every replay.
 public sealed class ModelCallStepTests

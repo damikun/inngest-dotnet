@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using static Inngest.Tests.Testing.TestHosts;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // A streaming call of a run is one step that reads the model's whole stream; the function gets the memoized response
 // back as updates, and a replay gets the same without the model.

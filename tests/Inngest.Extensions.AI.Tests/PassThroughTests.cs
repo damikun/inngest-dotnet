@@ -2,7 +2,7 @@ using Inngest.Testing;
 using Microsoft.Extensions.AI;
 using static Inngest.Tests.Testing.TestHosts;
 
-namespace Inngest.Tests.AI;
+namespace Inngest.Extensions.AI.Tests;
 
 // Where there is no step to make, outside a run and inside a step's handler, the chat client changes nothing but the
 // options, which it hands on without the settings that are meant for it.

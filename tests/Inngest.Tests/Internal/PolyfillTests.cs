@@ -1,14 +1,7 @@
-#if !NET9_0_OR_GREATER
-extern alias connect;
-#endif
 using System.Buffers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-#if NET9_0_OR_GREATER
-using System.Runtime.InteropServices;
-#else
-using JsonMarshal = connect::System.Runtime.InteropServices.JsonMarshal;
-#endif
 
 namespace Inngest.Tests.Internal;
 
