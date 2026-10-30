@@ -1,0 +1,3 @@
+[*.cs]
+# The files of this package are not ported from the Inngest TypeScript SDK, so their header is the licence line alone.
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.

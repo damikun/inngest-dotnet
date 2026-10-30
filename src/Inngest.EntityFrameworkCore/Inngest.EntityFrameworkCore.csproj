@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.EntityFrameworkCore</RootNamespace>
+    <Description>A transactional outbox for the Inngest .NET SDK on Entity Framework Core: events are saved in the same transaction as the app's data and sent to Inngest afterwards, each with an id of its own, so that a resend creates no second run.</Description>
+    <PackageTags>$(PackageTags);entity-framework-core;ef-core;outbox;transactional-outbox</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+    <!-- Entity Framework Core is not trim or Native AOT compatible: the constructors of DbContext are marked
+         RequiresUnreferencedCode and RequiresDynamicCode in EF Core 8 and in 10, and queries are compiled when they first
+         run. The code of this package has no trim or AOT warning, and the analyzers stay on to keep it so, but declaring
+         the package compatible would promise what an app that uses it cannot get. The events themselves are serialized
+         through the JsonTypeInfo of the SDK's serializer options, so they need no reflection of their own. -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Brings in Microsoft.EntityFrameworkCore as well. ExecuteUpdate and ExecuteDelete are in the Relational assembly of
+         EF Core 8 and in the core assembly of EF Core 9 and 10, so each build is tied to the EF Core line it is compiled
+         against; see Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.EntityFrameworkCore.Tests" />
+    <InternalsVisibleTo Include="Inngest.IntegrationTests" />
+  </ItemGroup>
+</Project>

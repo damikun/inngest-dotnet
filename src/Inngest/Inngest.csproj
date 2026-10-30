@@ -36,6 +36,7 @@
     <InternalsVisibleTo Include="Inngest.AspNetCore" />
     <InternalsVisibleTo Include="Inngest.Connect" />
     <InternalsVisibleTo Include="Inngest.Encryption" />
+    <InternalsVisibleTo Include="Inngest.EntityFrameworkCore" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI" />
     <InternalsVisibleTo Include="Inngest.Extensions.AI.Tests" />
     <InternalsVisibleTo Include="Inngest.Testing" />
