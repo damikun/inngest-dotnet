@@ -38,5 +38,6 @@
     <ProjectReference Include="..\..\src\Inngest.Sentry\Inngest.Sentry.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing\Inngest.Testing.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers\Inngest.Testing.Containers.csproj" />
+    <ProjectReference Include="..\..\src\dotnet-inngest\dotnet-inngest.csproj" />
   </ItemGroup>
 </Project>
