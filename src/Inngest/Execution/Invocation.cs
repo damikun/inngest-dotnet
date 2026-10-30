@@ -118,6 +118,7 @@ internal sealed partial class Invocation
         {
             RequestId = request.RequestId,
             JobId = request.JobId,
+            PropagateSessions = _settings.SessionPropagation,
             Middleware = middleware,
             Transforms = transforms,
         });
@@ -127,6 +128,11 @@ internal sealed partial class Invocation
     }
 
     public JsonSerializerOptions SerializerOptions => _settings.SerializerOptions;
+
+    public FunctionContext Context => _context;
+
+    // The context of the run whose code runs in the current async flow, for sends that are not given one.
+    public static FunctionContext? AmbientContext => Running.Value is { _finished: false } invocation ? invocation._context : null;
 
     // The id the app registered the function class under, for invoking it by its class.
     public string FunctionIdOf(Type functionType) => _services.GetRequiredService<IFunctionRegistry>().FunctionIdOf(functionType);

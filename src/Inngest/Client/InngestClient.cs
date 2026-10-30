@@ -5,6 +5,8 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Inngest.Configuration;
+using Inngest.Events;
+using Inngest.Execution;
 using Inngest.Internal;
 using Inngest.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -130,6 +132,12 @@ internal sealed class InngestClient : IInngestClient
         var url = _sendUrl ?? throw new InngestException(
             "Failed to send events: no event key is configured. " +
             "Set the INNGEST_EVENT_KEY environment variable or InngestOptions.EventKey.");
+
+        // Sent from a run, the events inherit its sessions before middleware sees them, so middleware can drop some.
+        if (_settings.SessionPropagation && (context ?? Invocation.AmbientContext) is { } run)
+        {
+            events = EventSessions.Propagate(events, run.Sessions);
+        }
 
         // Taken once per call, so every retry and every middleware pass sends the same time and the same seed.
         var now = _timeProvider.GetUtcNow();
@@ -366,6 +374,7 @@ internal sealed class InngestClient : IInngestClient
             writer.WriteString("v"u8, @event.Version);
         }
 
+        EventSessions.WriteMeta(writer, @event.Meta, $"event \"{@event.Name}\"");
         writer.WriteEndObject();
     }
 

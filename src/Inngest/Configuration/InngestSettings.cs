@@ -66,6 +66,8 @@ internal sealed record InngestSettings
 
     public bool Streaming { get; init; }
 
+    public bool SessionPropagation { get; init; } = true;
+
     // Checkpointing for functions whose own options leave it unset; null leaves it off.
     public CheckpointingOptions? Checkpointing { get; init; }
 
@@ -160,6 +162,10 @@ internal sealed record InngestSettings
                 ?? ParseStreaming(variables.Get("INNGEST_STREAMING"))
                 ?? section?.Streaming
                 ?? false,
+            SessionPropagation = options.SessionPropagation
+                ?? VariableSource.ParseFlag(variables.Get("INNGEST_SESSION_PROPAGATION"))
+                ?? section?.SessionPropagation
+                ?? true,
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };

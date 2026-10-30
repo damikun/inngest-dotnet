@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using Inngest.Events;
 using Inngest.Functions;
 
 namespace Inngest;
@@ -48,6 +49,7 @@ public abstract class InngestFunction<TEventData, TResult> : InngestFunction, IR
             CancellationToken = seed.CancellationToken,
             RequestId = seed.RequestId,
             JobId = seed.JobId,
+            Sessions = seed.PropagateSessions ? EventSessions.OfRun(events) : EventSessions.None,
             Middleware = seed.Middleware,
             EventSource = seed.Events.Count > 0 ? seed.Events[0] : seed.Event,
             Event = events[0],

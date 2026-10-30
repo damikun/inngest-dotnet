@@ -20,6 +20,9 @@ public sealed record InngestEvent(string Name, object? Data = null)
 
     public string? Version { get; init; }
 
+    /// <summary>The sessions the event belongs to. Sent from a run, it also inherits the run's sessions.</summary>
+    public EventMeta? Meta { get; init; }
+
     internal static InngestEvent From<T>(T data)
         where T : IInngestEventData
     {

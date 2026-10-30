@@ -3,13 +3,14 @@
 
 using System.Buffers;
 using System.Text.Json;
+using Inngest.Events;
 using Inngest.Execution;
 using Inngest.Json;
 
 namespace Inngest.Testing;
 
-// Writes events the way Inngest delivers them to a function or a wait: data defaults to an empty object, and an
-// event without an id or a time gets the ones Inngest would give it.
+// Writes events the way Inngest delivers them to a function or a wait: data defaults to an empty object, an event
+// without an id or a time gets the ones Inngest would give it, and its sessions are merged as Inngest merges them.
 internal static class EventJson
 {
     public static byte[] Serialize(InngestEvent @event, JsonSerializerOptions options, DateTimeOffset now)
@@ -22,6 +23,7 @@ internal static class EventJson
 
         JsonPayload.EnsureObject(@event.Data, options, "data", "event", @event.Name);
         JsonPayload.EnsureObject(@event.User, options, "user", "event", @event.Name);
+        EventSessions.Check(@event.Meta, $"event \"{@event.Name}\"");
 
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = WireWriter.Create(buffer, options))
@@ -50,6 +52,20 @@ internal static class EventJson
             if (!string.IsNullOrEmpty(@event.Version))
             {
                 writer.WriteString("v", @event.Version);
+            }
+
+            // Inngest delivers the sessions it merged from the event's own and inherited ones.
+            if (EventSessions.Merge(@event.Meta) is { Count: > 0 } sessions)
+            {
+                writer.WriteStartObject("meta");
+                writer.WriteStartObject("sessions");
+                foreach (var (key, id) in sessions)
+                {
+                    writer.WriteString(key, id);
+                }
+
+                writer.WriteEndObject();
+                writer.WriteEndObject();
             }
 
             writer.WriteEndObject();

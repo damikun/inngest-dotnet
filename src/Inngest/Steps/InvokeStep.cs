@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
+using Inngest.Events;
 using Inngest.Execution;
 using Inngest.Internal;
 
@@ -32,6 +33,8 @@ internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : Fou
         writer.WriteStartObject(PayloadProperty);
         WriteValue(writer, DataProperty, invoke.Data, settings.SerializerOptions);
         WriteValue(writer, UserProperty, invoke.User, settings.SerializerOptions);
+        var meta = settings.SessionPropagation ? EventSessions.Inherit(invoke.Meta, Owner.Context.Sessions) : invoke.Meta;
+        EventSessions.WriteMeta(writer, meta, $"invoke step \"{Id}\"");
         writer.WriteEndObject();
         if (invoke.Timeout is { } timeout)
         {

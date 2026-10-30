@@ -75,6 +75,12 @@ public sealed class InngestOptions
     public bool? Streaming { get; set; }
 
     /// <summary>
+    /// Lets events a run sends and functions it invokes inherit the run's sessions, as FunctionContext.Sessions
+    /// lists them. Null reads INNGEST_SESSION_PROPAGATION and defaults to true, as in the TypeScript SDK.
+    /// </summary>
+    public bool? SessionPropagation { get; set; }
+
+    /// <summary>
     /// Runs consecutive steps of every function in one call from Inngest, saving each as it completes. Null leaves it
     /// off; FunctionOptions.Checkpointing overrides it for a single function.
     /// </summary>

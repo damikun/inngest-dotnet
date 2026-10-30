@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Inngest.Events;
 using Inngest.Middleware;
 
 namespace Inngest.Functions;
@@ -45,6 +46,7 @@ internal static class EventReader
                 ? DateTimeOffset.FromUnixTimeMilliseconds(milliseconds)
                 : default,
             Version = element.TryGetProperty("v", out var version) && version.ValueKind == JsonValueKind.String ? version.GetString() : null,
+            Meta = element.TryGetProperty("meta", out var meta) ? EventSessions.ReadMeta(meta) : null,
         };
     }
 }

@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using Inngest.Events;
 using Inngest.Execution;
 using Inngest.Json;
 
@@ -108,6 +109,7 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         ArgumentException.ThrowIfNullOrEmpty(options.FunctionId);
         JsonPayload.EnsureObject(options.Data, invocation.SerializerOptions, "data", "invoke step", id);
         JsonPayload.EnsureObject(options.User, invocation.SerializerOptions, "user", "invoke step", id);
+        EventSessions.Check(options.Meta, $"invoke step \"{id}\"");
         if (options.Timeout is { } timeout)
         {
             ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);

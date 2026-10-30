@@ -3,6 +3,7 @@
 
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Inngest.Events;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest;
@@ -50,6 +51,12 @@ public abstract class FunctionContext
 
     /// <summary>The queue job this call belongs to. Null when Inngest sent none.</summary>
     public string? JobId { get; init; }
+
+    /// <summary>
+    /// The run's sessions: those every triggering event belongs to, at most five, ordered by key. Events the run
+    /// sends and functions it invokes inherit them unless InngestOptions.SessionPropagation is off; empty then.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Sessions { get; init; } = EventSessions.None;
 
     /// <summary>
     /// The triggering event, or the first event of a batch, for code that does not know the event type.

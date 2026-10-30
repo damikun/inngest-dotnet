@@ -19,4 +19,7 @@ public sealed record InngestEvent<TData>
     public DateTimeOffset Timestamp { get; init; }
 
     public string? Version { get; init; }
+
+    /// <summary>The sessions Inngest recorded for the event, or null when it has none.</summary>
+    public EventMeta? Meta { get; init; }
 }

@@ -36,6 +36,7 @@ internal static class InngestConfiguration
             AllowInBandSync = ReadBoolean(section, nameof(InngestOptions.AllowInBandSync)),
             AllowUnsignedSync = ReadBoolean(section, nameof(InngestOptions.AllowUnsignedSync)),
             Streaming = ReadBoolean(section, nameof(InngestOptions.Streaming)),
+            SessionPropagation = ReadBoolean(section, nameof(InngestOptions.SessionPropagation)),
             Checkpointing = ReadCheckpointing(section),
         };
     }

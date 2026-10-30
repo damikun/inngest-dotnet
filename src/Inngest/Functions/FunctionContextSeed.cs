@@ -25,6 +25,9 @@ internal sealed record FunctionContextSeed(
 
     public string? JobId { get; init; }
 
+    // Whether the run's sessions pass on to what it sends; FunctionContext.Sessions stays empty otherwise.
+    public bool PropagateSessions { get; init; }
+
     // The middleware of the call, the function's own included.
     public IReadOnlyList<InngestMiddleware>? Middleware { get; init; }
 

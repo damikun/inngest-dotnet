@@ -16,4 +16,10 @@ public sealed record InvokeOptions(string FunctionId)
 
     /// <summary>How long to wait for the invoked function to finish before the step fails.</summary>
     public TimeSpan? Timeout { get; init; }
+
+    /// <summary>
+    /// Sessions for the invoked run, which also inherits the sessions of this run unless Meta.InheritSessions is
+    /// false or InngestOptions.SessionPropagation is off.
+    /// </summary>
+    public EventMeta? Meta { get; init; }
 }
