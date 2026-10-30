@@ -95,6 +95,29 @@ public sealed class RealtimeRelayTests
         (await connection.Reader.ReadToEndAsync(Cancel).WaitAsync(Wait, Cancel)).ShouldBe(":\n\n");
     }
 
+    [Fact]
+    public async Task Requests_whose_names_only_run_together_alike_get_subscriptions_of_their_own()
+    {
+        var channelA = new SseFeed();
+        var channelAB = new SseFeed();
+        _api.Answer(channelA);
+        _api.Answer(channelAB);
+        await using var app = await StartAsync();
+        var client = app.GetTestClient();
+
+        // Joined with a newline, ("a", ["b", "c"]) and ("a\nb", ["c"]) are the same text.
+        using var first = await OpenAsync(client, "/query?channel=a&topics=b,c");
+        await Until(() => _api.Subscriptions.Count == 1);
+        using var second = await OpenAsync(client, "/query?channel=a%0Ab&topics=c");
+        await Until(() => _api.Subscriptions.Count == 2);
+        await channelA.SendAsync("""{"kind":"data","channel":"a","topic":"b"}""");
+        await channelAB.SendAsync("""{"kind":"data","channel":"a\nb","topic":"c"}""");
+
+        (await NextDataAsync(first)).ShouldBe("""{"kind":"data","channel":"a","topic":"b"}""");
+        (await NextDataAsync(second)).ShouldBe("""{"kind":"data","channel":"a\nb","topic":"c"}""");
+        _api.TokensMinted.ShouldBe(2);
+    }
+
     private async Task<WebApplication> StartAsync()
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -113,6 +136,10 @@ public sealed class RealtimeRelayTests
             var order = (string)context.Request.RouteValues["order"]!;
             return ValueTask.FromResult(order == "forbidden" ? null : new RealtimeSubscription($"order:{order}", ["status"]));
         });
+
+        // A callback that passes on what the request asks for, as one that only checks a prefix would.
+        app.MapInngestRealtime("/query", context => ValueTask.FromResult<RealtimeSubscription?>(
+            new(context.Request.Query["channel"].ToString(), context.Request.Query["topics"].ToString().Split(','))));
         await app.StartAsync(Cancel);
         return app;
     }

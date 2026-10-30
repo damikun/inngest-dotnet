@@ -132,8 +132,8 @@ internal sealed class RealtimeRelay(RealtimeSubscriber subscriber, TimeProvider 
 
     private Feed Join(RealtimeSubscription subscription, ChannelWriter<string> queue)
     {
-        string[] topics = [.. subscription.Topics.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
-        var key = string.Join('\n', [subscription.Channel, .. topics]);
+        var topics = RealtimePayload.DistinctTopics(subscription.Topics);
+        var key = RealtimePayload.SubscriptionKey(subscription.Channel, topics);
         Feed feed;
         lock (_gate)
         {

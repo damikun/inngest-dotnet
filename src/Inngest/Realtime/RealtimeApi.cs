@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Inngest.Client;
@@ -171,6 +172,26 @@ internal static class RealtimePayload
         ArgumentNullException.ThrowIfNull(topic);
         ArgumentException.ThrowIfNullOrEmpty(topic.Channel, nameof(topic));
         ArgumentException.ThrowIfNullOrEmpty(topic.Name, nameof(topic));
+    }
+
+    // The topics of a subscription, each once and in a fixed order, so that the same topics in any order are one
+    // subscription.
+    public static string[] DistinctTopics(IEnumerable<string> topics) =>
+        [.. topics.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+
+    // What identifies the subscription to these topics (from DistinctTopics) of a channel, for sharing one between
+    // everyone who asks for it. The length of each name comes first, so that names which contain a separator cannot run
+    // together into the key of another subscription, and let a request in on messages it was not given.
+    public static string SubscriptionKey(string channel, string[] topics)
+    {
+        var key = new StringBuilder();
+        key.Append(channel.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(channel);
+        foreach (var topic in topics)
+        {
+            key.Append(';').Append(topic.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(topic);
+        }
+
+        return key.ToString();
     }
 
     public static void Check(string channel, IReadOnlyList<string> topics)
