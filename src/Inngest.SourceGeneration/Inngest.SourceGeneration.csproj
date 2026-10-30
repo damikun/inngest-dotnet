@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The compiler runs a generator or an analyzer on .NET and on .NET Framework, so it targets netstandard2.0 and not the
+         runtimes of src/Directory.Build.props (RS1041). -->
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Inngest.SourceGeneration</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Description>The source generator and the analyzers of the Inngest package, which loads them into the compiler of the app that references it.</Description>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- Not a package of its own: src/Inngest/Inngest.csproj packs the output under analyzers/dotnet/cs, so that an app gets it
+         with the SDK and the generated code always calls the AddFunction of the same release. -->
+    <IsPackable>false</IsPackable>
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <PackageValidationBaselineVersion></PackageValidationBaselineVersion>
+    <!-- It runs in the compiler, not in an app, so there is nothing to trim or to compile ahead of time. -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.SourceGeneration.CodeFixes" />
+    <InternalsVisibleTo Include="Inngest.SourceGeneration.Tests" />
+  </ItemGroup>
+</Project>

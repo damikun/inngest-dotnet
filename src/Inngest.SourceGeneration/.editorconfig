@@ -1,0 +1,3 @@
+[*.cs]
+# This code is not ported from inngest-js, so it carries the first line of the header that src/.editorconfig asks for.
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.

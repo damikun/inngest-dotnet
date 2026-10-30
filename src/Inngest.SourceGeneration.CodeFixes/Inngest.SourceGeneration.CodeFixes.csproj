@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Targets netstandard2.0 for the same reason as the generator, and is a project of its own because a code fix needs
+         Microsoft.CodeAnalysis.Workspaces, which compiler extensions must not reference (RS1038): the compiler has no
+         Workspaces, so a generator that did would fail to load in a build. The package puts it next to the generator. -->
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Inngest.SourceGeneration</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Description>The code fixes for the analyzers of the Inngest package, which the IDE loads next to them.</Description>
+    <!-- Packed into the Inngest package with the generator, see the comment there. -->
+    <IsPackable>false</IsPackable>
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <PackageValidationBaselineVersion></PackageValidationBaselineVersion>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.SourceGeneration.Tests" />
+  </ItemGroup>
+</Project>

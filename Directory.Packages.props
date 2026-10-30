@@ -25,6 +25,15 @@
     <PackageVersion Include="Sentry" Version="6.12.1" />
     <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
   </ItemGroup>
+  <ItemGroup Label="Compiler extensions">
+    <!-- Roslyn 4.8 is the compiler of the .NET 8 SDK and Visual Studio 17.8, the oldest that builds for net8.0, which is the
+         oldest runtime the packages target. A generator or analyzer loads into a compiler of its own Roslyn version or a
+         newer one, so building against 4.8 covers every compiler that can build an app for the SDK. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" />
+    <!-- The rules for compiler extensions: RS1035 banned APIs, RS1038 no Workspaces, RS2008 release tracking. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+  </ItemGroup>
   <ItemGroup Label="Testing">
     <!-- TestHost is versioned with ASP.NET Core and its 10.0 packages have no net8.0 build. -->
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
@@ -41,5 +50,10 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+    <!-- The Roslyn testing packages and the reference assemblies of net10.0 that the compilations under test are built against. -->
+    <PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.13" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" Version="1.1.4" />
   </ItemGroup>
 </Project>
