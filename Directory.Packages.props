@@ -3,6 +3,10 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup Label="Runtime">
+    <!-- The event types of API Gateway and function URLs. The 3.x line has builds for net8.0 and net10.0 and no dependencies. -->
+    <PackageVersion Include="Amazon.Lambda.APIGatewayEvents" Version="3.0.1" />
+    <!-- ILambdaContext. -->
+    <PackageVersion Include="Amazon.Lambda.Core" Version="3.4.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
@@ -42,6 +46,9 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
   </ItemGroup>
   <ItemGroup Label="Testing">
+    <!-- The serializer the managed runtime reads events with, so that tests build events the way it does. -->
+    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
+    <PackageVersion Include="Amazon.Lambda.TestUtilities" Version="4.3.0" />
     <!-- TestHost is versioned with ASP.NET Core and its 10.0 packages have no net8.0 build. -->
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />

@@ -10,6 +10,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.TestUtilities" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
@@ -29,6 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.AwsLambda\Inngest.AwsLambda.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
     <ProjectReference Include="..\..\src\Inngest.EntityFrameworkCore\Inngest.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
