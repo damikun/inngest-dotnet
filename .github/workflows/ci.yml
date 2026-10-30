@@ -70,9 +70,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The packages target both runtimes, and one of the projects the tests build targets net8.0.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - run: dotnet test --project tests/Inngest.Templates.Tests/Inngest.Templates.Tests.csproj -c Release
 
   # The analyzers behind IsAotCompatible cannot see what only happens in a native binary, such as reading the function

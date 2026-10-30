@@ -38,17 +38,7 @@ internal static class Program
         }
     }
 
-    private static string CacheRoot()
-    {
-        var configured = Environment.GetEnvironmentVariable("INNGEST_DOTNET_CACHE");
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return Path.GetFullPath(configured);
-        }
-
-        var data = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return data.Length > 0
-            ? Path.Combine(data, "inngest-dotnet", "cli")
-            : throw new ToolException("The user has no local application data folder. Set INNGEST_DOTNET_CACHE to a folder for the Inngest CLI.");
-    }
+    private static string CacheRoot() => CliCache.Root(
+        Environment.GetEnvironmentVariable(CliCache.RootVariable),
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
 }

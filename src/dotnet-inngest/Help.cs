@@ -29,7 +29,7 @@ internal static class Help
           -h, --help              Show this help.
 
         Environment:
-          INNGEST_DOTNET_CACHE    The folder the CLI is kept in. The default is inngest-dotnet/cli in the user's local
+          {CliCache.RootVariable}    The folder the CLI is kept in. The default is inngest-dotnet/cli in the user's local
                                   application data.
         """ + Environment.NewLine;
 }
