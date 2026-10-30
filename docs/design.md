@@ -393,7 +393,7 @@ app does. `buildTransitive` and not `build`, because an app mostly reaches `Inng
 `Inngest.Connect`, and the assets of `build` only reach the project that references the package itself.
 
 - **Roslyn.** Both assemblies target `netstandard2.0` (RS1041) and `Microsoft.CodeAnalysis.CSharp` 4.8.0, the compiler of
-  the .NET 8 SDK and Visual Studio 17.8, the oldest that can build for `net8.0`. A component loads into its own Roslyn
+  the first .NET 8 SDK and Visual Studio 17.8, the oldest that can build for `net8.0`. A component loads into its own Roslyn
   version or a newer one, so one build serves every compiler the packages can be used with, where System.Text.Json's
   generator ships builds for Roslyn 3.11, 4.0 and 4.4 under `analyzers/dotnet/roslyn*` because its package also
   targets older runtimes. `EnforceExtendedAnalyzerRules` is on, so the banned-API rules (RS1035) apply.

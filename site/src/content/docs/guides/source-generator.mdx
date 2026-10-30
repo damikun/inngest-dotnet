@@ -7,8 +7,8 @@ sidebar:
 
 The `Inngest` package carries a source generator, two analyzers and a code fix. The compiler loads them from the
 package, so there is nothing more to install: every project that references `Inngest`, directly or through
-`Inngest.AspNetCore` or `Inngest.Connect`, has them. They are built against Roslyn 4.8, the compiler of the .NET 8 SDK
-and Visual Studio 17.8, and run in that compiler and in every newer one.
+`Inngest.AspNetCore` or `Inngest.Connect`, has them. They are built against Roslyn 4.8, the compiler of the first .NET 8
+SDK and of Visual Studio 17.8, and run in that compiler and in every newer one.
 
 - The generator writes `AddInngestFunctions()`, which registers the function classes of the project.
 - One analyzer says why a class with `[InngestFunction]` is not registered.
