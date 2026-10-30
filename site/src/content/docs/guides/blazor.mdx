@@ -188,13 +188,13 @@ The source reads the endpoint with an `HttpClient` and streams the response, as 
 - Cookies go with a request to the page's own origin. For an endpoint on another origin, `AddInngestRealtimeRelay`
   returns the builder of the `HttpClient`, so you can set its base address and add message handlers, such as one that
   attaches an access token or asks the browser to send credentials. The endpoint then needs CORS.
-- A connection that ends or fails is opened again after a delay that grows from half a second to 30 seconds. The relay
-  ends a client that falls 512 messages behind, and connections drop. What is published meanwhile is missed, as
-  Inngest keeps no messages. A connection silent for 45 seconds, three of the relay's 15 second comments, is taken
-  for dead.
+- A connection that ends or fails is opened again after a delay that grows from half a second to 30 seconds, and one
+  that stayed open for five seconds or more is opened again at once. The relay ends a client that falls 512 messages
+  behind, and connections drop. What is published meanwhile is missed, as Inngest keeps no messages. A connection
+  silent for 45 seconds, three of the relay's 15 second comments, is taken for dead.
 - A refusal is not retried: 401, 403, 404 and the other 4xx answers, and an answer that is not an event stream, such as
   the page of the app that a wrong address falls back to, fail the subscription. The 429, 408, 425 and 5xx answers
-  of a relay or a proxy are retried.
+  of a relay or a proxy are retried. A 204 ends the subscription quietly, as it stops an `EventSource`.
 - A browser's `fetch` holds a whole response back unless it is asked to stream it. The source sets that option on
   every request, as .NET 8 needs and .NET 10 does by default.
 
