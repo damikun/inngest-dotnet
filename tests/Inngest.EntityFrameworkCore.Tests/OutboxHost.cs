@@ -20,7 +20,8 @@ internal sealed class OutboxHost : IAsyncDisposable
         RecordingInngestClient? client = null,
         FakeTimeProvider? time = null,
         bool wakeOnSave = true,
-        Action<InngestOptions>? inngest = null)
+        Action<InngestOptions>? inngest = null,
+        Action<DbContextOptionsBuilder>? contextOptions = null)
     {
         Client = client ?? new RecordingInngestClient();
         Time = time ?? new FakeTimeProvider(Start);
@@ -39,6 +40,7 @@ internal sealed class OutboxHost : IAsyncDisposable
         services.AddDbContext<ShopContext>((provider, options) =>
         {
             database.Configure(options);
+            contextOptions?.Invoke(options);
             if (wakeOnSave)
             {
                 options.UseInngestOutbox(provider);
