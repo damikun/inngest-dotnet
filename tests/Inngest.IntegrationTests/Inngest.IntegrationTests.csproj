@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.TestUtilities" />
+    <PackageReference Include="bunit" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
@@ -39,6 +40,7 @@
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AwsLambda\Inngest.AwsLambda.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AzureFunctions\Inngest.AzureFunctions.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Blazor\Inngest.Blazor.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
     <ProjectReference Include="..\..\src\Inngest.EntityFrameworkCore\Inngest.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
