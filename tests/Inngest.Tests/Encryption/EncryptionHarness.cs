@@ -62,3 +62,15 @@ internal static class EncryptionHarness
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 }
+
+// Reverses the bytes, which is no encryption at all but is easy to tell from the default strategy.
+internal sealed class ReversingService : EncryptionService
+{
+    public const string Name = "test/reversing";
+
+    public override string Identifier => Name;
+
+    public override string Encrypt(ReadOnlySpan<byte> json) => Convert.ToBase64String(json.ToArray().Reverse().ToArray());
+
+    public override byte[] Decrypt(string data) => Convert.FromBase64String(data).Reverse().ToArray();
+}

@@ -78,7 +78,7 @@ internal sealed class PayloadEncryptor
             return false;
         }
 
-        writer.WriteRawValue(Open(strategy, data.GetString()!));
+        WriteDecrypted(writer, Open(strategy, data.GetString()!));
         return true;
     }
 
@@ -171,7 +171,7 @@ internal sealed class PayloadEncryptor
             if (Envelope.TryRead(field.Value, out var strategy, out var encrypted))
             {
                 writer.WritePropertyName(field.Name);
-                writer.WriteRawValue(Open(strategy, encrypted.GetString()!));
+                WriteDecrypted(writer, Open(strategy, encrypted.GetString()!));
             }
             else
             {
@@ -180,6 +180,19 @@ internal sealed class PayloadEncryptor
         }
 
         writer.WriteEndObject();
+    }
+
+    // The writer checks that it is one JSON value, so a service that decrypts to anything else is caught here.
+    private static void WriteDecrypted(Utf8JsonWriter writer, byte[] json)
+    {
+        try
+        {
+            writer.WriteRawValue(json);
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException)
+        {
+            throw new CryptographicException("The decrypted value is not valid JSON.", exception);
+        }
     }
 
     private static bool HoldsEncryptedField(JsonElement data)

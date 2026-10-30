@@ -243,14 +243,4 @@ public sealed class EncryptionMiddlewareTests
 
         failure.ToString().ShouldNotContain("very-secret-key-material");
     }
-
-    // Reverses the bytes, which is no encryption at all but is easy to tell from the default strategy.
-    internal sealed class ReversingService : EncryptionService
-    {
-        public override string Identifier => "test/reversing";
-
-        public override string Encrypt(ReadOnlySpan<byte> json) => Convert.ToBase64String(json.ToArray().Reverse().ToArray());
-
-        public override byte[] Decrypt(string data) => Convert.FromBase64String(data).Reverse().ToArray();
-    }
 }
