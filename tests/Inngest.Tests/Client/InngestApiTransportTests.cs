@@ -63,6 +63,40 @@ public sealed class InngestApiTransportTests
         _logger.Collector.GetSnapshot().ShouldContain(record => record.Id.Id == 312);
     }
 
+    [Fact]
+    public async Task Says_when_the_fallback_key_got_the_answer()
+    {
+        _handler.Respond(HttpStatusCode.Forbidden).Respond(HttpStatusCode.OK, "{}");
+        var transport = Create(options => options.SigningKeyFallback = Fallback);
+
+        var answer = await transport.SendKeyedAsync(
+            new ApiCall(HttpMethod.Get, transport.Url("/v1/runs/01JRUN")),
+            HttpCompletionOption.ResponseHeadersRead,
+            TestContext.Current.CancellationToken);
+        using var response = answer.Response;
+
+        answer.UsedFallbackKey.ShouldBeTrue();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Says_the_signing_key_got_the_answer_when_it_was_accepted_and_when_there_is_no_fallback()
+    {
+        _handler.Respond(HttpStatusCode.OK, "{}").Respond(HttpStatusCode.Unauthorized);
+        var transport = Create(static _ => { });
+        var call = new ApiCall(HttpMethod.Get, transport.Url("/v1/runs/01JRUN"));
+
+        var accepted = await transport.SendKeyedAsync(call, HttpCompletionOption.ResponseHeadersRead, TestContext.Current.CancellationToken);
+        var refused = await transport.SendKeyedAsync(call, HttpCompletionOption.ResponseHeadersRead, TestContext.Current.CancellationToken);
+        using var acceptedResponse = accepted.Response;
+        using var refusedResponse = refused.Response;
+
+        accepted.UsedFallbackKey.ShouldBeFalse();
+        refused.UsedFallbackKey.ShouldBeFalse();
+        refusedResponse.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        _handler.Requests.Count.ShouldBe(2);
+    }
+
     private InngestApiTransport Create(Action<InngestOptions> configure) =>
         new(
             new FakeHttpClientFactory(_handler),

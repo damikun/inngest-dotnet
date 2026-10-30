@@ -21,7 +21,11 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
     // An absolute path on purpose: the API lives at the root of the host, whatever path the base URL has.
     public Uri Url(string pathAndQuery) => new(settings.ApiBaseUrl, pathAndQuery);
 
-    public async Task<HttpResponseMessage> SendAsync(ApiCall call, HttpCompletionOption completionOption, CancellationToken cancellationToken)
+    public async Task<HttpResponseMessage> SendAsync(ApiCall call, HttpCompletionOption completionOption, CancellationToken cancellationToken) =>
+        (await SendKeyedAsync(call, completionOption, cancellationToken).ConfigureAwait(false)).Response;
+
+    // SendAsync, for callers that report which key Inngest answered to, such as the health check.
+    public async Task<KeyedResponse> SendKeyedAsync(ApiCall call, HttpCompletionOption completionOption, CancellationToken cancellationToken)
     {
         var client = httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
         var response = await SendOnceAsync(client, call, settings.SigningKey, completionOption, cancellationToken).ConfigureAwait(false);
@@ -30,12 +34,13 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
             || call.Content is not null
             || settings.SigningKeyFallback is not { } fallback)
         {
-            return response;
+            return new KeyedResponse(response, UsedFallbackKey: false);
         }
 
         Log.UsingFallbackSigningKey(logger, (int)response.StatusCode);
         response.Dispose();
-        return await SendOnceAsync(client, call, fallback, completionOption, cancellationToken).ConfigureAwait(false);
+        var retried = await SendOnceAsync(client, call, fallback, completionOption, cancellationToken).ConfigureAwait(false);
+        return new KeyedResponse(retried, UsedFallbackKey: true);
     }
 
     private async Task<HttpResponseMessage> SendOnceAsync(
@@ -86,6 +91,9 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
         return request;
     }
 }
+
+// The answer to a request, and whether it came from the fallback key because Inngest refused the signing key.
+internal readonly record struct KeyedResponse(HttpResponseMessage Response, bool UsedFallbackKey);
 
 // One request to the REST API. Environment overrides the app's branch environment for this request only.
 // Content is a body that can be sent once, such as a stream, so a request with it is never repeated with the fallback
