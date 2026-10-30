@@ -1,0 +1,5 @@
+[*.cs]
+# The C# files here are what a new project starts with, not code that is built here: they carry no license header, and as
+# app code their awaits need no ConfigureAwait.
+file_header_template = unset
+dotnet_diagnostic.CA2007.severity = none

@@ -1,5 +1,5 @@
 [*.cs]
-# The tool is not ported from inngest-js, so its files carry the first line of the header only.
+# Unlike the rest of the SDK, nothing here is ported from inngest-js, so the files carry the license line alone.
 file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 
 # A console app has no synchronization context to return to.
