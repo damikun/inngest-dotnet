@@ -4,7 +4,7 @@ This document describes how the .NET SDK is put together and the wire protocol i
 people working on the SDK; the README covers usage.
 
 The SDK is a port of the official TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js) (v4.26.1
-at the time of the port), checked against the server's
+at the time of the port, v4.26.2 for the features added after it), checked against the server's
 [SDK spec](https://github.com/inngest/inngest/blob/main/docs/SDK_SPEC.md) and the server's Go code. Where the
 spec and the TypeScript SDK disagree, the SDK does what the server actually relies on. Those cases are listed in
 [Spec deviations](#spec-deviations).

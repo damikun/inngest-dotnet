@@ -1,6 +1,6 @@
 ---
 title: Middleware for Inngest functions
-description: Observe and wrap function runs, steps and event sends with InngestMiddleware, for logging, metrics, tracing, error mapping, event enrichment and reporting errors to Sentry.
+description: Observe and wrap function runs, steps and event sends with InngestMiddleware, for logging, metrics, tracing, error mapping, event enrichment, encryption and reporting errors to Sentry.
 sidebar:
   label: Middleware
 ---
@@ -466,7 +466,7 @@ builder.WebHost.UseSentry(options =>
 The hooks follow inngest-js v4's middleware, with .NET names. The TypeScript SDK's transform hooks
 (`transformFunctionInput`, `transformStepInput`) have a .NET counterpart in `IPayloadTransform`: a middleware that
 implements it rewrites the raw JSON of events, step results, step output and the function's output, which is what
-[encryption](#encryption) needs. There is no `wrapRequest`: ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a
-request, and constructor injection covers most other uses. Inngest's
+[encryption](#encryption) needs. There is no `wrapRequest`: ASP.NET Core middleware or an endpoint filter on
+`MapInngest` wraps a request, and constructor injection covers most other uses. Inngest's
 [middleware guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/middleware) describes the
 lifecycle in general.

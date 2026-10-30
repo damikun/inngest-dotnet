@@ -58,7 +58,9 @@ stop matching.
 | returns | answers `200` with the output |
 | throws | answers `500` if Inngest should retry, `400` if the failure is final |
 
-The [design document](/inngest-dotnet/internals/design/#protocol) lists every field.
+With [streaming](/inngest-dotnet/guides/configuration/#behind-a-proxy) on, a call that runs longer than three seconds
+is answered with a `201` at once, and the same answer follows inside the stream when the call ends. The
+[design document](/inngest-dotnet/internals/design/#protocol) lists every field.
 
 ## What it means for your code
 

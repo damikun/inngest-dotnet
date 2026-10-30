@@ -11,7 +11,7 @@ export const faq: Faq[] = [
   {
     question: 'Is this an official Inngest SDK?',
     answer:
-      'No. inngest-dotnet is a community port of the official TypeScript SDK, inngest-js 4.26.1, and is not affiliated with Inngest Inc. It speaks the same protocol, and its end-to-end tests run against the Inngest server in dev and cloud mode.',
+      'No. inngest-dotnet is a community port of the official TypeScript SDK, inngest-js 4.26.2, and is not affiliated with Inngest Inc. It speaks the same protocol, and its end-to-end tests run against the Inngest server in dev and cloud mode.',
   },
   {
     question: 'What do I need to run it?',
@@ -32,7 +32,7 @@ export const faq: Faq[] = [
   },
   {
     question: 'Is it ready for production?',
-    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 1,596 unit tests, 196 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. The packages are on NuGet as a preview.`,
+    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 2,126 unit tests, 204 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. The packages are on NuGet as a preview.`,
   },
   {
     question: 'Does it work with Native AOT?',

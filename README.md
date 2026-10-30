@@ -269,13 +269,13 @@ The documentation has complete examples:
 | Hosting | ASP.NET Core with `MapInngest`, or any generic host with `AddConnect` |
 | Native AOT and trimming | Compatible. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
 | Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
-| Ported from | inngest-js v4.26.1 |
+| Ported from | inngest-js v4.26.2 |
 
 ## Quality and testing
 
-- **1,862 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
+- **2,126 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
   invocations at once.
-- **200 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **204 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
@@ -296,6 +296,7 @@ data.
   [Parallel steps](https://damikun.github.io/inngest-dotnet/guides/parallel-steps/) ·
   [Invoking functions](https://damikun.github.io/inngest-dotnet/guides/invoking-functions/) ·
   [Sending events](https://damikun.github.io/inngest-dotnet/guides/sending-events/) ·
+  [Realtime](https://damikun.github.io/inngest-dotnet/guides/realtime/) ·
   [Flow control](https://damikun.github.io/inngest-dotnet/guides/flow-control/) ·
   [Errors and retries](https://damikun.github.io/inngest-dotnet/guides/errors-and-retries/) ·
   [Middleware](https://damikun.github.io/inngest-dotnet/guides/middleware/) ·
