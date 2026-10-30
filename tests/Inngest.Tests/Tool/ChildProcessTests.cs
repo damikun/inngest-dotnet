@@ -4,20 +4,18 @@ namespace Inngest.Tests.Tool;
 
 public sealed class ChildProcessTests : IDisposable
 {
+    private const string Shell = "/bin/sh";
+
     private readonly TempDirectory _directory = new();
 
     public void Dispose() => _directory.Dispose();
 
-    // A program that writes the arguments it got, one per line, and exits with the code named by the first.
+    // A script that writes the arguments it got, one per line, and exits with the code named by the first. The shell
+    // runs it, so that it needs no execute bit and the temporary folder may be one that forbids running programs.
     private string Script()
     {
-        var path = _directory.Combine("program");
-        File.WriteAllText(path, "#!/bin/sh\ncode=\"$1\"\nshift\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/arguments.txt\"\nexit \"$code\"\n");
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-
+        var path = _directory.Combine("program.sh");
+        File.WriteAllText(path, "code=\"$1\"\nshift\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/arguments.txt\"\nexit \"$code\"\n");
         return path;
     }
 
@@ -29,7 +27,7 @@ public sealed class ChildProcessTests : IDisposable
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "The program is a shell script.");
 
-        var exitCode = await ChildProcess.RunAsync(Script(), [code.ToString()]);
+        var exitCode = await ChildProcess.RunAsync(Shell, [Script(), code.ToString()]);
 
         exitCode.ShouldBe(code);
     }
@@ -39,9 +37,11 @@ public sealed class ChildProcessTests : IDisposable
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "The program is a shell script.");
 
-        await ChildProcess.RunAsync(Script(), ["0", "dev", "-u", "http://localhost:5280/api/inngest", "--config", "my \"quoted\" config.json", ""]);
+        await ChildProcess.RunAsync(
+            Shell, [Script(), "0", "dev", "-u", "http://localhost:5280/api/inngest", "--config", "my \"quoted\" config.json", ""]);
 
-        File.ReadAllLines(_directory.Combine("arguments.txt")).ShouldBe(["dev", "-u", "http://localhost:5280/api/inngest", "--config", "my \"quoted\" config.json", ""]);
+        File.ReadAllLines(_directory.Combine("arguments.txt"))
+            .ShouldBe(["dev", "-u", "http://localhost:5280/api/inngest", "--config", "my \"quoted\" config.json", ""]);
     }
 
     [Fact]
