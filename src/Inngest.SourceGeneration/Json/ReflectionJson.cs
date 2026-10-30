@@ -10,15 +10,19 @@ namespace Inngest.SourceGeneration.Json;
 // it publishes, so the properties it flips it from are read here.
 internal static class ReflectionJson
 {
+    public const string PublishAotProperty = "PublishAot";
+    public const string PublishTrimmedProperty = "PublishTrimmed";
+    public const string ReflectionEnabledProperty = "JsonSerializerIsReflectionEnabledByDefault";
+
     public static bool IsDisabled(AnalyzerConfigOptions options)
     {
-        var reflection = Read(options, "JsonSerializerIsReflectionEnabledByDefault");
+        var reflection = Read(options, ReflectionEnabledProperty);
         if (reflection is not null)
         {
             return string.Equals(reflection, "false", StringComparison.OrdinalIgnoreCase);
         }
 
-        return IsTrue(Read(options, "PublishAot")) || IsTrue(Read(options, "PublishTrimmed"));
+        return IsTrue(Read(options, PublishAotProperty)) || IsTrue(Read(options, PublishTrimmedProperty));
     }
 
     private static string? Read(AnalyzerConfigOptions options, string property) =>

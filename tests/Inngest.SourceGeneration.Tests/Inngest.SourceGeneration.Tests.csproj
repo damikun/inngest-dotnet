@@ -24,6 +24,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The file the Inngest package carries, to check it against what the compiler extensions read. -->
+    <EmbeddedResource Include="..\..\src\Inngest\buildTransitive\Inngest.props" LogicalName="Inngest.props" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.SourceGeneration\Inngest.SourceGeneration.csproj" />
     <ProjectReference Include="..\..\src\Inngest.SourceGeneration.CodeFixes\Inngest.SourceGeneration.CodeFixes.csproj" />
