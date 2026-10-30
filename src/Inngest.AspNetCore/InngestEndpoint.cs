@@ -40,6 +40,11 @@ internal static class InngestEndpoint
         }
 
         using var response = await pending.ConfigureAwait(false);
+        await WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task WriteAsync(HttpContext context, ServeResponse response, CancellationToken cancellationToken)
+    {
         var httpResponse = context.Response;
         httpResponse.StatusCode = response.StatusCode;
         var headers = response.Headers;

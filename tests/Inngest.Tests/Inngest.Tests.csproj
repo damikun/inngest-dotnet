@@ -8,7 +8,8 @@
     <CheckEolTargetFramework>false</CheckEolTargetFramework>
     <OutputType>Exe</OutputType>
     <IsTestProject>true</IsTestProject>
-    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+    <!-- INNGEST001 marks the durable endpoint API as experimental. -->
+    <NoWarn>$(NoWarn);xUnit1051;INNGEST001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
