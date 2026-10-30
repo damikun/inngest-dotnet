@@ -46,7 +46,9 @@ public static class InngestServiceCollectionExtensions
                 configuration is null ? Environment.GetEnvironmentVariable : name => configuration[name]);
         });
 
-        services.AddHttpClient(HttpClientName);
+        // The default HttpClient logging writes each request's URL at Information level, and the URL of an event send
+        // holds the event key. The SDK logs what goes wrong itself.
+        services.AddHttpClient(HttpClientName).RemoveAllLoggers();
         services.TryAddSingleton<RequestSigner>();
         services.TryAddSingleton<IInngestApi, InngestApiClient>();
         services.TryAddSingleton<ISignalApi, SignalApi>();

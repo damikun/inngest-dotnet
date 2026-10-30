@@ -111,6 +111,10 @@ come from the Inngest dashboard and belong in a secret store, not in source cont
 signing key answers every request from Inngest with an error, and the [Connect](/inngest-dotnet/guides/connect/)
 worker refuses to start.
 
+Inngest's event API takes the event key in the URL path, as in `https://inn.gs/e/<key>`. The SDK's `HttpClient`
+logs no URLs for that reason, but HttpClient tracing records the full URL as `url.full`. If the app exports
+HttpClient spans, filter or redact them for the event API.
+
 To rotate the signing key without downtime, deploy the new key as `INNGEST_SIGNING_KEY` and the old one as
 `INNGEST_SIGNING_KEY_FALLBACK`, promote the new key in Inngest, then remove the fallback. The SDK accepts
 signatures from either key while both are set, and retries API calls with the fallback when the current key is
