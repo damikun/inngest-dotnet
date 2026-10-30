@@ -236,7 +236,7 @@ share a set and add to it.
 
 | Method | What the step does |
 |---|---|
-| `Run<T>(id, T result)` | Returns `result` instead of running its handler. An `AIWrapAsync` step is mocked the same way. |
+| `Run<T>(id, T result)` | Returns `result` instead of running its handler. An `AIWrapAsync` step is mocked the same way, and so is a model call or tool call of an [AI chat client](/inngest-dotnet/guides/ai/#testing). |
 | `Run<T>(id, Func<int, T> handler)` | Calls `handler` in place of the step's own handler on every attempt, with the attempt number from 0. Throw from it to fail the attempt. |
 | `RunThrows(id, exception)` | Throws on every attempt, so the step is retried and then fails for good, at once for a `NonRetriableException`. |
 | `Sleep(id)` | The sleep ends. |
