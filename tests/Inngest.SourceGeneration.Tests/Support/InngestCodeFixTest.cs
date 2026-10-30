@@ -5,20 +5,21 @@ using Microsoft.CodeAnalysis.Testing;
 
 namespace Inngest.SourceGeneration.Tests.Support;
 
-// A test of a code fix on a project that references Inngest and publishes with Native AOT.
+// A test of a code fix on a project that references Inngest and publishes with Native AOT. The tests add the files of the
+// project to TestState and the files as they should be after the fix to FixedState.
 internal sealed class InngestCodeFixTest<TAnalyzer, TCodeFix> : CSharpCodeFixTest<TAnalyzer, TCodeFix, DefaultVerifier>
     where TAnalyzer : DiagnosticAnalyzer, new()
     where TCodeFix : CodeFixProvider, new()
 {
-    public InngestCodeFixTest(string source, string fixedSource, params (string Name, string Source)[] otherFiles)
+    public InngestCodeFixTest()
     {
         ProjectSetup.Configure(this, Sources.PublishAot);
-        TestState.Sources.Add(source);
-        FixedState.Sources.Add(fixedSource);
-        foreach (var (name, other) in otherFiles)
-        {
-            TestState.Sources.Add((name, other));
-            FixedState.Sources.Add((name, other));
-        }
+    }
+
+    // A file that the fix does not change.
+    public void AddUnchanged(string name, string source)
+    {
+        TestState.Sources.Add((name, source));
+        FixedState.Sources.Add((name, source));
     }
 }

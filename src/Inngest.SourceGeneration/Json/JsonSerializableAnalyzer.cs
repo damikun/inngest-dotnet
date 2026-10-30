@@ -183,8 +183,14 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
     }
 
     // The method name of the call, so that the squiggle does not cover the lambda that follows it.
-    private static Location NameLocation(IInvocationOperation invocation) =>
-        invocation.Syntax is InvocationExpressionSyntax { Expression: var expression }
-            ? (expression is MemberAccessExpressionSyntax member ? member.Name : expression).GetLocation()
-            : invocation.Syntax.GetLocation();
+    private static Location NameLocation(IInvocationOperation invocation)
+    {
+        if (invocation.Syntax is not InvocationExpressionSyntax { Expression: var expression })
+        {
+            return invocation.Syntax.GetLocation();
+        }
+
+        var name = expression is MemberAccessExpressionSyntax member ? member.Name : expression;
+        return (name is SimpleNameSyntax simple ? simple.Identifier.GetLocation() : name.GetLocation());
+    }
 }

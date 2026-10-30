@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Editing;
 using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Simplification;
 
@@ -24,6 +25,8 @@ namespace Inngest.SourceGeneration.Json;
 public sealed class AddJsonSerializableCodeFixProvider : CodeFixProvider
 {
     private const string AttributeName = "global::System.Text.Json.Serialization.JsonSerializable";
+
+    private static readonly SyntaxAnnotation NeedsImports = new("Inngest.SourceGeneration.NeedsImports");
 
     public override ImmutableArray<string> FixableDiagnosticIds { get; } = ImmutableArray.Create(DiagnosticIds.TypeNotInJsonContext);
 
@@ -73,21 +76,37 @@ public sealed class AddJsonSerializableCodeFixProvider : CodeFixProvider
             return solution;
         }
 
-        var edited = document.WithSyntaxRoot(root.ReplaceNode(declaration, WithAttribute(declaration, typeName)));
+        var edited = document.WithSyntaxRoot(root.ReplaceNode(declaration, WithAttribute(declaration, typeName, LineEndingOf(root))));
 
-        // Shortens the qualified names written above to the ones the file can use, and adds the using directive they need.
+        // The names above are written in full. This adds the using directives they need, then shortens them to the names that
+        // the file can use.
+        edited = await ImportAdder.AddImportsAsync(edited, NeedsImports, cancellationToken: cancellationToken).ConfigureAwait(false);
         edited = await Simplifier.ReduceAsync(edited, cancellationToken: cancellationToken).ConfigureAwait(false);
         edited = await Formatter.FormatAsync(edited, Formatter.Annotation, cancellationToken: cancellationToken).ConfigureAwait(false);
         return edited.Project.Solution;
     }
 
-    private static ClassDeclarationSyntax WithAttribute(ClassDeclarationSyntax declaration, string typeName)
+    // The file's own line ending, so that the fix does not mix the two in a file.
+    private static SyntaxTrivia LineEndingOf(SyntaxNode root)
+    {
+        foreach (var trivia in root.DescendantTrivia())
+        {
+            if (trivia.IsKind(SyntaxKind.EndOfLineTrivia))
+            {
+                return trivia;
+            }
+        }
+
+        return SyntaxFactory.ElasticLineFeed;
+    }
+
+    private static ClassDeclarationSyntax WithAttribute(ClassDeclarationSyntax declaration, string typeName, SyntaxTrivia lineEnding)
     {
         var attribute = SyntaxFactory.Attribute(
-            SyntaxFactory.ParseName(AttributeName).WithAdditionalAnnotations(Simplifier.Annotation, Simplifier.AddImportsAnnotation),
+            SyntaxFactory.ParseName(AttributeName).WithAdditionalAnnotations(Simplifier.Annotation, NeedsImports),
             SyntaxFactory.AttributeArgumentList(SyntaxFactory.SingletonSeparatedList(
                 SyntaxFactory.AttributeArgument(SyntaxFactory.TypeOfExpression(
-                    SyntaxFactory.ParseTypeName(typeName).WithAdditionalAnnotations(Simplifier.Annotation, Simplifier.AddImportsAnnotation))))));
+                    SyntaxFactory.ParseTypeName(typeName).WithAdditionalAnnotations(Simplifier.Annotation, NeedsImports))))));
         var list = SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attribute)).WithAdditionalAnnotations(Formatter.Annotation);
 
         var lists = declaration.AttributeLists;
@@ -97,7 +116,7 @@ public sealed class AddJsonSerializableCodeFixProvider : CodeFixProvider
             // and the class keeps the indentation.
             var first = declaration.GetFirstToken();
             var indentation = first.LeadingTrivia.LastOrDefault(static trivia => trivia.IsKind(SyntaxKind.WhitespaceTrivia));
-            list = list.WithLeadingTrivia(first.LeadingTrivia).WithTrailingTrivia(SyntaxFactory.ElasticCarriageReturnLineFeed);
+            list = list.WithLeadingTrivia(first.LeadingTrivia).WithTrailingTrivia(lineEnding);
             declaration = declaration.ReplaceToken(first, first.WithLeadingTrivia(indentation));
             return declaration.WithAttributeLists(declaration.AttributeLists.Insert(0, list));
         }

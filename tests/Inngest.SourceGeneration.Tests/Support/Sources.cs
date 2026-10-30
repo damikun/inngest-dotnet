@@ -6,6 +6,7 @@ internal static class Sources
     public const string Usings = """
         using System;
         using System.Collections.Generic;
+        using System.Linq;
         using System.Text.Json;
         using System.Text.Json.Serialization;
         using System.Threading;
@@ -16,21 +17,24 @@ internal static class Sources
 
     // What the source generator of System.Text.Json writes for a context, which the analyzers do not run. The compiler needs
     // the abstract members, and nothing in the tests calls them.
-    public static string ContextImplementation(string contextName) => $$"""
+    public static string ContextImplementation(string contextName, string @namespace = "Shop") => $$"""
         using System;
         using System.Text.Json;
         using System.Text.Json.Serialization;
         using System.Text.Json.Serialization.Metadata;
 
-        internal sealed partial class {{contextName}}
+        namespace {{@namespace}}
         {
-            public {{contextName}}(JsonSerializerOptions options) : base(options)
+            internal sealed partial class {{contextName}}
             {
+                public {{contextName}}(JsonSerializerOptions options) : base(options)
+                {
+                }
+
+                protected override JsonSerializerOptions? GeneratedSerializerOptions => null;
+
+                public override JsonTypeInfo? GetTypeInfo(Type type) => null;
             }
-
-            protected override JsonSerializerOptions? GeneratedSerializerOptions => null;
-
-            public override JsonTypeInfo? GetTypeInfo(Type type) => null;
         }
         """;
 
