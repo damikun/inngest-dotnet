@@ -34,7 +34,6 @@ internal static class WebhookEndpoint
         }
 
         context.Response.StatusCode = outcome.StatusCode();
-        context.Response.ContentLength = 0;
     }
 
     // The body in a pooled buffer that is cleared when it is returned, since webhooks carry personal and payment data, or
