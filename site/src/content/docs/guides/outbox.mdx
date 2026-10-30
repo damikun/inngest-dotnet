@@ -140,8 +140,8 @@ stops.
 
 Three things start a pass: a save that added events and has committed, the poll interval, and the end of a pass that
 found events, which may have left more behind. When the save used a transaction of the code's own, the wake-up comes
-with its commit, not with the save. With a `TransactionScope` the commit happens later than the dispatcher can tell, so
-the wake-up comes early, finds nothing, and the poll finds the events.
+with its commit, not with the save. With a `TransactionScope`, or a transaction that is committed outside Entity
+Framework Core, the wake-up comes too early or not at all, and the poll finds the events.
 
 ### At least once, and why a resend is harmless
 
@@ -245,6 +245,8 @@ All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as 
   build, so it needs Entity Framework Core 8; with Entity Framework Core 9 the host refuses to start and says so.
 - **Providers.** The dispatcher uses only LINQ that Entity Framework Core translates for relational providers. It was
   run against SQLite and PostgreSQL; other providers were not tried.
+- **One database per registration.** A dispatcher reads the database that `TContext` connects to in a new scope. An app
+  that picks the database per tenant needs an outbox for each, or its own dispatcher.
 - **No Native AOT.** Entity Framework Core does not support it, and the package does not declare itself compatible. The
   events are still serialized from the metadata of the serializer options, without reflection of its own.
 - **A host that stops loses nothing.** The events are in the table, and whichever instance runs next sends them.
