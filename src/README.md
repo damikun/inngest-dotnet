@@ -20,15 +20,14 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
 - [`Inngest.OpenTelemetry`](https://www.nuget.org/packages/Inngest.OpenTelemetry/): traces and metrics for function
   calls and steps.
 
-Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`. The version is
-a preview, so add `--prerelease`:
+Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`:
 
 ```bash
-dotnet add package Inngest.AspNetCore --prerelease
+dotnet add package Inngest.AspNetCore
 ```
 
 ```bash
-dotnet add package Inngest.Connect --prerelease
+dotnet add package Inngest.Connect
 ```
 
 ## A durable function
