@@ -162,7 +162,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 
 | Package | What it gives you |
 |---|---|
-| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. Its only dependencies are `Microsoft.Extensions.*` packages. |
+| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. A source generator that registers your function classes, and analyzers for Native AOT apps, come with it. Its only dependencies are `Microsoft.Extensions.*` packages. |
 | [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/) | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app, and a health check for readiness probes. |
 | [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
 | [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |
@@ -274,7 +274,7 @@ The documentation has complete examples:
 |---|---|
 | .NET | .NET 8 and .NET 10 (`net8.0`, `net10.0`) |
 | Hosting | ASP.NET Core with `MapInngest`, or any generic host with `AddConnect` |
-| Native AOT and trimming | Compatible. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
+| Native AOT and trimming | Compatible. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
 | Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
 | Ported from | inngest-js v4.26.2 |
 
@@ -312,6 +312,7 @@ data.
   [Configuration](https://damikun.github.io/inngest-dotnet/guides/configuration/) ·
   [Deploying](https://damikun.github.io/inngest-dotnet/guides/deploying/) ·
   [Native AOT](https://damikun.github.io/inngest-dotnet/guides/native-aot/) ·
+  [Source generator and analyzers](https://damikun.github.io/inngest-dotnet/guides/source-generator/) ·
   [Testing](https://damikun.github.io/inngest-dotnet/guides/testing/)
 - **Try it in the browser:** [Function options builder](https://damikun.github.io/inngest-dotnet/explainers/function-options/) ·
   [Flow control timeline](https://damikun.github.io/inngest-dotnet/explainers/flow-control/)

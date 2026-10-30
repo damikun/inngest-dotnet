@@ -82,6 +82,7 @@ export default defineConfig({
             'guides/testing',
             'guides/testing-with-containers',
             'guides/native-aot',
+            'guides/source-generator',
             'guides/deploying',
           ],
         },

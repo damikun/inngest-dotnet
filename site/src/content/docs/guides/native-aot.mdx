@@ -78,10 +78,31 @@ Anonymous types cannot be source generated, so use records where the other guide
 context does not know fails at run time with a `NotSupportedException` from `System.Text.Json`, in the step or call
 that serializes it; the publish warnings will not catch it, so test the paths that matter.
 
+## Let the build find what is missing
+
+A forgotten type is the one thing the publish warnings do not catch. The `Inngest` package therefore includes an
+analyzer that runs in a project which turns reflection-based JSON off, with `PublishAot`, `PublishTrimmed` or
+`JsonSerializerIsReflectionEnabledByDefault` set to `false`. It warns about every type of the list above that no
+context lists, for the event data and the result of your function classes, the event data of a delegate function and the
+result of each `RunAsync<T>`:
+
+```text
+warning INNGEST010: 'Receipt' is the result of function 'OnRefund', but no JsonSerializerContext lists it with
+[JsonSerializable], and reflection-based JSON is turned off
+```
+
+In the IDE, a code fix adds the `[JsonSerializable]` attribute to your context. It is an analyzer and not a generator
+that fills the context, because the generator of `System.Text.Json` does not see code that another generator writes.
+[Source generator and analyzers](/inngest-dotnet/guides/source-generator/#check-the-json-of-a-native-aot-app) says what
+the analyzer checks and what it leaves to you, and covers the generator that registers the function classes.
+
 ## Class functions and middleware
 
 `AddFunction<TFunction>` and `AddMiddleware<TMiddleware>` keep the constructors they need through
 `DynamicallyAccessedMembers`, so class-based functions and middleware work in AOT apps without extra configuration.
+`AddInngestFunctions()`, which the [source generator](/inngest-dotnet/guides/source-generator/) writes, calls
+`AddFunction<TFunction>` for each class that has `[InngestFunction]`, so the app lists no class and nothing scans for
+them.
 
 Attribute classes work too: `AddFunction<TFunction>()` reads the attributes of the class it is given when the app
 starts, the generic ones such as `[EventTrigger<T>]` included, which needs no reflection beyond what trimming keeps.

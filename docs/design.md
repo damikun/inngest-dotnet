@@ -233,7 +233,7 @@ binder, so it works trimmed and under Native AOT.
 
 | Package | Contents |
 |---|---|
-| `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. |
+| `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. It also carries a source generator, analyzers and a code fix (see [Source generator and analyzers](#source-generator-and-analyzers)), which are not packages of their own. |
 | `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler, and `AddInngest` on `IHealthChecksBuilder`, a readiness check for apps that serve functions. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
@@ -293,11 +293,12 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
 - A function class can carry its options as attributes (`[InngestFunction]`, `[EventTrigger<T>]`, `[CronTrigger]`,
   `[Concurrency]`, `[Throttle]`, `[CancelOn<T>]` and so on), one per `FunctionOptions` member, with durations as
   time strings. All but `[InngestFunction]` derive from `FunctionOptionsAttribute` and map themselves onto the
-  options in `Configure`, so users can write their own and a source generator could call `Apply` without
-  reflection. `AddFunction<TFunction>()` reads them once at registration, with `GetCustomAttributes` on the type it
+  options in `Configure`, so users can write their own. `AddFunction<TFunction>()` reads them once at registration, with `GetCustomAttributes` on the type it
   names, which stays trim and AOT safe: it starts from `[InngestFunction]` and applies the others in `Order`, then
   in declaration order. The result goes through the same startup validator. Explicit `FunctionOptions` replace the
-  attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no assembly scanning.
+  attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no assembly scanning: the source generator writes
+  `AddInngestFunctions()`, which calls `AddFunction<TFunction>()` for each class with `[InngestFunction]`. The generated
+  code does not call `Apply` itself, so the attributes are still read when the app starts and not at compile time.
 - Event data records implement `IInngestEventData`, whose static abstract `EventName` (and static virtual
   `EventVersion`) let `SendAsync<T>`, `Trigger.Event<T>`, `WaitForEventAsync<T>`, `CancelOn.For<T>` and
   `SendEventAsync<T>` take the name from the type without reflection. Every string form stays.
@@ -372,10 +373,60 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
 The SDK's own wire types use System.Text.Json source generation, one `JsonSerializerContext` per area. User types
 (event data, step results, function output) go through `InngestOptions.SerializerOptions`, which defaults to
 `JsonSerializerDefaults.Web` with reflection when reflection is enabled. Apps that trim or use Native AOT add their
-own source-generated context to its `TypeInfoResolverChain`. Step results are round-tripped through JSON even on
-the call that ran them, the same as every later replay sees them. Packages that save types the app does not own, such as
-`Inngest.Extensions.AI` with `ChatResponse`, write them to a `JsonElement` with the options of the library the types come
-from and hand the SDK only the element, so the app's options need no contracts for them.
+own source-generated context to its `TypeInfoResolverChain`, and an analyzer of the `Inngest` package finds the types
+that context lacks. Step results are round-tripped through JSON even on the call that ran them, the same as every later
+replay sees them. Packages that save types the app does not own, such as `Inngest.Extensions.AI` with `ChatResponse`,
+write them to a `JsonElement` with the options of the library the types come from and hand the SDK only the element, so
+the app's options need no contracts for them.
+
+### Source generator and analyzers
+
+`src/Inngest.SourceGeneration` holds an incremental source generator and two analyzers, and
+`src/Inngest.SourceGeneration.CodeFixes` the code fix. Neither is a package. `src/Inngest/Inngest.csproj` builds both
+without referencing them and packs the two assemblies in `analyzers/dotnet/cs`, with `buildTransitive/Inngest.props`
+and `Inngest.targets`. They ship in the package of the SDK because the generated code calls `AddFunction<T>()` of the
+same release and every project that defines a function references `Inngest`, which is where System.Text.Json and
+`Microsoft.Extensions.Logging` put their generators too, next to the attributes they read. `martinothamar/Mediator`
+ships its generator as a package of its own, because only the app that hosts the mediator needs it and libraries use
+the abstractions alone; that is not the shape here, where a library with functions needs the generator as much as the
+app does. `buildTransitive` and not `build`, because an app mostly reaches `Inngest` through `Inngest.AspNetCore` or
+`Inngest.Connect`, and the assets of `build` only reach the project that references the package itself.
+
+- **Roslyn.** Both assemblies target `netstandard2.0` (RS1041) and `Microsoft.CodeAnalysis.CSharp` 4.8.0, the compiler of
+  the .NET 8 SDK and Visual Studio 17.8, the oldest that can build for `net8.0`. A component loads into its own Roslyn
+  version or a newer one, so one build serves every compiler the packages can be used with, where System.Text.Json's
+  generator ships builds for Roslyn 3.11, 4.0 and 4.4 under `analyzers/dotnet/roslyn*` because its package also
+  targets older runtimes. `EnforceExtendedAnalyzerRules` is on, so the banned-API rules (RS1035) apply.
+- **The code fix is an assembly of its own.** It needs `Microsoft.CodeAnalysis.Workspaces`, which the command-line
+  compiler does not have, and a generator or analyzer must not reference it (RS1038): the extension would fail to load
+  there. The compiler never loads a type of the code fix assembly, so the assembly beside the generator is harmless to a
+  build, and the IDE uses it.
+- **The generator** asks for the classes with `ForAttributeWithMetadataName`, which the compiler answers from an index
+  of attribute names, and describes each one as a string: no symbol, compilation or location enters the pipeline. One
+  `Registration` value, which compares by value (`EquatableArray<string>`), comes out of `Collect()`, so an edit that
+  leaves the registered classes as they were does not write the file again. `IncrementalityTests` check that with
+  `trackIncrementalGeneratorSteps`: every step's outputs are `Cached` or `Unchanged` after an unrelated edit.
+- **Output.** A static class in the namespace `Inngest`, named after the assembly: two assemblies of one app each get a
+  class, and a public class of the same name in both would hide the extension methods of the one that is referenced
+  (the compiler only warns, CS0436). One statement for each class, because a long chain of calls is one expression and
+  the compiler has a limit on those. The method is `internal` unless the project says `public`, and its name is a
+  project property too. With public methods of the same name in two assemblies the call is ambiguous (CS0121), which is
+  why the default is not public; the guide explains the setup for a library.
+- **Diagnostics.** The generator reports nothing about classes. `FunctionClassification` answers whether a class can
+  be registered, for the generator, which leaves out the classes that cannot, and for `FunctionClassAnalyzer`, which
+  says why. The two cannot disagree, and the messages are analyzer diagnostics, which `#pragma` and `.editorconfig`
+  control. Only a property value the generator cannot use is reported by the generator.
+- **JSON analyzer.** It registers nothing unless `PublishAot`, `PublishTrimmed` or
+  `JsonSerializerIsReflectionEnabledByDefault` (read through `CompilerVisibleProperty`) say that reflection-based JSON is
+  off; the SDK only flips the switch while publishing, so the properties it flips it from are read. It checks the
+  type arguments of the function base class, `AddFunction<TEventData>(options, handler)` and `RunAsync<T>`. A type is
+  covered when a `JsonSerializerContext` of the project, or of a referenced assembly that uses System.Text.Json and is
+  not part of the framework, lists it, or when a listed type reaches it through its members, constructor parameters,
+  type arguments or `[JsonDerivedType]`, because the generator of System.Text.Json writes metadata for that whole graph.
+  The set is computed when the first type needs it.
+- **The generator cannot fill the context.** Generators run on the same input and the output of one is not input to
+  another, so `[JsonSerializable]` attributes written by Inngest's generator would never reach System.Text.Json's. The
+  code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives.
 
 ### Logging
 
@@ -419,6 +470,8 @@ per call.
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
+| Registering function classes without listing them | Supported (.NET only): the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
+| Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and `RunAsync<T>`; other steps and events sent by the app are not checked |
 
 
 ## Spec deviations

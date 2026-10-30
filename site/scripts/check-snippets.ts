@@ -435,6 +435,9 @@ ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}
 ${reference('Inngest.Encryption')}
 ${reference('Inngest.Extensions.AI')}
+    <!-- The generator and the analyzers come with the Inngest package; a project reference does not bring them, so the
+         snippets that call AddInngestFunctions() get them from the source. -->
+    <ProjectReference Include="${join(repo, 'src', 'Inngest.SourceGeneration', 'Inngest.SourceGeneration.csproj')}" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Docs.Support" />
