@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from more guides to checkpointing by default and middleware packages.
+description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from realtime, sessions and Sentry and encryption packages to checkpointing by default.
 ---
 
 The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
@@ -21,6 +21,10 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   sends or invokes inherits them. See [Sessions](/inngest-dotnet/guides/sending-events/#sessions).
 - **A test host for every step.** Mocks for waits for signals, sent signals, fetch and inference steps; AI wrap steps
   take run mocks; signals and realtime messages are recorded like events.
+- **Sentry and encryption packages.** `Inngest.Sentry` reports the errors of functions and steps to Sentry, tagged
+  with the app, the function, the run and the event. `Inngest.Encryption` encrypts event data, step results and
+  function output in the format of the TypeScript SDK's encryption middleware, so .NET and TypeScript services read
+  each other's data. See [Middleware](/inngest-dotnet/guides/middleware/#encryption).
 
 ## New in 0.1.0-preview.3
 
@@ -77,7 +81,7 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 
 - **Guides** for versioning, idempotency, loops, expressions and local development.
 - **Checkpointing on by default**, once it has more time against Inngest Cloud.
-- **Middleware packages** for validation and encryption, built on the payload transforms.
+- **A validation middleware package**, built on the payload transforms.
 
 ## After that
 
