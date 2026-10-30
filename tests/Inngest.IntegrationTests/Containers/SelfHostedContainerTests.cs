@@ -36,6 +36,26 @@ public sealed class SelfHostedContainerTests(SelfHostedContainerFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task An_app_with_another_signing_key_refuses_the_sync()
+    {
+        const string OtherKey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+        await using var other = await ContainerApp.StartAsync(
+            options =>
+            {
+                Fixture.Server.Configure(options);
+                options.SigningKey = OtherKey;
+            },
+            settings: null,
+            Cancellation);
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() => Fixture.Server.SyncAsync(other.Url, Cancellation));
+
+        // The app signs in to the server with its own key, which the server rejects, and says only that it failed.
+        exception.Message.ShouldContain("500");
+        exception.Message.ShouldContain("Failed to register");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task The_server_wants_the_signing_key_on_its_rest_api()
     {
         using var anonymous = new HttpClient { BaseAddress = Fixture.Server.GetBaseAddress() };

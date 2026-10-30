@@ -98,7 +98,8 @@ server. The request carries `host.docker.internal` as its host name, whatever ad
 Docker Desktop resolves that name by itself, and on Linux the builder maps it to the host gateway. `SyncAsync` returns
 once the server knows the app's functions, and throws when the app does not answer or refuses. An address such as
 `http://[::]:5000/api/inngest`, which Kestrel reports for an app on all interfaces, is accepted. Syncing again is
-harmless.
+harmless. An app that sets `ServeOrigin` (or `INNGEST_SERVE_ORIGIN`) registers that origin instead of the one the
+request names, which the container cannot reach; leave it unset in tests.
 
 When the app's port is known before anything starts, the container can do the syncing: `WithAppUrl` adds the address to
 the command line, and the server syncs the app when it starts and keeps trying every second until the app answers. The

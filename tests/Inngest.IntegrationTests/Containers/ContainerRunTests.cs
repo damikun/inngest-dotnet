@@ -65,6 +65,16 @@ public abstract class ContainerRunTests<TFixture>(TFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task Syncing_an_address_that_is_no_inngest_endpoint_says_what_the_app_answered()
+    {
+        var elsewhere = new Uri($"http://127.0.0.1:{Fixture.App.Port}/not-the-inngest-endpoint");
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() => Fixture.Server.SyncAsync(elsewhere, Cancellation));
+
+        exception.Message.ShouldContain("404");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task Syncing_an_app_that_is_not_there_says_so()
     {
         var closed = new Uri($"http://127.0.0.1:{FreePorts.Pick(1)[0]}{ContainerApp.ServePath}");
