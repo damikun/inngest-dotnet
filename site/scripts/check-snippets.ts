@@ -424,9 +424,11 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
+    <PackageReference Include="Sentry.AspNetCore" Version="6.12.1" />
   </ItemGroup>
   <ItemGroup>
 ${references}
+${reference('Inngest.Sentry')}
 ${reference('Inngest.Testing')}
 ${reference('Inngest.Encryption')}
   </ItemGroup>

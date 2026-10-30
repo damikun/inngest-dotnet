@@ -21,6 +21,8 @@ inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), p
   calls and steps.
 - [`Inngest.Encryption`](https://www.nuget.org/packages/Inngest.Encryption/): end-to-end encryption of event data, step
   results and function output, in the format of the TypeScript SDK's encryption middleware.
+- [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/): reports the errors of functions and steps to
+  Sentry, tagged with the app, the function, the run and the event.
 
 Install `Inngest.AspNetCore` for a web app, or `Inngest.Connect` for a worker. Both bring in `Inngest`:
 

@@ -239,16 +239,17 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
 | `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
+| `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
 
 `Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing` and `Inngest.Encryption` use internals of `Inngest` through
 `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
 `Inngest.Encryption` only reads the serializer options. Internals can change in any release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
-the exact range). `Inngest.OpenTelemetry` uses only the public middleware API.
+the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption` has no release to compare with yet, so its project file clears the baseline until
-its first one.
+each release. `Inngest.Encryption` and `Inngest.Sentry` have no release to compare with yet, so their project files
+clear the baseline until their first one.
 
 ### Code layout
 
@@ -398,6 +399,7 @@ per call.
 | REST API for runs: get a run, list the runs of an event, cancel a run | Supported (`IInngestRunsClient`) |
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook. |
+| Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 
 

@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption and Inngest.Testing packages, with their members and what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry and Inngest.Testing packages, with their members and what they are for.
 sidebar:
   label: API overview
 ---
@@ -308,6 +308,18 @@ Package `Inngest.Encryption`. See [Encryption](/inngest-dotnet/guides/middleware
 **`EncryptionService`**, an abstract class: `Identifier`, which the envelope's `__STRATEGY__` carries;
 `Encrypt(ReadOnlySpan<byte> json)`, which returns the text of the `data` field; and `Decrypt(string data)`, which
 returns the UTF-8 JSON of the value.
+
+## Sentry
+
+Package `Inngest.Sentry`.
+
+| Member | Purpose |
+|---|---|
+| `IInngestBuilder.AddSentryReporting(Action<SentryReportingOptions>?)` | Adds the middleware that reports the errors of functions and steps to Sentry. Add it before other middleware, so that their work falls inside its scope. |
+
+**`SentryReportingOptions`**: `OnlyCaptureFinalAttempt` (default `true`), `CaptureStepErrors` (`false`),
+`DisableAutomaticFlush` (`false`) and `FlushTimeout` (2 seconds). See [Middleware](/inngest-dotnet/guides/middleware/#sentry)
+for the tags, the trace and the options.
 
 ## Test host
 

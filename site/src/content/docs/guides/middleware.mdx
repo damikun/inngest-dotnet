@@ -1,6 +1,6 @@
 ---
 title: Middleware for Inngest functions
-description: Observe and wrap function runs, steps and event sends with InngestMiddleware, for logging, metrics, tracing, error mapping and event enrichment.
+description: Observe and wrap function runs, steps and event sends with InngestMiddleware, for logging, metrics, tracing, error mapping, event enrichment and reporting errors to Sentry.
 sidebar:
   label: Middleware
 ---
@@ -349,6 +349,115 @@ that the default strategies wrote are still decrypted, so data can move from one
 - It works under Native AOT. Event data types go in the serializer context as for any event.
 - The test host reports what is stored, so `Output` and `SentEvents` show encrypted values when encryption is added to
   the services it runs. Tests of functions usually leave it out.
+
+## Sentry
+
+The [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) package reports the errors of functions and
+steps to Sentry. An exception that a function throws never leaves the request: the SDK turns it into the answer to
+Inngest, so Sentry's ASP.NET Core integration has nothing to capture. The middleware reports it instead, with the
+app, the function, the run and the event as tags.
+
+```bash
+dotnet add package Inngest.Sentry --prerelease
+```
+
+Set Sentry up as usual, and add the middleware before the others, so that their work falls inside its scope. It
+reports through the `IHub` the app registered, which `UseSentry` does, and otherwise through the static hub. While
+Sentry is not enabled it does nothing.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.WebHost.UseSentry(options => options.Dsn = "https://key@o0.ingest.sentry.io/0");
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddSentryReporting();
+```
+
+### What it reports
+
+The middleware reports the exception of a function when the function fails, and the exception of a step when its
+handler fails and `CaptureStepErrors` is on. By default it reports only the final attempt, after which Inngest does
+not retry: the retries are used up, or the error is a `NonRetriableException`. Each step the call executed leaves a
+breadcrumb for the events that follow, in the category `inngest.step`, with the level `Error` for a step that failed.
+
+An event it reports has the transaction name `inngest:<function id>` and these tags:
+
+| Tag | Value |
+|---|---|
+| `inngest.client.id` | The app id. |
+| `inngest.function.id` | The function id with the app id in front, as Inngest names it: `shop-checkout`. |
+| `inngest.run.id` | The run id. |
+| `inngest.attempt` | The attempt, counted from `0`. |
+| `inngest.event.name`, `inngest.event.id` | The triggering event, or the first event of a batch. |
+| `inngest.error.source` | `run` for the error of a function, `step` for the error of a step. |
+| `inngest.step.name` | For the error of a step, its display name, or its id when it has none. |
+
+A step that fails for good and reaches a function that does not catch it is reported by the function. With
+`CaptureStepErrors` on, the step reports it as well, so it appears twice.
+
+### Scope and trace
+
+Sentry's scope follows the async flow. The middleware pushes one around the function and around every step handler,
+with the tags above except those of an error, so that what your code reports there carries them too: a
+`SentrySdk.CaptureException` in a step, or an error logged through Sentry's logging integration. Sentry.AspNetCore
+locks the scope of a request, so a push there creates nothing, and the tags go on the request's scope, which only this
+call uses.
+
+All calls of a run report to one trace. A run id is a ULID, which holds 128 bits, as a trace id does, and the
+middleware makes it the trace id the way the TypeScript middleware does. Events of different calls, even on different
+instances of the app, are so in one trace in Sentry, and not in the trace of the request that carries the call, which
+is a new one for every call.
+
+### Options
+
+| Option | Default | Effect |
+|---|---|---|
+| `OnlyCaptureFinalAttempt` | `true` | Reports an error only on the final attempt. When `false`, every attempt is reported. |
+| `CaptureStepErrors` | `false` | Reports the error of a step as an event of its own, besides the error of the function. |
+| `DisableAutomaticFlush` | `false` | Leaves flushing to Sentry. |
+| `FlushTimeout` | 2 seconds | How long the flush waits for events to be sent, as `FlushTimeout` of Sentry's own options. |
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddSentryReporting(options =>
+    {
+        options.OnlyCaptureFinalAttempt = false;
+        options.CaptureStepErrors = true;
+    });
+```
+
+Unless `DisableAutomaticFlush` is set, the middleware flushes Sentry when the call's service scope ends. A runtime that
+stops once a call has answered, as serverless ones may, then does not take events with it.
+
+### Sentry's logging integration
+
+`UseSentry` also turns on Sentry's logging integration, which reports log entries of the level `Error` and above as
+events. When a function or a step fails for good, the SDK writes such an entry with the exception: event id 107 for a
+function and 109 for a step. It comes before the middleware's report, and Sentry keeps one event per exception, so
+the event is the log entry's. In an ASP.NET Core app it has the tags of the call, but not the error source or the
+transaction name, and the options above do not apply to it. To have the middleware alone report these errors, filter
+the entries out:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+using Sentry.Extensions.Logging;
+
+builder.WebHost.UseSentry(options =>
+    options.AddLogEntryFilter((category, level, eventId, exception) =>
+        category.StartsWith("Inngest.", StringComparison.Ordinal) && eventId.Id is 107 or 109));
+```
+
+### Compared with the TypeScript middleware
+
+- The TypeScript middleware also starts a Sentry span for each request and each step. This one reports errors only.
+  For spans, use [`Inngest.OpenTelemetry`](/inngest-dotnet/reference/api/#opentelemetry) with Sentry's OpenTelemetry
+  integration.
+- There is no `ctx.sentry`. Use `SentrySdk`, or take an `IHub` from the container.
+- There is no `inngest.function.name` tag, because a function's context holds its id only.
+- `FlushTimeout` is new: `FlushAsync` needs a timeout.
 
 ## Compared with the TypeScript SDK
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Inngest.Tests.Execution;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -91,7 +92,8 @@ public sealed class ScopeTests
     [Fact]
     public async Task In_a_request_scope_the_tags_also_reach_the_event_of_the_logging_integration()
     {
-        await using var host = new SentryHost(services: services => services.AddSingleton<ILoggerProvider>(new ErrorsToSentry()));
+        var integration = new ErrorEntries((_, exception) => HubAdapter.Instance.CaptureException(exception));
+        await using var host = new SentryHost(services: services => services.AddSingleton<ILoggerProvider>(integration));
         var function = TestFunction.Define(_ => throw new NonRetriableException("no"));
 
         using (HubAdapter.Instance.PushAndLockScope())
@@ -104,11 +106,30 @@ public sealed class ScopeTests
         TagsOf(report)["inngest.run.id"].ShouldBe(SentryHost.RunId);
     }
 
+    // The guide tells apps to filter these entries out of the logging integration by their event ids.
+    [Fact]
+    public async Task The_SDK_writes_a_failure_for_good_as_the_error_entries_the_guide_names()
+    {
+        var ids = new ConcurrentQueue<int>();
+        var entries = new ErrorEntries((id, _) => ids.Enqueue(id.Id));
+        await using var host = new SentryHost(initialize: false, services: services => services.AddSingleton<ILoggerProvider>(entries));
+        var function = TestFunction.Define(async context =>
+            await context.Step.RunAsync<int>("charge", _ => throw new TimeoutException("slow")));
+
+        await host.CallAsync(function, Call.New().Attempt(0, maxAttempts: 4));
+        ids.ShouldBeEmpty();
+        await host.CallAsync(function, Call.New().Attempt(3, maxAttempts: 4));
+        await host.CallAsync(function, Call.New().Failed("charge", "TimeoutException", "slow"));
+
+        ids.ShouldBe([109, 107]);
+    }
+
     private static Dictionary<string, string> TagsOf(SentryEvent report) =>
         report.Tags.ToDictionary(tag => tag.Key, tag => tag.Value, StringComparer.Ordinal);
 
-    // What Sentry's logging integration does with an error that has an exception.
-    private sealed class ErrorsToSentry : ILoggerProvider, ILogger
+    // A logger provider that hands the entries of the level Error and above that carry an exception to a callback, which
+    // is what Sentry's logging integration looks at.
+    private sealed class ErrorEntries(Action<EventId, Exception> onEntry) : ILoggerProvider, ILogger
     {
         public ILogger CreateLogger(string categoryName) => this;
 
@@ -121,7 +142,7 @@ public sealed class ScopeTests
         {
             if (logLevel >= LogLevel.Error && exception is not null)
             {
-                HubAdapter.Instance.CaptureException(exception);
+                onEntry(eventId, exception);
             }
         }
 
