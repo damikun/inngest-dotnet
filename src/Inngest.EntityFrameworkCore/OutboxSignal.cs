@@ -16,18 +16,19 @@ internal sealed class OutboxSignal
 
     public void Notify() => _pending.Writer.TryWrite(true);
 
-    // Returns when notified or when the interval is over. Only the token stops it with an exception.
-    public async Task WaitAsync(TimeSpan interval, TimeProvider time, CancellationToken cancellationToken)
+    // Returns true when notified and false when the interval is over. Only the token stops it with an exception.
+    public async Task<bool> WaitAsync(TimeSpan interval, TimeProvider time, CancellationToken cancellationToken)
     {
         using var timeout = new CancellationTokenSource(interval, time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
             await _pending.Reader.ReadAsync(either.Token).ConfigureAwait(false);
+            return true;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The interval is over.
+            return false;
         }
     }
 }

@@ -179,7 +179,11 @@ public sealed class ClaimTests
 
             private static bool IsReadingClaim(DbCommand command) => command.CommandText.StartsWith("SELECT", StringComparison.Ordinal) && !command.CommandText.Contains("LIMIT", StringComparison.Ordinal);
 
-            private static bool IsClaiming(DbCommand command) => command.CommandText.StartsWith("UPDATE", StringComparison.Ordinal) && command.CommandText.Contains("SET \"LeaseToken\" = @", StringComparison.Ordinal);
+            // The claim is the only update that sets the lease token to a value; the others clear it. EF Core 8 and 10 list the
+            // assignments in different orders, so the whole SET clause is looked at.
+            private static bool IsClaiming(DbCommand command) =>
+                command.CommandText.StartsWith("UPDATE", StringComparison.Ordinal)
+                && command.CommandText[..command.CommandText.IndexOf("WHERE", StringComparison.Ordinal)].Contains("\"LeaseToken\" = @", StringComparison.Ordinal);
 
             public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
             {

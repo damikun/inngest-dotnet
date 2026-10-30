@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
 namespace Inngest.EntityFrameworkCore.Tests;
@@ -149,11 +148,6 @@ public sealed class WakeTests
     }
 
     // True if the signal fires within the time. A signal that is already pending counts, and is used up.
-    private static async Task<bool> WokenAsync(OutboxHost host, TimeSpan? within = null)
-    {
-        var limit = within ?? TimeSpan.FromSeconds(10);
-        var stopwatch = Stopwatch.StartNew();
-        await host.Signal.WaitAsync(limit, TimeProvider.System, CancellationToken.None);
-        return stopwatch.Elapsed < limit;
-    }
+    private static Task<bool> WokenAsync(OutboxHost host, TimeSpan? within = null) =>
+        host.Signal.WaitAsync(within ?? TimeSpan.FromSeconds(10), TimeProvider.System, CancellationToken.None);
 }
