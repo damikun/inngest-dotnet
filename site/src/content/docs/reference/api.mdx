@@ -208,8 +208,8 @@ after the arguments listed here. See [Fan-out over a list](/inngest-dotnet/guide
 | `MapInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<IReadOnlyList<TResult>>`; each chunk of `chunkSize` items runs in a run of the `FanOutFunction<TItem, TResult>` class `TFunction`, with the id `id[first-last]` |
 | `MapOutcomesInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<IReadOnlyList<FanOutOutcome<TResult>>>` |
 
-A list of more than 1,000 items is refused by the methods without chunks, and so are a `chunkSize` above 1,000 and more
-than 1,000 chunks, since a run has at most 1,000 steps.
+A run has at most 1,000 steps, so the methods without chunks refuse a list of more than 1,000 items, and the chunked
+methods refuse a `chunkSize` above 1,000 and a list that makes more than 1,000 chunks.
 
 | Type | Members |
 |---|---|

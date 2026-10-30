@@ -136,7 +136,7 @@ public static class FanOutExtensions
             : MapOutcomesChunksCoreAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, cancellationToken);
     }
 
-    // How many lanes run at once: the limit, or all units, and at least none. Also the check of the limit.
+    // How many lanes run: the limit, or one per unit. Also the check of the limit.
     internal static int WidthOf(int? maxParallelism, int count, string name)
     {
         if (maxParallelism is { } max)
@@ -168,7 +168,7 @@ public static class FanOutExtensions
         return WidthOf(options?.MaxParallelism, items.Count, nameof(options));
     }
 
-    // The chunks of the list, as the item number each starts at, and the width of the lanes that run them.
+    // How many chunks the list makes and how many of them run at once, after the checks of the arguments.
     private static Chunking CheckChunked<TItem>(IStepTools step, string id, IReadOnlyList<TItem> items, int chunkSize, FanOutOptions? options)
     {
         ArgumentNullException.ThrowIfNull(step);
