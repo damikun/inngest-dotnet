@@ -32,7 +32,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
-    <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
+    <!-- Microsoft.Extensions.AI brings System.Text.Json 10 to net8.0, which has JsonMarshal, as the polyfill in Inngest.Connect
+         does. The alias lets PolyfillTests name the polyfill. -->
+    <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" Aliases="global,connect" />
     <ProjectReference Include="..\..\src\Inngest.Encryption\Inngest.Encryption.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
     <ProjectReference Include="..\..\src\Inngest.OpenTelemetry\Inngest.OpenTelemetry.csproj" />

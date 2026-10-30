@@ -130,3 +130,18 @@ internal sealed class FakeChatClient(Func<int, IList<ChatMessage>, ChatResponse>
         }
     }
 }
+
+internal static class AsyncEnumerableExtensions
+{
+    // IAsyncEnumerable has no ToListAsync before .NET 10.
+    public static async Task<List<T>> CollectAsync<T>(this IAsyncEnumerable<T> source)
+    {
+        List<T> items = [];
+        await foreach (var item in source)
+        {
+            items.Add(item);
+        }
+
+        return items;
+    }
+}
