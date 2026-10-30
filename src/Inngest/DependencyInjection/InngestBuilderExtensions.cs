@@ -102,8 +102,9 @@ public static class InngestBuilderExtensions
         builder.AddFunction<JsonElement>(options, handler, onFailure);
 
     /// <summary>
-    /// Middleware runs in registration order. It is scoped: one instance serves a whole invocation, including the
-    /// events its steps send, so it can keep per-run state.
+    /// Middleware runs in registration order. It is scoped: one instance serves one call from Inngest, including the
+    /// events its steps send, so it can keep state for that call. The calls of a run can reach any instance of the app,
+    /// so nothing kept in fields lasts the run.
     /// </summary>
     public static IInngestBuilder AddMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TMiddleware>(
         this IInngestBuilder builder)
@@ -114,6 +115,10 @@ public static class InngestBuilderExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Registers one middleware instance for every call, including calls that run at the same time, so it must be
+    /// thread-safe and keep no state for a call in fields.
+    /// </summary>
     public static IInngestBuilder AddMiddleware(this IInngestBuilder builder, InngestMiddleware middleware)
     {
         ArgumentNullException.ThrowIfNull(builder);

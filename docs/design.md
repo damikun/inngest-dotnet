@@ -300,7 +300,8 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
 - Middleware derives from `InngestMiddleware` and overrides only the hooks it needs: observers (`OnRunStartAsync`,
   `OnMemoizationEndAsync`, `OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`,
   `OnStepErrorAsync`) and wrappers (`WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync`,
-  `WrapSendEventAsync`). Instances are resolved per invocation, so they can hold per-run state, as in v4.
+  `WrapSendEventAsync`). Instances are resolved per call, so they can hold state for the call, as in v4. A run's calls
+  can reach any instance of the app, so nothing in them lasts the run.
 
 ### Request path
 
