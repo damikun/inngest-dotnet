@@ -1,12 +1,14 @@
 import { defineRouteMiddleware } from '@astrojs/starlight/route-data';
 import { REPO_URL, SITE_DESCRIPTION, SITE_NAME } from './consts';
 import { faq, plainText } from './data/faq';
+import { pageId } from './lib/markdown/links';
 import { CARD_SIZE, cardPath, sectionOf } from './lib/sections';
 
 // The home page's <title>, worded for what people search for; other pages use "<title> | inngest-dotnet".
 const HOME_TITLE = 'inngest-dotnet: Inngest SDK for .NET durable functions';
 
-// Adds what Starlight does not: the social card, Twitter tags and structured data for each page.
+// Adds what Starlight does not: the social card, Twitter tags, structured data and the link to the Markdown copy of
+// each page.
 export const onRequest = defineRouteMiddleware((context) => {
   const route = context.locals.starlightRoute;
   const { entry, head } = route;
@@ -21,6 +23,7 @@ export const onRequest = defineRouteMiddleware((context) => {
   const title = entry.data.title;
   const description = entry.data.description ?? SITE_DESCRIPTION;
   const card = new URL(cardPath(entry.id), site);
+  const markdown = new URL(`${pageId(entry.id)}.md`, site);
   const alt = isHome ? `${SITE_NAME}: ${entry.data.hero?.title ?? title}` : `${title}, ${SITE_NAME}`;
 
   const ogType = head.find((tag) => tag.tag === 'meta' && tag.attrs?.property === 'og:type');
@@ -38,6 +41,8 @@ export const onRequest = defineRouteMiddleware((context) => {
     { tag: 'meta', attrs: { name: 'twitter:description', content: description } },
     { tag: 'meta', attrs: { name: 'twitter:image', content: card.href } },
     { tag: 'meta', attrs: { name: 'twitter:image:alt', content: alt } },
+    // For tools that read the docs: the same page as Markdown.
+    { tag: 'link', attrs: { rel: 'alternate', type: 'text/markdown', title: 'This page as Markdown', href: markdown.href } },
     { tag: 'script', attrs: { type: 'application/ld+json' }, content: jsonLd(isHome, site, page, title, description, entry.id) },
   );
 });

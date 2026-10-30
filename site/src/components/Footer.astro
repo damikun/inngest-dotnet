@@ -1,6 +1,12 @@
 ---
 import Default from '@astrojs/starlight/components/Footer.astro';
 import { INNGEST_DOCS_URL, REPO_URL } from '../consts';
+import { pageId } from '../lib/markdown/links';
+
+// Every page has a Markdown copy next to it. The 404 page has none, since it answers for any missing address.
+const { entry } = Astro.locals.starlightRoute;
+const root = new URL(import.meta.env.BASE_URL.replace(/\/?$/, '/'), Astro.site);
+const markdown = entry.id === '404' ? undefined : new URL(`${pageId(entry.id)}.md`, root).href;
 ---
 
 <Default><slot /></Default>
@@ -10,6 +16,8 @@ import { INNGEST_DOCS_URL, REPO_URL } from '../consts';
     endorsed by Inngest Inc.
   </p>
   <ul>
+    {markdown && <li><a href={markdown} type="text/markdown">View as Markdown</a></li>}
+    <li><a href={new URL('llms.txt', root).href}>llms.txt</a></li>
     <li><a href={INNGEST_DOCS_URL}>Inngest documentation</a></li>
     <li><a href={REPO_URL}>Source on GitHub</a></li>
     <li><a href={`${REPO_URL}/blob/main/LICENSE`}>Apache License 2.0</a></li>
