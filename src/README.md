@@ -20,6 +20,9 @@ which are never compiled ahead of time.
   endpoint from an AWS Lambda function behind API Gateway or a function URL.
 - [`Inngest.AzureFunctions`](https://www.nuget.org/packages/Inngest.AzureFunctions/): `ServeInngestAsync`, the endpoint
   Inngest calls, served from an HTTP-triggered function of an Azure Functions app in the isolated worker model.
+- [`Inngest.Blazor`](https://www.nuget.org/packages/Inngest.Blazor/): `RealtimeView`, a Blazor component that shows
+  realtime messages on the server, in WebAssembly and in interactive Auto, and `IRealtimeSource`, which gives them as an
+  async stream.
 - [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/): `AddConnect`, a hosted worker that receives
   calls over an outbound WebSocket, with no endpoint to expose.
 - [`Inngest.Aspire.Hosting`](https://www.nuget.org/packages/Inngest.Aspire.Hosting/): an Aspire hosting integration

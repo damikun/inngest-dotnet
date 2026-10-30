@@ -19,8 +19,8 @@ public sealed class RealtimeRelayOptions
     public Func<string, IReadOnlyList<string>, Uri>? Url { get; set; }
 
     /// <summary>
-    /// Used to read the data of typed topics. Add a source-generated context to its TypeInfoResolverChain to run
-    /// without reflection, as a trimmed WebAssembly app does.
+    /// Used to read the data of typed topics. Set its TypeInfoResolver to a source-generated context to run without
+    /// reflection, as a trimmed WebAssembly app does; by default it reads any type by reflection where that is enabled.
     /// </summary>
     public JsonSerializerOptions SerializerOptions { get; set; } = CreateSerializerOptions();
 

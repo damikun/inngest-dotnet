@@ -1,0 +1,344 @@
+---
+title: Realtime in Blazor
+description: Show Inngest realtime messages in Blazor Server, WebAssembly and interactive Auto with the RealtimeView component of Inngest.Blazor, or read them as an async stream from IRealtimeSource.
+sidebar:
+  label: Blazor
+---
+
+[Realtime](/inngest-dotnet/guides/realtime/) lets a run report back to the people watching it. `Inngest.Blazor` shows
+those messages in a Blazor page: the `RealtimeView` component subscribes to a topic, keeps what arrives and renders
+your markup again each time something does. The same component runs in Blazor Server, in WebAssembly and in
+interactive Auto, where a page starts on the server and moves to WebAssembly.
+
+Where the messages come from depends on where the component runs, and the component does not know:
+
+- **On the server** it reads Inngest itself, with the app's signing key, through `IInngestRealtime`.
+- **In WebAssembly**, which holds no key and should not, it reads the server-sent events of a
+  [`MapInngestRealtime`](/inngest-dotnet/guides/realtime/#with-server-sent-events) endpoint of the server, and the
+  endpoint decides what each user may see.
+
+The component asks for an `IRealtimeSource`, and each side registers its own.
+
+## Install
+
+Install `Inngest.Blazor` in the project that holds your components. In an app that renders on the server and in
+WebAssembly that is the client project, which the server project references. The package brings in `Inngest`, and it
+references `Microsoft.AspNetCore.Components.Web` as a package rather than the ASP.NET Core shared framework, so it
+runs in the browser. The version is a preview, so add `--prerelease`:
+
+```bash
+dotnet add package Inngest.Blazor --prerelease
+```
+
+Add `@using Inngest` to `_Imports.razor`, as the types of the SDK are in that namespace.
+
+## Show a topic
+
+A function publishes to a [typed topic](/inngest-dotnet/guides/realtime/#channels-and-topics). The view takes the
+same topic, and the type of its data gives `live.Latest.Data` the same type:
+
+```csharp
+public sealed record OrderStatus(string Text, int Percent);
+```
+
+```razor
+<RealtimeView Topic="@status" Context="live">
+    @if (live.Latest?.Data is { } order)
+    {
+        <progress value="@order.Percent" max="100"></progress>
+        <p>@order.Text</p>
+    }
+    else
+    {
+        <p>Waiting for the first update.</p>
+    }
+</RealtimeView>
+
+@code {
+    [Parameter]
+    public string OrderId { get; set; } = "";
+
+    private RealtimeTopic<OrderStatus> status => new($"order:{OrderId}", "status");
+}
+```
+
+`live` is the `RealtimeState<OrderStatus>` of the view, and the content is rendered again whenever it changes:
+
+| Member | Holds |
+|---|---|
+| `Connection` | A `RealtimeConnectionState`: `Idle`, `Connecting`, `Open`, `Reconnecting`, `Closed` or `Failed`. |
+| `Error` | The exception that failed the subscription, while `Connection` is `Failed`. |
+| `Messages` | The newest messages, the oldest first. At most `MaxMessages` of them. |
+| `Latest` | The newest message of any topic. |
+| `LatestByTopic` | The newest message of each topic, by topic name. |
+| `TextByTopic` | The text of the newest [stream](#streams-of-text) of each topic, by topic name. |
+
+A `RealtimeMessage<T>` has the `Kind`, `Channel`, `Topic`, `Data`, `RunId` and the other members described in
+[Realtime](/inngest-dotnet/reference/api/#realtime).
+
+The component has these parameters:
+
+| Parameter | Meaning |
+|---|---|
+| `Topic` | The `RealtimeTopic<TData>` to watch. Leave it null until you know what to watch. |
+| `Channel`, `Topics` | Several topics of one channel, instead of `Topic`. `TData` is then `JsonElement`. |
+| `MaxMessages` | How many of the newest messages `Messages` keeps. 100 by default. |
+| `OnMessage` | An `EventCallback<RealtimeMessage<TData>>` called for each message, in order, after `live` has it. The next message waits until it returns. |
+| `ThrowOnError` | Hands a failed subscription to the nearest `ErrorBoundary`. See [Errors](#errors). |
+| `ChildContent` | The content, given the `RealtimeState<TData>`. |
+
+The view draws nothing of its own, so it brings no markup or style to override. With no `ChildContent` it still
+calls `OnMessage`.
+
+## Several topics
+
+A view holds one subscription, and a channel can carry several topics. Give the channel and the topics, and read the
+data as JSON, because the topics may carry different types:
+
+```razor
+<RealtimeView TData="JsonElement" Channel="@($"order:{OrderId}")" Topics="@(new[] { "status", "audit" })" Context="live">
+    @foreach (var (topic, message) in live.LatestByTopic)
+    {
+        <p>@topic: @message.Data</p>
+    }
+</RealtimeView>
+```
+
+The topics are compared by value, so a new array with the same topics on every render of the parent does not
+subscribe again. A different channel or other topics do: the old subscription is cancelled, the messages are
+cleared, and the view subscribes to the new ones.
+
+## Streams of text
+
+A function can [stream text](/inngest-dotnet/guides/realtime/#publishing-from-a-function), such as a model's reply.
+It arrives as a `StreamStart`, `StreamChunk` messages with the text, and a `StreamEnd`. `TextByTopic` adds the
+chunks up for you, and it does not forget the early ones when `Messages` has rolled over:
+
+```razor
+<RealtimeView Topic="@reply" Context="live">
+    <p>@live.TextByTopic.GetValueOrDefault("reply")</p>
+</RealtimeView>
+
+@code {
+    [Parameter]
+    public string OrderId { get; set; } = "";
+
+    private RealtimeTopic<string> reply => new($"order:{OrderId}", "reply");
+}
+```
+
+The text of a topic starts over with the next stream. It stops growing at 1,048,576 characters, which is above what
+Inngest allows a stream.
+
+## Blazor Server
+
+Register the source next to `AddInngest`. It reads Inngest with the app's signing key, so nothing of it reaches the
+browser:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+builder.Services.AddInngest(options => options.AppId = "shop");
+builder.Services.AddInngestRealtimeSource();
+```
+
+That is all for Blazor Server and for the interactive server render mode. The view lives in the circuit: it updates
+itself through the renderer's dispatcher, and it unsubscribes when the component is disposed, which a circuit that
+ends does for all of its components. Disposing waits up to five seconds for the subscription to stop. A circuit whose
+client has disconnected is kept by Blazor for a few minutes, and keeps its subscriptions meanwhile.
+
+## WebAssembly
+
+A WebAssembly app has no signing key, so the server relays the messages. Map a `MapInngestRealtime` endpoint whose
+callback checks that the signed-in user may see the channel, and returns the channel and the topics the request may
+receive, or null for a 403:
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapInngestRealtime("/api/realtime/{channel}", context =>
+{
+    var channel = (string)context.Request.RouteValues["channel"]!;
+
+    // Check here that the signed-in user may see the channel.
+    return ValueTask.FromResult<RealtimeSubscription?>(new(channel, ["status", "reply"]));
+})
+.RequireAuthorization();
+```
+
+In the WebAssembly project, register the relay source and tell it where the endpoint for a channel and its topics is.
+An address without an origin is relative to the page:
+
+{/* check: statements; IServiceCollection services */}
+```csharp
+services.AddInngestRealtimeRelay(options =>
+{
+    options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
+});
+```
+
+The browser sends the channel in the address, so the callback of the endpoint is the only thing that decides what a
+user sees. The topics a view asks for are only a request: the endpoint serves what its callback returns, and the
+source drops messages of other topics.
+
+The source reads the endpoint with an `HttpClient` and streams the response, as an `EventSource` would read it:
+
+- Cookies go with a request to the page's own origin. For an endpoint on another origin, `AddInngestRealtimeRelay`
+  returns the builder of the `HttpClient`, so you can set its base address and add message handlers, such as one that
+  attaches an access token or asks the browser to send credentials. The endpoint then needs CORS.
+- A connection that ends or fails is opened again after a delay that grows from half a second to 30 seconds. The relay
+  ends a client that falls 512 messages behind, and connections drop. What is published meanwhile is missed, as
+  Inngest keeps no messages. A connection silent for 45 seconds, three of the relay's 15 second comments, is taken
+  for dead.
+- A refusal is not retried: 401, 403, 404 and the other 4xx answers, and an answer that is not an event stream, such as
+  the page of the app that a wrong address falls back to, fail the subscription. The 429, 408, 425 and 5xx answers
+  of a relay or a proxy are retried.
+- A browser's `fetch` holds a whole response back unless it is asked to stream it. The source sets that option on
+  every request, as .NET 8 needs and .NET 10 does by default.
+
+Typed topics are read with the serializer options of the app. A trimmed WebAssembly app has no reflection to fall back
+on, so give them a source-generated context:
+
+{/* check: file */}
+```csharp
+using System.Text.Json.Serialization;
+
+[JsonSerializable(typeof(OrderStatus))]
+[JsonSerializable(typeof(string))]
+internal sealed partial class AppJsonContext : JsonSerializerContext;
+```
+
+{/* check: statements; IServiceCollection services */}
+```csharp
+services.AddInngestRealtimeRelay(options =>
+{
+    options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
+    options.SerializerOptions.TypeInfoResolver = AppJsonContext.Default;
+});
+```
+
+## Interactive Auto
+
+An Auto page renders on the server first and in WebAssembly once the app has downloaded. Put the page in the client
+project, so that both sides can render it, and register one source in each project. The server project also maps the
+endpoint that the WebAssembly side reads:
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+// Program.cs of the server project
+builder.Services.AddInngest(options => options.AppId = "shop");
+builder.Services.AddInngestRealtimeSource();
+```
+
+{/* check: statements; IServiceCollection services */}
+```csharp
+// Program.cs of the client project
+services.AddInngestRealtimeRelay(options =>
+{
+    options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
+});
+```
+
+The page that holds the view needs the render mode, because a view has a `RenderFragment` parameter, which cannot be
+passed to an interactive component from a static page:
+
+```razor
+@page "/orders/{OrderId}"
+@rendermode InteractiveAuto
+
+<RealtimeView Topic="@status" Context="live">
+    <p>@live.Latest?.Data?.Text</p>
+</RealtimeView>
+
+@code {
+    [Parameter]
+    public string OrderId { get; set; } = "";
+
+    private RealtimeTopic<OrderStatus> status => new($"order:{OrderId}", "status");
+}
+```
+
+When the page moves from the server to WebAssembly the view starts again on the other side: it holds nothing from
+the circuit, and what was published between the two is missed.
+
+## Prerendering
+
+A view subscribes after its first interactive render and never before, so a page that is prerendered or rendered
+statically does not subscribe, and neither does the prerendered copy of an interactive one. The view's `Connection`
+reads `Idle` in the prerendered HTML. The view does not depend on `RendererInfo`, which .NET 8 lacks.
+
+## Errors
+
+A subscription that is refused, such as one with a wrong signing key or a 403 from the relay, does not end the
+circuit or the page. The view logs a warning, `Connection` becomes `Failed` and `Error` holds the exception, an
+`InngestException` on the server and an `HttpRequestException` with a `StatusCode` for the relay. Show it, and let the user try
+again with `Restart`:
+
+```razor
+<RealtimeView @ref="view" Topic="@status" Context="live">
+    @if (live.Connection == RealtimeConnectionState.Failed)
+    {
+        <p>Live updates stopped: @live.Error?.Message</p>
+        <button @onclick="() => view?.Restart()">Try again</button>
+    }
+    else if (live.Connection == RealtimeConnectionState.Reconnecting)
+    {
+        <p>Reconnecting.</p>
+    }
+</RealtimeView>
+
+@code {
+    private RealtimeView<OrderStatus>? view;
+
+    [Parameter]
+    public string OrderId { get; set; } = "";
+
+    private RealtimeTopic<OrderStatus> status => new($"order:{OrderId}", "status");
+}
+```
+
+With `ThrowOnError`, the failure goes to the nearest `ErrorBoundary` instead, which shows its error content; without
+one it ends the circuit, as any unhandled exception in a component does. An exception from `OnMessage` fails the
+subscription the same way.
+
+`Connecting` reads until the first message arrives or the source says the connection is open. Only the relay source
+knows when a connection opens and when it is lost, so only a view in WebAssembly shows `Reconnecting`; on the server,
+the reconnections of the SDK to Inngest are not reported.
+
+## Memory and threads
+
+A view keeps at most `MaxMessages` messages, one latest message for each topic, and the text of one stream for each
+topic. Everything the content reads is changed on the renderer's thread only, so it needs no lock: read it while
+rendering or in an event handler, and copy what you keep. Messages reach the renderer one at a time, and a slow
+renderer slows the reading down instead of piling messages up.
+
+## Outside components
+
+`IRealtimeSource` gives the same messages as an `IAsyncEnumerable<RealtimeMessage<T>>`, to code that is not a
+component, such as a service shared by the server and the client project of an Auto app:
+
+{/* check: statements; IRealtimeSource source; CancellationToken cancellationToken */}
+```csharp
+var status = new RealtimeTopic<OrderStatus>("order:o-1001", "status");
+
+await foreach (var message in source.SubscribeAsync(status, cancellationToken))
+{
+    Console.WriteLine($"{message.Data?.Text} ({message.Data?.Percent}%)");
+}
+```
+
+It has the two `SubscribeAsync` overloads of `IInngestRealtime`, for a typed topic and for several topics of a channel
+with the data as `JsonElement`, and reconnects the same way. Its optional last parameter, `onConnectionChanged`, is
+how a source reports `Connecting`, `Open` and `Reconnecting`. In a test, register your own `IRealtimeSource` in the
+service collection of the test context and render the component with bUnit.
+
+## What it does not do
+
+- It draws no markup and ships no JavaScript or CSS.
+- It does not replay anything. A message published before the view subscribed, while it reconnected, or while a page
+  moved from the server to WebAssembly is missed, because Inngest delivers only to subscribers that are connected.
+- It reads the data of a topic as one type, and several topics as JSON. A channel and topics cannot be typed.
+- It does not pause when the browser tab is hidden, and it does not interpret the run messages of the `$run` topic or
+  close when a run ends, as the TypeScript SDK's `useRealtime` hook can.
+- It does not carry messages from the prerendered page into the interactive one.
+- It does not mint subscription tokens for the browser: the WebAssembly side uses the relay, and the
+  [TypeScript client](/inngest-dotnet/guides/realtime/#with-the-typescript-client) is the way to connect a browser to
+  Inngest directly.

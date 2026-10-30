@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.SignalR, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Blazor, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.SignalR, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -30,6 +30,8 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IHealthChecksBuilder.AddInngest(Action<InngestHealthCheckOptions>, string? name = null, HealthStatus? failureStatus = null, IEnumerable<string>? tags = null, TimeSpan? timeout = null)` | The same, with the options set by the callback. |
 | `IApplicationBuilder.UseInngestDurableEndpoints()` | Runs the endpoints marked as durable as Inngest runs. Add it after routing. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/). |
 | `IEndpointConventionBuilder.WithDurableEndpoint(DurableEndpointOptions? options = null)` | Marks an endpoint as durable, so that its handler can take `IStepTools` and run steps. Also `WithDurableEndpoint(string id)`. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
+| `IServiceCollection.AddInngestRealtimeSource()` | Makes Blazor components read realtime messages from Inngest through `IInngestRealtime`, on the server. Package `Inngest.Blazor`. In `Microsoft.Extensions.DependencyInjection`. See [Realtime in Blazor](/inngest-dotnet/guides/blazor/). |
+| `IServiceCollection.AddInngestRealtimeRelay(Action<RealtimeRelayOptions>)` | Makes Blazor components read the app's `MapInngestRealtime` endpoint over an `HttpClient`, in WebAssembly. Returns the `IHttpClientBuilder` of that client. Package `Inngest.Blazor`. |
 | `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
 
@@ -522,6 +524,38 @@ a group, so that instances on a backplane deliver each message once.
 CancellationToken cancellationToken = default)`**, with `Caller`, `Requested`, `Services` (a scope of its own for each
 request) and `CancellationToken`. The bridge makes one for each client that asks to join, and a test can make one to call
 `Authorize` directly.
+
+## Blazor
+
+Package `Inngest.Blazor`, for Blazor Server, WebAssembly and interactive Auto. See
+[Realtime in Blazor](/inngest-dotnet/guides/blazor/).
+
+**`RealtimeView<TData>`**, a component that draws nothing of its own. It subscribes after its first interactive render,
+never while prerendering, and unsubscribes when it is disposed.
+
+| Member | Purpose |
+|---|---|
+| `Topic` | The `RealtimeTopic<TData>` to watch. |
+| `Channel`, `Topics` | Several topics of a channel, instead of `Topic`. `TData` must then be `JsonElement`. |
+| `MaxMessages` | How many of the newest messages `RealtimeState.Messages` keeps. 100 by default. |
+| `OnMessage` | An `EventCallback<RealtimeMessage<TData>>` called for each message, in order. |
+| `ThrowOnError` | Hands a failed subscription to the nearest `ErrorBoundary`. `false` by default. |
+| `ChildContent` | A `RenderFragment<RealtimeState<TData>>`. |
+| `Restart()` | Subscribes again with the messages cleared, such as after a failure. |
+
+**`RealtimeState<TData>`**: `Connection`, `Error`, `Messages`, `Latest`, `LatestByTopic` and `TextByTopic`, the text of
+the newest stream of each topic. **`RealtimeConnectionState`** is `Idle`, `Connecting`, `Open`, `Reconnecting`,
+`Closed` or `Failed`.
+
+**`IRealtimeSource`** is what the component asks for, and what code outside components can inject:
+
+| Method | Returns |
+|---|---|
+| `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken, Action<RealtimeConnectionState>? onConnectionChanged)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on |
+| `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken, Action<RealtimeConnectionState>? onConnectionChanged)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |
+
+**`RealtimeRelayOptions`**: `Url`, which maps a channel and its topics to the address of the endpoint, and
+`SerializerOptions`, which read the data of typed topics.
 
 ## Test host
 

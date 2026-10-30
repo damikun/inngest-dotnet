@@ -67,6 +67,7 @@ export default defineConfig({
             'guides/sending-events',
             'guides/outbox',
             'guides/realtime',
+            'guides/blazor',
             'guides/signalr',
             'guides/durable-endpoints',
             'guides/ai',

@@ -135,6 +135,12 @@ order cost one connection to it. The browser holds no token, the app's own sign-
 `EventSource` reconnects by itself. Every connection gets a comment every 15 seconds, so proxies keep it open, and a
 page that falls 512 messages behind is disconnected rather than holding the others up.
 
+### With Blazor
+
+The `RealtimeView` component of `Inngest.Blazor` shows the messages of a topic in a Blazor page. On the server it
+subscribes with the app's signing key, as `SubscribeAsync` does; in WebAssembly it reads the endpoint above. See
+[Realtime in Blazor](/inngest-dotnet/guides/blazor/).
+
 ### With SignalR
 
 An app that has SignalR can bring the messages to its clients through a hub, where a client joins and leaves channels

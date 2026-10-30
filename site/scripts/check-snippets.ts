@@ -439,6 +439,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
   </ItemGroup>
   <ItemGroup>
 ${references}
+${reference('Inngest.Blazor')}
 ${reference('Inngest.Sentry')}
 ${reference('Inngest.Testing')}
 ${reference('Inngest.Testing.Containers')}

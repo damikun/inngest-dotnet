@@ -250,26 +250,30 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Templates` | The `inngest-web` and `inngest-worker` templates for `dotnet new`. A template package: files, no assembly. |
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 | `Inngest.SignalR` | `AddInngestSignalR`, `MapInngestRealtimeHub` and `InngestRealtimeBridge<THub>`, which forward realtime messages to SignalR clients through `IHubContext<THub>`: clients join through a hub method guarded by a callback, share one subscription per channel and topics, and get each message on a queue of their own, by connection id and never through a group, so that instances on a backplane deliver once. Reads the realtime subscriber of `Inngest` through `InternalsVisibleTo`, takes `RealtimeSubscription` from `Inngest.AspNetCore`, and uses the SignalR of the ASP.NET Core shared framework. No release includes it yet, so its project file clears the package validation baseline. |
+| `Inngest.Blazor` | `RealtimeView`, a headless Blazor component, and `IRealtimeSource`, the realtime messages as an async stream, with a source for the server (`AddInngestRealtimeSource`, over `IInngestRealtime`) and one for WebAssembly (`AddInngestRealtimeRelay`, which reads a `MapInngestRealtime` endpoint). A Razor class library that references `Microsoft.AspNetCore.Components.Web` as a package, not the shared framework, so it runs in the browser. |
 
-`Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption`, `Inngest.EntityFrameworkCore` and
-`Inngest.Extensions.AI` use internals of `Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine,
-the registry and the resolved settings, of which `Inngest.Encryption` only reads the serializer options,
-`Inngest.EntityFrameworkCore` those and the checks the client makes on an event it sends, and `Inngest.Extensions.AI`
-only asks which invocation the calling code runs in, and so whether it can make a step. Internals can change in any
-release, so the packages ship together and each depends on exactly the `Inngest` of its own version (a target in
-`src/Directory.Build.targets` writes the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
+`Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Blazor`, `Inngest.Connect`, `Inngest.SignalR`, `Inngest.Testing`,
+`Inngest.Encryption`, `Inngest.EntityFrameworkCore` and `Inngest.Extensions.AI` use internals of `Inngest` through
+`InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
+`Inngest.Encryption` only reads the serializer options, `Inngest.EntityFrameworkCore` those and the checks the client
+makes on an event it sends, and `Inngest.Extensions.AI` only asks which invocation the calling code runs in, and so
+whether it can make a step. `Inngest.Blazor` and `Inngest.SignalR` use the realtime subscriber, and `Inngest.Blazor`
+also its message reader and server-sent events parser. Internals can change in any release, so the packages ship
+together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
+the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 `Inngest.AzureFunctions` uses the serve handler of `Inngest` and the `InngestEndpoint` of `Inngest.AspNetCore` in the
-same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too.
-Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
-would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
-each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two
-`Inngest.Testing.Containers` packages, `Inngest.Templates` and `dotnet-inngest` have no release to compare with yet, so
-their project files clear the baseline until their first one. Every package with an assembly is `IsAotCompatible`
-except four. The two container packages: Testcontainers and `Microsoft.AspNetCore.Mvc.Testing` are built on reflection,
-and the packages are for test projects, which are neither trimmed nor compiled ahead of time. `Inngest.EntityFrameworkCore`:
-the constructors of EF Core's `DbContext` require unreferenced and dynamic code. And `Inngest.Aspire.Hosting`, below.
+same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too. Package validation compares every
+package with the last release on nuget.org, so `dotnet pack` fails on a change that would break code built against it;
+`PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after each release. `Inngest.Encryption`,
+`Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers` packages,
+`Inngest.Templates`, `dotnet-inngest`, `Inngest.AwsLambda`, `Inngest.AzureFunctions`, `Inngest.Blazor` and
+`Inngest.SignalR` have no release to compare with yet, so their project files clear the baseline until their first one.
+Every package with an assembly is `IsAotCompatible` except four. The two container packages: Testcontainers and
+`Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects, which are neither
+trimmed nor compiled ahead of time. `Inngest.EntityFrameworkCore`: the constructors of EF Core's `DbContext` require
+unreferenced and dynamic code. And `Inngest.Aspire.Hosting`, below.
 
 `Inngest.Aspire.Hosting` is a different kind of package: it runs in the AppHost, not in the app, so it does not
 reference `Inngest` and is not pinned to its version. It is not `IsAotCompatible`, because `Aspire.Hosting` declares
@@ -509,6 +513,7 @@ per call.
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
 | Realtime messages to SignalR clients: joining and leaving through a hub, authorization of each join, one shared subscription per channel and topics, a bounded queue for each connection, delivery by connection id | Supported (`Inngest.SignalR`) over the JSON and MessagePack protocols; under Native AOT only where SignalR supports it (JSON, .NET 9 and later) |
+| Blazor components for realtime: Blazor Server, WebAssembly and interactive Auto | Supported (`Inngest.Blazor`): `RealtimeView` subscribes after its first interactive render and never while prerendering, through a source each side registers; the WebAssembly source reads the server-sent events of `MapInngestRealtime` with `HttpClient` response streaming and opens the connection again with a growing delay. It does not interpret run messages or pause in hidden tabs. |
 | AWS Lambda: the serve endpoint behind API Gateway REST and HTTP APIs and function URLs, in a managed runtime function or a Native AOT executable | Supported (`Inngest.AwsLambda`, `InngestLambdaHandler`), with buffered responses only: `Streaming` has no effect, and the call's cancellation token is never cancelled |
 | Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result. Azure Functions streams the same way with the worker's ASP.NET Core integration, and not with its built-in HTTP model. |
 | Azure Functions (isolated worker): built-in HTTP model and ASP.NET Core integration | Supported (`Inngest.AzureFunctions`): tested against fakes of the worker and against the Inngest server behind a stand-in for the Functions host, not in a deployed app. A call has to be answered within the platform's 230 seconds. |
