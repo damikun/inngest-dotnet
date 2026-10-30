@@ -87,7 +87,11 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
         // warning about a step is written once per run and not once per call.
         var logger = Invocation.AmbientContext?.Logger ?? NullLogger.Instance;
         var stepId = settings.StepId ?? DefaultStepId;
-        var history = messages as IList<ChatMessage> ?? [.. messages];
+
+        // Copies, because the handler may run after the caller has changed its messages and options for the next call, and
+        // what the model is called with has to be what the step recorded.
+        List<ChatMessage> history = [.. messages];
+        callOptions = callOptions?.Clone();
         var realtime = streaming && settings.StreamTo is not null
             ? Invocation.AmbientContext!.Services.GetRequiredService<IInngestRealtime>()
             : null;

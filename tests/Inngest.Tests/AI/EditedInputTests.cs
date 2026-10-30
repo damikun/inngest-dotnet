@@ -29,20 +29,21 @@ public sealed class EditedInputTests : IDisposable
     }
 
     [Fact]
-    public async Task The_model_is_called_with_the_messages_and_options_as_the_caller_passed_them_unless_the_input_was_edited()
+    public async Task The_model_gets_what_the_caller_passed_and_not_a_copy_read_back_from_JSON_unless_the_input_was_edited()
     {
         var model = new FakeChatClient();
         var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
-        var options = new ChatOptions { Temperature = 0.9f, AdditionalProperties = new() { ["marker"] = typeof(int) } };
-        var messages = new List<ChatMessage> { new(ChatRole.User, "Write a haiku") };
-        var function = TestFunction.Define(async context => (await chat.GetResponseAsync(messages, options)).Text);
+        var message = new ChatMessage(ChatRole.User, "Write a haiku") { RawRepresentation = "the provider's own message" };
+        var options = new ChatOptions { Temperature = 0.9f, RawRepresentationFactory = _ => "the provider's own request" };
+        var function = TestFunction.Define(async context => (await chat.GetResponseAsync([message], options)).Text);
 
         var result = await _host.CallAsync(function, Call.New());
 
-        // The options hold what JSON cannot, so they are not recorded, and the model gets them as they are.
+        // None of the raw representations are JSON, so a copy read back from the recorded input would have lost them.
         result.OpCodes.ShouldBe(["StepRun"]);
-        model.Messages.ShouldHaveSingleItem().ShouldBe(messages);
-        model.Options.ShouldHaveSingleItem().ShouldBeSameAs(options);
+        model.Messages.ShouldHaveSingleItem().ShouldHaveSingleItem().ShouldBeSameAs(message);
+        var received = model.Options.ShouldHaveSingleItem()!;
+        (received.Temperature, received.RawRepresentationFactory!(model)).ShouldBe((0.9f, "the provider's own request"));
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public sealed class EditedInputTests : IDisposable
         model.Messages.ShouldHaveSingleItem().Select(message => (message.Role, message.Text)).ShouldBe([(ChatRole.System, "Be playful."), (ChatRole.User, "Write a limerick")]);
         var options = model.Options.ShouldHaveSingleItem()!;
         (options.Temperature, options.ModelId).ShouldBe((0.1f, "other-model"));
-        options.Tools.ShouldBeSameAs(tools);
+        options.Tools.ShouldBe(tools);
     }
 
     [Fact]
@@ -78,7 +79,7 @@ public sealed class EditedInputTests : IDisposable
 
         await _host.CallAsync(function, Call.New().Input("chat", Edited));
 
-        model.Options.ShouldHaveSingleItem()!.Tools.ShouldBeSameAs(tools);
+        model.Options.ShouldHaveSingleItem()!.Tools.ShouldBe(tools);
     }
 
     [Fact]

@@ -165,7 +165,8 @@ the model is called with, and the tools and the request factory of the call are 
 are not JSON. For a tool call, the edited `arguments` are what the tool is called with. An edit that is not an object
 with `messages`, or with `arguments`, fails the step at once.
 
-Without an edit, the model gets the messages and options exactly as the caller passed them.
+Without an edit, the model gets the messages and options the caller passed, not a copy read back from the recorded
+JSON, so what JSON cannot hold, such as the raw representations of a provider, still reaches it.
 
 ## What the input costs
 

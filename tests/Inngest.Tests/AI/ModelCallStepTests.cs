@@ -92,6 +92,34 @@ public sealed class ModelCallStepTests
     }
 
     [Fact]
+    public async Task A_call_is_made_with_the_messages_and_options_it_was_started_with_when_the_caller_changes_them_for_the_next_call()
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        await using var host = For(async context =>
+        {
+            var messages = new List<ChatMessage> { new(ChatRole.User, "first") };
+            var options = new ChatOptions { Temperature = 0.1f };
+            var one = chat.GetResponseAsync(messages, options);
+
+            messages.Add(new ChatMessage(ChatRole.User, "second"));
+            options.Temperature = 0.9f;
+            var two = chat.GetResponseAsync(messages, options);
+
+            await Task.WhenAll(one, two);
+            return null;
+        });
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        var calls = model.Messages.Zip(model.Options, (messages, options) => (messages.Count, options!.Temperature)).Order().ToArray();
+        calls.ShouldBe([(1, 0.1f), (2, 0.9f)]);
+        run.GetStep("chat").Options.GetProperty("input")[0].GetProperty("messages").GetArrayLength().ShouldBe(1);
+        run.GetStep("chat:1").Options.GetProperty("input")[0].GetProperty("messages").GetArrayLength().ShouldBe(2);
+    }
+
+    [Fact]
     public async Task The_messages_and_options_are_the_input_the_Inngest_UI_shows()
     {
         var model = new FakeChatClient();
