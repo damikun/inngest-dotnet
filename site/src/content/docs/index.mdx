@@ -263,7 +263,7 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
 
 </Section>
 
-<Section id="quick-start" eyebrow="Quick start" title="Your first durable function in five minutes" lead="Install the SDK, register a function, start the dev server, and watch a run go step by step on your machine.">
+<Section id="quick-start" eyebrow="Quick start" title="Your first durable function in five minutes" lead="Install the SDK, write a function and register it, start the dev server, and watch a run go step by step on your machine.">
 
 <Steps>
 
@@ -274,7 +274,35 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
    dotnet add package Inngest.AspNetCore --prerelease
    ```
 
-2. Register the function and map the endpoint Inngest calls:
+2. Write the function, a class with one method. Each `RunAsync` call is a step: it runs once and Inngest saves its
+   result. `SleepAsync` pauses the run without holding a thread:
+
+   ```csharp title="OnboardUser.cs"
+   using Inngest;
+
+   public sealed record UserSignedUp(string UserId, string Email);
+
+   public sealed class OnboardUser : InngestFunction<UserSignedUp>
+   {
+       public override async Task<object?> ExecuteAsync(
+           FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+       {
+           var user = context.Event.Data;
+
+           await context.Step.RunAsync("send-welcome-email",
+               () => Console.WriteLine($"Sending a welcome email to {user.Email}"));
+
+           await context.Step.SleepAsync("wait-a-moment", TimeSpan.FromSeconds(10));
+
+           await context.Step.RunAsync("send-tips",
+               () => Console.WriteLine($"Sending tips to {user.Email}"));
+
+           return new { user.UserId };
+       }
+   }
+   ```
+
+3. Register the function and map the endpoint Inngest calls:
 
    ```csharp title="Program.cs"
    using Inngest;
@@ -294,10 +322,18 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
    app.Run();
    ```
 
-3. Start the app with `INNGEST_DEV=1`, run the [Inngest dev server](https://www.inngest.com/docs/local-development)
-   and send a `user/signed-up` event. The run appears at `http://localhost:8288`:
+4. Set `INNGEST_DEV=1`, which points the SDK at the local dev server, and start the app with
+   `dotnet run --urls http://localhost:5280`. Then run the
+   [Inngest dev server](https://www.inngest.com/docs/local-development):
 
    <DevServer />
+
+5. Send a `user/signed-up` event. The dev server takes any event key in the URL. The run appears at
+   `http://localhost:8288`, and the app prints the welcome line, then the tips 10 seconds later:
+
+   ```bash wrap
+   curl -X POST http://localhost:8288/e/test -d '{"name": "user/signed-up", "data": {"userId": "u1", "email": "ada@example.com"}}'
+   ```
 
 </Steps>
 
