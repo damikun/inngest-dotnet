@@ -48,6 +48,8 @@
     <ProjectReference Include="..\..\src\Inngest.SignalR\Inngest.SignalR.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing\Inngest.Testing.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers\Inngest.Testing.Containers.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.UserContext\Inngest.UserContext.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.UserContext.AspNetCore\Inngest.UserContext.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Webhooks\Inngest.Webhooks.csproj" />
     <ProjectReference Include="..\..\src\dotnet-inngest\dotnet-inngest.csproj" />
   </ItemGroup>

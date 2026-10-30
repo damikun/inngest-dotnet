@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Inngest.UserContext</RootNamespace>
+    <Description>The user behind an event for the Inngest .NET SDK: attaches selected claims of the current user to the events an app sends, protected with ASP.NET Core Data Protection, and restores them as ICurrentUser and ClaimsPrincipal inside the function run.</Description>
+    <PackageTags>$(PackageTags);user;claims;identity;data-protection;middleware</PackageTags>
+    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
+    <PackageValidationBaselineVersion />
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Data Protection's implementation without the ASP.NET Core shared framework, so that a worker without ASP.NET Core can
+         restore the user. Capturing it from a request is in Inngest.UserContext.AspNetCore. -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Inngest\Inngest.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Inngest.Tests" />
+  </ItemGroup>
+</Project>

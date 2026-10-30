@@ -1,0 +1,4 @@
+# This package's code is not ported from inngest-js, so its files carry the license line only. src/.editorconfig asks for
+# the "Ported from" line as well, which would claim a provenance this code does not have.
+[*.cs]
+file_header_template = Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
