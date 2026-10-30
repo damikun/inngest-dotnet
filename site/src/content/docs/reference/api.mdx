@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.AzureFunctions, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -343,6 +343,16 @@ Each invocation runs in a service scope of its own. The cancellation token that 
 and `InngestOptions.Streaming` has no effect, since the response is buffered; building the handler logs a warning when
 it is on. The event types are those of `Amazon.Lambda.APIGatewayEvents`, and the package ships no
 `JsonSerializerContext` for them.
+
+## Azure Functions
+
+Package `Inngest.AzureFunctions`.
+
+| Member | Purpose |
+|---|---|
+| `HttpRequestData.ServeInngestAsync()` | Serves the Inngest endpoint from an HTTP-triggered function of the isolated worker: `GET` answers introspection, `PUT` syncs the app and `POST` runs functions. Returns the `HttpResponseData` the function returns. It works with the built-in HTTP model and with the ASP.NET Core integration, where `InngestOptions.Streaming` streams a long call. Requires `services.AddInngest()`. In `Microsoft.Azure.Functions.Worker.Http`. |
+
+The function that calls it is declared in the app. See [Azure Functions](/inngest-dotnet/guides/azure-functions/).
 
 ## OpenTelemetry
 

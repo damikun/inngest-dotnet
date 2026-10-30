@@ -70,6 +70,11 @@ Run it with the keys as environment variables:
 docker run -p 8080:8080 -e INNGEST_SIGNING_KEY=signkey-prod-... -e INNGEST_EVENT_KEY=... -e INNGEST_SERVE_ORIGIN=https://shop.example.com shop:latest
 ```
 
+## In Azure Functions
+
+An Azure Functions app serves the endpoint from an HTTP-triggered function of the isolated worker, and has its own
+limit on how long one call can take. See [Azure Functions](/inngest-dotnet/guides/azure-functions/).
+
 ## Health checks
 
 Point health checks at an endpoint of their own, not at `/api/inngest`: in cloud mode the SDK answers unsigned

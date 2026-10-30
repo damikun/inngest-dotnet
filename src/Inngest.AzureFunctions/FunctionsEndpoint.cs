@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.AzureFunctions;
 
@@ -90,7 +91,7 @@ internal static class FunctionsEndpoint
     }
 
     private static ILogger CreateLogger(IServiceProvider services) =>
-        services.GetService<ILoggerFactory>()?.CreateLogger("Inngest.AzureFunctions") ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        services.GetService<ILoggerFactory>()?.CreateLogger("Inngest.AzureFunctions") ?? NullLogger.Instance;
 
     // The built-in model hands over a MemoryStream that holds the whole body already, so its buffer is used as it is.
     // Any other stream is read into a pooled buffer.

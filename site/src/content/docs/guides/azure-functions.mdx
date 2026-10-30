@@ -1,0 +1,264 @@
+---
+title: Inngest in Azure Functions
+description: Serve the Inngest endpoint from an HTTP-triggered function of an Azure Functions app in the isolated worker model, run it locally with func start, and work within the 230-second response limit.
+sidebar:
+  label: Azure Functions
+---
+
+`Inngest.AzureFunctions` serves the Inngest endpoint from an HTTP-triggered function of an Azure Functions app in the
+[isolated worker model](https://learn.microsoft.com/en-us/azure/azure-functions/dotnet-isolated-process-guide). You
+write one short function in your project and call `ServeInngestAsync` in it. The package answers introspection, syncs
+and calls, and checks signatures, as `MapInngest` does in an ASP.NET Core app. It works with both HTTP models of the
+worker: the built-in one (`HttpRequestData` and `HttpResponseData`) and the ASP.NET Core integration
+(`ConfigureFunctionsWebApplication`).
+
+The functions are the same as everywhere else; only the way Inngest reaches them changes. An Azure Functions app
+limits how long one HTTP call can take, which shapes how you run long steps. See
+[The 230-second limit](#the-230-second-limit).
+
+## Set it up
+
+Start from a Functions project for the isolated worker, such as the one `func init --worker-runtime dotnet-isolated`
+creates. It needs version 2.0 or later of `Microsoft.Azure.Functions.Worker`, and the
+`Microsoft.Azure.Functions.Worker.Extensions.Http` package for the `HttpTrigger` attribute. Install
+`Inngest.AzureFunctions` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`. The version is a preview, so add
+`--prerelease`:
+
+```bash
+dotnet add package Inngest.AzureFunctions --prerelease
+```
+
+A function is a class, as in [Getting started](/inngest-dotnet/guides/getting-started/#2-write-a-function). It is
+resolved from the services of the invocation, so it can take what you registered:
+
+```csharp title="SendWelcomeEmail.cs"
+using Inngest;
+using Microsoft.Extensions.Logging;
+
+public sealed record UserSignedUp(string Email);
+
+[InngestFunction("send-welcome-email")]
+[EventTrigger("user/signed.up")]
+public sealed class SendWelcomeEmail(ILogger<SendWelcomeEmail> logger) : InngestFunction<UserSignedUp>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    {
+        var message = await context.Step.RunAsync("compose", () => $"Welcome, {context.Event.Data.Email}!");
+        await context.Step.SleepAsync("wait", TimeSpan.FromMinutes(10));
+        await context.Step.RunAsync("send", () => logger.LogInformation("{Message}", message));
+        return message;
+    }
+}
+```
+
+`Program.cs` registers the SDK like any other app. There is no `MapInngest`: the Functions host routes requests to
+functions.
+
+```csharp title="Program.cs"
+using Inngest;
+using Microsoft.Azure.Functions.Worker.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var builder = FunctionsApplication.CreateBuilder(args);
+
+builder.ConfigureFunctionsWebApplication();
+
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<SendWelcomeEmail>();
+
+builder.Build().Run();
+```
+
+`ConfigureFunctionsWebApplication` turns on the ASP.NET Core integration, which needs the
+`Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore` package. Leave it out to use the built-in model.
+[The two models](#the-two-http-models) differ in one respect that matters here.
+
+The function that serves Inngest is yours to write, because its name, route and authorization level are yours to
+choose. This is all of it:
+
+```csharp title="InngestEndpoint.cs"
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+
+public sealed class InngestEndpoint
+{
+    [Function("inngest")]
+    public Task<HttpResponseData> RunAsync(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", "put", "post", Route = "inngest")] HttpRequestData request) =>
+        request.ServeInngestAsync();
+}
+```
+
+- **All three methods.** Inngest uses `GET` for introspection, `PUT` to sync the app and `POST` to call functions.
+- **`AuthorizationLevel.Anonymous`.** Inngest sends no function key. It signs its requests with your signing key,
+  and in cloud mode the SDK checks the signature of every call and sync before it does anything.
+- **The route.** The Functions host puts its route prefix, `api` by default, in front of `inngest`, so Inngest
+  calls `/api/inngest`, the path it uses by default. Set `extensions.http.routePrefix` in `host.json` to change the
+  prefix, or to an empty string to remove it. See the
+  [HTTP trigger reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger).
+- **`HttpRequestData` is the one parameter.** It carries the `FunctionContext`, so the SDK runs your functions in the
+  services of the invocation and cancels them when the host cancels the invocation.
+
+## Run it locally
+
+Put the settings in `local.settings.json`, next to the ones the template created. `INNGEST_DEV=1` runs the SDK in dev
+mode, where it contacts the dev server at `http://localhost:8288` and verifies nothing:
+
+```json title="local.settings.json"
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "INNGEST_DEV": "1"
+  }
+}
+```
+
+Start the app with [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local),
+which listens on port 7071 unless told otherwise:
+
+```bash
+func start
+```
+
+Start the [Inngest dev server](https://www.inngest.com/docs/local-development) and point it at the function, with
+npx, or with Docker when Node.js is not installed:
+
+```bash wrap
+npx --ignore-scripts=false inngest-cli@latest dev -u http://localhost:7071/api/inngest
+docker run --rm -p 8288:8288 inngest/inngest:v1.49.0 inngest dev -u http://host.docker.internal:7071/api/inngest
+```
+
+Open `http://localhost:8288`. The app and its functions are listed once the dev server has synced it, and sending an
+event from its UI starts a run. The container reaches the app at `host.docker.internal`, since `localhost` inside it
+is the container itself.
+
+## Run it in Azure
+
+Do not set `INNGEST_DEV` in Azure; cloud mode is the default. Set the keys from the Inngest dashboard as application
+settings, or as Key Vault references, which reach the SDK like any other setting:
+
+| Application setting | Value |
+|---|---|
+| `INNGEST_SIGNING_KEY` | The signing key of the environment |
+| `INNGEST_EVENT_KEY` | The event key, to send events from the app |
+
+Then add the app in the Inngest dashboard with the URL of the function, such as
+`https://shop.azurewebsites.net/api/inngest`, and sync again after each deploy, as
+[Deploying](/inngest-dotnet/guides/deploying/#syncing) describes. A sync from the dashboard is in-band: Inngest sends
+the URL it called in a signed request, and the SDK registers that one.
+
+To check that the function is reachable, send a `GET` to it. In dev mode it answers with the introspection body; in
+cloud mode it answers an unsigned request with a 401.
+
+### The URL Inngest calls
+
+A sync that starts from the app's side, such as `curl -X PUT https://shop.azurewebsites.net/api/inngest` from a
+deploy pipeline, registers the URL the request arrived on. In both HTTP models the worker is given the address the
+caller used: the built-in model gets the URL of the request as the host received it, and the ASP.NET Core
+integration applies the `X-Forwarded-*` headers that the host sends. The URL has the route prefix in it, so it reads
+`/api/inngest` unless you changed the prefix.
+
+Behind a gateway that changes the host name or the path, such as Azure Front Door, API Management or Application
+Gateway, the app sees the address the gateway used to reach it, not the public one. Say where Inngest should call, in
+the settings or as `INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH`:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.ServeOrigin = new Uri("https://api.shop.example.com");
+options.ServePath = "/inngest";
+```
+
+See [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy). The other settings are the same as in any
+app: [Configuration](/inngest-dotnet/guides/configuration/).
+
+## The 230-second limit
+
+An HTTP-triggered function has to answer within 230 seconds, whatever its `functionTimeout`. After that the Azure
+load balancer times the request out and returns a 502; the function goes on running but can no longer answer.
+[Microsoft's HTTP trigger reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits)
+describes the limit. Inngest calls the endpoint once for each step, and for more steps per call with checkpointing,
+so the limit is on one call, not on a run, which can last days. A call that hits it is a failed attempt, and Inngest
+retries the step, which starts again from its beginning.
+
+Choose by how long your longest step is:
+
+- **Steps well under the limit.** Nothing to do. Split long work into more steps.
+- **Many short steps.** Checkpointing runs consecutive steps in one call and saves each to Inngest as it completes,
+  which saves round trips. `MaxRuntime` is how long a call may keep starting steps, 10 seconds when you leave it out.
+  A call lasts up to `MaxRuntime` plus the step it is running, so keep the two together well below 230 seconds.
+- **A step that takes longer than the limit.** A plain response cannot outlast it. Use streaming where the response is
+  really streamed (below), or move the work out of the request: start it from the step on a queue-triggered function or
+  another worker, and let the run [wait for an event](/inngest-dotnet/guides/sleep-and-wait-for-events/) that the
+  worker sends when it is done. [Connect](/inngest-dotnet/guides/connect/) suits a worker that stays up, such as a
+  container; a plan that scales to zero does not keep the connection Connect needs.
+
+Checkpointing is set for the whole app, or for one function with `FunctionOptions.Checkpointing`:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.Checkpointing = new CheckpointingOptions { MaxRuntime = TimeSpan.FromSeconds(30) };
+```
+
+### Streaming
+
+With streaming on, a call still running after three seconds is answered with a 201 at once, then with a space every
+three seconds, then with its result, which keeps traffic on the connection (see
+[Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy)):
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.Streaming = true;
+```
+
+That only helps when the bytes reach Inngest as they are written. With the ASP.NET Core integration they leave the
+worker as they are written: the host forwards the request to the worker's Kestrel with YARP's forwarder, which passes
+the response on as it arrives, and the SDK answers through that request, as `MapInngest` does.
+[Microsoft's announcement](https://azure.microsoft.com/updates/generally-available-aspnet-core-integration-in-azure-functions/)
+of the integration names streaming content types among what it enables. With the built-in model they do not: the
+worker keeps the response until the function returns and then hands it to the host, so a long call stays silent. The
+SDK still answers normally there, and logs a warning, once per app, if `Streaming` is on.
+
+Whether streaming carries a call past the 230 seconds on your plan has not been tested. Microsoft words the limit as
+the function not completing in time, and its App Service article calls it the load balancer's idle timeout. Whether
+the spaces count as activity there is for you to test, with a step longer than the limit, before you rely on it.
+
+## The two HTTP models
+
+|  | Built-in | ASP.NET Core integration |
+|---|---|---|
+| Registration | `ConfigureFunctionsWorkerDefaults` | `ConfigureFunctionsWebApplication`, with the `Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore` package |
+| The response | Kept by the worker until the function returns | Written to the request while the function runs |
+| Streaming | No effect | Works as in any ASP.NET Core app |
+| The request body | Received whole by the host; a chunked request without a `Content-Length` arrives empty | Read from the request as it arrives |
+
+Use `HttpRequestData` and `HttpResponseData`, as above, in both. In the ASP.NET Core integration the SDK writes the
+answer to the response of the request itself, and the `HttpResponseData` the function returns is the integration's
+wrapper of that response with nothing added to it.
+
+Inngest sends a `Content-Length` with every call and sync, so the built-in model's rule about the body does not matter
+to it. Behind a proxy that re-chunks requests, a call would arrive empty and the SDK would answer it with a 401.
+
+## What is not supported
+
+- **The in-process model.** The package serves the isolated worker only.
+- **Streaming in the built-in model**, for the reason above.
+- **A function key.** Inngest sends none, so the function stays anonymous; the signature check is what protects it in
+  cloud mode. In dev mode nothing is verified, so keep dev mode on your machine.
+- **Native AOT.** Microsoft's isolated worker guide covers
+  [ReadyToRun](https://learn.microsoft.com/en-us/azure/azure-functions/dotnet-isolated-process-guide#readytorun), not
+  Native AOT, and the worker's libraries are not marked as trimming or AOT compatible. `Inngest.AzureFunctions` is, so
+  it adds no warnings to an app that trims, but a Functions app is not published as a Native AOT binary. For a web
+  app that is, see [Native AOT](/inngest-dotnet/guides/native-aot/).
+- **.NET Framework.** The package targets `net8.0` and `net10.0`, like the others.
+
+## What has been tested
+
+The package is tested against fakes of the worker's request, response and function context, written from the worker's
+source, and against the Inngest server in Docker: a self-hosted server that signs its requests, for syncs, signed
+calls and signed answers through the built-in model, and the dev server, for streaming through the ASP.NET Core
+integration. In those tests an app stands in for the Functions host. It has not been run in a deployed function app,
+so how the host and the load balancer behave, as described above, comes from Microsoft's documentation and from the
+source of the Functions host and worker.

@@ -236,6 +236,7 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. It also carries a source generator, analyzers and a code fix (see [Source generator and analyzers](#source-generator-and-analyzers)), which are not packages of their own. |
 | `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler, and `AddInngest` on `IHealthChecksBuilder`, a readiness check for apps that serve functions. |
 | `Inngest.AwsLambda` | `InngestLambdaHandler`, which adapts the events of API Gateway REST and HTTP APIs and Lambda function URLs to the serve handler, in a managed runtime function or a Native AOT executable. Depends on `Amazon.Lambda.APIGatewayEvents` and `Amazon.Lambda.Core` only. |
+| `Inngest.AzureFunctions` | `ServeInngestAsync`, which adapts the request of an HTTP-triggered function of the Azure Functions isolated worker to the serve handler. Depends on `Inngest.AspNetCore` and, of the worker, only `Microsoft.Azure.Functions.Worker.Core`. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
 | `Inngest.Aspire.Hosting` | `AddInngest` and `AddInngestSelfHosted`, which run the Inngest dev server or a self-hosted server as a container of an Aspire AppHost, `WithApp`, which tells the server where an app that serves functions is, and `WithReference`, which gives a project the `INNGEST_*` settings the SDK reads. Depends on `Aspire.Hosting` only, not on `Inngest`. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
@@ -258,6 +259,8 @@ release, so the packages ship together and each depends on exactly the `Inngest`
 `src/Directory.Build.targets` writes the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
+`Inngest.AzureFunctions` uses the serve handler of `Inngest` and the `InngestEndpoint` of `Inngest.AspNetCore` in the
+same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
 each release. `Inngest.Encryption`, `Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two
@@ -340,6 +343,13 @@ Kestrel -> MapInngest -> InngestEndpoint (pooled body) -> InngestCommHandler
   PUT  -> FunctionRegistry.WriteRegistration -> in-band body, or IInngestApi.RegisterAsync
   POST -> signature check -> FunctionRegistry.TryGet(fnId) -> ExecutionEngine.ExecuteAsync -> ServeResponse
 ```
+
+Azure Functions reaches the same handler through a function of the app that calls `request.ServeInngestAsync()`. With
+the isolated worker's ASP.NET Core integration, the function runs inside a request of the worker's Kestrel, whose
+`HttpContext` is in `FunctionContext.Items`, and `InngestEndpoint.HandleAsync` answers through it, streaming included.
+With the built-in HTTP model, the body is a `MemoryStream` that already holds the request and is used in place, and the
+response is copied into an `HttpResponseData`, which the worker sends to the host when the function returns, so a call
+cannot be streamed.
 
 `InngestCommHandler` knows nothing about ASP.NET Core; it works on `IServeRequest` and returns `ServeResponse`, so
 other hosts, and the Connect worker, reuse it. Startup data (resolved settings, the function registry) is immutable and
@@ -498,7 +508,8 @@ per call.
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
 | AWS Lambda: the serve endpoint behind API Gateway REST and HTTP APIs and function URLs, in a managed runtime function or a Native AOT executable | Supported (`Inngest.AwsLambda`, `InngestLambdaHandler`), with buffered responses only: `Streaming` has no effect, and the call's cancellation token is never cancelled |
-| Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result |
+| Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result. Azure Functions streams the same way with the worker's ASP.NET Core integration, and not with its built-in HTTP model. |
+| Azure Functions (isolated worker): built-in HTTP model and ASP.NET Core integration | Supported (`Inngest.AzureFunctions`): tested against fakes of the worker and against the Inngest server behind a stand-in for the Functions host, not in a deployed app. A call has to be answered within the platform's 230 seconds. |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
 | `defer` | Not yet |
 | Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGEST001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |

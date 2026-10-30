@@ -87,6 +87,7 @@ export default defineConfig({
             'guides/source-generator',
             'guides/deploying',
             'guides/aws-lambda',
+            'guides/azure-functions',
           ],
         },
         {

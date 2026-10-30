@@ -4,6 +4,9 @@ using Inngest.AzureFunctions;
 
 namespace Microsoft.Azure.Functions.Worker.Http;
 
+/// <summary>
+/// Serves the Inngest endpoint from the HTTP-triggered function of an Azure Functions app.
+/// </summary>
 public static class InngestHttpRequestDataExtensions
 {
     /// <summary>

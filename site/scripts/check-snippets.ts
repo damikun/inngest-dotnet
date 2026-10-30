@@ -431,6 +431,10 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
     <PackageReference Include="Sentry.AspNetCore" Version="6.12.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- The apps of the Azure Functions guide: the worker, its HTTP trigger and its ASP.NET Core integration. -->
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.3.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.1" />
   </ItemGroup>
   <ItemGroup>
 ${references}
@@ -447,6 +451,7 @@ ${reference('Inngest.Extensions.AI')}
          from the source. -->
     <ProjectReference Include="${join(repo, 'src', 'Inngest.SourceGeneration', 'Inngest.SourceGeneration.csproj')}" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 ${reference('Inngest.AwsLambda')}
+${reference('Inngest.AzureFunctions')}
   </ItemGroup>
   <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>
