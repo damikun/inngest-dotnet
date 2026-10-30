@@ -110,4 +110,8 @@ internal static partial class Log
     [LoggerMessage(EventId = 535, Level = LogLevel.Debug,
         Message = "Ignored the answer to an earlier lease extension of request {RequestId}; Inngest has handed out a newer lease since.")]
     public static partial void StaleLeaseAnswer(ILogger logger, string requestId);
+
+    [LoggerMessage(EventId = 536, Level = LogLevel.Error,
+        Message = "Disposing the services of request {RequestId} failed; the reply goes out as it is.")]
+    public static partial void ScopeDisposalFailed(ILogger logger, string requestId, Exception exception);
 }

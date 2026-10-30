@@ -222,6 +222,23 @@ public sealed class CallTests
     }
 
     [Fact]
+    public async Task A_scoped_service_that_throws_while_disposed_does_not_change_the_answer()
+    {
+        _harness.Engine.Handler = (request, _) =>
+        {
+            request.Services.GetRequiredService<ThrowsOnDispose>();
+            return Task.FromResult(FakeExecutionEngine.Result(200, "\"done\""));
+        };
+        var handler = _harness.CreateHandler(CommHandlerHarness.DevSettings);
+
+        using var response = await handler.HandleAsync(Call("?fnId=shop-send-email&stepId=step"), TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(200);
+        response.BodyText().ShouldBe("\"done\"");
+        _harness.Logger.LatestRecord.Id.Id.ShouldBe(416);
+    }
+
+    [Fact]
     public async Task Request_services_are_used_as_given()
     {
         using var scope = _harness.RootServices.CreateScope();

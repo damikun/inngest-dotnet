@@ -2,6 +2,7 @@ using System.Text.Json;
 using Inngest.Connect.Protocol;
 using Inngest.Internal;
 using Inngest.Tests.Connect.Support;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.Connect;
 
@@ -222,6 +223,28 @@ public sealed class ExecutionTests : IAsyncLifetime
         worker.LogsWithId(516).ShouldHaveSingleItem().Exception.ShouldBeOfType<InvalidOperationException>();
     }
 
+    [Fact]
+    public async Task A_scoped_service_that_throws_while_disposed_does_not_turn_the_reply_into_an_error()
+    {
+        await using var worker = new WorkerHost(
+            _gateway,
+            functions: builder => builder.AddFunction(WorkerHost.Orders, static (context, _) =>
+            {
+                context.Services.GetRequiredService<ThrowsOnDispose>();
+                return Task.FromResult<object?>(new { received = 42 });
+            }),
+            configure: services => services.AddScoped<ThrowsOnDispose>());
+        await worker.StartAsync();
+        var session = await _gateway.NextReadySessionAsync();
+
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+
+        var reply = await session.NextAsync(GatewayMessageType.WorkerReply, SDKResponse.Parser);
+        reply.Status.ShouldBe(SDKResponseStatus.Done);
+        reply.Body.ToStringUtf8().ShouldBe("""{"received":42}""");
+        worker.LogsWithId(536).ShouldHaveSingleItem().Exception.ShouldBeOfType<InvalidOperationException>();
+    }
+
     [Theory]
     [InlineData(2)]
     [InlineData(7)]
@@ -266,5 +289,10 @@ public sealed class ExecutionTests : IAsyncLifetime
 
         await session.NextAsync(GatewayMessageType.WorkerReply);
         worker.LogsWithId(530).ShouldHaveSingleItem();
+    }
+
+    private sealed class ThrowsOnDispose : IDisposable
+    {
+        public void Dispose() => throw new InvalidOperationException("Disposing failed");
     }
 }

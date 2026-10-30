@@ -56,4 +56,8 @@ internal static partial class Log
     [LoggerMessage(EventId = 415, Level = LogLevel.Warning,
         Message = "An unsigned sync registered {ServeUrl}, taken from the request's Host header, which the caller chooses; set ServeOrigin, or INNGEST_SERVE_ORIGIN, to the app's public origin")]
     public static partial void UnsignedSyncFromRequestUrl(ILogger logger, Uri serveUrl);
+
+    [LoggerMessage(EventId = 416, Level = LogLevel.Error,
+        Message = "Disposing the services of a call to function {FunctionId} failed; the answer goes out as it is.")]
+    public static partial void ScopeDisposalFailed(ILogger logger, string functionId, Exception exception);
 }

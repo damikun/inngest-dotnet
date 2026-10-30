@@ -18,7 +18,7 @@ internal sealed class CommHandlerHarness
     public static readonly SigningKey FallbackKey = SigningKey.Create("signkey-test-" + new string('1', 64))!;
     public static readonly SigningKey UnknownKey = SigningKey.Create("signkey-test-" + new string('2', 64))!;
 
-    private readonly ServiceProvider _services = new ServiceCollection().AddScoped<ScopedDependency>().BuildServiceProvider();
+    private readonly ServiceProvider _services = new ServiceCollection().AddScoped<ScopedDependency>().AddScoped<ThrowsOnDispose>().BuildServiceProvider();
 
     public static InngestSettings DevSettings { get; } = new()
     {
@@ -72,6 +72,11 @@ internal sealed class ScopedDependency : IDisposable
     public bool IsDisposed { get; private set; }
 
     public void Dispose() => IsDisposed = true;
+}
+
+internal sealed class ThrowsOnDispose : IDisposable
+{
+    public void Dispose() => throw new InvalidOperationException("Disposing failed");
 }
 
 internal static class ServeResponseExtensions

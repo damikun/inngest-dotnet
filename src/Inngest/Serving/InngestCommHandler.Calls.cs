@@ -68,15 +68,33 @@ internal sealed partial class InngestCommHandler
 
             // Hosts without a request scope get one per invocation, so scoped services work as in a web request.
             var scope = scopeFactory.CreateAsyncScope();
-            await using (scope.ConfigureAwait(false))
+            try
             {
                 return await ExecuteAsync(request, function, stepId, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await DisposeScopeAsync(scope, functionId).ConfigureAwait(false);
             }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             Log.ExecutionFailed(logger, functionId, exception);
             return InternalError(exception);
+        }
+    }
+
+    // The function has run by now. A scoped service that throws while it is disposed must not turn its answer into an
+    // error, which Inngest would retry, running its steps again.
+    private async ValueTask DisposeScopeAsync(AsyncServiceScope scope, string functionId)
+    {
+        try
+        {
+            await scope.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Log.ScopeDisposalFailed(logger, functionId, exception);
         }
     }
 

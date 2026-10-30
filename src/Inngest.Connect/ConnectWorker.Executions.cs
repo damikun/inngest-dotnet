@@ -128,7 +128,7 @@ internal sealed partial class ConnectWorker
         // what it registered on its token, and the worker's own token lives as long as the worker does.
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var scope = _scopeFactory.CreateAsyncScope();
-        await using (scope.ConfigureAwait(false))
+        try
         {
             var execution = new ExecutionRequest
             {
@@ -143,6 +143,24 @@ internal sealed partial class ConnectWorker
 
             using var result = await _engine.ExecuteAsync(execution, cancellation.Token).ConfigureAwait(false);
             return CreateReply(data, result.StatusCode, result.Body.WrittenMemory, result.NoRetry ?? false, result.RetryAfter);
+        }
+        finally
+        {
+            await DisposeScopeAsync(scope, data.RequestId).ConfigureAwait(false);
+        }
+    }
+
+    // The function has run by now. A scoped service that throws while it is disposed must not turn its answer into an
+    // error, which Inngest would retry, running its steps again.
+    private async ValueTask DisposeScopeAsync(AsyncServiceScope scope, string requestId)
+    {
+        try
+        {
+            await scope.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Log.ScopeDisposalFailed(_logger, requestId, exception);
         }
     }
 
