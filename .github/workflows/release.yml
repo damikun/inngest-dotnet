@@ -3,7 +3,8 @@ name: Release
 # Publishes the NuGet packages when a version tag is pushed: the tag v0.1.0-preview.1 publishes version
 # 0.1.0-preview.1. nuget.org trusted publishing trades the job's GitHub identity token for an API key that lasts an
 # hour, so the repository stores no NuGet key. It needs a trusted publishing policy on nuget.org for this repository
-# and this workflow file.
+# and this workflow file. Once a release is on nuget.org, raise PackageValidationBaselineVersion in
+# src/Directory.Build.props to it, so the next one is checked against it.
 on:
   push:
     tags: ['v*']

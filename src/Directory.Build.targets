@@ -1,0 +1,12 @@
+<Project>
+  <!-- The packages ship together, and Inngest.AspNetCore, Inngest.Connect and Inngest.Testing use internals of Inngest
+       that can change in any release. So each package depends on exactly the Inngest of its own version, not on that
+       version or later. -->
+  <Target Name="PinProjectReferenceVersions" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_PinnedProjectReferenceVersions Include="@(_ProjectReferencesWithVersions)" ProjectVersion="[%(_ProjectReferencesWithVersions.ProjectVersion)]" />
+      <_ProjectReferencesWithVersions Remove="@(_ProjectReferencesWithVersions)" />
+      <_ProjectReferencesWithVersions Include="@(_PinnedProjectReferenceVersions)" />
+    </ItemGroup>
+  </Target>
+</Project>
