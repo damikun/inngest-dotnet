@@ -104,7 +104,10 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Errors and retries** | Every step retries on its own. `NonRetriableException` stops, `RetryAfterException` sets the delay, and a failure handler runs when a function fails for good. |
 | **Cancellation and timeouts** | `CancelOn` stops a run when a matching event arrives. `Timeouts` cancel a run that waits too long to start or takes too long to finish. |
 | **Middleware** | `InngestMiddleware` observes or wraps runs, steps and event sends, with dependencies from DI. |
-| **Two ways to serve** | `MapInngest` adds the endpoint Inngest calls to an ASP.NET Core app. `AddConnect` runs a worker over an outbound WebSocket instead. |
+| **AI calls** | `InferAsync` has Inngest make the model call; `AIWrapAsync` runs your own call as a step that the Inngest UI shows with its input. |
+| **Realtime** | `PublishAsync` sends updates from a run to the browsers that watch it, and `IInngestRealtime` mints the tokens they subscribe with. |
+| **Sessions** | Events name the sessions they belong to, and what a run sends or invokes inherits them, so related runs group together. |
+| **Two ways to serve** | `MapInngest` adds the endpoint Inngest calls to an ASP.NET Core app, and can stream long calls through load balancers. `AddConnect` runs a worker over an outbound WebSocket instead. |
 | **Signed requests** | In cloud mode every request from Inngest is verified and every response is signed, with a fallback key for key rotation. |
 | **.NET conventions** | Functions are classes resolved from DI, or delegates. Settings come from `IOptions` and the usual `INNGEST_*` variables. Logs go to `ILogger`. |
 

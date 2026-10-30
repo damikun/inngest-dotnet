@@ -1,0 +1,89 @@
+---
+title: Realtime
+description: Publish updates from a run to the browsers that watch it, and mint the tokens browsers subscribe with.
+---
+
+A durable function can run for minutes, retry and go on after the request that started it has ended. Realtime lets
+it report back as it goes: it publishes messages to a channel, and the browsers subscribed to that channel receive
+them. The .NET SDK publishes and mints subscription tokens; browsers subscribe with the `useRealtime` hook or
+`subscribe` of the TypeScript SDK. Inngest delivers a message to the subscribers connected when it is published.
+
+## Channels and topics
+
+A channel is a stream for one thing users watch, such as `order:o-1001`. A topic is one kind of message in it, such
+as `status` or `tokens`, and subscribers choose the topics they receive. `RealtimeTopic` names both:
+
+{/* check: statements */}
+```csharp
+var status = new RealtimeTopic("order:o-1001", "status");
+```
+
+## Publishing from a function
+
+The step tool publishes once: a retry or a replay returns the saved data without publishing again.
+
+{/* check: body OrderPlaced */}
+```csharp
+var status = new RealtimeTopic($"order:{context.Event.Data.OrderId}", "status");
+
+await context.Step.PublishAsync("publish-received", status, new { Text = "Received" });
+await context.Step.RunAsync("charge", () => Task.CompletedTask);
+await context.Step.PublishAsync("publish-charged", status, new { Text = "Charged" });
+```
+
+`IInngestRealtime`, which `AddInngest` registers, publishes at once, from anywhere; inside a run it tags the message
+with the run. Code around it that is retried publishes again, which suits a stream of model output inside a step,
+where the browser shows the latest text anyway:
+
+{/* check: body OrderPlaced; IInngestRealtime realtime */}
+```csharp
+var tokens = new RealtimeTopic($"order:{context.Event.Data.OrderId}", "tokens");
+
+await context.Step.RunAsync("write-summary", async () =>
+{
+    foreach (var chunk in new[] { "Your order ", "is on its way." })
+    {
+        await realtime.PublishAsync(tokens, chunk, cancellationToken);
+    }
+});
+```
+
+Text is published as it is and anything else as JSON with the app's serializer options, as the TypeScript SDK does.
+
+## Subscription tokens
+
+A browser cannot subscribe without a token. Your server mints one for one channel and the topics the browser may
+read, after checking that the signed-in user may see them:
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapGet("/api/orders/{orderId}/realtime-token", async (string orderId, IInngestRealtime realtime, CancellationToken cancellationToken) =>
+{
+    // Check here that the signed-in user may see the order.
+    var token = await realtime.GetSubscriptionTokenAsync($"order:{orderId}", ["status", "tokens"], cancellationToken);
+    return Results.Ok(token);
+});
+```
+
+The JSON of a `RealtimeToken` is the token object of the TypeScript SDK: `channel`, `topics`, `key`, a short-lived
+JWT, and `apiBaseUrl`, where the browser connects. A React component hands the endpoint to the hook:
+
+```tsx
+import { useRealtime } from "inngest/react";
+
+const realtime = useRealtime({
+  channel: `order:${orderId}`,
+  topics: ["status", "tokens"],
+  token: () => fetch(`/api/orders/${orderId}/realtime-token`).then((response) => response.json()),
+});
+```
+
+See [React hooks](https://www.inngest.com/docs/realtime/guides/react-hooks) in the Inngest docs for what the hook
+returns, and [channels and topics](https://www.inngest.com/docs/realtime/channels-and-topics) for typed topics in
+TypeScript.
+
+## Testing
+
+The [test host](/inngest-dotnet/guides/testing/) records published messages instead of sending them: `run.Published`
+holds those of one run and `host.Published` all of them, each with its topic and its data as JSON. Tokens it mints
+are placeholders.

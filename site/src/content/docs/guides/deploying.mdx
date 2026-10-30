@@ -94,6 +94,10 @@ the next step of a run another instance started. Run as many replicas as you nee
 that is cut off by a restart or a crash is retried by Inngest, so let the host shut down gracefully but do not
 worry about losing runs.
 
+A load balancer that closes idle connections cuts off a call that runs longer than its timeout, and Inngest retries
+the call from the step it was running. Keep each step shorter than the timeout, or turn on
+[streaming](/inngest-dotnet/guides/configuration/#behind-a-proxy), which keeps a long call's connection busy.
+
 ## Self-hosting Inngest
 
 To run Inngest yourself instead of using Inngest Cloud, point the SDK at your server with `INNGEST_BASE_URL` and use

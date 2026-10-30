@@ -384,7 +384,11 @@ per call.
 | Connect (WebSocket workers): start, handshake, heartbeats, leases, reply buffering and flush, draining, reconnects, graceful shutdown | Supported (`Inngest.Connect`) |
 | Connect connection state and a readiness health check | Supported (`IInngestConnection`, `AddInngestConnect`) |
 | `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
-| `step.ai.wrap`, realtime, `defer`, durable endpoints, streaming responses | Not yet |
+| `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
+| Realtime publishing and subscription tokens | Supported (`PublishAsync` on the step tools, `IInngestRealtime`); subscribing stays with the TypeScript SDK in the browser |
+| Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result |
+| Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
+| `defer`, durable endpoints | Not yet |
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, step output and function output. The data an invoke sends is not transformed. |
 | `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |

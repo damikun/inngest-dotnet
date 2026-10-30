@@ -236,7 +236,7 @@ share a set and add to it.
 
 | Method | What the step does |
 |---|---|
-| `Run<T>(id, T result)` | Returns `result` instead of running its handler. A `SendSignalAsync` step is mocked the same way. |
+| `Run<T>(id, T result)` | Returns `result` instead of running its handler. An `AIWrapAsync` step is mocked the same way. |
 | `Run<T>(id, Func<int, T> handler)` | Calls `handler` in place of the step's own handler on every attempt, with the attempt number from 0. Throw from it to fail the attempt. |
 | `RunThrows(id, exception)` | Throws on every attempt, so the step is retried and then fails for good, at once for a `NonRetriableException`. |
 | `Sleep(id)` | The sleep ends. |
@@ -246,6 +246,11 @@ share a set and add to it.
 | `Invoke<T>(id, T result)` | The invoked function returns `result`. |
 | `Invoke<TFunction, TResult>(id, TResult result)` | The same for a step that invokes `TFunction` by its class. |
 | `InvokeThrows(id, exception)` | The invoked function fails, and the step throws `StepFailedException` where the function awaits it. |
+| `WaitForSignal<T>(id, T data)` | The wait for a signal receives `data`, under the name of the signal it waits for. |
+| `WaitForSignalTimeout(id)` | The wait for a signal times out and returns null. |
+| `SendSignal(id, runId)` | The send-signal step returns `runId` as the run the signal resumed; null says no run waited. |
+| `Fetch(id, statusCode, body, headers)` | The fetch step gets this response, as Inngest would hand it back. |
+| `Infer<T>(id, T response)` | The AI provider answers the inference step with `response`. |
 
 A mocked run step still goes through the engine: its value is serialized, memoized and replayed like a real result,
 and the app's middleware runs around it. A run step without a mock runs its handler.
@@ -268,7 +273,7 @@ The compiler checks that `ScoreAccount` returns an `AccountScore`, and the host 
 
 A mock that does not fit its step makes `RunAsync` throw `InvalidOperationException` too: a mock for another kind of
 step, such as `Run` for a sleep, or a wait mock whose event has another name. Send steps take no mock; the host
-records their events.
+records their events. A signal sent without a mock resumes no run and is recorded too, and so are realtime messages.
 
 Steps that start together, as with `Task.WhenAll`, hold each other up: without race mode Inngest calls the function
 again only once all of them have finished, so a wait without a mock keeps the run waiting even when the other steps
@@ -288,7 +293,11 @@ clock after a sleep sees the time it would see under Inngest.
 since the host was created, from runs or not. The host checks each event as the client does before sending, so an
 event with a reserved `inngest/` name fails its send step, and a send returns ids in the format Inngest gives events.
 An event sent through `IInngestClient` outside a step is sent again on every call, so it shows up once per call; send
-it from a step to send it once.
+it from a step to send it once. Events sent from a run carry the run's [sessions](/inngest-dotnet/guides/sending-events/#sessions)
+in `Meta.PropagatedSessions`, and the host delivers an event's sessions to the run it starts.
+
+`run.SentSignals` and `host.SentSignals` hold the signals sent without a mock, each with its data as JSON, and
+`run.Published` and `host.Published` the [realtime](/inngest-dotnet/guides/realtime/) messages.
 
 ### Running up to one step
 
@@ -354,8 +363,8 @@ The SDK's extension methods for these steps, such as `RunAsync` with a handler t
 the typed `WaitForEventAsync<T>` and `SendEventAsync<T>`, end up in these six methods, and so do their overloads that
 take a `StepOptions` in place of the id. `ParallelAsync` needs nothing from the fake. The other members of
 `IStepTools` have defaults that throw `NotSupportedException`: `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`,
-`InferAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by class and needs the app's registrations to find
-the function's id. Implement the ones the function under test calls.
+`InferAsync`, `AIWrapAsync`, `PublishAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by class and needs
+the app's registrations to find the function's id. Implement the ones the function under test calls.
 
 `FunctionContext<T>` has public `init` properties, so a test builds one directly:
 

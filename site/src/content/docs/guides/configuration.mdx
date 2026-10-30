@@ -37,6 +37,8 @@ builder.Services.AddInngest(options =>
 | `ServePath` | `INNGEST_SERVE_PATH` | the path the request arrived on |
 | `AllowInBandSync` | `INNGEST_ALLOW_IN_BAND_SYNC` | `true` |
 | `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
+| `Streaming` | `INNGEST_STREAMING` | `false` |
+| `SessionPropagation` | `INNGEST_SESSION_PROPAGATION` | `true` |
 | `SerializerOptions` | | `JsonSerializerDefaults.Web` |
 
 An address in a variable may leave out the scheme, as in `INNGEST_DEV=localhost:8288`. The dev server, localhost, IP
@@ -145,6 +147,19 @@ options.ServePath = "/api/inngest";
 ```
 
 `INNGEST_SERVE_HOST`, the old name of `INNGEST_SERVE_ORIGIN`, is read too.
+
+Proxies and load balancers also close a connection that stays idle too long, often after 60 seconds, and that cuts
+off a long call: a step that runs for minutes, or a long function without steps. With streaming on, a call still
+running after three seconds is answered at once with a 201, then with a space every three seconds, then with its
+result, which Inngest reads from the stream:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.Streaming = true;
+```
+
+`INNGEST_STREAMING=true` does the same, as it does for the TypeScript SDK. A call that ends within three seconds is
+answered as usual. Connect workers need no streaming: their connection to Inngest stays open.
 
 ## Syncs
 

@@ -8,6 +8,12 @@ public interface IEmailSender
     Task<string> SendAsync(string to, string subject, CancellationToken cancellationToken);
 }
 
+// A model client of the app's own, such as a wrapper of IChatClient from Microsoft.Extensions.AI.
+public interface IChatModel
+{
+    Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken);
+}
+
 public sealed record UserSignedUp(string UserId, string Email) : Inngest.IInngestEventData
 {
     public static string EventName => "user/signed-up";

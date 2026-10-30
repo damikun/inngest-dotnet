@@ -26,13 +26,14 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
 
-`AddInngest` also registers `IInngestClient` and `IInngestRunsClient`.
+`AddInngest` also registers `IInngestClient`, `IInngestRunsClient` and `IInngestRealtime`.
 
 ## Options
 
 **`InngestOptions`**: `AppId`, `AppVersion`, `EventKey`, `SigningKey`, `SigningKeyFallback`, `Environment`,
 `IsDev`, `DevServerUrl`, `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl`, `ServeOrigin`, `ServePath`, `AllowInBandSync`,
-`AllowUnsignedSync`, `Checkpointing`, `SerializerOptions`. See [Configuration](/inngest-dotnet/guides/configuration/).
+`AllowUnsignedSync`, `Streaming`, `SessionPropagation`, `Checkpointing`, `SerializerOptions`. See
+[Configuration](/inngest-dotnet/guides/configuration/).
 
 **`ConnectOptions`**: `InstanceId`, `MaxWorkerConcurrency`, `GatewayUrl`. See [Connect](/inngest-dotnet/guides/connect/).
 
@@ -117,7 +118,7 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `InngestFunction<TEventData, TResult>` | Base class of class functions with a result type: `ExecuteAsync` returns `Task<TResult>`. `InngestFunction<TEventData>` derives from it with `object?`. |
 | `InngestFunction` | The base of both, which the methods that take a function class require. A class cannot derive from it directly. |
 | `IReturns<TResult>` | Implemented by `InngestFunction<TEventData, TResult>`, so that `InvokeAsync<TFunction, TResult>` can require the result type. |
-| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`, `RequestId` and `JobId`. For code that does not know the event type, such as middleware: `EventName`, `EventId` and `RawEvent`, the triggering event as JSON. |
+| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`, `RequestId`, `JobId` and `Sessions`, the run's sessions that what it sends inherits. For code that does not know the event type, such as middleware: `EventName`, `EventId` and `RawEvent`, the triggering event as JSON. |
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
 | `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |
@@ -143,25 +144,27 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `SendSignalAsync(string id, InngestSignal signal)` | `Task<string?>`: the id of the run the signal resumed, or null when no run waits for it |
 | `FetchAsync(string id, HttpRequestMessage request)` | `Task<HttpResponseMessage>`; Inngest makes the request, and the response is memoized |
 | `InferAsync<TResponse>(string id, InferOptions options)` | `Task<TResponse>`; Inngest sends the request to the AI provider, and the response is memoized |
+| `AIWrapAsync<TInput, TResult>(string id, TInput input, Func<TInput, CancellationToken, Task<TResult>> handler)` | `Task<TResult>`; runs your own model call like a run step that the Inngest UI shows as one, with the input; a rerun with an input edited there passes the edited input |
+| `PublishAsync<T>(string id, RealtimeTopic topic, T data)` | `Task<T>`; publishes a [realtime](#realtime) message once, tagged with the run |
 | `ParallelAsync<T>(ParallelMode mode, Func<Task<T>> steps)` | `Task<T>`; runs the callback with the mode applied to every step it creates |
 
 The members after the first six have default implementations, so a fake only has to implement the six. The defaults
-of `InvokeAsync<TFunction, TResult>`, `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `InferAsync` throw
-`NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
+of `InvokeAsync<TFunction, TResult>`, `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`, `InferAsync`,
+`AIWrapAsync` and `PublishAsync` throw `NotSupportedException`. Every method but `ParallelAsync` also has an overload that takes a `StepOptions` in place of
 the id.
 
 `StepToolsExtensions` adds `RunAsync` overloads for handlers that take no token, return no value or are
 synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, and `SendEventAsync` for a single
 event. For a typed event `T` it adds `WaitForEventAsync<T>(string id, TimeSpan timeout, string? match = null,
 string? @if = null)` and `SendEventAsync<T>` for one `T` or several. It also adds a non-generic `WaitForSignalAsync`
-with `JsonElement` data, an `InferAsync` that returns `JsonElement`, and `ParallelAsync(ParallelMode, Func<Task>)`
-for steps without a result. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
+with `JsonElement` data, an `InferAsync` that returns `JsonElement`, an `AIWrapAsync` whose handler takes no token,
+and `ParallelAsync(ParallelMode, Func<Task>)` for steps without a result. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
 
 | Record | Constructor | Properties |
 |---|---|---|
 | `StepOptions` | `(string Id)` | `Name`, shown in the Inngest UI; `ParallelMode`, for this step instead of the mode of an enclosing `ParallelAsync`. A `string` converts to it implicitly. |
 | `WaitForEventOptions` | `(string Event, TimeSpan Timeout)` | `Match`, `If` |
-| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout` |
+| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout`, `Meta`, the sessions of the invoked run |
 | `WaitForSignalOptions` | `(string Signal, TimeSpan Timeout)` | `OnConflict`: `SignalConflict.Fail`, the default, fails the run when another run already waits for the signal; `Replace` takes the signal over |
 | `InngestSignal` | `(string Name, object? Data = null)` | A signal to send. |
 | `InngestSignal<TData>` | `(string Name, TData Data)` | A signal as the waiting run receives it. |
@@ -179,8 +182,9 @@ have finished, or `Race`, where it calls the function again each time one of the
 | `IInngestClient` | `SendAsync` for one `InngestEvent` or several, each also with a `SendOptions`; `SendSignalAsync(InngestSignal, CancellationToken)`, also with a `SendOptions`, which returns the id of the run the signal resumed, or null when no run waits for it; `AppId`. |
 | `IInngestEventData` | Implemented by an event's data record: `static abstract string EventName` and `static virtual string? EventVersion`. |
 | `InngestClientExtensions` | `SendAsync<T>(T, CancellationToken)` and `SendAsync<T>(IEnumerable<T>, CancellationToken)` for typed events. |
-| `InngestEvent` | An event to send: `(string Name, object? Data = null)` with `Id`, `User`, `Timestamp`, `Version`. |
-| `InngestEvent<TData>` | A received event: `Name`, `Data`, `Id`, `User`, `Timestamp`, `Version`. |
+| `InngestEvent` | An event to send: `(string Name, object? Data = null)` with `Id`, `User`, `Timestamp`, `Version`, `Meta`. |
+| `InngestEvent<TData>` | A received event: `Name`, `Data`, `Id`, `User`, `Timestamp`, `Version`, `Meta`. |
+| `EventMeta` | An event's sessions: `Sessions`, its own, where a null id drops an inherited session; `PropagatedSessions`, those it inherits from the run that sends it, which the SDK fills in; `InheritSessions`, false to inherit none. See [Sending events](/inngest-dotnet/guides/sending-events/#sessions). |
 | `SendEventsResult` | `Ids` of the sent events, in order. |
 | `SendOptions` | Options for one send: `Environment`, a branch environment to send to instead of the app's. |
 
@@ -202,6 +206,20 @@ and `GetOutput<T>()`, which reads the output with the app's serializer options. 
 Inngest caches these answers for a few seconds, a run for 3 and the runs of an event for 15, and only `EndedAt` says
 for sure that a run is over. Failures throw `InngestException` with Inngest's message.
 
+## Realtime
+
+**`IInngestRealtime`** publishes realtime messages and mints subscription tokens through the Inngest API, with the
+app's signing key. See [Realtime](/inngest-dotnet/guides/realtime/).
+
+| Method | Returns |
+|---|---|
+| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one. Text goes out as it is, anything else as JSON. |
+| `GetSubscriptionTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `Task<RealtimeToken>` for a browser to subscribe to these topics of the channel |
+
+**`RealtimeTopic`**, a record `(string Channel, string Name)`. **`RealtimeToken`**, a record `(string Channel,
+IReadOnlyList<string> Topics, string Key)` with `ApiBaseUrl`; serialized with camelCase names, it is the token object
+that `useRealtime` and `subscribe` of the TypeScript SDK take.
+
 ## Errors
 
 | Exception | Meaning |
@@ -218,7 +236,8 @@ for sure that a run is over. Failures throw `InngestException` with Inngest's me
 `OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`, `OnStepErrorAsync`,
 `WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync` and `WrapSendEventAsync`. `StepInfo` describes a step:
 `Id`, `HashedId`, `Type`, `Memoized`, and `Name`, the display name the code gave it. `Type` is a `StepType`: `Run`,
-`Sleep`, `WaitForEvent`, `Invoke`, `SendEvent`, `WaitForSignal`, `SendSignal`, `Fetch` or `AIInfer`. See
+`Sleep`, `WaitForEvent`, `Invoke`, `SendEvent`, `WaitForSignal`, `SendSignal`, `Fetch`, `AIInfer`, `AIWrap` or
+`RealtimePublish`. See
 [Middleware](/inngest-dotnet/guides/middleware/).
 
 **`FunctionMiddleware`** is middleware for one function, listed in `FunctionOptions.Middleware`. It runs inside the
@@ -280,15 +299,19 @@ Package `Inngest.Testing`, namespace `Inngest.Testing`. See [Testing functions](
 | `ExecuteStepAsync(string functionId, string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | Runs the function until the step has run, or has been reached when Inngest carries it out. Also without `mocks`. |
 | `ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken)` | The same for the function registered as `TFunction`. Also without `mocks`. |
 | `SentEvents` | Every event sent through the app's client since the host was created. |
+| `SentSignals` | Every signal sent through the app's client since the host was created. None resumes a run. |
+| `Published` | Every realtime message published since the host was created, as `PublishedMessage(RealtimeTopic Topic, JsonElement Data)`. Tokens the host mints are placeholders. |
 | `Services` | The app's services, as functions resolve them. Disposing the host, which is `IAsyncDisposable` and `IDisposable`, disposes them. |
 
 **`StepMocks`** answers steps by id, and every method returns a new set: `Run<T>(id, T result)`,
 `Run<T>(id, Func<int, T> handler)`, `RunThrows(id, exception)`, `Sleep(id)`, `AllSleeps()`,
 `WaitForEvent(id, received)`, `WaitForEventTimeout(id)`, `Invoke<T>(id, T result)`,
-`Invoke<TFunction, TResult>(id, TResult result)` and `InvokeThrows(id, exception)`.
+`Invoke<TFunction, TResult>(id, TResult result)`, `InvokeThrows(id, exception)`, `WaitForSignal<T>(id, T data)`,
+`WaitForSignalTimeout(id)`, `SendSignal(id, runId)`, `Fetch(id, statusCode, body, headers)` and
+`Infer<T>(id, T response)`. A `Run` mock also answers an AI wrap step.
 
 **`TestRun`**: `RunId`, `FunctionId`, `Status`, `Output`, `GetOutput<T>()`, `Error`, `Steps`, `GetStep(id)`,
-`WaitingOn`, `SentEvents` and `FailureHandler`; `ToString()` describes the outcome. `Status` is a `TestRunStatus`:
+`WaitingOn`, `SentEvents`, `SentSignals`, `Published` and `FailureHandler`; `ToString()` describes the outcome. `Status` is a `TestRunStatus`:
 `Completed`, `Failed`, `Waiting` or `Stopped`.
 
 **`TestStep`**: `Id`, `HashedId`, `Type`, `Op`, `Options`, `Status`, `Attempts`, `Mocked`, `Output`,

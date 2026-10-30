@@ -7,6 +7,21 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
 under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest) as a preview.
 
+## Coming in the next release
+
+- **AI calls as steps.** `AIWrapAsync` runs your own model call as a step that the Inngest UI shows with its input,
+  and a rerun with an input edited there hands the handler the edited one. An input edited for `InferAsync` now
+  reaches the request too.
+- **Realtime.** `PublishAsync` on the step tools publishes a message once, `IInngestRealtime` publishes at once and
+  mints the subscription tokens browsers use with the TypeScript SDK's `useRealtime`. See
+  [Realtime](/inngest-dotnet/guides/realtime/).
+- **Streaming.** `InngestOptions.Streaming`, or `INNGEST_STREAMING=true`, keeps a long call open behind proxies and
+  load balancers that close idle connections. See [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy).
+- **Sessions.** Events carry the sessions they belong to, a run's sessions are in `context.Sessions`, and what the run
+  sends or invokes inherits them. See [Sessions](/inngest-dotnet/guides/sending-events/#sessions).
+- **A test host for every step.** Mocks for waits for signals, sent signals, fetch and inference steps; AI wrap steps
+  take run mocks; signals and realtime messages are recorded like events.
+
 ## New in 0.1.0-preview.3
 
 - **Fixes from a code review.** A step that awaits a task the function started before it no longer hangs the call,
@@ -66,6 +81,6 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 
 ## After that
 
-- Realtime publishing, Roslyn analyzers, and Inngest's durable endpoints, which build on checkpointing.
+- Roslyn analyzers, `defer`, and Inngest's durable endpoints, which build on checkpointing.
 
 Ideas and pull requests are welcome on [GitHub](https://github.com/damikun/inngest-dotnet/issues).

@@ -106,6 +106,7 @@ type's name and version:
 | `Timestamp` | When the event happened. Defaults to when Inngest receives it. A time in the future delays the runs it starts. |
 | `User` | Optional user data. |
 | `Version` | An optional version of the event's schema, sent as `v`. A typed event takes it from `EventVersion`. |
+| `Meta` | The [sessions](#sessions) the event belongs to. |
 
 ### Deduplicating with an id
 
@@ -128,6 +129,40 @@ await inngest.SendAsync(new InngestEvent("trial/ending-soon", new { userId })
 ```
 
 Inside a function, sleep instead; see [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/).
+
+## Sessions
+
+Sessions group runs by the work they belong to, such as a support ticket or a conversation, so the Inngest UI can
+show them together. An event names its sessions as key and id pairs, up to five:
+
+{/* check: statements; IInngestClient inngest */}
+```csharp
+await inngest.SendAsync(new InngestEvent("support/ticket.opened", new { TicketId = "ticket_42" })
+{
+    Meta = new EventMeta
+    {
+        Sessions = new Dictionary<string, string?> { ["ticket_id"] = "ticket_42", ["user_id"] = "user_7" },
+    },
+});
+```
+
+A run's sessions are those every triggering event belongs to, at most five, in `context.Sessions`. Events the run
+sends, from a send step or through `IInngestClient`, and functions it invokes inherit them, so the whole chain of
+work stays in the session. An event's own sessions win over inherited ones, and a null id drops an inherited
+session; `InheritSessions = false` sends an event without any. `InvokeOptions.Meta` does the same for an invocation:
+
+{/* check: body OrderPlaced */}
+```csharp
+await context.Step.InvokeAsync<string>("summarize", new InvokeOptions("summarize-conversation")
+{
+    Meta = new EventMeta { Sessions = new Dictionary<string, string?> { ["user_id"] = null } },
+});
+```
+
+`InngestOptions.SessionPropagation = false`, or `INNGEST_SESSION_PROPAGATION=false`, turns inheriting off for the
+app; `context.Sessions` is then empty. A received event's sessions are in `Meta.Sessions`, also on the event a wait
+matched. Waits do not match on sessions. Middleware sees the inherited sessions in `Meta.PropagatedSessions` and may
+remove some before an event is sent.
 
 ## Keys and modes
 

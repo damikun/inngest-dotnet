@@ -39,6 +39,8 @@ saved payment id without charging the card a second time.
 | `WaitForEventAsync<T>(id, options)` | Waits for a matching event, or returns `null` at the timeout. | [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/) |
 | `InvokeAsync<T>(id, options)` | Runs another function and returns its result. | [Invoking functions](/inngest-dotnet/guides/invoking-functions/) |
 | `SendEventAsync(id, events)` | Sends events exactly once per run. | [Sending events](/inngest-dotnet/guides/sending-events/) |
+| `AIWrapAsync(id, input, handler)` | Runs your own model call as a step that the Inngest UI shows as one. | [Calls to AI models](#calls-to-ai-models) |
+| `PublishAsync(id, topic, data)` | Publishes a realtime message once. | [Realtime](/inngest-dotnet/guides/realtime/) |
 
 All of them are on `IStepTools`, which is an interface so that functions can be
 [unit tested](/inngest-dotnet/guides/testing/) with a fake.
@@ -142,6 +144,24 @@ context.Logger.LogInformation("Charged order {OrderId} with payment {PaymentId}"
 
 Calling a step tool inside another step's handler throws an `InvalidOperationException`. Call steps from the
 function itself, one after the other or [in parallel](/inngest-dotnet/guides/parallel-steps/).
+
+## Calls to AI models
+
+A model call is a step like any other, and two step tools make it show as one in the Inngest UI. `InferAsync` has
+Inngest make the request to the provider, so no worker waits for the answer. `AIWrapAsync` runs your own call, such
+as one through `IChatClient` of `Microsoft.Extensions.AI` behind a client of your own, as a run step that the UI shows
+with its input:
+
+{/* check: body OrderPlaced; IChatModel chat */}
+```csharp
+var note = await context.Step.AIWrapAsync(
+    "draft-note",
+    $"Write a short thank-you note for order {context.Event.Data.OrderId}.",
+    prompt => chat.CompleteAsync(prompt, cancellationToken));
+```
+
+The input is saved with the step, and a rerun from the Inngest UI with an edited input hands the handler the edited
+one. Keep the input serializable, as a step's result is.
 
 ## Retries and failures
 
