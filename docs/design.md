@@ -235,6 +235,7 @@ binder, so it works trimmed and under Native AOT.
 |---|---|
 | `Inngest` | Client, function definitions, step tools, execution engine, middleware, signing, the framework-agnostic serve handler. Depends only on `Microsoft.Extensions.*` abstractions. It also carries a source generator, analyzers and a code fix (see [Source generator and analyzers](#source-generator-and-analyzers)), which are not packages of their own. |
 | `Inngest.AspNetCore` | `MapInngest`, which adapts ASP.NET Core requests to the serve handler, and `AddInngest` on `IHealthChecksBuilder`, a readiness check for apps that serve functions. |
+| `Inngest.AwsLambda` | `InngestLambdaHandler`, which adapts the events of API Gateway REST and HTTP APIs and Lambda function URLs to the serve handler, in a managed runtime function or a Native AOT executable. Depends on `Amazon.Lambda.APIGatewayEvents` and `Amazon.Lambda.Core` only. |
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
 | `Inngest.Aspire.Hosting` | `AddInngest` and `AddInngestSelfHosted`, which run the Inngest dev server or a self-hosted server as a container of an Aspire AppHost, `WithApp`, which tells the server where an app that serves functions is, and `WithReference`, which gives a project the `INNGEST_*` settings the SDK reads. Depends on `Aspire.Hosting` only, not on `Inngest`. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
@@ -248,7 +249,7 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Templates` | The `inngest-web` and `inngest-worker` templates for `dotnet new`. A template package: files, no assembly. |
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
 
-`Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption`, `Inngest.EntityFrameworkCore` and
+`Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Connect`, `Inngest.Testing`, `Inngest.Encryption`, `Inngest.EntityFrameworkCore` and
 `Inngest.Extensions.AI` use internals of `Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine,
 the registry and the resolved settings, of which `Inngest.Encryption` only reads the serializer options,
 `Inngest.EntityFrameworkCore` those and the checks the client makes on an event it sends, and `Inngest.Extensions.AI`
@@ -496,6 +497,7 @@ per call.
 | `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
+| AWS Lambda: the serve endpoint behind API Gateway REST and HTTP APIs and function URLs, in a managed runtime function or a Native AOT executable | Supported (`Inngest.AwsLambda`, `InngestLambdaHandler`), with buffered responses only: `Streaming` has no effect, and the call's cancellation token is never cancelled |
 | Streaming responses (`INNGEST_STREAMING`) | Supported on the ASP.NET Core endpoint (`InngestOptions.Streaming`): a call longer than three seconds gets a 201, a space every three seconds and the wrapped result |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
 | `defer` | Not yet |
@@ -552,6 +554,43 @@ Behaviour that differs on purpose, beyond the API shape:
 | Connect shutdown | Closes the socket without a code | Closes with 1000 and `WORKER_SHUTDOWN`, which the gateway recognizes |
 | Connect replies not acknowledged | Flushed over HTTP only on reconnect and close | Flushed as soon as the 5 second deadline passes, and at shutdown |
 | Unsigned out-of-band syncs | Can be refused with `INNGEST_ENABLE_UNAUTHED_SYNC=false` | Same, plus `AllowUnsignedSync`; unsigned callers are never told why a sync failed |
+
+## AWS Lambda
+
+`InngestLambdaHandler` serves the endpoint from a Lambda function. It reduces the two payload formats of API Gateway
+(`APIGatewayProxyRequest` for REST APIs, `APIGatewayHttpApiV2ProxyRequest` for HTTP APIs and function URLs) to an
+`IServeRequest`, hands it to `InngestCommHandler` with no service scope, so that the handler creates one per invocation,
+and maps the `ServeResponse` back to the response type of the payload format. The framework name is `aws-lambda`, as
+in inngest-js.
+
+- **Bodies.** The signature covers the bytes Inngest sent: the UTF-8 of the body text, or what a base64 body decodes to
+  (`isBase64Encoded`, which API Gateway sets when a binary media type matches). Responses are JSON, so they leave as
+  UTF-8 text with `isBase64Encoded` false, and their signature, made over those bytes, holds.
+- **Headers.** Names are matched without regard to case. REST events merge `headers` and `multiValueHeaders`, with the
+  multi-value form winning; HTTP API events have lowercase names and values joined by commas.
+- **Query.** HTTP APIs decode `queryStringParameters` twice, so a `%2B` arrives as a space. `rawQueryString` is the
+  source for HTTP APIs, and REST events, which only have decoded dictionaries, are encoded into a query string. One
+  parser reads both, so a parameter has the same value from either.
+- **URL.** The scheme comes from the first value of `X-Forwarded-Proto` (`https` unless it says `http`) and the host
+  from `Host`, or the request context's domain name. The path is `rawPath` for HTTP APIs, which already starts with a
+  named stage, and `requestContext.path` for REST APIs when it extends `path`, which is when it holds the stage or a
+  custom domain's base path mapping. inngest-js uses `path`, which leaves the stage out. The URL is built on first use,
+  since only syncs need it. Anything the event cannot show, such as an API mapping of an HTTP API or a CloudFront host,
+  is left to `ServeOrigin` and `ServePath`.
+- **Time.** The call's cancellation token is `CancellationToken.None`. Lambda gives no signal before it ends an
+  invocation, and cancelling shortly before `RemainingTime` runs out could only turn the 5xx that Inngest retries anyway
+  into an error of the handler's own: the serve handler rethrows a cancellation, so an error response would have to be
+  built outside it, where the headers and the signature are made, calls that would have finished lose their last
+  moments, and the abandoned work stays alive in an environment that a timeout would have reset. Checkpointing's
+  `MaxRuntime` limits the time steps may start within.
+- **Streaming.** The answer is a single buffered response; `InngestOptions.Streaming` is not consulted. Lambda can
+  stream responses to .NET functions (`Amazon.Lambda.Core.ResponseStreaming`, function URLs in `RESPONSE_STREAM` mode,
+  REST APIs with a streaming integration), but the 201 keep-alive exists for connections that idle, which a buffered
+  Lambda response does not have.
+- **Native AOT.** Nothing reflects. The event types come from `Amazon.Lambda.APIGatewayEvents`, which the app lists in
+  its own `JsonSerializerContext` for `SourceGeneratorLambdaJsonSerializer`. The package ships none: a context fixes the
+  shape of types it does not own, cannot hold the REST and HTTP API event types together (their nested types share
+  names, `SYSLIB1031`) and could not be combined with the app's other event types.
 
 ## Connect
 

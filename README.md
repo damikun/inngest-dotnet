@@ -164,6 +164,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 |---|---|
 | [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. A source generator that registers your function classes, which a project turns on, and an analyzer that finds the types a Native AOT app has not listed, come with it. Its only dependencies are `Microsoft.Extensions.*` packages. |
 | [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/) | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app, and a health check for readiness probes. |
+| [`Inngest.AwsLambda`](https://www.nuget.org/packages/Inngest.AwsLambda/) | `InngestLambdaHandler`, which serves the endpoint from an AWS Lambda function behind API Gateway or a function URL, as a managed runtime function or a Native AOT executable. |
 | [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
 | [`Inngest.Aspire.Hosting`](https://www.nuget.org/packages/Inngest.Aspire.Hosting/) | An Aspire hosting integration: runs the Inngest dev server, or a self-hosted server, as a container of the AppHost, links its UI in the dashboard and gives projects the settings the SDK reads. |
 | [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |

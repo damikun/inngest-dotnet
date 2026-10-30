@@ -1,4 +1,5 @@
 using Inngest.Tests.Serving;
+using Inngest.Tests.Serving.Fakes;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.AwsLambda;
@@ -59,6 +60,27 @@ public sealed class LambdaHandlerTests
 
         responses.ShouldAllBe(status => status == 200);
         _lambda.Serving.Engine.Calls.Count.ShouldBe(50);
+    }
+
+    [Fact]
+    public async Task Streaming_has_no_effect_because_the_response_is_buffered_and_answers_once()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _lambda.Serving.Engine.Handler = async (_, _) =>
+        {
+            await release.Task;
+            return FakeExecutionEngine.Result(200, "\"done\"");
+        };
+        var handler = _lambda.Create(CommHandlerHarness.DevSettings with { Streaming = true });
+
+        var pending = handler.HandleAsync(LambdaEvents.HttpApi(body: LambdaEvents.CallBody), _lambda.Context);
+        _lambda.Serving.Time.Advance(TimeSpan.FromMinutes(1));
+        pending.IsCompleted.ShouldBeFalse();
+        release.SetResult();
+        var response = LambdaEvents.Wire(await pending);
+
+        response.StatusCode.ShouldBe(200);
+        response.Body.ShouldBe("\"done\"");
     }
 
     [Fact]

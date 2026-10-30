@@ -1,0 +1,357 @@
+---
+title: Running on AWS Lambda
+description: Serve the Inngest endpoint from an AWS Lambda function behind API Gateway or a function URL, as a managed runtime function or a Native AOT executable, and plan around the timeouts and sizes of the platform.
+sidebar:
+  label: AWS Lambda
+---
+
+`Inngest.AwsLambda` serves the Inngest endpoint from a Lambda function. Inngest calls the function through an API
+Gateway REST API or HTTP API, or through a Lambda function URL. The package turns each event into the request the
+SDK's serve handler reads, and the handler's answer into the response API Gateway expects. Introspection, syncs,
+calls, request signing and response signing work as they do in an ASP.NET Core app, and every call from Inngest is one
+invocation.
+
+A run that sleeps or waits for an event holds no invocation while it does: Inngest keeps the run and calls the
+function again when it is due. [How it works](/inngest-dotnet/how-it-works/) shows the calls of a run.
+
+## Install
+
+```bash
+dotnet add package Inngest.AwsLambda --prerelease
+```
+
+It brings in `Inngest`, `Amazon.Lambda.APIGatewayEvents` for the event types and `Amazon.Lambda.Core` for the
+Lambda context. It does not need ASP.NET Core.
+
+## One method for each event shape
+
+What Lambda passes to the function depends on what invoked it. `InngestLambdaHandler` has a `HandleAsync` for each
+shape:
+
+| Invoked by | Payload format | Event and response of `HandleAsync` |
+|---|---|---|
+| API Gateway REST API | 1.0 | `APIGatewayProxyRequest`, `APIGatewayProxyResponse` |
+| API Gateway HTTP API | 2.0, the default | `APIGatewayHttpApiV2ProxyRequest`, `APIGatewayHttpApiV2ProxyResponse` |
+| Lambda function URL | 2.0 | `APIGatewayHttpApiV2ProxyRequest`, `APIGatewayHttpApiV2ProxyResponse` |
+
+A function serves one shape. An HTTP API integration that is set to payload format 1.0 sends the REST shape.
+
+Build the handler once, when the function starts, from the service provider of an app that called `AddInngest`. It
+fails there, and not on the first event, when `AddInngest` is missing. Every invocation then runs in a service scope
+of its own, so scoped services work as they do in a web request. The examples below use this function:
+
+```csharp title="SendWelcomeEmail.cs"
+using Inngest;
+
+public sealed record UserSignedUp(string UserId, string Email);
+
+public sealed record Welcome(string UserId);
+
+[InngestFunction("send-welcome-email")]
+[EventTrigger("user/signed-up")]
+public sealed class SendWelcomeEmail : InngestFunction<UserSignedUp, Welcome>
+{
+    public override async Task<Welcome> ExecuteAsync(FunctionContext<UserSignedUp> context, CancellationToken cancellationToken)
+    {
+        var user = context.Event.Data;
+
+        await context.Step.RunAsync("send-welcome", () => $"Welcome, {user.Email}!");
+        await context.Step.SleepAsync("wait-before-tips", TimeSpan.FromDays(1));
+        await context.Step.RunAsync("send-tips", () => $"Three things to try first, {user.Email}.");
+
+        return new Welcome(user.UserId);
+    }
+}
+```
+
+## A managed runtime function
+
+The managed runtime creates the function's class once per execution environment, so its constructor is the place to
+build the handler. The method gets the event, in the shape of the invoking source, through a serializer you name with
+`LambdaSerializer`:
+
+```csharp title="Function.cs"
+using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+using Inngest;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+public sealed class Function
+{
+    private readonly InngestLambdaHandler _inngest;
+
+    public Function()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(logging => logging.AddConsole());
+        services
+            .AddInngest(options => options.AppId = "shop")
+            .AddFunction<SendWelcomeEmail>();
+
+        _inngest = new InngestLambdaHandler(services.BuildServiceProvider());
+    }
+
+    [LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
+    public Task<APIGatewayHttpApiV2ProxyResponse> HandleAsync(APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context) =>
+        _inngest.HandleAsync(request, context);
+}
+```
+
+Use the `dotnet10` runtime, or `dotnet8`, with the handler `Shop::Function::HandleAsync`: the assembly name, the type
+and the method. For a REST API, take `APIGatewayProxyRequest` and `APIGatewayProxyResponse` instead. Add
+`Amazon.Lambda.Serialization.SystemTextJson` for `DefaultLambdaJsonSerializer`, and
+`Microsoft.Extensions.Logging.Console` for the console logger, whose output goes to CloudWatch Logs.
+
+## A Native AOT function
+
+A Native AOT function is an executable that runs on the `provided.al2023` custom runtime, with
+`Amazon.Lambda.RuntimeSupport` taking events from Lambda. Nothing in `Inngest.AwsLambda` uses reflection, and the
+events go through source-generated JSON, so the executable publishes without trimming or AOT warnings. Name it
+`bootstrap`, which is what the custom runtime starts:
+
+```xml title="Shop.csproj"
+<PropertyGroup>
+  <OutputType>Exe</OutputType>
+  <TargetFramework>net10.0</TargetFramework>
+  <AssemblyName>bootstrap</AssemblyName>
+  <PublishAot>true</PublishAot>
+  <InvariantGlobalization>true</InvariantGlobalization>
+</PropertyGroup>
+```
+
+```bash
+dotnet add package Inngest.AwsLambda --prerelease
+dotnet add package Amazon.Lambda.RuntimeSupport
+dotnet add package Amazon.Lambda.Serialization.SystemTextJson
+dotnet add package Microsoft.Extensions.Logging.Console
+```
+
+The app registers its functions as in any other Native AOT app, with the types they serialize in a
+`JsonSerializerContext` in `InngestOptions.SerializerOptions`; see [Native AOT](/inngest-dotnet/guides/native-aot/).
+A second context names the event types, which `SourceGeneratorLambdaJsonSerializer` reads events and writes
+responses with, and `LambdaBootstrapBuilder` runs the loop:
+
+```csharp title="Program.cs"
+using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.Core;
+using Amazon.Lambda.RuntimeSupport;
+using Amazon.Lambda.Serialization.SystemTextJson;
+using Inngest;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+var services = new ServiceCollection();
+services.AddLogging(logging => logging.AddConsole());
+services
+    .AddInngest(options =>
+    {
+        options.AppId = "shop";
+        options.SerializerOptions.TypeInfoResolverChain.Insert(0, ShopJson.Default);
+    })
+    .AddFunction<SendWelcomeEmail>();
+
+await using var provider = services.BuildServiceProvider();
+var inngest = new InngestLambdaHandler(provider);
+
+Func<APIGatewayHttpApiV2ProxyRequest, ILambdaContext, Task<APIGatewayHttpApiV2ProxyResponse>> handler = inngest.HandleAsync;
+await LambdaBootstrapBuilder
+    .Create(handler, new SourceGeneratorLambdaJsonSerializer<LambdaJson>())
+    .Build()
+    .RunAsync();
+```
+
+```csharp title="Json.cs"
+using System.Text.Json.Serialization;
+using Amazon.Lambda.APIGatewayEvents;
+
+[JsonSerializable(typeof(UserSignedUp))]
+[JsonSerializable(typeof(Welcome))]
+internal sealed partial class ShopJson : JsonSerializerContext;
+
+[JsonSerializable(typeof(APIGatewayHttpApiV2ProxyRequest))]
+[JsonSerializable(typeof(APIGatewayHttpApiV2ProxyResponse))]
+internal sealed partial class LambdaJson : JsonSerializerContext;
+```
+
+The package ships no context for the event types, and the context above lists the request and response of one event
+shape only. The REST and HTTP API request types have nested types with the same names, which one context cannot
+hold: the generator warns (`SYSLIB1031`), and the executable fails on its first event with a `NotSupportedException`
+about the metadata of `ProxyRequestContext`. List the pair a function serves, `APIGatewayProxyRequest` and
+`APIGatewayProxyResponse` for a REST API, and nothing else.
+
+Publish for `linux-x64` or `linux-arm64`, whichever the function's architecture is, on a Linux host of that
+architecture. `dotnet lambda deploy-function` of `Amazon.Lambda.Tools` builds in a Docker container with Amazon Linux
+2023 for you.
+
+## Deploy it
+
+The function needs its Inngest keys, and Inngest needs a route to it. With the AWS SAM, an HTTP API route to the
+managed runtime function looks like this:
+
+```yaml title="template.yaml"
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  InngestSigningKey:
+    Type: String
+    NoEcho: true
+  InngestEventKey:
+    Type: String
+    NoEcho: true
+
+Resources:
+  InngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: dotnet10
+      Handler: Shop::Function::HandleAsync
+      CodeUri: ./publish/
+      MemorySize: 512
+      Timeout: 29
+      Environment:
+        Variables:
+          INNGEST_SIGNING_KEY: !Ref InngestSigningKey
+          INNGEST_EVENT_KEY: !Ref InngestEventKey
+      Events:
+        Inngest:
+          Type: HttpApi
+          Properties:
+            Path: /api/inngest
+            Method: ANY
+```
+
+A Native AOT build uses `Runtime: provided.al2023`, `Handler: bootstrap` and an `Architectures` entry that matches the
+build. A function URL replaces the `Events` with `FunctionUrlConfig`, whose `AuthType: NONE` makes the URL public:
+
+```yaml
+      FunctionUrlConfig:
+        AuthType: NONE
+```
+
+Public is fine, since Inngest's signature is the authentication: in cloud mode the SDK turns away every request that
+is not signed with your signing key. Route only the Inngest path to the function, and keep `INNGEST_DEV` unset. The
+keys come from the environment of the function, which you can fill from Secrets Manager or Parameter Store; see
+[Configuration](/inngest-dotnet/guides/configuration/). Then add the app in the Inngest dashboard with its URL, or
+sync after each deploy with a `PUT` as in [Deploying](/inngest-dotnet/guides/deploying/#syncing). The URL of a REST
+API includes its stage.
+
+## The URL Inngest calls
+
+A sync reports the URL Inngest should call, which the SDK builds from the event: the scheme from `X-Forwarded-Proto`
+(the first value; `https` when the header is missing or says anything but `http`), the host from the `Host` header
+(the domain name of the request context when there is none), and the path as the caller used it, with the query
+string, minus `deployId`. What API Gateway puts in the path decides whether the stage is part of it:
+
+| Invoked through | Path in the URL |
+|---|---|
+| REST API on `execute-api` | `requestContext.path`, which starts with the stage: `/prod/api/inngest`. `path` leaves it out. |
+| REST API on a custom domain | `requestContext.path`, which has the base path mapping and no stage. |
+| HTTP API, `$default` stage | `rawPath`. |
+| HTTP API, named stage | `rawPath`, which starts with the stage. |
+| Function URL | `rawPath`. |
+
+`requestContext.path` is used when it is `path` with something in front, and `path` otherwise.
+`Amazon.Lambda.AspNetCoreServer` reads the stage and the base path from it the same way.
+
+Some setups hide the public address from the event, and then the sync reports the wrong URL. An HTTP API behind a
+custom domain with an API mapping is one: AWS notes that `rawPath` leaves the mapping out. A CloudFront distribution
+in front of the API or the function URL is another, since the function sees the host CloudFront used to reach it.
+Give the SDK the address, as in [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy):
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.ServeOrigin = new Uri("https://api.example.com");
+options.ServePath = "/v1/api/inngest";
+```
+
+`INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH` do the same. The Inngest dashboard shows the URL each app registered
+with, so check it after the first sync.
+
+## Time and size
+
+Three clocks run on a call from Inngest, and the shortest one wins. These are AWS's limits at the time of writing, so
+check its [quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html) before relying on them:
+
+| Limit | Value |
+|---|---|
+| API Gateway REST API, time to answer | 29 seconds. A Regional or private API can be given more through a quota increase, an edge-optimized API cannot. |
+| API Gateway HTTP API, time to answer | 30 seconds, not adjustable. |
+| Lambda function URL | The function's timeout. |
+| Lambda function timeout | 15 minutes at most, and 3 seconds until you set it. |
+| Request and response | 6 MB each for a Lambda invocation. API Gateway allows 10 MB. |
+
+Set the function's timeout on purpose. The default of 3 seconds ends any call whose step takes longer. Behind API
+Gateway, do not set it above the gateway's limit: the gateway answers Inngest with an error at its limit while the
+function runs on, and Inngest retries the call meanwhile. Keep each step well inside the shortest clock, and split
+long work into steps.
+
+A step's result and a function's output travel in the response, so they have to fit in 6 MB; return an id or a link
+to stored data rather than the data. Inngest sends the events and steps of a large run to the SDK through its API
+instead of in the request (`use_api`), so the size of the request is not the limit.
+
+By default every step is a call of its own, so a run of ten short steps is ten invocations. With
+[checkpointing](/inngest-dotnet/guides/configuration/#checkpointing) one call runs steps one after another and saves
+each to Inngest as it completes. `MaxRuntime` is how long the call may start new steps; past it, the next step is left
+to Inngest, which calls again. A step that has started still runs to its end, so `MaxRuntime` plus your longest step
+has to fit in the shortest clock above. For a REST API's 29 seconds, with steps of a few seconds, 15 seconds leaves
+room:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.Checkpointing = new CheckpointingOptions { MaxRuntime = TimeSpan.FromSeconds(15) };
+```
+
+Without `MaxRuntime` a call may run steps for 10 seconds. Behind a function URL there is no gateway in between, and
+the function's timeout is the only limit.
+
+## What an invocation does
+
+- **Scope.** Each invocation runs its call in a service scope of its own, which is disposed before the response is
+  returned. Functions and middleware are resolved from it.
+- **Cancellation.** The `CancellationToken` that functions and steps receive is never cancelled. Lambda sends the
+  function no signal before it ends an invocation that has run out of time, and the handler does not make one up
+  from `ILambdaContext.RemainingTime`: cancelling shortly before the deadline would only turn the error Inngest
+  retries anyway into an error of the handler's own, take time from calls that would have finished, and keep stuck
+  work alive in an environment that Lambda would reset. `MaxRuntime` is the setting that keeps calls inside their time.
+- **Streaming.** The response is one buffered response, so `InngestOptions.Streaming` has no effect. A buffered
+  response needs no keep-alive: the clocks above are the only ones.
+- **Background work.** Lambda freezes the execution environment once the handler returns, which pauses anything left
+  running, such as a batch exporter's timer. Flush telemetry before the invocation ends, as `Inngest.Sentry` does
+  when the call's scope ends.
+- **Connect.** A Connect worker holds a WebSocket open, which an invocation cannot; use the endpoint on Lambda.
+
+## MapInngest on Lambda
+
+`Amazon.Lambda.AspNetCoreServer.Hosting` runs an ASP.NET Core app as a Lambda function. `AddAWSLambdaHosting` replaces
+Kestrel, and `MapInngest` works as it does anywhere, with nothing from `Inngest.AwsLambda`:
+
+```csharp title="Program.cs"
+using Amazon.Lambda.AspNetCoreServer.Hosting;
+using Inngest;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAWSLambdaHosting(LambdaEventSource.HttpApi);
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddFunction<SendWelcomeEmail>();
+
+var app = builder.Build();
+
+app.MapInngest("/api/inngest");
+
+app.Run();
+```
+
+Prefer this when the function is an ASP.NET Core app already, serves other routes beside Inngest's, or needs the
+ASP.NET Core pipeline, such as authentication, middleware or health checks. Prefer `Inngest.AwsLambda` when the
+function only serves Inngest: the event goes straight to the handler, with no web stack to start. The framework
+Inngest shows for an app is `aspnetcore` with `MapInngest` and `aws-lambda` with the handler.
+
+The AWS package marks the overloads of `AddAWSLambdaHosting` that take no serializer as needing reflection. A minimal
+`MapInngest` app that passes a `SourceGeneratorLambdaJsonSerializer<T>` to `AddAWSLambdaHosting` published with Native
+AOT without warnings, and answered events, when checked with `Amazon.Lambda.AspNetCoreServer.Hosting` 2.2.1 on
+.NET 10. That package is AWS's, so read its release notes for what later versions change.

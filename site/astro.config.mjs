@@ -86,6 +86,7 @@ export default defineConfig({
             'guides/native-aot',
             'guides/source-generator',
             'guides/deploying',
+            'guides/aws-lambda',
           ],
         },
         {

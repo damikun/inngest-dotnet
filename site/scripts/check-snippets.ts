@@ -420,6 +420,9 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
     <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="2.2.1" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="2.3.0" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.11.0" />
@@ -443,6 +446,7 @@ ${reference('Inngest.Extensions.AI')}
          asked for the generator. A project reference brings neither, so the snippets that call AddInngestFunctions() get both
          from the source. -->
     <ProjectReference Include="${join(repo, 'src', 'Inngest.SourceGeneration', 'Inngest.SourceGeneration.csproj')}" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+${reference('Inngest.AwsLambda')}
   </ItemGroup>
   <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>

@@ -236,6 +236,13 @@ A load balancer that closes idle connections cuts off a call that runs longer th
 the call from the step it was running. Keep each step shorter than the timeout, or turn on
 [streaming](/inngest-dotnet/guides/configuration/#behind-a-proxy), which keeps a long call's connection busy.
 
+## On AWS Lambda
+
+A Lambda function can serve the endpoint, behind an API Gateway REST API or HTTP API or a function URL, as a managed
+runtime function or a Native AOT executable. `Inngest.AwsLambda` handles the events of all three, and the timeouts of
+API Gateway apply to the steps it runs. [Running on AWS Lambda](/inngest-dotnet/guides/aws-lambda/) covers the setup
+and the limits.
+
 ## Self-hosting Inngest
 
 To run Inngest yourself instead of using Inngest Cloud, point the SDK at your server with `INNGEST_BASE_URL` and use

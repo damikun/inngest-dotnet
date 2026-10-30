@@ -1,6 +1,6 @@
 ---
 title: C# API overview
-description: The public types of the Inngest, Inngest.AspNetCore, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
+description: The public types of the Inngest, Inngest.AspNetCore, Inngest.AwsLambda, Inngest.Connect, Inngest.Aspire.Hosting, Inngest.OpenTelemetry, Inngest.Encryption, Inngest.Sentry, Inngest.EntityFrameworkCore, Inngest.Extensions.AI, Inngest.Testing, Inngest.Testing.Containers and Inngest.Testing.Containers.AspNetCore packages, the method and diagnostics of the source generator in Inngest, the templates of Inngest.Templates and the commands of dotnet-inngest, with what they are for.
 sidebar:
   label: API overview
 ---
@@ -328,6 +328,20 @@ namespaces an AppHost imports. See [Aspire](/inngest-dotnet/guides/aspire/).
 null for the dev server; `PrimaryEndpoint`, the endpoint named `http` that serves the REST API, the event API and the UI;
 and `ConnectEndpoint`, the endpoint named `connect` that is the gateway of Connect workers. Its constructor takes the
 name and, for a self-hosted server, both keys.
+
+## AWS Lambda
+
+Package `Inngest.AwsLambda`. See [Running on AWS Lambda](/inngest-dotnet/guides/aws-lambda/).
+
+| Member | Purpose |
+|---|---|
+| `InngestLambdaHandler(IServiceProvider services)` | Takes the SDK from the service provider of an app that called `AddInngest`, and fails at once when it did not. Build one when the function starts. |
+| `HandleAsync(APIGatewayProxyRequest request, ILambdaContext context)` | Serves an event of an API Gateway REST API (payload format 1.0) and returns an `APIGatewayProxyResponse`. |
+| `HandleAsync(APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)` | Serves an event of an API Gateway HTTP API or a Lambda function URL (payload format 2.0) and returns an `APIGatewayHttpApiV2ProxyResponse`. |
+
+Each invocation runs in a service scope of its own. The cancellation token that functions receive is never cancelled,
+and `InngestOptions.Streaming` has no effect, since the response is buffered. The event types are those of
+`Amazon.Lambda.APIGatewayEvents`, and the package ships no `JsonSerializerContext` for them.
 
 ## OpenTelemetry
 

@@ -16,6 +16,8 @@ which are never compiled ahead of time.
   project turns on, and an analyzer that finds the types a Native AOT app has not listed, come with it.
 - [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/): `MapInngest`, the endpoint Inngest calls
   in an ASP.NET Core app, and a health check for readiness probes.
+- [`Inngest.AwsLambda`](https://www.nuget.org/packages/Inngest.AwsLambda/): `InngestLambdaHandler`, which serves the
+  endpoint from an AWS Lambda function behind API Gateway or a function URL.
 - [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/): `AddConnect`, a hosted worker that receives
   calls over an outbound WebSocket, with no endpoint to expose.
 - [`Inngest.Aspire.Hosting`](https://www.nuget.org/packages/Inngest.Aspire.Hosting/): an Aspire hosting integration
