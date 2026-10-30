@@ -2,7 +2,9 @@
 // the site promises, and every URL in the sitemap exists. starlight-links-validator checks the links written in
 // Markdown; this also covers components, generated pages and head tags. It also checks code blocks: every fenced
 // block in the docs renders as one block with all of its lines, and no shell command continues onto a second line,
-// which breaks when pasted into PowerShell and in readers that turn the page into Markdown.
+// which breaks when pasted into PowerShell and in readers that turn the page into Markdown. And it checks the files
+// for tools: every page has a Markdown copy with nothing of MDX left in it and with links that resolve, llms.txt
+// lists every copy, and llms-full.txt holds them.
 //
 //   node scripts/check-dist.ts
 
@@ -199,9 +201,82 @@ for (const sitemap of files(dist).filter((file) => /sitemap-\d+\.xml$/.test(file
   }
 }
 
+// The text of a Markdown file outside code, where links and leftovers of MDX show.
+function outsideCode(markdown: string): string {
+  return markdown.replace(/^(\s*)(`{3,}|~{3,}).*\n[\s\S]*?\n\1\2[ \t]*$/gm, '').replace(/(`+)[^`]*?\1/g, '');
+}
+
+// The HTML page that a Markdown copy is next to: guides/steps.md is next to guides/steps/index.html.
+function pageOf(copy: string): string {
+  return join(dist, copy === 'index.md' ? 'index.html' : join(copy.replace(/\.md$/, ''), 'index.html'));
+}
+
+// Where the copy of an HTML page is: guides/steps/index.html has guides/steps.md, and the home page has index.md.
+function copyOf(name: string): string {
+  const folder = name.replace(/(^|[\\/])index\.html$/, '');
+  return `${folder === '' ? 'index' : folder}.md`;
+}
+
+const copies = files(dist).filter((file) => file.endsWith('.md'));
+for (const file of html) {
+  const name = relative(dist, file);
+  if (name !== '404.html' && !existsSync(join(dist, copyOf(name)))) problems.push(`${name}: no Markdown copy at ${copyOf(name)}`);
+}
+
+const llms = join(dist, 'llms.txt');
+const full = join(dist, 'llms-full.txt');
+const listed = new Map<string, number>();
+if (!existsSync(llms)) problems.push('llms.txt: missing');
+else {
+  const text = readFileSync(llms, 'utf8');
+  if (!/^# \S.*\n\n> \S/.test(text)) problems.push('llms.txt: does not start with a title and a summary');
+  for (const [, url] of text.matchAll(/^- \[[^\]]+\]\(([^)]+)\)/gm)) {
+    checkUrl(url, llms, 'link');
+    listed.set(url, (listed.get(url) ?? 0) + 1);
+  }
+}
+for (const copy of copies) {
+  const url = `${SITE}${BASE}${relative(dist, copy).split(sep).join('/')}`;
+  if (existsSync(llms) && listed.get(url) !== 1) problems.push(`llms.txt: lists ${url} ${listed.get(url) ?? 0} times instead of once`);
+}
+if (!existsSync(full)) problems.push('llms-full.txt: missing');
+const everything = existsSync(full) ? readFileSync(full, 'utf8') : '';
+
+for (const copy of copies) {
+  const name = relative(dist, copy);
+  const markdown = readFileSync(copy, 'utf8');
+  if (!/^# \S/.test(markdown)) problems.push(`${name}: does not start with a title`);
+  if (existsSync(full) && !everything.includes(markdown.trim())) problems.push(`${name}: is not in llms-full.txt as it is`);
+
+  const prose = outsideCode(markdown);
+  if (/^\s*(import|export) .+ from /m.test(prose)) problems.push(`${name}: an import of MDX is left`);
+  if (prose.includes('{/*')) problems.push(`${name}: a JSX comment is left`);
+  const component = /<\/?[A-Z][A-Za-z]*[\s/>]/.exec(prose);
+  if (component) problems.push(`${name}: the component ${component[0].trim()} is left`);
+  if (/\bclient:(load|visible|idle|only)\b/.test(prose)) problems.push(`${name}: a client directive is left`);
+
+  for (const [, url] of prose.matchAll(/!?\[[^\]]*\]\(([^)\s]+)/g)) {
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+      problems.push(`${name}: the link "${url}" is not absolute`);
+      continue;
+    }
+    if (/^(mailto:|tel:)/.test(url)) continue;
+    checkUrl(url, copy, 'link');
+    // A link to a copy goes to a place on its page, which is where the fragment has to exist.
+    const resolved = new URL(url);
+    const fragment = decodeURIComponent(resolved.hash.slice(1));
+    const file = resolved.origin === SITE ? target(resolved.pathname) : undefined;
+    if (fragment && file?.endsWith('.md') && !parse(pageOf(relative(dist, file))).ids.has(fragment)) {
+      problems.push(`${name}: the link "${url}" has no #${fragment} on its page`);
+    }
+  }
+}
+
 if (problems.length > 0) {
   console.error(problems.join('\n'));
   console.error(`\n${problems.length} problems in dist/.`);
   process.exit(1);
 }
-console.log(`dist/: ${html.length} pages, every link, asset, fragment, head tag and sitemap entry checks out.`);
+console.log(
+  `dist/: ${html.length} pages and ${copies.length} Markdown copies, every link, asset, fragment, head tag and sitemap entry checks out.`,
+);
