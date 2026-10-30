@@ -28,6 +28,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The fakes of the worker's request, response and context that the unit tests of the Azure Functions package use. Here they
+         let the app stand in for the Functions host. -->
+    <Compile Include="..\Inngest.Tests\AzureFunctions\Fakes\*.cs" LinkBase="AzureFunctions\Fakes" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AwsLambda\Inngest.AwsLambda.csproj" />

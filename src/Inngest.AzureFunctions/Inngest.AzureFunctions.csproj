@@ -19,8 +19,4 @@
     <ProjectReference Include="..\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="Inngest.Tests" />
-    <InternalsVisibleTo Include="Inngest.IntegrationTests" />
-  </ItemGroup>
 </Project>
