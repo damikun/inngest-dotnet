@@ -47,6 +47,29 @@ public sealed class RealtimeViewTests : BunitContext
     }
 
     [Fact]
+    public async Task A_view_that_was_prerendered_is_disposed_after_the_scope_of_its_request()
+    {
+        // The end of a request disposes its scope, which holds the renderer, so the renderer disposes its components
+        // when the services are already gone.
+        var provider = new ServiceCollection().AddLogging().AddSingleton<IRealtimeSource>(_source).BuildServiceProvider();
+        var scope = provider.CreateAsyncScope();
+        var renderer = new HtmlRenderer(scope.ServiceProvider, scope.ServiceProvider.GetRequiredService<ILoggerFactory>());
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var output = await renderer.RenderComponentAsync<RealtimeView<Progress>>(ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                [nameof(RealtimeView<Progress>.Topic)] = Status,
+            }));
+            return output.ToHtmlString();
+        });
+
+        await scope.DisposeAsync();
+        await renderer.DisposeAsync();
+
+        await provider.DisposeAsync();
+    }
+
+    [Fact]
     public async Task The_first_interactive_render_subscribes_once()
     {
         var cut = RenderStatus();

@@ -26,6 +26,7 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     private readonly RealtimeState<TData> _state = new();
+    private TimeProvider _time = TimeProvider.System;
     private Subscription? _wanted;
     private Subscription? _running;
     private CancellationTokenSource? _stop;
@@ -106,15 +107,22 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
 
         _disposed = true;
         Stop();
-        var time = Services.GetService<TimeProvider>() ?? TimeProvider.System;
         try
         {
-            await _loop.WaitAsync(StopTimeout, time).ConfigureAwait(false);
+            await _loop.WaitAsync(StopTimeout, _time).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             Log.RealtimeViewDidNotStop(Logger, _running?.Channel ?? string.Empty, StopTimeout.TotalSeconds);
         }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        // Looked up here because disposing may come after the scope of a prerendering request has been disposed, when
+        // asking it for anything throws.
+        _time = Services.GetService<TimeProvider>() ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
