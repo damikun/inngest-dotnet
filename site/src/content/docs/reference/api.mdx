@@ -418,7 +418,7 @@ builder.
 | `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables: `INNGEST_DEV` for the dev server, `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. |
 | `SyncAsync(Uri appUrl, CancellationToken)` | Has the server register the app that listens at this address, with `host.docker.internal` as its host name, and signs the request for the self-hosted server. Throws when the app does not register. |
 | `IsDevServer`, `SigningKey`, `EventKey`, `ConnectGatewayPort` | Which server it is, the keys of the self-hosted server (null for the dev server) and the gateway's port (null without one). |
-| `StartAsync(CancellationToken)` | Starts the container. A server that does not become healthy fails with its log in the exception. |
+| `StartAsync(CancellationToken)` | Starts the container. A server that does not become ready fails with its log in the exception. |
 
 **`InngestConfiguration`** holds what the builder keeps for the container: `SelfHosted`, `SigningKey`, `EventKey`,
 `AppUrls`, `ConnectGateway`, `ConnectGatewayPort` and `FastTiming`, next to the settings of any container.

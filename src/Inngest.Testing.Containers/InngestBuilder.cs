@@ -28,6 +28,10 @@ public sealed class InngestBuilder : ContainerBuilder<InngestBuilder, InngestCon
     /// </summary>
     public const ushort InngestPort = 8288;
 
+    // What the server binds inside the container besides the Connect gateway: the API, and the gRPC ports between its
+    // connect services. The gateway cannot take one of them.
+    internal static readonly int[] ServerPorts = [InngestPort, 50052, 50053];
+
     private static readonly string[] FastTiming = ["--poll-interval", "1", "--retry-interval", "1", "--tick", "50"];
 
     /// <summary>
@@ -204,10 +208,10 @@ public sealed class InngestBuilder : ContainerBuilder<InngestBuilder, InngestCon
             throw new ArgumentException("The event key cannot be empty.", nameof(configuration));
         }
 
-        if (configuration.ConnectGatewayPort is { } gatewayPort && (gatewayPort is < 1 or > ushort.MaxValue || gatewayPort == InngestPort))
+        if (configuration.ConnectGatewayPort is { } gatewayPort && (gatewayPort is < 1 or > ushort.MaxValue || ServerPorts.Contains(gatewayPort)))
         {
             throw new ArgumentException(
-                $"The Connect gateway port must be a port other than {InngestPort.ToString(CultureInfo.InvariantCulture)}, the server's API.",
+                $"The Connect gateway port must be a port from 1 to 65535 other than {string.Join(", ", ServerPorts)}, which the server binds itself.",
                 nameof(configuration));
         }
     }

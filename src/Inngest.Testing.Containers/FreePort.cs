@@ -9,9 +9,6 @@ namespace Inngest.Testing.Containers;
 // the container exists.
 internal static class FreePort
 {
-    // What the server binds inside the container, which the gateway cannot take.
-    private static readonly HashSet<int> ServerPorts = [InngestBuilder.InngestPort, 8289, 50052, 50053];
-
     public static ushort Pick()
     {
         while (true)
@@ -20,7 +17,7 @@ internal static class FreePort
             using var listener = new TcpListener(IPAddress.Any, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            if (!ServerPorts.Contains(port))
+            if (!InngestBuilder.ServerPorts.Contains(port))
             {
                 return (ushort)port;
             }

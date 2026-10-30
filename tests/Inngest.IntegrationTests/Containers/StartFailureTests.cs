@@ -17,7 +17,7 @@ public sealed class StartFailureTests
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() => server.StartAsync(TestContext.Current.CancellationToken));
 
-        exception.Message.ShouldContain("did not become healthy");
+        exception.Message.ShouldContain("did not become ready");
         exception.Message.ShouldContain("no-such-option");
         exception.InnerException.ShouldNotBeNull();
     }

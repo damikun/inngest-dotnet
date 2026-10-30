@@ -73,7 +73,9 @@ public sealed class ConnectGatewayBuilderTests
     [InlineData(0)]
     [InlineData(65536)]
     [InlineData(8288)]
-    public void The_gateway_port_must_be_a_port_that_the_api_does_not_use(int port)
+    [InlineData(50052)]
+    [InlineData(50053)]
+    public void The_gateway_port_must_be_a_port_that_the_server_does_not_use_itself(int port)
     {
         Should.Throw<ArgumentException>(() => Builder().WithConnectGateway(port).Build());
     }

@@ -91,7 +91,8 @@ public sealed class InngestContainer : DockerContainer
     /// </param>
     /// <param name="cancellationToken">A token that cancels the wait for the answer.</param>
     /// <returns>A task that completes when the app is registered.</returns>
-    /// <exception cref="InvalidOperationException">The app did not answer with a registration.</exception>
+    /// <exception cref="InvalidOperationException">The app answered, but did not register.</exception>
+    /// <exception cref="HttpRequestException">Nothing answers at the address.</exception>
     public async Task SyncAsync(Uri appUrl, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(appUrl);
@@ -115,7 +116,7 @@ public sealed class InngestContainer : DockerContainer
     }
 
     /// <summary>
-    /// Starts the container. When the server does not become healthy, the exception carries the server's log.
+    /// Starts the container. When the server does not become ready, the exception carries the server's log.
     /// </summary>
     /// <param name="ct">A token that cancels the start.</param>
     /// <returns>A task that completes when the server is ready.</returns>
@@ -133,7 +134,7 @@ public sealed class InngestContainer : DockerContainer
                 throw;
             }
 
-            throw new InvalidOperationException($"The Inngest server ({Image.FullName}) did not become healthy. Its log:\n{log}", exception);
+            throw new InvalidOperationException($"The Inngest server ({Image.FullName}) did not become ready. Its log:\n{log}", exception);
         }
     }
 
