@@ -10,11 +10,15 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Shouldly" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
@@ -26,6 +30,7 @@
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.EntityFrameworkCore\Inngest.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers\Inngest.Testing.Containers.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Testing.Containers.AspNetCore\Inngest.Testing.Containers.AspNetCore.csproj" />
