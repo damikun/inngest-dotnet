@@ -4,8 +4,8 @@ using System.Text.Json;
 
 namespace Inngest.Tool;
 
-// The URL of the app's Inngest endpoint, and where it was read from.
-internal sealed record AppUrl(string Url, string Source);
+// The URL of the app's Inngest endpoint, and the profile of the launch settings file it was read from.
+internal sealed record AppUrl(string Url, string Profile, string File);
 
 // The address of a project is in its Properties/launchSettings.json, which dotnet run uses too. That is where the dev
 // server finds the app when -u is left out.
@@ -48,7 +48,7 @@ internal static class LaunchSettings
                     {
                         if (HttpOrigin(candidate) is { } origin)
                         {
-                            return new AppUrl(origin + EndpointPath, $"profile {profile.Name} of {file}");
+                            return new AppUrl(origin + EndpointPath, profile.Name, file);
                         }
                     }
                 }

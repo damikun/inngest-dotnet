@@ -24,8 +24,8 @@ public sealed class LaunchSettingsTests : IDisposable
 
         app.ShouldNotBeNull();
         app.Url.ShouldBe("http://localhost:5280/api/inngest");
-        app.Source.ShouldContain("profile http");
-        app.Source.ShouldContain("launchSettings.json");
+        app.Profile.ShouldBe("http");
+        app.File.ShouldBe(_project.Combine("Properties", "launchSettings.json"));
     }
 
     [Fact]

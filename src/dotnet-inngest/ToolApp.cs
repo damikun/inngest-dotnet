@@ -92,22 +92,43 @@ internal sealed class ToolApp(
         error.WriteLine(app is null
             ? "No app address was found in the launch settings, so the dev server looks for apps on its own. -u <url> names one, "
               + "and --project <path> names the project whose Properties/launchSettings.json to read."
-            : $"The dev server will call {app.Url}, from {app.Source}. -u <url> names another.");
+            : $"The dev server will call {app.Url}, from the profile {app.Profile} of {Path.GetRelativePath(currentDirectory, app.File)}. "
+              + "-u <url> names another.");
         return app;
     }
 
-    // The container reaches the app on the host, where localhost would be the container itself.
+    // The container reaches the app on the host, where localhost would be the container itself. Only what decides which
+    // app the dev server finds is carried over: the options for ports and files mean something else in a container.
     private static string DockerCommand(string version, AppUrl? app, Arguments arguments)
     {
-        var url = app?.Url;
-        if (url is null)
+        var url = app?.Url ?? UrlOf(arguments.Forwarded);
+
+        // Docker Engine on Linux, unlike Docker Desktop, does not know host.docker.internal unless it is told.
+        var host = url is null ? "" : " --add-host=host.docker.internal:host-gateway";
+        var target = url is null ? "" : " -u " + url.Replace("://localhost", "://host.docker.internal", StringComparison.Ordinal);
+        var discovery = arguments.Forwarded.Contains("--no-discovery") ? " --no-discovery" : "";
+        return $"docker run --rm -p 8288:8288 -p 8289:8289{host} inngest/inngest:v{version} inngest dev{target}{discovery}";
+    }
+
+    private static string? UrlOf(IReadOnlyList<string> arguments)
+    {
+        for (var i = 0; i < arguments.Count; i++)
         {
-            var index = arguments.Forwarded.ToList().FindIndex(argument => argument is "-u" or "--sdk-url");
-            url = index >= 0 && index + 1 < arguments.Forwarded.Count ? arguments.Forwarded[index + 1] : null;
+            if (arguments[i] is "-u" or "--sdk-url")
+            {
+                return i + 1 < arguments.Count ? arguments[i + 1] : null;
+            }
+
+            foreach (var prefix in new[] { "-u=", "--sdk-url=" })
+            {
+                if (arguments[i].StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return arguments[i][prefix.Length..];
+                }
+            }
         }
 
-        var target = url is null ? "" : " -u " + url.Replace("://localhost", "://host.docker.internal", StringComparison.Ordinal);
-        return $"docker run --rm -p 8288:8288 -p 8289:8289 inngest/inngest:v{version} inngest dev{target}";
+        return null;
     }
 
     private static string VersionText()

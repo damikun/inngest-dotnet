@@ -64,7 +64,8 @@ public sealed class ToolAppTests : IDisposable
         var run = _runs.ShouldHaveSingleItem();
         run.File.ShouldBe(_cache.Combine(Version, "linux_amd64", "inngest"));
         run.Arguments.ShouldBe(["dev", "-u", "http://localhost:5280/api/inngest"]);
-        _error.ToString().ShouldContain("The dev server will call http://localhost:5280/api/inngest");
+        _error.ToString().ShouldContain(
+            $"The dev server will call http://localhost:5280/api/inngest, from the profile http of {Path.Combine("Properties", "launchSettings.json")}.");
     }
 
     [Fact]
@@ -167,7 +168,7 @@ public sealed class ToolAppTests : IDisposable
 
         exitCode.ShouldBe(1);
         _error.ToString().ShouldContain(
-            $"docker run --rm -p 8288:8288 -p 8289:8289 inngest/inngest:v{Version} inngest dev -u http://host.docker.internal:5280/api/inngest");
+            $"docker run --rm -p 8288:8288 -p 8289:8289 --add-host=host.docker.internal:host-gateway inngest/inngest:v{Version} inngest dev -u http://host.docker.internal:5280/api/inngest");
         _runs.ShouldBeEmpty();
     }
 
@@ -180,7 +181,25 @@ public sealed class ToolAppTests : IDisposable
         var exitCode = await RunAsync(["dev", "--cli-version", "9.9.8", "-u", "http://localhost:4000/api/inngest"], TestContext.Current.CancellationToken);
 
         exitCode.ShouldBe(1);
-        _error.ToString().ShouldContain("inngest/inngest:v9.9.8 inngest dev -u http://host.docker.internal:4000/api/inngest");
+        _error.ToString().ShouldContain("--add-host=host.docker.internal:host-gateway inngest/inngest:v9.9.8 inngest dev -u http://host.docker.internal:4000/api/inngest");
+
+        // The same url in the other spellings.
+        foreach (var option in new[] { "-u=http://localhost:4000/api/inngest", "--sdk-url=http://localhost:4000/api/inngest" })
+        {
+            _error.GetStringBuilder().Clear();
+            await RunAsync(["dev", "--cli-version", "9.9.8", option], TestContext.Current.CancellationToken);
+            _error.ToString().ShouldContain("inngest dev -u http://host.docker.internal:4000/api/inngest");
+        }
+    }
+
+    [Fact]
+    public async Task The_docker_command_for_a_worker_has_no_url_and_keeps_the_dev_server_from_looking_for_one()
+    {
+        _release.Serve(CliRelease.AssetUri(Version, Asset(Version).Name).ToString(), [], System.Net.HttpStatusCode.BadGateway);
+
+        await RunAsync(["dev", "--no-discovery", "--port", "9000"], TestContext.Current.CancellationToken);
+
+        _error.ToString().ShouldContain($"  docker run --rm -p 8288:8288 -p 8289:8289 inngest/inngest:v{Version} inngest dev --no-discovery{Environment.NewLine}");
     }
 
     [Fact]
