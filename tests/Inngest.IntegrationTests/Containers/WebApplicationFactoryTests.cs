@@ -131,6 +131,12 @@ public abstract class WebApplicationFactoryTests<TFixture>(TFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public void The_in_memory_server_is_not_there_because_the_app_runs_on_kestrel()
+    {
+        Should.Throw<NotSupportedException>(() => Fixture.App.Server);
+    }
+
+    [Fact(Timeout = 60_000)]
     public void Starting_the_app_again_is_harmless()
     {
         Should.NotThrow(() => Fixture.App.StartAsync(Cancellation).GetAwaiter().GetResult());
