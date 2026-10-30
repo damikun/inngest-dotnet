@@ -97,7 +97,10 @@ public static class InngestResourceBuilderExtensions
     /// <param name="builder">The Inngest server.</param>
     /// <param name="app">The app. It must have an endpoint the server can reach over HTTP.</param>
     /// <param name="path">The path the app serves Inngest on, <c>/api/inngest</c> by default.</param>
-    /// <param name="endpointName">The name of the endpoint of the app, <c>http</c> by default. The server does not trust the development certificate of an HTTPS endpoint.</param>
+    /// <param name="endpointName">
+    /// The name of the endpoint of the app, <c>http</c> by default. An <c>https</c> endpoint of a project uses the ASP.NET
+    /// Core development certificate, which the container of the server does not trust unless it is set up to.
+    /// </param>
     public static IResourceBuilder<InngestServerResource> WithApp<TApp>(
         this IResourceBuilder<InngestServerResource> builder,
         IResourceBuilder<TApp> app,

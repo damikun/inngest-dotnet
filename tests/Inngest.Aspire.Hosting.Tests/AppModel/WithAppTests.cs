@@ -83,6 +83,32 @@ public sealed class WithAppTests
     }
 
     [Fact]
+    public async Task A_project_with_an_https_endpoint_as_well_is_synced_over_http_unless_told_otherwise()
+    {
+        var builder = Model.CreateBuilder();
+        var shop = AddShop(builder).WithHttpsEndpoint(name: "https");
+        Model.Allocate(shop.Resource, "https", 7280, "aspire.dev.internal", 40125);
+
+        var plain = builder.AddInngest("plain").WithApp(shop);
+        var secure = builder.AddInngest("secure").WithApp(shop, endpointName: "https");
+
+        (await Model.ArgumentsAsync(plain.Resource)).ShouldContain("http://aspire.dev.internal:40123/api/inngest");
+        (await Model.ArgumentsAsync(secure.Resource)).ShouldContain("https://aspire.dev.internal:40125/api/inngest");
+    }
+
+    [Fact]
+    public async Task In_the_manifest_the_argument_refers_to_the_endpoint_of_the_app()
+    {
+        var builder = Model.CreateBuilder();
+        var inngest = builder.AddInngest("inngest");
+        var shop = AddShop(builder);
+
+        inngest.WithApp(shop, "hooks/inngest");
+
+        (await Model.ManifestArgumentsAsync(inngest.Resource)).ShouldBe(["dev", "--no-discovery", "-u", "{shop.bindings.http.url}/hooks/inngest"]);
+    }
+
+    [Fact]
     public async Task An_app_that_is_a_container_is_reached_by_its_name_on_the_container_network()
     {
         var builder = Model.CreateBuilder();

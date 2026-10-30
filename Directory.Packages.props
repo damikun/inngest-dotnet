@@ -69,8 +69,9 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" Version="1.1.4" />
     <!-- The version of this package that the Roslyn testing packages bring in has known vulnerabilities. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
-    <!-- The Aspire.AppHost.Sdk of the Aspire tests (tests/Inngest.Aspire.Hosting.Tests) names the same version in its Sdk
-         attribute; the SDK adds the orchestrator and dashboard packages of the same version for the machine's runtime. -->
+    <!-- The AppHost projects (tests/Inngest.Aspire.Hosting.Tests and samples/Inngest.Sample.AppHost) name the same version in
+         the Sdk attribute of their project files, Aspire.AppHost.Sdk. The SDK adds the orchestrator and dashboard packages
+         of that version for the machine's runtime. Raise all of them together. -->
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.4" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.4" />
   </ItemGroup>

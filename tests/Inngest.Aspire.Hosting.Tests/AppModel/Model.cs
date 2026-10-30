@@ -34,6 +34,18 @@ internal static class Model
         return configuration.EnvironmentVariables.ToDictionary(variable => variable.Key, variable => variable.Value);
     }
 
+    // The arguments as the manifest has them: references are written as expressions, not resolved.
+    public static async Task<IReadOnlyList<string>> ManifestArgumentsAsync(IResource resource)
+    {
+        var configuration = await ExecutionConfigurationBuilder.Create(resource)
+            .WithArgumentsConfig()
+            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish), NullLogger.Instance, TestContext.Current.CancellationToken)
+            .WaitAsync(ResolutionTimeout);
+
+        ThrowIfFailed(configuration);
+        return [.. configuration.Arguments.Select(argument => argument.Value)];
+    }
+
     // The builder reports a value it cannot resolve in its result rather than by throwing, wrapped in an AggregateException.
     private static void ThrowIfFailed(IExecutionConfigurationResult configuration)
     {
