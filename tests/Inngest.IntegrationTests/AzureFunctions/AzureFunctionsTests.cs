@@ -34,6 +34,9 @@ public sealed class AzureFunctionsTests(AzureFunctionsFixture fixture) : Integra
     [Fact(Timeout = 60_000)]
     public async Task A_run_with_steps_completes_over_signed_calls_and_every_answer_is_signed()
     {
+        // The tests of a class run one at a time, so what reaches the app from here on is this run's, and not the unsigned
+        // call another test of this class makes.
+        var before = Fixture.App.Requests.Snapshot().Count;
         var eventId = await Api.SendEventAsync(AzureFunctionsFunctions.Greet, new GreetEvent(TestId, "Prague"), Cancellation);
 
         var run = await Api.WaitForRunEndAsync(eventId, Cancellation);
@@ -44,6 +47,7 @@ public sealed class AzureFunctionsTests(AzureFunctionsFixture fixture) : Integra
 
         // One call for each step and one that returns the output, each answered with a signature over its body.
         var calls = Fixture.App.Requests.Snapshot()
+            .Skip(before)
             .Where(request => request.Method == "POST" && request.Target.Contains("fnId=azfn-greet", StringComparison.Ordinal))
             .ToList();
         calls.Count.ShouldBeGreaterThanOrEqualTo(3);
