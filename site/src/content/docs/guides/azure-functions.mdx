@@ -96,8 +96,11 @@ public sealed class InngestEndpoint
 ```
 
 - **All three methods.** Inngest uses `GET` for introspection, `PUT` to sync the app and `POST` to call functions.
-- **`AuthorizationLevel.Anonymous`.** Inngest sends no function key. It signs its requests with your signing key,
-  and in cloud mode the SDK checks the signature of every call and sync before it does anything.
+- **`AuthorizationLevel.Anonymous`.** Inngest sends no function key. It signs its requests with your signing key. In
+  cloud mode the SDK refuses a call, an in-band sync or an introspection request whose signature does not verify,
+  before it does anything. An out-of-band sync is the exception, which the SDK accepts without a signature by
+  default, as the TypeScript SDK does. See [The URL Inngest calls](#the-url-inngest-calls) for what to set on a public
+  endpoint.
 - **The route.** The Functions host puts its route prefix, `api` by default, in front of `inngest`, so Inngest
   calls `/api/inngest`, the path it uses by default. Set `extensions.http.routePrefix` in `host.json` to change the
   prefix, or to an empty string to remove it. See the
@@ -150,9 +153,10 @@ settings, or as Key Vault references, which reach the SDK like any other setting
 | `INNGEST_EVENT_KEY` | The event key, to send events from the app |
 
 Then add the app in the Inngest dashboard with the URL of the function, such as
-`https://shop.azurewebsites.net/api/inngest`, and sync again after each deploy, as
-[Deploying](/inngest-dotnet/guides/deploying/#syncing) describes. A sync from the dashboard is in-band: Inngest sends
-the URL it called in a signed request, and the SDK registers that one.
+`https://shop.azurewebsites.net/api/inngest`, and sync again after each deploy. A sync from the dashboard is in-band:
+Inngest sends the URL it called in a signed request, and the SDK registers that one.
+[Deploying](/inngest-dotnet/guides/deploying/#syncing) also shows a `curl -X PUT` from a deploy pipeline. That is an
+out-of-band sync, and the next section says what to set for it.
 
 To check that the function is reachable, send a `GET` to it. In dev mode it answers with the introspection body; in
 cloud mode it answers an unsigned request with a 401.
@@ -160,14 +164,21 @@ cloud mode it answers an unsigned request with a 401.
 ### The URL Inngest calls
 
 A sync that starts from the app's side, such as `curl -X PUT https://shop.azurewebsites.net/api/inngest` from a
-deploy pipeline, registers the URL the request arrived on. In both HTTP models the worker is given the address the
-caller used: the built-in model gets the URL of the request as the host received it, and the ASP.NET Core
-integration applies the `X-Forwarded-*` headers that the host sends. The URL has the route prefix in it, so it reads
+deploy pipeline, is out-of-band: the SDK registers the URL the request arrived on and posts its configuration to the
+Inngest it is configured for. By default it accepts such a sync without a signature. The function is anonymous and
+public, so anyone can send one, and unless `ServeOrigin` is set, the URL it registers comes from the request, which
+the sender chooses.
+
+What the app sees as that address is what the Functions host saw. In both HTTP models the worker is given the scheme,
+host name, path and query of the host's own request, the ASP.NET Core integration through the `X-Forwarded-*` headers
+that the host sends and the integration applies. The host's source corrects the scheme and the host name from the
+front end's headers (`X-Forwarded-Proto` and `Disguised-Host`) only on Linux Consumption and Linux Dedicated plans.
+Nothing in it does that on Windows plans, or in a container behind TLS termination, where the address can carry the
+scheme `http` or the host name of the hop before the app. The path has the route prefix in it, so it reads
 `/api/inngest` unless you changed the prefix.
 
-Behind a gateway that changes the host name or the path, such as Azure Front Door, API Management or Application
-Gateway, the app sees the address the gateway used to reach it, not the public one. Say where Inngest should call, in
-the settings or as `INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH`:
+So in production, say where Inngest should call, and the path too if a gateway such as Azure Front Door, API
+Management or Application Gateway changes it, in the settings or as `INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH`:
 
 {/* check: statements; InngestOptions options */}
 ```csharp
@@ -175,7 +186,17 @@ options.ServeOrigin = new Uri("https://api.shop.example.com");
 options.ServePath = "/inngest";
 ```
 
-See [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy). The other settings are the same as in any
+With the origin fixed, an unsigned sync can only make the SDK register that URL again. To refuse unsigned syncs
+altogether, turn them off, in the settings or with `INNGEST_ENABLE_UNAUTHED_SYNC=false`:
+
+{/* check: statements; InngestOptions options */}
+```csharp
+options.AllowUnsignedSync = false;
+```
+
+Then a `curl -X PUT` from a pipeline is answered with a 401, and you sync from the Inngest dashboard, whose syncs are
+in-band and signed. See [Syncs](/inngest-dotnet/guides/configuration/#syncs) and
+[Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy). The other settings are the same as in any
 app: [Configuration](/inngest-dotnet/guides/configuration/).
 
 ## The 230-second limit

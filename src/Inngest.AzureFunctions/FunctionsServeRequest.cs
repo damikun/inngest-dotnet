@@ -10,8 +10,9 @@ internal sealed class FunctionsServeRequest(HttpRequestData request, ReadOnlyMem
 {
     public string Method => request.Method;
 
-    // The host builds it from the request it received: the scheme, the host the caller used, the path with the route
-    // prefix (/api by default) and the query. InngestOptions.ServeOrigin and ServePath cover a gateway in front of it.
+    // The host builds it from the request it received: its scheme, host, path with the route prefix (/api by default) and
+    // query. The host corrects the scheme and the host name from the front end's headers only on Linux managed hosting, so
+    // InngestOptions.ServeOrigin and ServePath are what a deployed app should rely on for the URL of an out-of-band sync.
     public Uri Url => request.Url;
 
     public ReadOnlyMemory<byte> Body => body;
