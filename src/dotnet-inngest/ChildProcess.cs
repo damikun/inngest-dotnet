@@ -16,6 +16,9 @@ internal static class ChildProcess
     // terminal Ctrl+C reaches the program as well, so passing it on delivers it twice, which the program takes as one.
     // A signal sent to the tool alone, by an IDE or a script, reaches it only this way. Windows has no signal for a
     // single process, and its console sends Ctrl+C to every process attached to it.
+    //
+    // What cannot be passed on, SIGKILL or a crash, and on Windows an end of the tool alone, leaves the program running.
+    // A job object would end it with the tool on Windows, and is not here because it could not be tested.
     public static async Task<int> RunAsync(string fileName, IReadOnlyList<string> arguments)
     {
         ProcessStartInfo startInfo = new(fileName) { UseShellExecute = false };

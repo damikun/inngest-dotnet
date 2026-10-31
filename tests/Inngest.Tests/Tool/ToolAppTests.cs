@@ -34,9 +34,9 @@ public sealed class ToolAppTests : IDisposable
 
     private static CliAsset Asset(string version) => CliAsset.Select(version, OSPlatform.Linux, Architecture.X64);
 
-    private Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
+    private Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default, HttpClient? client = null)
     {
-        CliInstaller installer = new(new HttpClient(_release), _cache.Path, _error, Version, Checksums);
+        CliInstaller installer = new(client ?? new HttpClient(_release), _cache.Path, _error, Version, Checksums);
         ToolApp app = new(_output, _error, installer, Asset, (file, arguments) =>
         {
             _runs.Add((file, [.. arguments]));
@@ -224,6 +224,22 @@ public sealed class ToolAppTests : IDisposable
         _runs.ShouldBeEmpty();
     }
 
+    // A timeout is not the user's doing, so it is not the exit code of Ctrl+C and it does not end without a word.
+    [Fact(Timeout = 30_000)]
+    public async Task A_download_that_times_out_is_an_error_with_the_docker_command_and_not_an_interrupt()
+    {
+        LaunchSettings("http://localhost:5280");
+        using HttpClient client = new(new HangingHandler()) { Timeout = TimeSpan.FromMilliseconds(200) };
+
+        var exitCode = await RunAsync(["dev"], TestContext.Current.CancellationToken, client);
+
+        exitCode.ShouldBe(1);
+        _error.ToString().ShouldContain("error: Downloading");
+        _error.ToString().ShouldContain("no data arrived");
+        _error.ToString().ShouldContain("docker run");
+        _runs.ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task Help_goes_to_the_output_and_names_the_pinned_version_and_the_options()
     {
@@ -255,6 +271,15 @@ public sealed class ToolAppTests : IDisposable
         exitCode.ShouldBe(2);
         _error.ToString().ShouldContain("error: Unknown command 'serve'.");
         _output.ToString().ShouldBeEmpty();
+    }
+
+    private sealed class HangingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return new HttpResponseMessage();
+        }
     }
 
     private ToolApp ToolFor(string currentDirectory)

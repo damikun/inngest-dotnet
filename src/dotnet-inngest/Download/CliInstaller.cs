@@ -16,7 +16,9 @@ internal sealed class CliInstaller(
     string cacheRoot,
     TextWriter log,
     string pinnedVersion = CliRelease.PinnedVersion,
-    ChecksumFile? pinnedChecksums = null)
+    ChecksumFile? pinnedChecksums = null,
+    TimeSpan? stallTimeout = null,
+    TimeProvider? timeProvider = null)
 {
     private const string StagingPrefix = ".staging-";
     private const int BufferSize = 81920;
@@ -24,8 +26,21 @@ internal sealed class CliInstaller(
 
     private readonly ChecksumFile _pinned = pinnedChecksums ?? PinnedChecksums.Checksums;
 
+    // How long the server may send nothing: before the headers, and between one read of the body and the next. A limit
+    // on the whole download would cut off a slow connection that is alive, and the Timeout of an HttpClient ends when
+    // the headers arrive, so a body that stalls would otherwise be waited for forever.
+    private readonly TimeSpan _stallTimeout = stallTimeout ?? TimeSpan.FromSeconds(60);
+
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+
     public async Task<string> EnsureInstalledAsync(string version, CliAsset asset, CancellationToken cancellationToken)
     {
+        // The version names a folder and is part of a URL, so the installer does not take it on trust from its caller.
+        if (!CliRelease.TryNormalizeVersion(version, out var normalized) || normalized != version)
+        {
+            throw new ArgumentException($"'{version}' is not a release version of the Inngest CLI.", nameof(version));
+        }
+
         var directory = Path.Combine(cacheRoot, version, asset.Platform);
         var binary = Path.Combine(directory, asset.BinaryName);
         if (File.Exists(binary))
@@ -124,8 +139,7 @@ internal sealed class CliInstaller(
             log.WriteLine(
                 $"Version {version} is not the {pinnedVersion} that this tool carries the checksums of, so its download is checked "
                 + $"against the {CliRelease.ChecksumsFileName} of the release. That catches a damaged download, not a replaced release.");
-            using var response = await GetAsync(CliRelease.ChecksumsUri(version), cancellationToken);
-            checksums = ChecksumFile.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            checksums = ChecksumFile.Parse(await GetTextAsync(CliRelease.ChecksumsUri(version), cancellationToken));
         }
 
         return checksums.TryGet(asset.Name, out var expected)
@@ -144,13 +158,21 @@ internal sealed class CliInstaller(
         await using var target = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var watch = Watch(idle);
         var buffer = new byte[BufferSize];
         while (true)
         {
+            // Every read gets the whole time again.
+            watch.Change(_stallTimeout, Timeout.InfiniteTimeSpan);
             int read;
             try
             {
-                read = await source.ReadAsync(buffer, cancellationToken);
+                read = await source.ReadAsync(buffer, idle.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw Stalled(uri);
             }
             catch (IOException exception)
             {
@@ -171,11 +193,33 @@ internal sealed class CliInstaller(
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
-    private async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken cancellationToken)
+    // For the checksums, a few hundred bytes, one limit on the request as a whole is a limit on how long it can stall.
+    private async Task<string> GetTextAsync(Uri uri, CancellationToken cancellationToken)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var watch = Watch(deadline);
         try
         {
-            var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await GetAsync(uri, deadline.Token);
+            return await response.Content.ReadAsStringAsync(deadline.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Stalled(uri);
+        }
+        catch (IOException exception)
+        {
+            throw new ToolException($"Downloading {uri} failed: {exception.Message}", exception) { SuggestsDocker = true };
+        }
+    }
+
+    private async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        using var headers = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var watch = Watch(headers);
+        try
+        {
+            var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, headers.Token);
             if (!response.IsSuccessStatusCode)
             {
                 var status = $"{(int)response.StatusCode} {response.ReasonPhrase}".TrimEnd();
@@ -191,11 +235,27 @@ internal sealed class CliInstaller(
 
             return response;
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Our limit, or the Timeout of the HttpClient. Neither is the user pressing Ctrl+C.
+            throw Stalled(uri);
+        }
         catch (HttpRequestException exception)
         {
             throw new ToolException($"Downloading {uri} failed: {exception.Message}", exception) { SuggestsDocker = true };
         }
     }
+
+    // Cancels the source when the timer is not restarted within the stall timeout. A timer of the time provider, so that
+    // the tests can move the clock instead of waiting.
+    private ITimer Watch(CancellationTokenSource source) =>
+        _time.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), source, _stallTimeout, Timeout.InfiniteTimeSpan);
+
+    private ToolException Stalled(Uri uri) => new(
+        $"Downloading {uri} stopped: no data arrived within {_stallTimeout.TotalSeconds.ToString("0.##", CultureInfo.InvariantCulture)} seconds.")
+    {
+        SuggestsDocker = true,
+    };
 
     // Only the binary is unpacked. The archive's other file is the license, and a name in an archive never decides where
     // anything is written.
@@ -233,7 +293,7 @@ internal sealed class CliInstaller(
         {
             if (entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile && IsAtTop(entry.Name, binaryName))
             {
-                entry.ExtractToFile(destination, overwrite: true);
+                Write(entry.DataStream, destination);
                 return true;
             }
         }
@@ -248,12 +308,26 @@ internal sealed class CliInstaller(
         {
             if (IsAtTop(entry.FullName, binaryName))
             {
-                entry.ExtractToFile(destination, overwrite: true);
+                using var stream = entry.Open();
+                Write(stream, destination);
                 return true;
             }
         }
 
         return false;
+    }
+
+    // The binary is on disk before the folder that holds it is renamed into place. Otherwise a crash could leave the
+    // rename without the content, and a file with no bytes in it is what the next run would find and trust.
+    private static void Write(Stream? source, string destination)
+    {
+        using var target = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        source?.CopyTo(target);
+        target.Flush(flushToDisk: true);
+        if (target.Length == 0)
+        {
+            throw new InvalidDataException("the binary in it has no content.");
+        }
     }
 
     // Archives write the name with a leading ./ at times, and zip tools with backslashes.

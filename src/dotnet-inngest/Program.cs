@@ -20,8 +20,9 @@ internal static class Program
 
         using HttpClient http = new(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(30) })
         {
-            // The archive is 30 MB, and a slow connection is no reason to give up on it after the 100 seconds of the default.
-            Timeout = TimeSpan.FromMinutes(10),
+            // The installer limits how long the server may send nothing. A limit on the whole download would cut off a slow
+            // connection that is alive, and with ResponseHeadersRead the Timeout of the client would end at the headers.
+            Timeout = Timeout.InfiniteTimeSpan,
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("dotnet-inngest");
 

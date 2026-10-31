@@ -36,8 +36,9 @@ internal sealed class ToolApp(
         {
             return await RunDevAsync(arguments, cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // Ctrl+C. A cancellation nobody asked for, a timeout, is reported by the installer as an error.
             return 130;
         }
     }

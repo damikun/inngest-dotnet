@@ -2,6 +2,7 @@ using System.Net;
 using System.Runtime.InteropServices;
 using Inngest.Tool;
 using Inngest.Tool.Download;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Inngest.Tests.Tool;
 
@@ -242,6 +243,201 @@ public sealed class CliInstallerTests : IDisposable
         Directory.GetFileSystemEntries(Path.Combine(_cache.Path, Version)).ShouldBeEmpty();
     }
 
+    // The Timeout of an HttpClient ends when the headers arrive, so what is limited here is the time between one read of
+    // the body and the next.
+    [Fact(Timeout = 30_000)]
+    public async Task A_body_that_stops_arriving_is_given_up_on_and_suggests_docker()
+    {
+        using LoopbackServer server = new(async (stream, token) =>
+        {
+            await LoopbackServer.WriteAsync(stream, "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n0123456789", token);
+            await Task.Delay(Timeout.Infinite, token);
+        });
+        var installer = new CliInstaller(
+            new HttpClient(server.Handler()), _cache.Path, _log, Version, ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"), TimeSpan.FromMilliseconds(500));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("no data arrived within 0.5 seconds");
+        exception.SuggestsDocker.ShouldBeTrue();
+        _log.ToString().ShouldContain("Downloading inngest_9.9.9_linux_amd64.tar.gz", Case.Sensitive, "the headers arrived and the download began");
+        Directory.GetFileSystemEntries(Path.Combine(_cache.Path, Version)).ShouldBeEmpty();
+    }
+
+    // The clock is the test's. Each piece arrives 9 seconds after the client began to wait for it, which is a second short
+    // of the limit, so that the download takes 45 seconds in all and no read takes longer than the limit.
+    [Fact(Timeout = 30_000)]
+    public async Task Every_read_of_the_body_gets_the_whole_time_again()
+    {
+        var archive = LinuxArchive();
+        ScriptedBody body = new([.. archive.Chunk((archive.Length / 5) + 1)]);
+        FakeTimeProvider clock = new();
+        var installer = new CliInstaller(
+            new HttpClient(body),
+            _cache.Path,
+            _log,
+            Version,
+            ChecksumFile.Parse($"{Archives.Sha256(archive)}  {Linux().Name}"),
+            TimeSpan.FromSeconds(10),
+            clock);
+        var install = installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken);
+
+        for (var i = 0; i < body.Pieces; i++)
+        {
+            await body.WaitingForAsync(i);
+            clock.Advance(TimeSpan.FromSeconds(9));
+            body.Deliver(i);
+        }
+
+        var binary = await install;
+        File.ReadAllBytes(binary).ShouldBe(Archives.Binary);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task A_read_that_waits_for_longer_than_the_limit_ends_the_download()
+    {
+        var archive = LinuxArchive();
+        ScriptedBody body = new([.. archive.Chunk((archive.Length / 5) + 1)]);
+        FakeTimeProvider clock = new();
+        var installer = new CliInstaller(
+            new HttpClient(body),
+            _cache.Path,
+            _log,
+            Version,
+            ChecksumFile.Parse($"{Archives.Sha256(archive)}  {Linux().Name}"),
+            TimeSpan.FromSeconds(10),
+            clock);
+        var install = installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken);
+
+        await body.WaitingForAsync(0);
+        clock.Advance(TimeSpan.FromSeconds(9));
+        body.Deliver(0);
+        await body.WaitingForAsync(1);
+        clock.Advance(TimeSpan.FromSeconds(11));
+
+        var exception = await Should.ThrowAsync<ToolException>(() => install);
+        exception.Message.ShouldContain("no data arrived within 10 seconds");
+        exception.SuggestsDocker.ShouldBeTrue();
+        Directory.GetFileSystemEntries(Path.Combine(_cache.Path, Version)).ShouldBeEmpty();
+    }
+
+    // With ResponseHeadersRead the Timeout of the HttpClient ends when the headers arrive, so the body is the stall limit's
+    // alone. The body here comes in three pieces over more than the Timeout.
+    [Fact(Timeout = 30_000)]
+    public async Task The_timeout_of_the_http_client_does_not_apply_to_the_body()
+    {
+        var archive = LinuxArchive();
+        using LoopbackServer server = new(async (stream, token) =>
+        {
+            await LoopbackServer.WriteAsync(stream, $"HTTP/1.1 200 OK\r\nContent-Length: {archive.Length}\r\n\r\n", token);
+            foreach (var piece in archive.Chunk((archive.Length / 3) + 1))
+            {
+                await Task.Delay(400, token);
+                await stream.WriteAsync(piece, token);
+                await stream.FlushAsync(token);
+            }
+        });
+        var installer = new CliInstaller(
+            new HttpClient(server.Handler()) { Timeout = TimeSpan.FromSeconds(1) },
+            _cache.Path,
+            _log,
+            Version,
+            ChecksumFile.Parse($"{Archives.Sha256(archive)}  {Linux().Name}"),
+            TimeSpan.FromSeconds(30));
+
+        var binary = await installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken);
+
+        File.ReadAllBytes(binary).ShouldBe(Archives.Binary);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task A_server_that_never_answers_is_given_up_on_and_suggests_docker()
+    {
+        var installer = new CliInstaller(
+            new HttpClient(new HangingHandler()), _cache.Path, _log, Version, ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"), TimeSpan.FromMilliseconds(300));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("no data arrived within 0.3 seconds");
+        exception.SuggestsDocker.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task A_timeout_of_the_http_client_is_not_taken_for_the_user_pressing_ctrl_c()
+    {
+        var installer = new CliInstaller(
+            new HttpClient(new HangingHandler()) { Timeout = TimeSpan.FromMilliseconds(200) },
+            _cache.Path,
+            _log,
+            Version,
+            ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("no data arrived");
+        exception.SuggestsDocker.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task Checksums_that_stop_arriving_are_given_up_on_too()
+    {
+        using LoopbackServer server = new(async (stream, token) =>
+        {
+            await LoopbackServer.WriteAsync(stream, "HTTP/1.1 200 OK\r\nContent-Length: 600\r\n\r\nabc", token);
+            await Task.Delay(Timeout.Infinite, token);
+        });
+        var installer = new CliInstaller(
+            new HttpClient(server.Handler()), _cache.Path, _log, Version, ChecksumFile.Parse(""), TimeSpan.FromMilliseconds(500));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync("9.9.10", Linux("9.9.10"), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("no data arrived within 0.5 seconds");
+        exception.SuggestsDocker.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task The_user_cancelling_is_still_a_cancellation()
+    {
+        var installer = new CliInstaller(
+            new HttpClient(new HangingHandler()), _cache.Path, _log, Version, ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"), TimeSpan.FromMinutes(5));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+        await Should.ThrowAsync<OperationCanceledException>(() => installer.EnsureInstalledAsync(Version, Linux(), cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData("../9.9.9")]
+    [InlineData("9.9.9\n")]
+    [InlineData("\u0669.\u0669.\u0669")]
+    [InlineData("v9.9.9")]
+    [InlineData("")]
+    public async Task A_version_that_could_name_another_folder_is_never_used_whoever_asks(string version)
+    {
+        var installer = Installer(LinuxArchive());
+
+        await Should.ThrowAsync<ArgumentException>(() => installer.EnsureInstalledAsync(version, Linux(), TestContext.Current.CancellationToken));
+
+        _release.Requests.ShouldBeEmpty();
+        Directory.GetFileSystemEntries(_cache.Path).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_archive_whose_binary_has_no_content_is_refused()
+    {
+        var installer = Installer(Archives.TarGz(("inngest", [])));
+
+        var exception = await Should.ThrowAsync<ToolException>(
+            () => installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("no content");
+        Directory.Exists(CliFolder()).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task An_archive_without_the_binary_is_refused()
     {
@@ -311,7 +507,8 @@ public sealed class CliInstallerTests : IDisposable
     {
         var installer = new CliInstaller(
             new HttpClient(new HangingHandler()), _cache.Path, _log, Version, ChecksumFile.Parse($"{Archives.Sha256([])}  {Linux().Name}"));
-        using CancellationTokenSource cancellation = new(TimeSpan.FromMilliseconds(200));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(200));
 
         await Should.ThrowAsync<OperationCanceledException>(() => installer.EnsureInstalledAsync(Version, Linux(), cancellation.Token));
 
