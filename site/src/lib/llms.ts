@@ -142,7 +142,7 @@ function introduction(site: Site, full: boolean): string[] {
     `# ${SITE_NAME}`,
     `> ${SUMMARY}`,
     [
-      "The API is not the TypeScript SDK's. Steps are methods on `context.Step`, such as `RunAsync` and `SleepAsync`, a function is a class or a delegate, and events are typed records.",
+      "The API is not the TypeScript SDK's. Steps are methods on `context.Step`, such as `RunAsync` and `SleepAsync`, a function is a class or a delegate, and an event's data is a record.",
       assistants && `Read [${assistants.title}](${assistants.markdownUrl.href}) before writing code with it.`,
       layout,
     ]
