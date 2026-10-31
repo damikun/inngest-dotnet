@@ -33,18 +33,31 @@ internal static class InngestEndpoint
         using var body = await ReadBodyAsync(context, cancellationToken).ConfigureAwait(false);
         var request = new HttpServeRequest(context, body?.WrittenMemory ?? ReadOnlyMemory<byte>.Empty, framework);
         var pending = handler.HandleAsync(request, cancellationToken);
-        if (handler.Streams(request))
+        try
         {
-            var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
-            if (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false))
+            if (handler.Streams(request))
             {
-                await StreamAsync(context, pending, time, cancellationToken).ConfigureAwait(false);
-                return;
+                var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
+                if (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false))
+                {
+                    await StreamAsync(context, pending, time, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
             }
-        }
 
-        using var response = await pending.ConfigureAwait(false);
-        await WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+            using var response = await pending.ConfigureAwait(false);
+            await WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The call goes on after a failure here, such as the caller of a streamed call hanging up, and it reads the
+            // request body, which goes back to the pool when this method returns, and uses the services of the request,
+            // which end with it. So the request waits for the call, as it does when nothing fails, and disposes its
+            // response, which owns pooled memory. How the call ends is of no interest to a caller that has gone, so the
+            // failure that is thrown stays the one that ended this.
+            await EndAsync(pending).ConfigureAwait(false);
+            throw;
+        }
     }
 
     internal static async Task WriteAsync(HttpContext context, ServeResponse response, CancellationToken cancellationToken)
@@ -76,35 +89,11 @@ internal static class InngestEndpoint
         // nginx would otherwise hold the whitespace back until the reply ends.
         httpResponse.Headers["X-Accel-Buffering"] = "no";
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
-        try
+        do
         {
-            do
-            {
-                await httpResponse.BodyWriter.WriteAsync(KeepAlive, cancellationToken).ConfigureAwait(false);
-            }
-            while (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false));
+            await httpResponse.BodyWriter.WriteAsync(KeepAlive, cancellationToken).ConfigureAwait(false);
         }
-        catch
-        {
-            // The call goes on without its caller. Its response still owns pooled memory, and a failure is observed here
-            // so that it is not reported as unobserved.
-            _ = pending.ContinueWith(
-                static task =>
-                {
-                    if (task.IsCompletedSuccessfully)
-                    {
-                        task.Result.Dispose();
-                    }
-                    else
-                    {
-                        _ = task.Exception;
-                    }
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-            throw;
-        }
+        while (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false));
 
         using var response = await pending.ConfigureAwait(false);
         using (var writer = new Utf8JsonWriter(httpResponse.BodyWriter))
@@ -123,6 +112,20 @@ internal static class InngestEndpoint
         }
 
         await httpResponse.BodyWriter.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Waits until the call has ended, however it ends, and disposes its response. Its failure is observed here, so that it is
+    // not reported as unobserved.
+    private static async Task EndAsync(Task<ServeResponse> pending)
+    {
+        try
+        {
+            (await pending.ConfigureAwait(false)).Dispose();
+        }
+        catch (Exception)
+        {
+            // There is no one left to tell, and the handler has logged what it failed on.
+        }
     }
 
     private static async Task<bool> CompletesWithinIntervalAsync(Task task, TimeProvider time, CancellationToken cancellationToken)

@@ -226,6 +226,59 @@ public sealed class MapInngestTests
     }
 
     [Fact]
+    public async Task A_streamed_call_whose_caller_hangs_up_keeps_its_request_until_the_function_ends()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ended = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _engine.Handler = async (_, cancellationToken) =>
+        {
+            using var registration = cancellationToken.Register(() => cancelled.TrySetResult());
+            started.SetResult();
+
+            // A step that does not honour its cancellation token.
+            await release.Task;
+            return FakeExecutionEngine.Result(200, "\"done\"");
+        };
+        await using var app = await StartAsync(CommHandlerHarness.DevSettings with { Streaming = true }, app => app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next(context);
+                ended.TrySetResult(null);
+            }
+            catch (Exception exception)
+            {
+                ended.TrySetResult(exception);
+                throw;
+            }
+        }));
+        using var request = new HttpRequestMessage(HttpMethod.Post, CallPath) { Content = new StringContent(CallBody) };
+
+        var sending = app.GetTestClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        await _time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(3));
+        var response = await sending.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // The caller hangs up, which the function learns of through the token of the request.
+        response.Dispose();
+        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        // The function has not ended, so the request must not either: it reads the pooled body, and its scoped services are
+        // the request's, and both end with the request.
+        var winner = await Task.WhenAny(ended.Task, Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken));
+        winner.ShouldNotBeSameAs(ended.Task, "the request ended while the function was still running");
+        release.SetResult();
+        (await ended.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken)).ShouldBeAssignableTo<OperationCanceledException>();
+
+        // What the function answered, after the caller had gone, was returned to the pool.
+        _engine.LastResult.ShouldNotBeNull().Body.WrittenCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task A_streamed_call_carries_the_signature_of_the_body_inside_the_stream()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

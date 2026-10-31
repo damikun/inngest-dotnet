@@ -113,6 +113,45 @@ public sealed class ServeInngestWithAspNetCoreTests
     }
 
     [Fact]
+    public async Task A_streamed_call_whose_caller_hangs_up_keeps_the_function_running_until_Inngests_function_ends()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakes = new FunctionsFakes();
+        fakes.Engine.Handler = async (_, cancellationToken) =>
+        {
+            using var registration = cancellationToken.Register(() => cancelled.TrySetResult());
+            started.SetResult();
+
+            // A step that does not honour its cancellation token.
+            await release.Task;
+            return FakeExecutionEngine.Result(200, "\"done\"");
+        };
+        await using var host = await StartAsync(fakes, CommHandlerHarness.DevSettings with { Streaming = true });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/inngest?fnId=shop-send-email&stepId=step") { Content = new StringContent(FunctionsHarness.CallBody) };
+
+        var sending = host.App.GetTestClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        await fakes.Time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        fakes.Time.Advance(TimeSpan.FromSeconds(3));
+        var response = await sending.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // The caller hangs up, which the function learns of through the token of the request.
+        response.Dispose();
+        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        // The function of the app must not return while Inngest's function is running: the worker would end the invocation
+        // and dispose its services under it, and the pooled body it reads would go back to the pool.
+        var winner = await Task.WhenAny(host.Ended.Task, Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken));
+        winner.ShouldNotBeSameAs(host.Ended.Task, "the function returned while Inngest's function was still running");
+        release.SetResult();
+        (await host.Ended.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken)).ShouldBeAssignableTo<OperationCanceledException>();
+        fakes.Engine.LastResult.ShouldNotBeNull().Body.WrittenCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task A_call_that_ends_within_three_seconds_is_answered_as_usual_with_streaming_on()
     {
         var fakes = new FunctionsFakes();
@@ -252,7 +291,16 @@ public sealed class ServeInngestWithAspNetCoreTests
             configure?.Invoke(functionContext);
             var request = new FakeHttpRequestData(functionContext, context.Request.Method, context.Request.GetEncodedUrl(), context.Request.Body);
             host.Requests.Add(request);
-            host.Returned.Add(await request.ServeInngestAsync());
+            try
+            {
+                host.Returned.Add(await request.ServeInngestAsync());
+                host.Ended.TrySetResult(null);
+            }
+            catch (Exception exception)
+            {
+                host.Ended.TrySetResult(exception);
+                throw;
+            }
         });
         await app.StartAsync(CancellationToken);
         host.Start(app);
@@ -266,6 +314,9 @@ public sealed class ServeInngestWithAspNetCoreTests
         public List<FakeHttpRequestData> Requests { get; } = [];
 
         public List<HttpResponseData> Returned { get; } = [];
+
+        // Completes when the function returns, or throws, with the exception it throws.
+        public TaskCompletionSource<Exception?> Ended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public FakeLogCollector Logs { get; private set; } = null!;
 
