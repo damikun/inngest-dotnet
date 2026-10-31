@@ -96,12 +96,16 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
     }
 
     // A run step like any other, so that Inngest, middleware and the test host see no difference. Only its handler is
-    // wrapped, and the scope is created when the handler starts, so a memoized or mocked step creates none.
+    // wrapped, and the scope is created when the handler starts, so a memoized or mocked step creates none. The engine
+    // numbers a repeated id when it claims the step, which is before the handler runs, so the handler reads the final id
+    // from the step for its log, as the other step logs do.
     private Task<T> RunScoped<T>(string id, StepOptions? stepOptions, Func<IServiceProvider, CancellationToken, Task<T>> handler)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentNullException.ThrowIfNull(handler);
-        return Register(new RunStep<T>(id, cancellationToken => invocation.RunInScopeAsync(id, handler, cancellationToken)), stepOptions);
+        RunStep<T> step = null!;
+        step = new RunStep<T>(id, cancellationToken => invocation.RunInScopeAsync(step.FinalId, handler, cancellationToken));
+        return Register(step, stepOptions);
     }
 
     private Task Sleep(string id, StepOptions? stepOptions, TimeSpan duration)

@@ -4,8 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.UnitOfWork;
 
-// What a call can hold several of: steps run one after another under checkpointing, and steps that Inngest runs at the
-// same time in calls of their own. Scoped services of the call are shared by all of them; the scope of a step is not.
+// What a call can hold several of: steps that run one after another under checkpointing, which share the services of
+// the call unless they ask for a scope of their own. And steps that Inngest runs at the same time in calls of their own,
+// which can be on one app instance.
 public sealed class ScopedStepCallTests : IDisposable
 {
     private readonly ScopeLog _scopes = new();
@@ -79,6 +80,36 @@ public sealed class ScopedStepCallTests : IDisposable
 
         sharedResult.Body.ShouldBe("[1,2,3]");
         scopedResult.Body.ShouldBe("[1,1,1]");
+    }
+
+    [Fact]
+    public async Task A_disposal_failure_names_the_step_by_its_final_id()
+    {
+        // The second use of an id in a loop is numbered, as in every other log of a step.
+        var function = Checkpointed.Define(async context =>
+        {
+            for (var i = 0; i < 2; i++)
+            {
+                var failing = i == 1;
+                await context.Step.RunScopedAsync("record", (services, _) =>
+                {
+                    if (failing)
+                    {
+                        services.GetRequiredService<ThrowingProbe>();
+                    }
+
+                    return Task.CompletedTask;
+                });
+            }
+
+            return null;
+        });
+
+        var result = await _host.CallCheckpointedInScopeAsync(function, Call.New());
+
+        result.StatusCode.ShouldBe(200);
+        var record = _host.LogsOf("Inngest.Function.fn").ShouldHaveSingleItem();
+        record.Message.ShouldBe("Disposing the services of step record:1 of run 01JRUN of function fn failed; the step's outcome stands.");
     }
 
     [Fact]
