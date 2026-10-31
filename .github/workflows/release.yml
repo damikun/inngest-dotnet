@@ -5,9 +5,17 @@ name: Release
 # hour, so the repository stores no NuGet key. It needs a trusted publishing policy on nuget.org for this repository
 # and this workflow file. Once a release is on nuget.org, raise PackageValidationBaselineVersion in
 # src/Directory.Build.props to it, so the next one is checked against it.
+#
+# A release that nuget.org took only in part, for example because the policy did not cover a new package, is published
+# again by running this workflow by hand with its tag: it builds the tag again and pushes what is not on nuget.org yet.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The version tag to publish again, such as v1.0.0
+        required: true
 
 permissions:
   contents: read
@@ -30,17 +38,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # A run by hand builds the tag it was given, not the head of the branch it was started from.
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
           # Source Link and the package metadata record the commit, and the check below needs main's history.
           fetch-depth: 0
       - name: Read the version from the tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME is not a version tag such as v1.2.3 or v1.2.3-preview.1."
+            echo "::error::Tag $TAG is not a version tag such as v1.2.3 or v1.2.3-preview.1."
             exit 1
           fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $GITHUB_REF_NAME points at a commit that is not on main; only main is released."
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Tag $TAG points at a commit that is not on main; only main is released."
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -85,8 +97,20 @@ jobs:
         id: login
         with:
           user: DaliborKundrat
-      # The .snupkg next to each .nupkg is pushed with it. Versions already on nuget.org are skipped, so a release that
-      # failed halfway can be run again.
-      - run: dotnet nuget push "packages/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      # Each package is pushed on its own, with the .snupkg next to it, so one that nuget.org refuses does not hold back
+      # the others; the job then fails and names it. Versions already on nuget.org are skipped, so a release that failed
+      # halfway can be published again.
+      - name: Push
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          refused=()
+          for package in packages/*.nupkg; do
+            if ! dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate; then
+              refused+=("$(basename "$package")")
+            fi
+          done
+          if (( ${#refused[@]} > 0 )); then
+            echo "::error::nuget.org refused ${refused[*]}"
+            exit 1
+          fi
