@@ -220,7 +220,8 @@ id is a ULID, and its first part is the creation time; Inngest makes it, so the 
   timestamp, which whoever sends the event chooses, so the run is judged by the later of the two times. An event
   scheduled further ahead than the lifetime carries no user. Time that passes before the run exists counts too, such as
   a debounce period.
-- A run id that is not a ULID, such as the made-up ids of a unit test, is judged by the clock at each call.
+- A run id that is not a ULID, such as the made-up ids of a unit test, is judged by the clock at each call, which can
+  change the answer while the run goes on. A warning says so once for the run.
 - The events and invocations a run sends carry the same expiry, not a new one. A chain of runs therefore cannot go on
   for longer than the lifetime of the first send: a run created after it has no user.
 

@@ -164,8 +164,9 @@ public sealed class RestoreTests
         await app.CallAsync(function, Event(user).Data("a", "1"));
         var last = await app.CallAsync(function, Event(user).Data("a", "1").Data("b", "2"));
 
+        // The made-up run id is said not to be a ULID, and the user is said to be invalid, each once.
         last.StatusCode.ShouldBe(200);
-        app.Logs.GetSnapshot().Where(record => record.Level >= LogLevel.Warning).Count().ShouldBe(1);
+        app.Logs.GetSnapshot().Where(record => record.Level >= LogLevel.Warning).Count().ShouldBe(2);
     }
 
     [Theory]
@@ -311,6 +312,27 @@ public sealed class RestoreTests
 
         UserContextApp.SeenIn(early).IsAuthenticated.ShouldBeTrue();
         UserContextApp.SeenIn(late).IsAuthenticated.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_run_id_that_is_not_a_ulid_is_said_to_be_one_once_for_the_run_and_a_ulid_is_not()
+    {
+        await using var app = NewApp();
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.RunAsync("a", () => Task.FromResult(1));
+            return UserContextApp.SeenBy(context);
+        });
+        var user = app.Seal(UserContextApp.Ada());
+
+        await app.CallAsync(function, Event(user));
+        await app.CallAsync(function, Event(user).Data("a", "1"));
+        await app.CallAsync(UserContextApp.Observe(), Event(user), runStart: app.Time.GetUtcNow());
+
+        var told = app.Logs.GetSnapshot().Where(record => record.Level == LogLevel.Warning).ShouldHaveSingleItem();
+        told.Message.ShouldContain("01JRUN");
+        told.Message.ShouldContain("is not a ULID");
+        told.Message.ShouldNotContain("u-42");
     }
 
     [Fact]

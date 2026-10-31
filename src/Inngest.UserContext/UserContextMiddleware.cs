@@ -57,7 +57,15 @@ internal sealed class UserContextMiddleware(
         // A run's id says when Inngest created it. The run may start later than that, at the timestamp of its event, which
         // whoever sends the event chooses and can put years ahead, so a user is judged by the later of the two. A run
         // delayed by a queue was created in time and keeps its user.
-        var read = codec.Read(envelope, user.EventName, Later(RunIds.StartOf(user.RunId) ?? time.GetUtcNow(), user.Scheduled), user.Function);
+        var created = RunIds.StartOf(user.RunId);
+        if (created is null)
+        {
+            // The clock of the call differs from call to call, so the user could expire while the run goes on. The logger
+            // of the context writes this once for the run.
+            Log.RunIdHasNoTime(context.Logger, user.RunId, user.EventName);
+        }
+
+        var read = codec.Read(envelope, user.EventName, Later(created ?? time.GetUtcNow(), user.Scheduled), user.Function);
         RunUsers.Set(context, read.Snapshot);
         if (read.Snapshot is null)
         {
