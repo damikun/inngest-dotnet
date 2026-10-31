@@ -600,7 +600,15 @@ getting started guide. `Microsoft.TemplateEngine.Authoring.Tasks` only localizes
 packages folder, so a fixed one would hide changes), installs the template package into a throwaway hive
 (`--debug:custom-hive`), makes both templates and builds them with a `nuget.config` that maps `Inngest*` to the feed and
 the rest to nuget.org. It also starts the web app and reads its introspection, which proves the launch profile, the
-Development settings and dev mode work together. A run packs four projects and builds two, so it is a job of its own in CI.
+Development settings and dev mode work together. The commands run in a folder outside the repository, where the newest SDK
+builds everything, so the net8.0 worker gets a `global.json` that selects the .NET 8 SDK; the test is skipped, with a
+reason, on a machine that has none, and CI installs both. That build turns off `CheckEolTargetFramework`, since warnings
+are errors in it and the SDK warns about a target framework out of support. A run packs four projects and builds two, so it
+is a job of its own in CI.
+
+Each of the two packages has a README of its own, `src/Inngest.Templates/README.md` and `src/dotnet-inngest/README.md`,
+packed in place of the shared `src/README.md`, which describes the SDK. The templates project also leaves `bin` and `obj`
+out of what it packs, for a template that was built in place.
 
 **The tool.** `src/dotnet-inngest` is a `PackAsTool` project named `dotnet-inngest`, so that `dotnet inngest` finds it, as
 `dotnet ef` finds `dotnet-ef`. It targets `net8.0` and `net10.0`, each in its own folder of the package, with
@@ -617,11 +625,18 @@ library is for, and the tool stays free of dependencies. Its types are internal,
 - **Cache.** `<local app data>/inngest-dotnet/cli/<version>/<os>_<arch>/inngest`. The download and the unpacked binary
   are made in a staging folder beside it, which is moved into place in one step, so an interrupted install leaves nothing
   that looks installed and two installs at once end with one. Only the binary is unpacked, to a path the tool chooses,
-  whatever the archive's entries are called, and it gets the execute bit.
+  whatever the archive's entries are called, and it gets the execute bit. It is flushed to disk before the rename, so a
+  crash cannot leave a file without content that the next run finds. The checks happen at install time only, and a binary
+  in the cache is run as it is, so the folder must not be writable by other users; the docs say so.
 - **Running.** The CLI inherits the console, so its output and input are the user's. Ctrl+C reaches the CLI as it does
   any foreground program, and the tool waits for it and returns its exit code. On Unix `SIGINT` and `SIGTERM` that reach
-  the tool alone are passed on with `kill`, so stopping the tool leaves no dev server running; the CLI takes the second
-  `SIGINT` of a terminal as one.
+  the tool alone are passed on with `kill`; the CLI takes the second `SIGINT` of a terminal as one. `SIGKILL` and a crash
+  cannot be passed on, and on Windows nothing is. There is no job object, which could not be tested, so a tool that is
+  ended alone leaves the CLI running.
+- **Downloads.** A download is limited by how long the server may send nothing, 60 seconds for the headers and between two
+  reads of the body, and not by its total time. With `ResponseHeadersRead` the `Timeout` of an `HttpClient` ends at the
+  headers, so it would leave a body that stalls waiting forever. The tool sets it to infinite and limits the reads itself.
+  A limit that fires, which the user did not ask for, is an error with the Docker command. Only Ctrl+C ends with 130.
 - **Address.** Without `-u` or `--no-discovery`, the first launch profile that runs the project and has an `http` address
   gives the app's URL, plus `/api/inngest`.
 - **Docker.** The failures that mean the CLI cannot be had print the `docker run` command for the same address. Nothing is

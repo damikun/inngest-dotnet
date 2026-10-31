@@ -296,12 +296,20 @@ about 100 MB unpacked.
 without access to GitHub can use the cache as it is: put the binary of the release in the folder of its version
 and system, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
 
+The tool checks a download once, when it installs it, and runs the binary it finds in the cache from then on. So the
+cache folder must be writable by you alone. The default is in your own profile. Do not point `INNGEST_DOTNET_CACHE`
+at a folder that other users can write to: one of them could put there the binary that the tool runs for you.
+
 ### Ctrl+C, exit codes and Docker
 
 The CLI runs on the console of the tool, so its output, and its input, are yours. Ctrl+C reaches the CLI, which shuts
-down; the tool waits for it and ends with its exit code. On Linux and macOS a signal sent to the tool alone, a
-`SIGINT` or a `SIGTERM`, is passed on to the CLI, so that stopping the tool never leaves a dev server behind. The tool
-itself ends with 2 for a command line it cannot read and with 1 when it cannot get the CLI.
+down; the tool waits for it and ends with its exit code. The tool itself ends with 2 for a command line it cannot read
+and with 1 when it cannot get the CLI.
+
+On Linux and macOS a `SIGINT` or `SIGTERM` sent to the tool alone is passed on to the CLI. Nothing else is: a tool that
+is killed with `SIGKILL`, or that crashes, leaves the CLI running. On Windows the tool passes on nothing and does not
+put the CLI in a job object, so a tool that is ended alone, from Task Manager for instance, leaves the CLI running too.
+Closing the terminal ends both. A dev server that is left behind keeps running until you stop it by its process id.
 
 When it cannot get the CLI, because the machine is offline or no release exists for it, the message ends with a
 command that runs the dev server in Docker instead, for the same address:
