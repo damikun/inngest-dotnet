@@ -15,7 +15,7 @@ export const faq: Faq[] = [
   },
   {
     question: 'What do I need to run it?',
-    answer: `.NET 8 or .NET 10 and an Inngest server: Inngest Cloud, a <a href="https://www.inngest.com/docs/platform-and-operations/self-host-inngest">self-hosted Inngest</a>, or the dev server on your machine. Functions are served from an ASP.NET Core endpoint or from a <a href="${base}guides/connect/">Connect worker</a>.`,
+    answer: `.NET 8 or .NET 10 and an Inngest server: Inngest Cloud, a <a href="https://www.inngest.com/docs/platform-and-operations/self-host-inngest">self-hosted Inngest</a>, or the dev server on your machine. Functions are served from an ASP.NET Core endpoint, from Azure Functions or AWS Lambda, or from a <a href="${base}guides/connect/">Connect worker</a>.`,
   },
   {
     question: 'How is this different from a job library or a message queue?',
@@ -32,7 +32,7 @@ export const faq: Faq[] = [
   },
   {
     question: 'Is it ready for production?',
-    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 3,716 unit tests, 351 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. The packages are on NuGet as a preview.`,
+    answer: `The serve protocol, steps, flow control, signing, middleware and Connect are implemented and verified: 3,716 unit tests, 351 end-to-end tests against the Inngest server in Docker, and load and memory checks in dev and cloud mode. The <a href="${base}internals/readiness/">readiness report</a> sums them up. The packages are on NuGet as 1.0.0. Durable endpoints are the one feature still marked experimental.`,
   },
   {
     question: 'Does it work with Native AOT?',

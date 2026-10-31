@@ -110,7 +110,7 @@ for days. With durable steps, a failure costs one retry of one step, not a secon
 | **Realtime** | `PublishAsync` and `PublishStreamAsync` send updates and model output from a run, `SubscribeAsync` receives them in .NET, and `MapInngestRealtime` relays them to browsers as server-sent events. |
 | **Sessions** | Events name the sessions they belong to, and what a run sends or invokes inherits them, so related runs group together. |
 | **Durable endpoints** | `WithDurableEndpoint` or `[DurableEndpoint]` makes an ASP.NET Core endpoint run steps like a function. The caller gets the response directly, and Inngest takes the run over when a step has to wait or fails. Beta in Inngest, so the .NET API is marked experimental. |
-| **Two ways to serve** | `MapInngest` adds the endpoint Inngest calls to an ASP.NET Core app, and can stream long calls through load balancers. `AddConnect` runs a worker over an outbound WebSocket instead. |
+| **Ways to serve** | `MapInngest` adds the endpoint Inngest calls to an ASP.NET Core app, and can stream long calls through load balancers. `AddConnect` runs a worker over an outbound WebSocket instead. `Inngest.AzureFunctions` and `Inngest.AwsLambda` serve the endpoint from Azure Functions and AWS Lambda. |
 | **Signed requests** | In cloud mode every request from Inngest is verified and every response is signed, with a fallback key for key rotation. |
 | **.NET conventions** | Functions are classes resolved from DI, or delegates. Settings come from `IOptions` and the usual `INNGEST_*` variables. Logs go to `ILogger`. |
 
@@ -265,6 +265,7 @@ with the other ways to install the dev server.
 |---|---|
 | [`samples/Inngest.Sample`](samples/Inngest.Sample) | An ASP.NET Core app with an onboarding flow that waits for the user to activate and stops when the account is deleted, a cron job that fans out with `InvokeAsync`, and a delegate function. It comes with a Dockerfile and a Compose file with dev and cloud profiles. |
 | [`samples/Inngest.AotSample`](samples/Inngest.AotSample) | An app published as a Native AOT binary, with no trimming or AOT warnings. It also receives Stripe's webhooks as events. |
+| [`samples/Inngest.LambdaAotSample`](samples/Inngest.LambdaAotSample) | An AWS Lambda function behind an HTTP API or a function URL, served by `InngestLambdaHandler` and published as a Native AOT executable. |
 | [`samples/Inngest.Sample.AppHost`](samples/Inngest.Sample.AppHost) | An Aspire AppHost for `Inngest.Sample`: `dotnet run --project samples/Inngest.Sample.AppHost` starts the dev server in Docker, the sample next to it and the Aspire dashboard, with no other setup. |
 
 The documentation has complete examples:
@@ -285,7 +286,7 @@ The documentation has complete examples:
 | | |
 |---|---|
 | .NET | .NET 8 and .NET 10 (`net8.0`, `net10.0`) |
-| Hosting | ASP.NET Core with `MapInngest`, or any generic host with `AddConnect` |
+| Hosting | ASP.NET Core with `MapInngest`, any generic host with `AddConnect`, Azure Functions (isolated worker) and AWS Lambda |
 | Native AOT and trimming | Compatible, except `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and the Aspire app host, which are never compiled ahead of time. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
 | Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
 | Ported from | inngest-js v4.26.2 |

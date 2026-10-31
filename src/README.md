@@ -132,7 +132,10 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 - Retries per step, `NonRetriableException`, `RetryAfterException` and failure handlers.
 - Middleware with observer and wrap hooks, resolved from DI.
 - Signed requests in cloud mode, with a fallback key for key rotation.
-- Serve from ASP.NET Core with `MapInngest`, or from a worker with `AddConnect`.
+- Serve from ASP.NET Core with `MapInngest`, from a worker with `AddConnect`, or from Azure Functions and AWS Lambda.
+- Realtime: steps publish updates and stream text such as a model's reply, `IInngestRealtime` receives them in .NET,
+  and `MapInngestRealtime` relays them to browsers as server-sent events.
+- AI calls as steps: `InferAsync` has Inngest make the model call, and `AIWrapAsync` runs your own call as a step.
 - Durable endpoints: ASP.NET Core endpoints whose handlers run steps and answer the caller directly, with Inngest taking
   over when a step has to wait or fails. Beta in Inngest, so the API is marked experimental.
 

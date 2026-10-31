@@ -1,13 +1,17 @@
 ---
 title: Roadmap
-description: What the previews of the Inngest .NET SDK added, from typed events and attribute classes to the test host, and what comes next, from realtime, sessions, durable endpoints and Sentry and encryption packages to checkpointing by default.
+description: What each release of the Inngest .NET SDK added, from the test host of the first preview to realtime, durable endpoints, webhooks and hosting on AWS Lambda and Azure Functions in 1.0.0, and what comes next.
 ---
 
-The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps, invocations, flow
-control, retries, middleware, request signing with key rotation, and Connect workers, on .NET 8 and .NET 10 and
-under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest) as a preview.
+The SDK covers what most workflows need: steps, sleeps, waits for events, parallel steps and fan-out, invocations,
+flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
+.NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
-## Coming in the next release
+## New in 1.0.0
+
+1.0.0 brings every package to its first major version, and adds 16 packages to the 5 that 0.1.0 had. From here on,
+each package is checked against 1.0.0, so a change that would break code built against it fails the build. Durable
+endpoints are the exception: they stay marked experimental and may still change.
 
 - **A health check for apps that serve functions.** `AddInngest` on the health checks builder tells a readiness probe
   whether the app has its keys and Inngest answers a request that carries the signing key. It keeps the answer for 30
@@ -63,6 +67,43 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   `dotnet inngest dev`, from the `dotnet-inngest` tool, downloads the Inngest CLI, checks its SHA-256 and runs the dev
   server for the app, whose address it reads from the launch settings. See
   [Templates and tool](/inngest-dotnet/guides/templates-and-tools/).
+- **Fan-out over a list.** `MapAsync` runs a step for each item of a list, with a limit on how many run at once, and
+  returns the results in the order of the items. `ForEachAsync` does the same without results, `MapOutcomesAsync` runs
+  every item and gives each its outcome, and `MapInChunksAsync` hands a list too long for one run to child runs in
+  chunks. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/).
+- **Webhooks.** `Inngest.Webhooks` verifies the signatures of webhooks from Stripe, GitHub, Shopify, Standard Webhooks
+  senders such as Clerk and Resend, and any HMAC. `MapInngestWebhook` sends each delivery as an event whose id is the
+  delivery id, so a redelivery within 24 hours starts no second run. See [Webhooks](/inngest-dotnet/guides/webhooks/).
+- **The user behind a run.** `Inngest.UserContext` carries selected claims of the signed-in user who sent an event into
+  the runs it starts, protected with ASP.NET Core Data Protection, and a function reads them as `ICurrentUser` or
+  `ClaimsPrincipal`. `Inngest.UserContext.AspNetCore` takes the user from `HttpContext.User`. See
+  [User context](/inngest-dotnet/guides/user-context/).
+- **AWS Lambda and Azure Functions.** `Inngest.AwsLambda` serves functions from a Lambda function behind API Gateway or
+  a function URL with `InngestLambdaHandler`, also as a Native AOT executable. `Inngest.AzureFunctions` serves them
+  from an HTTP-triggered function of the isolated worker with `ServeInngestAsync`. See
+  [Running on AWS Lambda](/inngest-dotnet/guides/aws-lambda/) and
+  [Azure Functions](/inngest-dotnet/guides/azure-functions/).
+- **Realtime in Blazor and SignalR.** `Inngest.Blazor` shows realtime messages with `RealtimeView<TData>` in Blazor
+  Server, WebAssembly and interactive Auto. `Inngest.SignalR` forwards them to the clients of a SignalR hub, with one
+  subscription to Inngest shared by the clients of a channel. See [Realtime in Blazor](/inngest-dotnet/guides/blazor/)
+  and [SignalR](/inngest-dotnet/guides/signalr/).
+- **Docs for AI assistants.** Every page of this site has a Markdown copy, `llms.txt` lists them and `llms-full.txt`
+  holds them all, so a coding assistant can read the docs as text. A guide lists the names that differ from the
+  TypeScript SDK and the rules that keep a function correct when it replays. See
+  [AI coding assistants](/inngest-dotnet/guides/ai-assistants/).
+
+## New in 0.1.0
+
+The first stable release of `Inngest`, `Inngest.AspNetCore`, `Inngest.Connect`, `Inngest.Testing` and
+`Inngest.OpenTelemetry`, with the fixes of a second code review:
+
+- Middleware that finishes async work after the call has answered no longer makes the SDK spin on the thread pool, and
+  hooks can wait on the tasks a function started, as step handlers can.
+- `off` and `no` in Inngest's environment variables, such as `INNGEST_DEV=off`, read as false.
+- A call that finished answers even when disposing its services throws.
+- Checkpointed steps and runs with deeply nested outputs read back.
+- Batch timeouts are written in hours, which Inngest can parse.
+- A Connect worker's instance id defaults to the full host name, as in the TypeScript SDK.
 
 ## New in 0.1.0-preview.3
 
@@ -119,6 +160,8 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
 
 - **Guides** for versioning, idempotency, loops, expressions and local development.
 - **Checkpointing on by default**, once it has more time against Inngest Cloud.
+- **Durable endpoints out of experimental**, with resumes for endpoints that require authorization and support in
+  the test host.
 - **A validation middleware package**, built on the payload transforms.
 
 ## After that
