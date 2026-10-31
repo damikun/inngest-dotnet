@@ -264,7 +264,7 @@ The documentation has complete examples:
 
 ## Quality and testing
 
-- **3,716 unit tests** pass on .NET 10, and the 3,580 of them in projects that also target .NET 8 pass on .NET 8,
+- **3,735 unit tests** pass on .NET 10, and the 3,599 of them in projects that also target .NET 8 pass on .NET 8,
   including concurrency stress tests with thousands of invocations at once.
 - **351 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
