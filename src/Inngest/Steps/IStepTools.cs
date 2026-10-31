@@ -56,7 +56,8 @@ public interface IStepTools
     /// Runs the handler once, like RunAsync, in a service scope of its own that exists only while the handler runs. The
     /// handler resolves what it needs from the provider it is given, so a DbContext or any other scoped service is new
     /// for each step and each attempt, and nothing tracked in one step reaches the next. The result is saved as JSON,
-    /// so return plain data, not entities.
+    /// so return plain data, not entities. An exception thrown while the scope is disposed is only logged, never
+    /// retried, so commit and save in the handler, not in the Dispose of a service.
     /// </summary>
     Task<T> RunScopedAsync<T>(string id, Func<IServiceProvider, CancellationToken, Task<T>> handler) =>
         throw new NotSupportedException($"{GetType().Name} does not implement RunScopedAsync.");
@@ -132,7 +133,8 @@ public interface IStepTools
     /// Runs the handler once, like RunAsync, in a service scope of its own that exists only while the handler runs. The
     /// handler resolves what it needs from the provider it is given, so a DbContext or any other scoped service is new
     /// for each step and each attempt, and nothing tracked in one step reaches the next. The result is saved as JSON,
-    /// so return plain data, not entities.
+    /// so return plain data, not entities. An exception thrown while the scope is disposed is only logged, never
+    /// retried, so commit and save in the handler, not in the Dispose of a service.
     /// </summary>
     Task<T> RunScopedAsync<T>(StepOptions stepOptions, Func<IServiceProvider, CancellationToken, Task<T>> handler) =>
         RunScopedAsync(IdOf(stepOptions), handler);

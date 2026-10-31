@@ -337,7 +337,8 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   step, and a memoized, planned or mocked step makes none. It is a `RunStep<T>` with a wrapped handler, so Inngest,
   middleware (`StepType.Run`) and the test host see an ordinary run step, and middleware keeps seeing the invocation's
   scope in `FunctionContext.Services`. The typed overloads are extension methods that resolve one service with
-  `GetRequiredService<T>()`. A scoped service that throws when it is disposed is logged and does not fail the step.
+  `GetRequiredService<T>()`. A scoped service that throws when it is disposed is logged and does not fail the step, so
+  disposal must not do work that can fail.
 - Errors are exceptions: `NonRetriableException`, `RetryAfterException`, and `StepFailedException` thrown at a
   step's call site when the step failed for good. `InngestException` covers failures talking to Inngest.
 - Failure handlers implement `IFailureHandler` on the function class, or pass `onFailure` with a delegate.
