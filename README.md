@@ -162,7 +162,7 @@ socket and results go back over it, so the worker needs no public endpoint and c
 
 | Package | What it gives you |
 |---|---|
-| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. A source generator that registers your function classes, and analyzers for Native AOT apps, come with it. Its only dependencies are `Microsoft.Extensions.*` packages. |
+| [`Inngest`](https://www.nuget.org/packages/Inngest/) | Functions, steps, triggers, flow control, middleware, the client that sends events, and request signing. A source generator that registers your function classes, which a project turns on, and an analyzer that finds the types a Native AOT app has not listed, come with it. Its only dependencies are `Microsoft.Extensions.*` packages. |
 | [`Inngest.AspNetCore`](https://www.nuget.org/packages/Inngest.AspNetCore/) | `MapInngest`, the endpoint Inngest calls in an ASP.NET Core app, and a health check for readiness probes. |
 | [`Inngest.Connect`](https://www.nuget.org/packages/Inngest.Connect/) | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket, with no endpoint to expose. |
 | [`Inngest.Testing`](https://www.nuget.org/packages/Inngest.Testing/) | An in-memory test host that runs your functions on the real execution engine. |

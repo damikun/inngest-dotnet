@@ -282,6 +282,60 @@ public sealed class JsonSerializableAnalyzerTests
     }
 
     [Fact]
+    public async Task Reports_the_data_that_a_step_publishes_to_a_realtime_topic()
+    {
+        const string source = Types + """
+                [InngestFunction("publish")]
+                public sealed class Publisher : InngestFunction<Order>
+                {
+                    public override async Task<object?> ExecuteAsync(FunctionContext<Order> context, CancellationToken cancellationToken)
+                    {
+                        await context.Step.{|#0:PublishAsync|}("receipt", new RealtimeTopic("orders", "receipts"), new Receipt(Guid.NewGuid()));
+                        await context.Step.PublishAsync("order", new RealtimeTopic("orders", "orders"), context.Event.Data);
+                        return null;
+                    }
+                }
+            }
+            """;
+
+        await Verify(source, Sources.PublishAot, Missing(0, "Shop.Receipt", "the data a step publishes"));
+    }
+
+    [Fact]
+    public async Task Does_not_ask_for_the_types_of_the_context_the_SDK_adds_even_when_the_apps_reaches_none_of_them()
+    {
+        // The app's context knows a record with an int. The SDK adds the context of its own types to the options of every
+        // app, and that one has strings, lists of strings and the types it lists, so the app never has to.
+        const string source = """
+            namespace Shop
+            {
+                public sealed record Counter(int Value);
+
+                [JsonSerializable(typeof(Counter))]
+                internal sealed partial class AppJson : JsonSerializerContext;
+
+                [InngestFunction("counter")]
+                public sealed class OnCounter : InngestFunction<Counter>
+                {
+                    public override async Task<object?> ExecuteAsync(FunctionContext<Counter> context, CancellationToken cancellationToken)
+                    {
+                        await context.Step.RunAsync("text", () => "hello");
+                        await context.Step.RunAsync("texts", () => (IReadOnlyList<string>)new List<string>());
+                        await context.Step.RunAsync("failure", () => (FunctionFailure)null!);
+                        await context.Step.RunAsync("sent", () => (SendEventsResult)null!);
+
+                        // The SDK's context has nothing for a Guid, and neither has the app's.
+                        await context.Step.{|#0:RunAsync|}("guid", () => Guid.NewGuid());
+                        return null;
+                    }
+                }
+            }
+            """;
+
+        await Verify(source, Sources.PublishAot, Missing(0, "System.Guid", "the result of a step"));
+    }
+
+    [Fact]
     public async Task Reports_the_event_data_of_a_function_registered_with_a_delegate()
     {
         const string source = Types + """

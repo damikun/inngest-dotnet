@@ -297,8 +297,9 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   names, which stays trim and AOT safe: it starts from `[InngestFunction]` and applies the others in `Order`, then
   in declaration order. The result goes through the same startup validator. Explicit `FunctionOptions` replace the
   attributes, and `AddFunction<TFunction>(configure)` adjusts them. There is no assembly scanning: the source generator writes
-  `AddInngestFunctions()`, which calls `AddFunction<TFunction>()` for each class with `[InngestFunction]`. The generated
-  code does not call `Apply` itself, so the attributes are still read when the app starts and not at compile time.
+  `AddInngestFunctions()`, which calls `AddFunction<TFunction>()` for each class with `[InngestFunction]`, in a project
+  that turns it on. The generated code does not call `Apply` itself, so the attributes are still read when the app starts
+  and not at compile time.
 - Event data records implement `IInngestEventData`, whose static abstract `EventName` (and static virtual
   `EventVersion`) let `SendAsync<T>`, `Trigger.Event<T>`, `WaitForEventAsync<T>`, `CancelOn.For<T>` and
   `SendEventAsync<T>` take the name from the type without reflection. Every string form stays.
@@ -392,6 +393,15 @@ the abstractions alone; that is not the shape here, where a library with functio
 app does. `buildTransitive` and not `build`, because an app mostly reaches `Inngest` through `Inngest.AspNetCore` or
 `Inngest.Connect`, and the assets of `build` only reach the project that references the package itself.
 
+Everything in the package reaches every existing user on upgrade, so nothing it does may change a build that compiles
+today. The registration is **opt-in**: `InngestGenerateFunctionRegistration` is false until a project sets it, and the
+generator then writes nothing and the class diagnostics are not reported. Without that, a project that registers a
+generic class closed by hand, or a private class from the class that holds it, would have warnings (errors, under
+warnings as errors) about code that works, and a helper of its own called `AddInngestFunctions` would become ambiguous the
+moment it had a class with `[InngestFunction]`. The JSON analyzer is limited by what it checks: it is silent unless the
+project turns reflection-based JSON off, and then it reports types that would fail at run time.
+`DisableInngestAnalyzers` removes everything the package runs in the compiler, for the build that one of them breaks.
+
 - **Roslyn.** Both assemblies target `netstandard2.0` (RS1041) and `Microsoft.CodeAnalysis.CSharp` 4.8.0, the compiler of
   the first .NET 8 SDK and Visual Studio 17.8, the oldest that can build for `net8.0`. A component loads into its own Roslyn
   version or a newer one, so one build serves every compiler the packages can be used with, where System.Text.Json's
@@ -406,31 +416,46 @@ app does. `buildTransitive` and not `build`, because an app mostly reaches `Inng
   `Registration` value, which compares by value (`EquatableArray<string>`), comes out of `Collect()`, so an edit that
   leaves the registered classes as they were does not write the file again. `IncrementalityTests` check that with
   `trackIncrementalGeneratorSteps`: every step's outputs are `Cached` or `Unchanged` after an unrelated edit.
-- **Output.** A static class in the namespace `Inngest`, named after the assembly: two assemblies of one app each get a
-  class, and a public class of the same name in both would hide the extension methods of the one that is referenced
-  (the compiler only warns, CS0436). One statement for each class, because a long chain of calls is one expression and
-  the compiler has a limit on those. The method is `internal` unless the project says `public`, and its name is a
-  project property too. With public methods of the same name in two assemblies the call is ambiguous (CS0121), which is
-  why the default is not public; the guide explains the setup for a library.
+- **Output.** A static class in the namespace `Inngest`, named after the assembly, with a hash of the name added when
+  an identifier cannot hold all of it: two assemblies of one app each get a class, and a public class of the same name
+  in both would hide the extension methods of the one that is referenced (the compiler only warns, CS0436), which
+  `My-Lib` and `My.Lib` would do without the hash. One statement for each class, because a long chain of calls is one
+  expression and the compiler has a limit on those. The file disables CS0612 and CS0618, because a function class may be
+  `[Obsolete]` and the warning would be in a file nobody can edit. The method is `internal` unless the project says
+  `public`, and its name is a project property too. With public methods of the same name in two assemblies, or an internal
+  one seen through `InternalsVisibleTo`, the call is ambiguous (CS0121); `InngestFunctionsMethodName` is the way out.
 - **Diagnostics.** The generator reports nothing about classes. `FunctionClassification` answers whether a class can
   be registered, for the generator, which leaves out the classes that cannot, and for `FunctionClassAnalyzer`, which
-  says why. The two cannot disagree, and the messages are analyzer diagnostics, which `#pragma` and `.editorconfig`
-  control. Only a property value the generator cannot use is reported by the generator.
+  says why, when the project has turned generation on. The two cannot disagree, and the messages are analyzer
+  diagnostics, which `#pragma` and `.editorconfig` control. A property value the generator cannot use is reported by the
+  generator.
 - **JSON analyzer.** It registers nothing unless `PublishAot`, `PublishTrimmed` or
   `JsonSerializerIsReflectionEnabledByDefault` (read through `CompilerVisibleProperty`) say that reflection-based JSON is
-  off; the SDK only flips the switch while publishing, so the properties it flips it from are read. It checks the
-  type arguments of the function base class, `AddFunction<TEventData>(options, handler)` and the typed steps (`RunAsync<T>`,
-  `AIWrapAsync`, `WaitForEventAsync<T>`, `WaitForSignalAsync<T>`, `InvokeAsync` and `InferAsync<T>`, which read their type
-  back through the app's serializer options). A type is
-  covered when a `JsonSerializerContext` of the project, or of a referenced assembly that uses System.Text.Json and is
-  not part of the framework, lists it, or when a listed type reaches it through its members, constructor parameters,
-  type arguments or `[JsonDerivedType]`, because the generator of System.Text.Json writes metadata for that whole graph.
-  The set is computed when the first type needs it.
+  off; the SDK only flips the switch while publishing, so the properties it flips it from are read, and they are those of
+  the project it compiles, so a library that sets none is not checked. It checks the type arguments of the function base
+  class, `AddFunction<TEventData>(options, handler)` and the typed steps (`RunAsync<T>`, `AIWrapAsync`,
+  `WaitForEventAsync<T>`, `WaitForSignalAsync<T>`, `InvokeAsync`, `InferAsync<T>` and `PublishAsync<T>`, which read their
+  type back through the app's serializer options).
+- **What counts as listed** is what the generator of System.Text.Json writes metadata for, and the analyzer follows its
+  rules: the types of public properties and fields, and of non-public ones with `[JsonInclude]`, minus `[JsonIgnore]`;
+  the parameters of the one constructor it calls (`[JsonConstructor]`, else the only public one when there is no public
+  parameterless one); the element type of a collection, whose own members and constructors it ignores; the type arguments
+  of framework generics; `[JsonDerivedType]`. A type with a `[JsonConverter]` has nothing reached through it. The roots
+  are the types a context lists, in the project and in referenced assemblies that use System.Text.Json and are not part
+  of the framework, plus the types `PublicTypesJsonContext` lists, the context the SDK appends to every app's options, so
+  that `string` or `IReadOnlyList<string>` is not asked for when the app's context reaches none. `JsonCoverageTests` hold
+  the analyzer to this: they compile a set of probe types, one for each rule, and compare the analyzer with the generator
+  of every .NET version they can find in the targeting packs (8 and 10 agree), and compare the types taken from the SDK's
+  context with the ones that context has. The set is computed when the first type needs it.
 - **The generator cannot fill the context.** Generators run on the same input and the output of one is not input to
   another, so `[JsonSerializable]` attributes written by Inngest's generator would never reach System.Text.Json's. The
   code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives. Its equivalence
   key names the context and not the type, and its own `FixAllProvider` adds every type of the scope to that context in one
   edit: the batch fixer merges text changes, which collide when several diagnostics edit the same class.
+- **The package path is tested.** Everything above runs from the build output in the unit tests, which is not how a user
+  gets it. `PackagedConsumerTests` pack `Inngest` and `Inngest.AspNetCore` into a temporary feed, restore them into a small
+  app that references only `Inngest.AspNetCore`, and build it in each state: nothing set (no diagnostic, under warnings as
+  errors), generation on, reflection off, and `DisableInngestAnalyzers`. A CI job runs them with the .NET 8 SDK too.
 
 ### Logging
 
@@ -474,7 +499,7 @@ per call.
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
-| Registering function classes without listing them | Supported (.NET only): the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
+| Registering function classes without listing them | Supported (.NET only), when a project sets `InngestGenerateFunctionRegistration`: the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
 | Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and the typed steps; values whose type is known only at run time, such as the data of an invoke or an event the app sends, are not checked |
 
 

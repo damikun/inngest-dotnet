@@ -17,7 +17,7 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IInngestBuilder.AddFunction<TFunction>(FunctionOptions)` | Registers a class function with these options, resolved from a scope for every call. Attributes on the class are ignored. |
 | `IInngestBuilder.AddFunction<TFunction>()` | Registers a class function configured by its [attributes](#attributes). |
 | `IInngestBuilder.AddFunction<TFunction>(Func<FunctionOptions, FunctionOptions>)` | Registers a class function with the options its attributes give, as the callback changes them. |
-| `IInngestBuilder.AddInngestFunctions()` | Written into your project by the source generator: registers every class that has `[InngestFunction]`, as `AddFunction<TFunction>()` does. See [Source generator and analyzers](#source-generator-and-analyzers). |
+| `IInngestBuilder.AddInngestFunctions()` | Written into your project by the source generator, once the project sets `InngestGenerateFunctionRegistration` to `true`: registers every class that has `[InngestFunction]`, as `AddFunction<TFunction>()` does. See [Source generator and analyzers](#source-generator-and-analyzers). |
 | `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?)` | Registers a delegate function with typed event data. |
 | `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?)` | Registers a delegate function with `JsonElement` event data. |
 | `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |
@@ -387,28 +387,29 @@ Part of the `Inngest` package, which carries them in `analyzers/dotnet/cs` for t
 
 | Member | Purpose |
 |---|---|
-| `IInngestBuilder.AddInngestFunctions()` | An extension method that the generator writes into each project that has function classes, in the namespace `Inngest`, in a static class named after the assembly. It calls `AddFunction<T>()` for every class with `[InngestFunction]` that derives from `InngestFunction<TEventData>` or `InngestFunction<TEventData, TResult>` and that generated code in the project can create and name, in the order of their names, and returns the builder. `internal` unless the project says `public`. |
+| `IInngestBuilder.AddInngestFunctions()` | An extension method that the generator writes into each project that has turned generation on and has function classes, in the namespace `Inngest`, in a static class named after the assembly. It calls `AddFunction<T>()` for every class with `[InngestFunction]` that derives from `InngestFunction<TEventData>` or `InngestFunction<TEventData, TResult>` and that generated code in the project can create and name, in the order of their names, and returns the builder. `internal` unless the project says `public`. |
 
 The MSBuild properties of the project that the generator and the analyzers read:
 
 | Property | Default | Purpose |
 |---|---|---|
+| `InngestGenerateFunctionRegistration` | `false` | `true` writes the method and reports the classes it leaves out (`INNGEST001` to `INNGEST005`). Nothing is written or reported until it is set. |
 | `InngestFunctionsMethodName` | `AddInngestFunctions` | The name of the generated method. |
 | `InngestFunctionsAccessibility` | `internal` | `public` or `internal`. |
-| `DisableInngestSourceGenerator` | `false` | `true` removes the generator and the analyzers from the build. |
+| `DisableInngestAnalyzers` | `false` | `true` removes everything the package runs in the compiler, the generator and both analyzers, from the build. |
 | `PublishAot`, `PublishTrimmed`, `JsonSerializerIsReflectionEnabledByDefault` | | Read by the JSON analyzer, which is active when reflection-based JSON is off. |
 
 The diagnostics:
 
 | Id | Severity | Reported when |
 |---|---|---|
-| [`INNGEST001`](/inngest-dotnet/guides/source-generator/#inngest001) | Error | A class has `[InngestFunction]` but is not a function. |
+| [`INNGEST001`](/inngest-dotnet/guides/source-generator/#inngest001) | Warning | A class has `[InngestFunction]` but is not a function. |
 | [`INNGEST002`](/inngest-dotnet/guides/source-generator/#inngest002) | Warning | An abstract class has `[InngestFunction]`; it is not registered. |
 | [`INNGEST003`](/inngest-dotnet/guides/source-generator/#inngest003) | Warning | A generic class has `[InngestFunction]`; it is not registered. |
-| [`INNGEST004`](/inngest-dotnet/guides/source-generator/#inngest004) | Warning | A private, protected or file-local class, or one inside such a type, has `[InngestFunction]`; it is not registered. |
+| [`INNGEST004`](/inngest-dotnet/guides/source-generator/#inngest004) | Warning | A private, `protected`, `private protected` or file-local class, or one inside such a type, has `[InngestFunction]`; it is not registered. |
 | [`INNGEST005`](/inngest-dotnet/guides/source-generator/#inngest005) | Warning | A function class has no public constructor; it is not registered. |
-| [`INNGEST006`](/inngest-dotnet/guides/source-generator/#inngest006) | Warning | `InngestFunctionsMethodName` or `InngestFunctionsAccessibility` has a value the generator cannot use. |
-| [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or a type a typed step saves (`RunAsync<T>`, `WaitForEventAsync<T>`, `InvokeAsync` and the others), is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
+| [`INNGEST006`](/inngest-dotnet/guides/source-generator/#inngest006) | Warning | `InngestGenerateFunctionRegistration`, `InngestFunctionsMethodName` or `InngestFunctionsAccessibility` has a value the generator cannot use. |
+| [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or a type a typed step saves (`RunAsync<T>`, `WaitForEventAsync<T>`, `InvokeAsync`, `PublishAsync<T>` and the others), is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
 | [`INNGEST011`](/inngest-dotnet/guides/source-generator/#inngest011) | Warning | The same type is anonymous, which no context can list. |
 
 ## Test host

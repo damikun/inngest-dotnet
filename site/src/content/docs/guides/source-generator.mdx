@@ -10,14 +10,25 @@ package, so there is nothing more to install: every project that references `Inn
 `Inngest.AspNetCore` or `Inngest.Connect`, has them. They are built against Roslyn 4.8, the compiler of the first .NET 8
 SDK and of Visual Studio 17.8, and run in that compiler and in every newer one.
 
-- The generator writes `AddInngestFunctions()`, which registers the function classes of the project.
-- One analyzer says why a class with `[InngestFunction]` is not registered.
-- The other one, in an app that turns reflection-based JSON off, finds the types that no `JsonSerializerContext`
+- The generator writes `AddInngestFunctions()`, which registers the function classes of the project. A project turns it
+  on; until then it writes nothing, and the project builds as it did before.
+- An analyzer, with the generator, says why a class with `[InngestFunction]` is not registered.
+- The other analyzer, in an app that turns reflection-based JSON off, finds the types that no `JsonSerializerContext`
   lists. A code fix lists them.
 
 ## Register the function classes
 
-Give each function class `[InngestFunction]`, and register all of them with one call:
+Turn the generator on in the project file:
+
+```xml title="Shop.csproj"
+<PropertyGroup>
+  <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
+</PropertyGroup>
+```
+
+It is off by default so that a project which registers its classes by hand, or has a method of its own named
+`AddInngestFunctions`, is not changed by an upgrade. Then give each function class `[InngestFunction]`, and register all
+of them with one call:
 
 {/* check: file isolated */}
 ```csharp title="Functions.cs"
@@ -64,10 +75,12 @@ app.Run();
 
 `AddInngestFunctions()` is the same as writing `AddFunction<ChargeOrder>()` and `AddFunction<SendReceipt>()`, for every
 class. The compiler finds the classes while it builds the project, from the attribute, so there is no assembly scanning
-at run time and nothing for the trimmer to keep. What the generator writes for the project above:
+at run time and nothing for the trimmer to keep. What the generator writes for the project above, without the comments:
 
 {/* check: skip */}
 ```csharp
+#pragma warning disable CS0612, CS0618
+
 namespace Inngest
 {
     internal static class InngestFunctionRegistration_Shop
@@ -86,7 +99,9 @@ namespace Inngest
 ```
 
 The order of the calls is the order of the classes' names, so adding a file never reorders them. The method is in the
-`Inngest` namespace, with `AddFunction`, and it returns the builder, so more registrations can follow it.
+`Inngest` namespace, with `AddFunction`, and it returns the builder, so more registrations can follow it. The file
+disables the warnings for obsolete code, so that a function class marked `[Obsolete]` can be registered without a
+warning in a file you cannot edit.
 
 `AddFunction<T>()` still reads the attributes of each class when the app starts, as it does when you call it yourself.
 The generator decides which classes to register, not what their options are.
@@ -95,14 +110,16 @@ The generator decides which classes to register, not what their options are.
 
 The method registers a class that has `[InngestFunction]`, derives from `InngestFunction<TEventData>` or
 `InngestFunction<TEventData, TResult>`, and that generated code in the same project can create and name. A class that
-does not fit is left out, and the project builds with a diagnostic on it that says why:
+does not fit is left out, and the project builds with a warning on it that says why. These warnings are about the
+generated method, so a project that has not turned generation on gets none of them: a generic class it closes by hand,
+or a private class it registers from inside the class that holds it, is not a mistake there.
 
 | Diagnostic | The class |
 |---|---|
-| [`INNGEST001`](#inngest001), error | has the attribute but is not a function: it does not derive from `InngestFunction<TEventData>` or `InngestFunction<TEventData, TResult>`. |
+| [`INNGEST001`](#inngest001) | has the attribute but is not a function: it does not derive from `InngestFunction<TEventData>` or `InngestFunction<TEventData, TResult>`. |
 | [`INNGEST002`](#inngest002) | is abstract. |
 | [`INNGEST003`](#inngest003) | is generic, or inside a generic class. |
-| [`INNGEST004`](#inngest004) | is private, protected or file-local, or inside a type that is. |
+| [`INNGEST004`](#inngest004) | is private, `protected` or `private protected`, or file-local, or inside a type that is. A `protected internal` class is registered. |
 | [`INNGEST005`](#inngest005) | has no public constructor. |
 
 Public and internal classes are registered, nested ones too, in any namespace or none. A class registered in code with
@@ -110,12 +127,22 @@ Public and internal classes are registered, nested ones too, in any namespace or
 
 ### Several projects
 
-Each project that references Inngest gets a method of its own, for its own classes. The method is `internal`, so a
-library's method does not meet the app's, which has the same name. To register a library's functions in the app, give
-the library a method name of its own and make it public:
+Each project that turns generation on gets a method of its own, for its own classes, in the namespace `Inngest`. The
+method is `internal` unless the project says otherwise, which keeps it from meeting the one in the project that
+references it, but two cases make a call ambiguous (`CS0121`), and the compiler says so:
+
+- A project that already has a method of its own called `AddInngestFunctions(this IInngestBuilder)`, such as a helper
+  that registers its functions, meets the generated one as soon as it has a class with `[InngestFunction]`.
+- A project that another project sees the internals of, through `InternalsVisibleTo`, such as a library and the test
+  project of the app, shares the library's internal method with it. The test project's own method is then ambiguous with
+  the library's.
+
+`InngestFunctionsMethodName` renames the generated method, in either project. To register a library's functions in the
+app, give the library a name of its own and make the method public:
 
 ```xml title="Shop.Billing.csproj"
 <PropertyGroup>
+  <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
   <InngestFunctionsMethodName>AddBillingFunctions</InngestFunctionsMethodName>
   <InngestFunctionsAccessibility>public</InngestFunctionsAccessibility>
 </PropertyGroup>
@@ -129,17 +156,22 @@ builder.Services
     .AddBillingFunctions();
 ```
 
-Two public methods with the same name in the same namespace make the call ambiguous, and the compiler says so
-(`CS0121`). A library that keeps the default internal method can instead register its functions in a public method of
-its own: `public static IInngestBuilder AddBillingFunctions(this IInngestBuilder builder) => builder.AddInngestFunctions();`.
+Two public methods with the same name in the same namespace are ambiguous in the same way, so a public method needs a name
+of its own. A library that keeps the default internal method can instead register its functions in a public method of its
+own: `public static IInngestBuilder AddBillingFunctions(this IInngestBuilder builder) => builder.AddInngestFunctions();`.
+
+The class that holds the method is named after the assembly. Characters an identifier cannot hold become underscores, and a
+name that had any also gets a short hash of the assembly's name, so that `Shop-Billing` and `Shop.Billing` do not become
+the same class.
 
 The MSBuild properties:
 
 | Property | Default | Meaning |
 |---|---|---|
+| `InngestGenerateFunctionRegistration` | `false` | `true` writes the method and reports the classes it leaves out. |
 | `InngestFunctionsMethodName` | `AddInngestFunctions` | The name of the generated method. It must be a C# identifier. |
 | `InngestFunctionsAccessibility` | `internal` | `public` or `internal`, for the class and the method. |
-| `DisableInngestSourceGenerator` | `false` | `true` takes the generator and the analyzers out of the build. |
+| `DisableInngestAnalyzers` | `false` | `true` takes everything the package runs in the compiler out of the build: the generator and both analyzers. |
 
 A value the generator cannot use is reported as [`INNGEST006`](#inngest006), and the default is used.
 
@@ -149,7 +181,7 @@ A value the generator cannot use is reported as [`INNGEST006`](#inngest006), and
   own method, or none.
 - It leaves no class out on request. A class that has the attribute is registered by the method, and a second
   registration by hand fails when the app starts, because the function id is used twice. A project with a function that
-  needs `AddFunction<T>(configure)` does not call the generated method, and registers all its functions by hand.
+  needs `AddFunction<T>(configure)` does not turn generation on, and registers all its functions by hand.
 - It does not compute the options at compile time. They are read from the attributes when the app starts.
 
 ## Check the JSON of a Native AOT app
@@ -161,7 +193,10 @@ the context. The analyzer finds the types that are missing while the project bui
 
 It runs when the project sets `PublishAot` or `PublishTrimmed` to `true`, or `JsonSerializerIsReflectionEnabledByDefault`
 to `false`. A project that sets `JsonSerializerIsReflectionEnabledByDefault` to `true` is not checked. In any other
-project the analyzer does nothing.
+project the analyzer does nothing. It reads the properties of the project it compiles, and a library does not publish:
+the function classes of a library that sets none of them are not checked, even when the app that uses the library is
+published with Native AOT. Set `JsonSerializerIsReflectionEnabledByDefault` to `false` in the library to have it checked.
+The property only matters to an app, so it changes nothing else in a library.
 
 It looks at:
 
@@ -169,13 +204,28 @@ It looks at:
 - the event data type of a function registered with `AddFunction<TEventData>(options, handler)`;
 - the type that a step saves with the run and reads back: the `T` of `RunAsync<T>`, the input and result of
   `AIWrapAsync`, the data that `WaitForEventAsync<T>` and `WaitForSignalAsync<T>` wait for, the result of
-  `InvokeAsync` and the response of `InferAsync<T>`.
+  `InvokeAsync`, the response of `InferAsync<T>` and the data `PublishAsync<T>` publishes.
 
-A type counts as listed when a context lists it with `[JsonSerializable]`, or when a type that a context lists has it
-as a property, a field, a constructor parameter, a type argument or a derived type, because the generator of
-`System.Text.Json` writes metadata for all of those. The context can be in the project or in a project it references.
-Types that the SDK serializes with a context of its own, such as `JsonElement`, `object` and `FunctionFailure`, are
-not asked for. An anonymous type cannot be listed at all, so it gets a message of its own.
+A type counts as listed when a context lists it with `[JsonSerializable]`, or when a type that a context lists reaches it
+the way the generator of `System.Text.Json` does when it writes the metadata of that type:
+
+- through a public property or field, or one that is not public but has `[JsonInclude]`, unless it has `[JsonIgnore]`;
+  a private, internal or protected member without `[JsonInclude]`, a static member and an explicit interface
+  implementation are not part of the metadata;
+- through a parameter of the constructor it would call: the one marked `[JsonConstructor]`, or the only public one when
+  there is no public constructor without parameters. The parameters of any other constructor are not reached;
+- as the element type of a collection, or a type argument of a framework generic such as `Dictionary<K, V>`. A class that
+  is a collection, such as `class Items : List<Line>`, is written as its elements, and its own members and constructors
+  are not part of the metadata;
+- as a derived type named by `[JsonDerivedType]`.
+
+A type with a `[JsonConverter]` of its own is written by the converter, and nothing is reached through its members. The
+context can be in the project or in a project it references. The context that the SDK adds to the serializer options of
+every app is counted too, so `FunctionFailure`, `SendEventsResult`, `JsonElement`, `object` and what those hold, such as
+`string`, are never asked for. An anonymous type cannot be listed at all, so it gets a message of its own.
+
+The analyzer's idea of what is listed is checked against the generator of `System.Text.Json`, of .NET 8 and .NET 10, by
+the tests of this package.
 
 {/* check: file isolated */}
 ```csharp title="Functions.cs"
@@ -221,20 +271,23 @@ your own file instead.
 - Values whose type is only known at run time, such as an `object` that holds a record. That includes the data that
   `InvokeAsync` sends, the events your code sends and the body of an `InferAsync` request. List those types yourself, as
   the [Native AOT guide](/inngest-dotnet/guides/native-aot/#which-types-to-list) says.
+- Typed realtime topics, and publishing or subscribing through `IInngestRealtime`, which read their type through the same
+  options. The data that a step publishes is checked.
 - Contexts that are built in code, and options whose resolver chain does not contain the context. Test the paths that
   matter after you publish.
 
 ## Diagnostics
 
 Every diagnostic has an id that `.editorconfig` can configure, such as `dotnet_diagnostic.INNGEST010.severity = none`,
-and `#pragma warning disable` works on the class or the call the diagnostic is on.
+and `#pragma warning disable` works on the class or the call the diagnostic is on. `DisableInngestAnalyzers` removes
+them all, with the generator, for the case that one of them gets in the way of a build.
 
 ### INNGEST001
 
-Error. A class has `[InngestFunction]` but does not derive from `InngestFunction<TEventData>` or
+Warning. A class has `[InngestFunction]` but does not derive from `InngestFunction<TEventData>` or
 `InngestFunction<TEventData, TResult>`. The attribute does nothing on any other class: the class cannot be registered,
 by `AddFunction<T>()` or by the generated method, and Inngest never runs it. Add the base class, or remove the
-attribute.
+attribute. Reported in a project that has turned generation on.
 
 ### INNGEST002
 
@@ -248,9 +301,9 @@ uses. Register the closed types with `AddFunction<T>()`, or suppress the warning
 
 ### INNGEST004
 
-Warning. The class, or a type that contains it, is private, protected or file-local. The generated method is outside
-it. Make the class public or internal, with every type that contains it, or register it with `AddFunction<T>()` from
-inside the containing type.
+Warning. The class, or a type that contains it, is private, `protected`, `private protected` or file-local. The generated
+method is outside it. Make the class public or internal, with every type that contains it, or register it with
+`AddFunction<T>()` from inside the containing type.
 
 ### INNGEST005
 
@@ -259,8 +312,8 @@ function would fail. Add one.
 
 ### INNGEST006
 
-Warning. `InngestFunctionsMethodName` is not a C# identifier, or `InngestFunctionsAccessibility` is neither `public`
-nor `internal`. The generator uses the default.
+Warning. `InngestGenerateFunctionRegistration` is neither `true` nor `false`, `InngestFunctionsMethodName` is not a C#
+identifier, or `InngestFunctionsAccessibility` is neither `public` nor `internal`. The default is used.
 
 ### INNGEST010
 

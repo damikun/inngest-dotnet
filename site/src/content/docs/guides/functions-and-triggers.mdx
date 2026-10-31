@@ -72,8 +72,8 @@ builder.Services
 
 `[InngestFunction]` on the class gives the function its id, and optionally a name, retries and an idempotency key.
 The other attributes add triggers and flow control. `AddFunction` reads them once, when the app starts. With many
-classes, the [source generator](/inngest-dotnet/guides/source-generator/) writes `AddInngestFunctions()`, which
-registers every class that has `[InngestFunction]`.
+classes, the [source generator](/inngest-dotnet/guides/source-generator/) can write `AddInngestFunctions()`, which
+registers every class that has `[InngestFunction]`, once the project turns it on.
 
 </TabItem>
 <TabItem label="Code first">

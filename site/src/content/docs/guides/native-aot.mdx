@@ -81,8 +81,8 @@ that serializes it; the publish warnings will not catch it, so test the paths th
 ## Let the build find what is missing
 
 A forgotten type is the one thing the publish warnings do not catch. The `Inngest` package therefore includes an
-analyzer that runs in a project which turns reflection-based JSON off, with `PublishAot`, `PublishTrimmed` or
-`JsonSerializerIsReflectionEnabledByDefault` set to `false`. It warns about every type of the list above that no
+analyzer that runs in a project which turns reflection-based JSON off: `PublishAot` or `PublishTrimmed` set to `true`,
+or `JsonSerializerIsReflectionEnabledByDefault` set to `false`. It warns about every type of the list above that no
 context lists, for the event data and the result of your function classes, the event data of a delegate function and the
 types the steps save, such as the result of each `RunAsync<T>`:
 
@@ -100,9 +100,9 @@ the analyzer checks and what it leaves to you, and covers the generator that reg
 
 `AddFunction<TFunction>` and `AddMiddleware<TMiddleware>` keep the constructors they need through
 `DynamicallyAccessedMembers`, so class-based functions and middleware work in AOT apps without extra configuration.
-`AddInngestFunctions()`, which the [source generator](/inngest-dotnet/guides/source-generator/) writes, calls
-`AddFunction<TFunction>` for each class that has `[InngestFunction]`, so the app lists no class and nothing scans for
-them.
+`AddInngestFunctions()`, which the [source generator](/inngest-dotnet/guides/source-generator/) writes once a project sets
+`InngestGenerateFunctionRegistration` to `true`, calls `AddFunction<TFunction>` for each class that has `[InngestFunction]`,
+so the app lists no class and nothing scans for them. The AOT sample does this.
 
 Attribute classes work too: `AddFunction<TFunction>()` reads the attributes of the class it is given when the app
 starts, the generic ones such as `[EventTrigger<T>]` included, which needs no reflection beyond what trimming keeps.
