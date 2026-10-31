@@ -35,6 +35,11 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   response directly, and Inngest takes the run over only when a step has to wait or fails. `UseInngestDurableEndpoints`
   and `WithDurableEndpoint`, or `[DurableEndpoint]` on a controller, set it up. Inngest calls the feature beta, so the
   .NET API is marked experimental and may change. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/).
+- **Tests against a real Inngest server.** `Inngest.Testing.Containers` is a Testcontainers module that runs the dev
+  server, or a self-hosted server with signing and event keys, in Docker from your tests, points an app at it and has
+  it sync the app, with the Connect gateway if you want one. `Inngest.Testing.Containers.AspNetCore` runs an ASP.NET Core
+  app under `WebApplicationFactory` on a real port for it, on .NET 10. See
+  [Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
 
 ## New in 0.1.0-preview.3
 

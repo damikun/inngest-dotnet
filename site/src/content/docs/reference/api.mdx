@@ -405,7 +405,7 @@ builder.
 | `WithSelfHosting()` | Runs `inngest start`, the self-hosted server, in place of the dev server. |
 | `WithSigningKey(string)`, `WithEventKey(string)` | Sets the keys of the self-hosted server. Keys left out are generated. The signing key must be hexadecimal digits in pairs. |
 | `WithAppUrl(Uri)`, `WithAppUrl(string)` | Has the server sync the app at this address when it starts and retry every second until the app answers. A loopback address becomes `host.docker.internal`. |
-| `WithConnectGateway(int? port = null)` | Publishes the Connect gateway on the same port inside the container and on the host, and waits for it. A free port when none is given. |
+| `WithConnectGateway(int? port = null)` | Publishes the Connect gateway on the same port inside the container and on the host, and waits for it. A free port when none is given, kept from other processes until the container starts. |
 | `WithFastTiming(bool = true)` | The timing flags that make runs finish quickly: a sync retried and a step retried after a second, the queue polled every 50 ms. On by default. |
 | `InngestServerBuilder.InngestPort` | The port of the server's API inside the container, 8288. |
 
@@ -415,8 +415,8 @@ builder.
 |---|---|
 | `GetBaseAddress()` | The address of the server's API as the test reaches it, as a `Uri`. `GetConnectionString()` returns it as text. |
 | `Configure(InngestOptions)` | Sets an app's options to use the server: dev mode and the address, or cloud mode with the keys and the address. Replaces addresses set in code. |
-| `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables: `INNGEST_DEV` for the dev server, `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. |
-| `SyncAsync(Uri appUrl, CancellationToken)` | Has the server register the app that listens at this address, with `host.docker.internal` as its host name, and signs the request for the self-hosted server. Throws when the app does not register. |
+| `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables, for a process that inherits others: `INNGEST_DEV` (the dev server's address, or `0` for the self-hosted server), `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL`, and `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. |
+| `SyncAsync(Uri appUrl, CancellationToken)` | Has the server register the app that listens at this address. A loopback address, or `0.0.0.0` or `[::]`, goes out as `host.docker.internal`; any other address as given. The request names the kind of server (`dev` or `cloud`) and is signed for the self-hosted server. Throws when the app does not register. |
 | `IsDevServer`, `SigningKey`, `EventKey`, `ConnectGatewayPort` | Which server it is, the keys of the self-hosted server (null for the dev server) and the gateway's port (null without one). |
 | `StartAsync(CancellationToken)` | Starts the container. A server that does not become ready fails with its log in the exception. |
 
@@ -433,4 +433,5 @@ Package `Inngest.Testing.Containers.AspNetCore` for .NET 10, namespace `Inngest.
 | `InngestWebApplicationFactory<TEntryPoint>(InngestServerContainer inngest, string servePath = "/api/inngest")` | A `WebApplicationFactory` that runs the app on Kestrel, on all interfaces and a free port, and applies `inngest.Configure` to the app's options after the app's own. The container must be running when the app starts. |
 | `StartAsync(CancellationToken)` | Starts the app and has the container sync it, so the server knows its functions when this returns. |
 | `GetAppUrl()` | The address of the app's Inngest endpoint as the test reaches it. |
+| `CreateClient()`, `CreateClient(WebApplicationFactoryClientOptions)` | Declared again, so that a client reaches the app at `localhost` and its port, also with options that have no base address. `CreateDefaultClient` gets the same address. |
 | `Container` | The container the app is configured for. |

@@ -426,8 +426,10 @@ Flow control, cancellation and the expressions of triggers and waits are applied
 Inngest exercises them. To test the whole path, run the app against an
 [Inngest dev server](https://www.inngest.com/docs/local-development) in a container, send an event and wait for the
 function to do its work. The [`Inngest.Testing.Containers`](https://www.nuget.org/packages/Inngest.Testing.Containers/)
-package starts the server from your tests and has it sync the app, and a `WebApplicationFactory` for ASP.NET Core apps
-comes with it; see [Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
+package starts the server from your tests and has it sync the app. For an ASP.NET Core app on .NET 10, the separate
+[`Inngest.Testing.Containers.AspNetCore`](https://www.nuget.org/packages/Inngest.Testing.Containers.AspNetCore/) package
+adds a `WebApplicationFactory` that runs the app against that server. See
+[Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
 
 Inngest's [testing guide](https://www.inngest.com/docs/durable-execution/guides-and-advanced/testing) covers the
 same ideas for its other SDKs.

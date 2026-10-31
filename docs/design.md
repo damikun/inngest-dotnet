@@ -247,8 +247,9 @@ binder, so it works trimmed and under Native AOT.
 `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings, of which
 `Inngest.Encryption` only reads the serializer options. Internals can change in any release, so the packages ship
 together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
-the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and the two
-`Inngest.Testing.Containers` packages only `InngestOptions`.
+the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
+`Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
+of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 Package validation compares every package with the last release on nuget.org, so `dotnet pack` fails on a change that
 would break code built against it; `PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after
 each release. `Inngest.Encryption`, `Inngest.Sentry` and the two `Inngest.Testing.Containers` packages have no release
@@ -513,32 +514,47 @@ key in the description, the data and the log of every kind of answer.
 
 ## Test containers
 
-`Inngest.Testing.Containers` follows the module pattern of testcontainers-dotnet 4.16: `InngestServerBuilder` derives from
-`ContainerBuilder`, `InngestServerConfiguration` from `ContainerConfiguration`, `InngestServerContainer` from `DockerContainer`, and
-the builder takes the image, as every module has since 4.10, so there is no default image to go stale. The builder
-keeps what the caller chose (the mode, the keys, the app URLs, the gateway) in the configuration and turns it into the
-command line in `Build`, so the order of its methods never matters and one builder can build several containers, each
-with keys and a gateway port of its own. Arguments added with `WithCommand` come last.
+`Inngest.Testing.Containers` follows the module pattern of testcontainers-dotnet 4.16: `InngestServerBuilder` derives
+from `ContainerBuilder`, `InngestServerConfiguration` from `ContainerConfiguration`, `InngestServerContainer` from
+`DockerContainer`, and the builder takes the image, as every module has since 4.10, so there is no default image to go
+stale. The types are named after the server because `InngestBuilder` is one letter from the SDK's `IInngestBuilder`,
+which test code uses beside them. The builder keeps what the caller chose (the mode, the keys, the app URLs, the
+gateway) in the configuration and turns it into the command line in `Build`, so the order of its methods never matters
+and one builder can build several containers, each with keys, a gateway port and a connection string provider of its
+own: a provider remembers the container it was started with, so a shared one answers for the last. Arguments added with
+`WithCommand` come last, and a wait strategy with conditions of its own, which `WithWaitStrategy` replaces the default
+with, is kept.
 
 - **Command.** `inngest dev --no-discovery --no-poll`, or `inngest start --signing-key K --event-key E`, then the timing
   flags (`--poll-interval 1 --retry-interval 1 --tick 50`), `--connect-gateway-port` and a `-u` for each app. The
   `inngest start` signing key must be plain hexadecimal digits in pairs. With `-u` the server retries a failed sync
-  at the poll interval and stops once it succeeds; it does not poll the app afterwards.
+  at the poll interval and stops once it succeeds; it does not poll the app afterwards, and nothing tells the test when
+  the app is registered.
 - **Reaching the host.** Inside the container localhost is the container, so a loopback app URL becomes
-  `host.docker.internal`, which the builder maps to `host-gateway` for Linux. The app must listen on all interfaces,
-  since on Linux the container comes in over the Docker bridge, not loopback.
+  `host.docker.internal`, which the builder maps to `host-gateway` for Linux. Any other address is left as it is. The
+  app must listen on all interfaces, since on Linux the container comes in over the Docker bridge, not loopback.
 - **Ports.** The API is published on a random host port. The Connect gateway is published on the same port inside and
-  outside, because the start API hands workers the port as the container knows it; the builder picks a free one at
-  `Build`. The server binds its gRPC ports (50052 and 50053) and the gateway only after it has opened connections, and
-  the kernel may give such a port to one of them as a source port, so the container reserves them with
-  `net.ipv4.ip_local_reserved_ports`.
+  outside, because the start API hands workers the port as the container knows it, so the port has to be chosen before
+  the container exists. A port the builder picks is held by a listening socket from `Build` until the container starts,
+  because pulling the image can take long and the port may be taken in the meantime. The container lets it go just
+  before Docker starts the container, or when it is disposed. Starting again with a fresh port when Docker still finds
+  the port taken is not possible on the same container, as `DockerContainer` keeps its configuration to itself and a
+  created container cannot be created again; the caller builds another. The server binds its gRPC ports (50052 and
+  50053) and the gateway only after it has opened connections, and the kernel may give such a port to one of them as a
+  source port, so the container reserves them with `net.ipv4.ip_local_reserved_ports`.
 - **Syncing after the start.** A `PUT` to the app's endpoint makes an SDK register itself with the server, under the URL
-  the request arrived on. `SyncAsync` sends it with `host.docker.internal` as the `Host` header, so neither the app
-  nor the server needs the other's address before it starts and no port is picked up front. For the self-hosted server
-  the request carries `X-Inngest-Signature`, a MAC of the (empty) body and the timestamp, which keeps the app from
-  logging an unsigned sync. The GraphQL `createApp` mutation of the dev UI also has the server sync an app, and was
-  not used: against `inngest start` the sync it makes arrives unsigned, a failed one stays in the app list, and the
-  error is a bare code such as `unreachable` or `url_not_found`.
+  the request arrived on. `SyncAsync` sends it with the container's name for the app as the `Host` header, so neither
+  the app nor the server needs the other's address before it starts and no port is picked up front. It also sends
+  `X-Inngest-Server-Kind` (`dev` or `cloud`), which the SDK hands to the server it registers with, as with the server's
+  own sync. For the self-hosted server the request carries `X-Inngest-Signature`, a MAC of the (empty) body and the
+  timestamp, which keeps the app from logging an unsigned sync. The GraphQL `createApp` mutation of the dev UI also
+  has the server sync an app, and was not used: against `inngest start` the sync it makes arrives unsigned, a failed
+  one stays in the app list, and the error is a bare code such as `unreachable` or `url_not_found`.
+- **Variables.** `GetSdkEnvironment` is for processes that inherit their parent's environment, so it sets every variable
+  that could outrank the others. The SDK reads the API address from `INNGEST_API_BASE_URL`, then `INNGEST_BASE_URL`, then
+  the dev server's address, the event API address from `INNGEST_EVENT_API_BASE_URL` first, and `INNGEST_DEV` picks the
+  mode, where only an explicit `0` keeps an inherited `INNGEST_DEV=1` from switching the signature checks off. Variables
+  the list leaves out, such as `INNGEST_SERVE_ORIGIN`, still apply, and the guide says so.
 - **WebApplicationFactory.** The server needs a real socket, which `TestServer` does not have. .NET 10 added
   `UseKestrel`; earlier versions can only get one with a second host built beside the in-memory one, which runs hosted
   services twice and splits the app's state, so `InngestWebApplicationFactory` targets net10.0 and lives in a package of
@@ -546,3 +562,8 @@ with keys and a gateway port of its own. Arguments added with `WithCommand` come
   the container module. The factory calls `UseKestrel` with `ListenAnyIP(0)`. It has to be called on the factory that
   starts, because a factory made by `WithWebHostBuilder` does not inherit it. The options are applied with
   `PostConfigure` from `CreateHost`, so the container wins whatever the app or an override of `ConfigureWebHost` set.
+  Kestrel reports an app on all interfaces as `[::]`, which the factory takes for its clients' base address and which a
+  client cannot connect to on Windows. `CreateDefaultClient` is fixed in `ConfigureClient`, but `CreateClient` and
+  `CreateDefaultClient(Uri, ...)` set the base address after it, from options that default to `http://localhost`, port
+  80, so the factory declares `CreateClient` again. The addresses collection of a started Kestrel cannot be changed, so
+  there is no earlier place to fix it.

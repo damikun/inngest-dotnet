@@ -93,13 +93,15 @@ itself, for instance to send an event or read a run over its [REST API](https://
 ### How the server finds the app
 
 `SyncAsync` sends the app's Inngest endpoint a `PUT`, which an SDK answers by registering its functions with the
-server. The request carries `host.docker.internal` as its host name, whatever address you gave: inside the container,
-`localhost` is the container itself, so the app has to register the name that reaches the machine the test runs on.
-Docker Desktop resolves that name by itself, and on Linux the builder maps it to the host gateway. `SyncAsync` returns
-once the server knows the app's functions, and throws when the app does not answer or refuses. An address such as
-`http://[::]:5000/api/inngest`, which Kestrel reports for an app on all interfaces, is accepted. Syncing again is
-harmless. An app that sets `ServeOrigin` (or `INNGEST_SERVE_ORIGIN`) registers that origin instead of the one the
-request names, which the container cannot reach; leave it unset in tests.
+server under the URL the request arrived on; the server calls that URL later. Inside the container `localhost` is the
+container itself, so a loopback address, or `0.0.0.0` or `[::]`, which Kestrel reports for an app on all interfaces, goes
+out with `host.docker.internal` and the port as its host. Any other address, such as the name of a container on a shared
+network, is used as given. Docker Desktop resolves `host.docker.internal` by itself, and on Linux the builder maps it to
+the host gateway. The request also says which kind of server it comes from, `dev` or `cloud`, as the server's own sync
+does, and the self-hosted server's request is signed with its signing key. `SyncAsync` returns once the server knows the
+app's functions, and throws when the app does not answer or refuses. Syncing again is harmless. An app that sets
+`ServeOrigin` (or `INNGEST_SERVE_ORIGIN`) registers that origin instead of the one the request names, which the container
+cannot reach; leave it unset in tests.
 
 When the app's port is known before anything starts, the container can do the syncing: `WithAppUrl` adds the address to
 the command line, and the server syncs the app when it starts and keeps trying every second until the app answers. The
@@ -115,6 +117,32 @@ var server = new InngestServerBuilder("inngest/inngest:v1.49.0")
 ```
 
 A loopback address in the URL is rewritten to `host.docker.internal`, and `WithAppUrl` can be called once for each app.
+
+`WithAppUrl` gives no signal when the sync has happened, and an event sent before the app is registered starts no run,
+because the server has no function for it. `SyncAsync` returns when the server knows the app, so use it where a test
+has to know. After `WithAppUrl`, the test waits for the app to show up. The apps query of the GraphQL API that the Dev UI
+uses lists the apps the server has synced:
+
+{/* check: statements; InngestServerContainer server, CancellationToken cancellationToken */}
+```csharp
+using System.Net.Http.Json;
+using System.Text.Json;
+using Inngest.Testing.Containers;
+
+using var http = new HttpClient { BaseAddress = server.GetBaseAddress() };
+while (true)
+{
+    using var response = await http.PostAsJsonAsync("v0/gql", new { query = "{ apps { externalID functionCount } }" }, cancellationToken);
+    var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+    var apps = body.GetProperty("data").GetProperty("apps").EnumerateArray();
+    if (apps.Any(app => app.GetProperty("externalID").GetString() == "shop" && app.GetProperty("functionCount").GetInt32() > 0))
+    {
+        break;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+}
+```
 
 ## An app under WebApplicationFactory
 
@@ -212,11 +240,17 @@ Some things to know about the factory:
   On .NET 8 and 9, host the app yourself as above.
 - Start the container first. The app's settings hold its address, so creating the host throws while the container is
   not running.
-- Call `StartAsync` before `CreateClient()`. It starts the app, then syncs it.
+- `StartAsync` starts the app, then syncs it. Creating a client or reading `Services` first starts the app too, but the
+  server does not know it until `StartAsync`.
+- Every client reaches the app at `localhost` and its port. Kestrel reports an app on all interfaces as `[::]`, which a
+  client cannot connect to on Windows, and a factory hands `http://localhost`, port 80, to options of its own that have
+  no address. So the factory declares `CreateClient` again and configures what `CreateDefaultClient` returns. Use it
+  through its own type: a variable typed as `WebApplicationFactory<Program>` calls the original `CreateClient`.
 - The app runs on Kestrel, so the factory's `Server` property, the in-memory `TestServer`, throws
-  `NotSupportedException`. `Services` and `CreateClient()` work as usual.
+  `NotSupportedException`.
 - Customize the app by overriding `ConfigureWebHost`. A factory returned by `WithWebHostBuilder` keeps the Inngest
-  settings but is on the in-memory server again, because ASP.NET Core does not carry the Kestrel choice over to it.
+  settings but is another instance of the app on the in-memory server, because ASP.NET Core does not carry the Kestrel
+  choice over to it.
 - The server calls the app over plain HTTP, so turn off HTTPS redirection in the test.
 - One container serves one instance of an app id. Syncing a second app with the same id replaces the first.
 
@@ -275,14 +309,37 @@ await worker.StartAsync();
 ```
 
 Build the container with `new InngestServerBuilder("inngest/inngest:v1.49.0").WithConnectGateway()`. `ConnectGatewayPort`
-tells the port.
+tells the port. The builder picks the port when it builds the container and keeps it from other processes until Docker
+has pulled the image and is about to publish it. A port that is taken by then can only be one a process took in that
+moment; if a start fails because the port is already allocated, build the container again, which picks another, or give
+`WithConnectGateway` a port of your own.
+
+The worker syncs through the gateway when it connects, which gives no signal either: an event sent before the app is
+registered starts no run. The worker takes work once `IInngestConnection.State` is `Active`, so the test waits for that:
+
+{/* check: statements; IHost worker, CancellationToken cancellationToken */}
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var connection = worker.Services.GetRequiredService<IInngestConnection>();
+var state = connection.State;
+while (state != InngestConnectionState.Active)
+{
+    state = await connection.WaitForStateChangedAsync(state, cancellationToken);
+}
+```
 
 ## Apps that read their settings from the environment
 
 `Configure` is for apps that take an `Action<InngestOptions>`. For an app that reads the `INNGEST_*` variables, such as
-a project that starts another process, `GetSdkEnvironment` lists the same settings as variables: `INNGEST_DEV` for the
-dev server, and `INNGEST_BASE_URL`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. The names are
-those every Inngest SDK reads.
+a process the test starts, `GetSdkEnvironment` lists the same settings as variables. A process inherits the variables of
+the machine, and the SDK reads some of them in an order that lets an inherited one win: `INNGEST_DEV=1` turns signature
+checks off, and `INNGEST_BASE_URL` can point at Inngest Cloud. So the list sets every variable that decides the mode and
+the addresses: `INNGEST_DEV` (the address of the dev server, or `0` for the self-hosted server), `INNGEST_BASE_URL`,
+`INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL`, and for the self-hosted server `INNGEST_SIGNING_KEY` and
+`INNGEST_EVENT_KEY`. The names are those every Inngest SDK reads. Other `INNGEST_*` variables the process inherits still
+apply, such as `INNGEST_SERVE_ORIGIN` or `INNGEST_ENV`; remove the ones that matter from the process's environment.
 
 {/* check: statements; InngestServerContainer server */}
 ```csharp
@@ -315,14 +372,15 @@ conditions of its own replaces that.
 |---|---|
 | `GetBaseAddress()` | The address of the server's API: events, the REST and GraphQL APIs, syncs and the health check. `GetConnectionString()` returns it as text. |
 | `Configure(options)` | Sets an app's `InngestOptions` to use the server. |
-| `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables. |
+| `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables, with the ones an inherited variable could outrank. |
 | `SyncAsync(appUrl)` | Has the server register the app that listens at this address. |
 | `IsDevServer`, `SigningKey`, `EventKey` | Which server it is, and the keys of the self-hosted one; both keys are null for the dev server, which takes any event key. |
 | `ConnectGatewayPort` | The gateway's port, or null. |
 
-The server runs with `--no-discovery` and `--no-poll` so that it syncs only the apps you name, and with
-`DO_NOT_TRACK=1`. One more setting is the builder's to make: the server binds its Connect ports only after it has
-opened connections, and the kernel may give one of those connections such a port as its source port, which fails the
+The dev server runs with `--no-discovery`, so that it does not scan ports for apps, and `--no-poll`, so that it syncs an
+app once instead of every few seconds. `inngest start` has neither flag and syncs only the apps it is told about. Both
+run with `DO_NOT_TRACK=1`. One more setting is the builder's to make: the server binds its Connect ports only after it
+has opened connections, and the kernel may give one of those connections such a port as its source port, which fails the
 start. The builder reserves the ports in the container, so the kernel never hands them out.
 
 ## What this does not do
