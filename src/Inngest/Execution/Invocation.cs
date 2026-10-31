@@ -80,6 +80,10 @@ internal sealed partial class Invocation
     private int _orderHead;
     private int _windowVersion;
     private int _unseen;
+
+    // New steps whose preparation has not completed, such as a fetch whose body is still being read. Nothing is decided
+    // while there are any.
+    private int _preparing;
     private bool _memoizationEnded;
     private bool _memoizationObserversPending;
     private bool _warnedReuse;
@@ -218,7 +222,15 @@ internal sealed partial class Invocation
 
             if (function.IsCompleted)
             {
-                return await CompleteAsync(function).ConfigureAwait(false);
+                // Steps the function started but never awaited are reported instead of its output, so the answer waits
+                // for any of them still being prepared.
+                if (_preparing == 0)
+                {
+                    return await CompleteAsync(function).ConfigureAwait(false);
+                }
+
+                await _scheduler.WaitForWorkAsync(_cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
             if (TryResolveNext())

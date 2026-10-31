@@ -39,6 +39,13 @@ internal sealed partial class Invocation
             return null;
         }
 
+        // A step found with these is still being prepared, such as a fetch whose body is still being read. It is decided
+        // on with them, so that a parallel group is reported as one.
+        if (_preparing > 0)
+        {
+            return null;
+        }
+
         FoundStep? unfulfilled = null;
         var unfulfilledCount = 0;
         var hasNew = false;

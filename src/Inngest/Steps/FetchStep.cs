@@ -10,8 +10,9 @@ using Inngest.Execution;
 namespace Inngest.Steps;
 
 // Inngest makes the request and memoizes {"status_code", "headers", "body", "url"}. Bodies travel as text both ways,
-// and Inngest joins repeated response headers with commas.
-internal sealed class FetchStep(string id, HttpRequestMessage request, KeyValuePair<string, string>[] headers, string? body)
+// and Inngest joins repeated response headers with commas. The body is the read the step tools started: done already
+// for buffered content, and otherwise the step's preparation, which the engine waits for before it reports the step.
+internal sealed class FetchStep(string id, HttpRequestMessage request, KeyValuePair<string, string>[] headers, Task<string>? body)
     : FoundStep<HttpResponseMessage>(id)
 {
     private static readonly JsonEncodedText UrlProperty = JsonEncodedText.Encode("url");
@@ -24,6 +25,8 @@ internal sealed class FetchStep(string id, HttpRequestMessage request, KeyValueP
     public override JsonEncodedText Op => Ops.Gateway;
 
     public override string? GetName() => null;
+
+    public override Task? Preparation => body;
 
     // The request as Inngest will make it: what the caller set, with its content headers, except the length, which
     // Inngest computes from the body it sends.
@@ -62,7 +65,13 @@ internal sealed class FetchStep(string id, HttpRequestMessage request, KeyValueP
         writer.WriteEndObject();
         if (body is not null)
         {
-            writer.WriteString(BodyProperty, body);
+            // A new step is reported only once its preparation has completed.
+            if (!body.IsCompletedSuccessfully)
+            {
+                throw new InvalidOperationException($"The body of fetch step \"{FinalId}\" has not been read.");
+            }
+
+            writer.WriteString(BodyProperty, body.Result);
         }
     }
 

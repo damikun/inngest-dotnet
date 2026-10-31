@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Inngest.Functions;
 using Inngest.Tests.Execution;
 
 namespace Inngest.Tests.Steps;
@@ -127,6 +128,117 @@ public sealed class FetchStepTests : IDisposable
             "The result of step \"get-user\" could not be read as HttpResponseMessage: The stored result has no \"status_code\".");
     }
 
+    [Fact]
+    public async Task A_body_read_later_is_reported_with_the_steps_found_with_it()
+    {
+        var result = await Report(step => Task.WhenAll(
+            step.RunAsync("load", _ => Task.FromResult(1)),
+            step.FetchAsync("create-user", Post("https://api.example.com/users", Later("""{"name":"Ada"}""", Task.Delay(50))))));
+
+        result.Ops.Select(op => op.GetProperty("op").GetString()).ShouldBe(["StepPlanned", "Gateway"]);
+        result.Op(1).GetProperty("opts").GetProperty("body").GetString().ShouldBe("""{"name":"Ada"}""");
+    }
+
+    [Fact]
+    public async Task Repeated_ids_follow_the_order_of_the_calls_whichever_body_is_read_first()
+    {
+        var discovery = await _host.CallAsync(TwoCalls(firstDelay: 200, secondDelay: 5, _ => { }), Call.New());
+
+        discovery.Ops.Select(op => (op.GetProperty("id").GetString(), op.GetProperty("opts").GetProperty("url").GetString())).ShouldBe(
+            [(Call.Hash("call"), "https://api.example.com/first"), (Call.Hash("call:1"), "https://api.example.com/second")],
+            ignoreOrder: true);
+
+        // The next call reads the bodies the other way round, and each fetch still gets the response made for it.
+        string? first = null;
+        var replay = await _host.CallAsync(
+            TwoCalls(firstDelay: 5, secondDelay: 200, body => first = body),
+            Call.New()
+                .Data("call", """{"body":"to first","headers":{},"status_code":200,"url":"https://api.example.com/first"}""")
+                .Data("call:1", """{"body":"to second","headers":{},"status_code":200,"url":"https://api.example.com/second"}"""));
+
+        replay.StatusCode.ShouldBe(200);
+        first.ShouldBe("to first");
+    }
+
+    [Fact]
+    public async Task A_memoized_fetch_does_not_wait_for_its_body()
+    {
+        var never = new TaskCompletionSource();
+        var function = TestFunction.Define(async context =>
+        {
+            using var response = await context.Step.FetchAsync("get-users", Post("https://api.example.com/users?page=2", Later("{}", never.Task)));
+            return await response.Content.ReadAsStringAsync();
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("get-users", Memo));
+
+        result.Json.GetString().ShouldBe("""{"id":1,"name":"Ada"}""");
+        never.SetResult();
+    }
+
+    [Fact]
+    public async Task A_body_that_cannot_be_read_fails_the_fetch_and_is_not_reported()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            try
+            {
+                await context.Step.FetchAsync("upload", Post("https://api.example.com/upload", Later("x", FailLaterAsync())));
+                return "fetched";
+            }
+            catch (HttpRequestException exception)
+            {
+                return exception.InnerException!.Message;
+            }
+        });
+
+        var result = await _host.CallAsync(function, Call.New());
+
+        result.StatusCode.ShouldBe(200);
+        result.Json.GetString().ShouldBe("The connection was reset.");
+    }
+
+    [Fact]
+    public async Task A_fetch_the_function_did_not_wait_for_is_reported_once_its_body_is_read()
+    {
+        var function = TestFunction.Define(context =>
+        {
+            _ = context.Step.FetchAsync("notify", Post("https://api.example.com/notify", Later("hello", Task.Delay(50))));
+            return Task.FromResult<object?>("done");
+        });
+
+        var result = await _host.CallAsync(function, Call.New());
+
+        result.StatusCode.ShouldBe(206);
+        result.Op().GetProperty("op").GetString().ShouldBe("Gateway");
+        result.Op().GetProperty("opts").GetProperty("body").GetString().ShouldBe("hello");
+    }
+
+    private static FunctionDefinition TwoCalls(int firstDelay, int secondDelay, Action<string> onFirst) =>
+        TestFunction.Define(async context =>
+        {
+            var first = context.Step.FetchAsync("call", Post("https://api.example.com/first", Later("first", Task.Delay(firstDelay))));
+            var second = context.Step.FetchAsync("call", Post("https://api.example.com/second", Later("second", Task.Delay(secondDelay))));
+            using (var response = await first)
+            {
+                onFirst(await response.Content.ReadAsStringAsync());
+            }
+
+            (await second).Dispose();
+            return null;
+        });
+
+    private static HttpRequestMessage Post(string url, HttpContent content) => new(HttpMethod.Post, url) { Content = content };
+
+    // Content that is not buffered, as from a file or the network: its read completes once the task does.
+    private static StreamContent Later(string body, Task ready) => new(new LateStream(Encoding.UTF8.GetBytes(body), ready));
+
+    private static async Task FailLaterAsync()
+    {
+        await Task.Delay(20);
+        throw new IOException("The connection was reset.");
+    }
+
     private Task<CallResult> Report(Func<IStepTools, Task> step) =>
         _host.CallAsync(
             TestFunction.Define(async context =>
@@ -135,4 +247,47 @@ public sealed class FetchStepTests : IDisposable
                 return null;
             }),
             Call.New());
+
+    private sealed class LateStream(byte[] data, Task ready) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await ready.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var count = Math.Min(buffer.Length, data.Length - _position);
+            data.AsMemory(_position, count).CopyTo(buffer);
+            _position += count;
+            return count;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

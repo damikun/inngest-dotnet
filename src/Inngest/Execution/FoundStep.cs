@@ -75,6 +75,10 @@ internal abstract class FoundStep(string id)
     // Run-type steps execute in the SDK; the others are carried out by Inngest.
     public virtual bool IsRunnable => false;
 
+    // What has to complete before Inngest can be told about the step as a new one, such as the read of a fetch's body.
+    // Null when there is nothing.
+    public virtual Task? Preparation => null;
+
     public void Attach(string finalId, int? index, string hashedId, MemoEntry? memo)
     {
         FinalId = finalId;
@@ -169,6 +173,9 @@ internal abstract class FoundStep(string id)
     // Hands the result of the WrapStepAsync chain to the function.
     public abstract void CompleteFromChain();
 
+    // Fails the function's task for a step that never reaches Inngest.
+    public abstract void FailUnreported(Exception exception);
+
     protected StepFailedException CreateFailure(JsonElement error) => new(FinalId, ErrorSerializer.Read(error));
 }
 
@@ -250,6 +257,8 @@ internal abstract class FoundStep<T>(string id) : FoundStep(id)
             _completion.TrySetCanceled();
         }
     }
+
+    public sealed override void FailUnreported(Exception exception) => _completion.TrySetException(exception);
 
     protected abstract T Read(JsonElement value, JsonSerializerOptions options);
 

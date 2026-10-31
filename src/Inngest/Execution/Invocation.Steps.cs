@@ -6,8 +6,8 @@ using Inngest.Middleware;
 
 namespace Inngest.Execution;
 
-// Finding steps: claiming their ids, handing memoized results back in completion order, and noticing when memoization
-// ends.
+// Finding steps: claiming their ids, holding back new steps that are not ready to be reported, handing memoized results
+// back in completion order, and noticing when memoization ends.
 internal sealed partial class Invocation
 {
     // Called by the step tools on whatever thread the function is on.
@@ -99,7 +99,82 @@ internal sealed partial class Invocation
             return;
         }
 
+        // A memoized step is handed back from its memo, whatever its preparation does.
+        if (!step.Fulfilled && step.Preparation is { IsCompletedSuccessfully: false } preparation)
+        {
+            Prepare(step, preparation);
+            return;
+        }
+
         AddToWindow(step);
+    }
+
+    // A new step that is not ready to be reported yet, such as a fetch whose body is still being read, holds every decision
+    // of the call until it is, so that it is reported with the steps found with it. Its id is claimed already. A call for
+    // one step reports no others, so there the step only waits to fail if its preparation fails.
+    private void Prepare(FoundStep step, Task preparation)
+    {
+        if (preparation.IsCompleted)
+        {
+            Unprepared(step, preparation);
+            return;
+        }
+
+        if (_target is null)
+        {
+            _preparing++;
+            step.Window = _windowVersion;
+        }
+        else
+        {
+            AddToWindow(step);
+        }
+
+        preparation.ContinueWith(
+            static (_, state) => ((FoundStep)state!).Owner.OnPrepared((FoundStep)state),
+            step,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void OnPrepared(FoundStep step)
+    {
+        // Checked first, as in OnChainCompleted: once the call has answered, posted work no longer runs on the scheduler.
+        if (_finished)
+        {
+            return;
+        }
+
+        if (!_scheduler.IsCurrent)
+        {
+            _scheduler.Post(static state => ((FoundStep)state!).Owner.OnPrepared((FoundStep)state), step);
+            return;
+        }
+
+        if (_target is null)
+        {
+            _preparing--;
+        }
+
+        var preparation = step.Preparation!;
+        if (!preparation.IsCompletedSuccessfully)
+        {
+            Unprepared(step, preparation);
+        }
+        else if (_target is null)
+        {
+            AddToWindow(step);
+        }
+    }
+
+    // The step never reaches Inngest, and the function gets the exception, as it would from a read of its own. Its id
+    // stays claimed, so a repeated id is numbered the same whether the read fails or not.
+    private void Unprepared(FoundStep step, Task preparation)
+    {
+        _found.Remove(step);
+        _window.Remove(step);
+        step.FailUnreported(preparation.Exception?.InnerException ?? CancellationOf(preparation));
     }
 
     // Repeated ids get ":1", ":2", ... in the order they are called, which is stable across replays.

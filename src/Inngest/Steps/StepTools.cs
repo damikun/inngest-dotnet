@@ -183,21 +183,40 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         }
 
         var headers = FetchStep.ReadHeaders(request);
-        return request.Content is null
-            ? Register(new FetchStep(id, request, headers, null), stepOptions)
-            : FetchWithBodyAsync(id, stepOptions, request, headers);
+        return Register(new FetchStep(id, request, headers, ReadBody(request.Content)), stepOptions);
     }
 
-    // Inngest takes the body as text. It is read before the step is registered, which for the usual buffered
-    // content happens before this method returns, so repeated ids are still claimed in call order.
-    private async Task<HttpResponseMessage> FetchWithBodyAsync(
-        string id,
-        StepOptions? stepOptions,
-        HttpRequestMessage request,
-        KeyValuePair<string, string>[] headers)
+    // Inngest takes the body as text. Buffered content has been read when this returns. Other content goes on being read,
+    // while the step is registered at once, so that repeated ids are claimed in call order, and the engine reports it once
+    // the read is done.
+    private Task<string>? ReadBody(HttpContent? content)
     {
-        var body = await request.Content!.ReadAsStringAsync().ConfigureAwait(false);
-        return await Register(new FetchStep(id, request, headers, body), stepOptions).ConfigureAwait(false);
+        if (content is null)
+        {
+            return null;
+        }
+
+        Task<string> read;
+        try
+        {
+            read = content.ReadAsStringAsync(invocation.Context.CancellationToken);
+        }
+        catch (Exception exception)
+        {
+            read = Task.FromException<string>(exception);
+        }
+
+        // A memoized step never looks at its body, so a failed read is observed here.
+        if (!read.IsCompletedSuccessfully)
+        {
+            _ = read.ContinueWith(
+                static read => _ = read.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        return read;
     }
 
     private Task<TResponse> Infer<TResponse>(string id, StepOptions? stepOptions, InferOptions options)
