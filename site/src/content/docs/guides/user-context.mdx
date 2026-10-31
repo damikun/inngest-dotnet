@@ -215,11 +215,12 @@ inngest.AddUserContext(options =>
 
 `Lifetime` is seven days by default. It is not how long a run may use the user. A function runs again from its top on
 every call, so a user that expired halfway through a run would change under it: a check at the top of the function would
-pass before a long sleep and fail after it. So the lifetime is judged once, by the time Inngest created the run. A run
-id is a ULID, and its first part is the creation time; Inngest makes it, so the sender of an event cannot choose it.
+pass before a long sleep and fail after it. So the lifetime is judged once, by when the run was created and when its event
+asks it to start. A run id is a ULID, and its first part is the creation time; Inngest makes it, so the sender of an event
+cannot choose it.
 
-- A run created before the expiry keeps its user for as long as it lives. It can sleep, wait and retry for as long as
-  Inngest lets a run last, and every call sees the same user.
+- A run created before the expiry, for an event that does not ask to start after it, keeps its user for as long as it
+  lives. It can sleep, wait and retry for as long as Inngest lets a run last, and every call sees the same user.
 - A run created after the expiry has no user. This is what bounds a payload that leaked from an event and is sent again.
 - A run that Inngest created in time and then holds back, behind other runs in a queue say, keeps its user. An event
   that asks to start later does not. Inngest creates its run when it receives the event but starts it at the event's
