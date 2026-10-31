@@ -123,10 +123,9 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
     }
 
     [Fact(Timeout = 90_000)]
-    public async Task An_event_scheduled_after_the_user_expires_starts_a_run_without_one()
+    public async Task An_event_scheduled_after_the_user_expires_is_sent_without_it_and_starts_a_run_without_one()
     {
-        // Inngest creates the run when it receives the event, in time, and starts it at the event's timestamp, which
-        // lies after the payload expired. The run id alone would let it act as the user.
+        // The web app knows that the run would start after the user expired, so it leaves the user out.
         await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromSeconds(5));
         var sentAt = DateTimeOffset.UtcNow;
 
@@ -134,12 +133,52 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
         var run = await Api.WaitForRunEndAsync(eventId, Cancellation, TimeSpan.FromSeconds(60));
 
         run.Status.ShouldBe(RunStatus.Completed);
+        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(15));
+        run.OutputAs<ReportResult>().Direct.ShouldBe("nobody");
+    }
+
+    [Fact(Timeout = 90_000)]
+    public async Task A_payload_copied_from_an_event_and_sent_again_with_a_far_timestamp_starts_a_run_without_the_user()
+    {
+        // Whoever has the event key can take the payload of an event they can see and send it again with a timestamp after
+        // it expires. Inngest creates the run at once, in time, and starts it at the timestamp.
+        await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromSeconds(5));
+        var codec = web.Services.GetRequiredService<UserContextCodec>();
+        var copied = codec.Protect(codec.Capture(SignedInAda())!, UserContextFunctions.Report)!;
+        var sentAt = DateTimeOffset.UtcNow;
+        using var http = new HttpClient { BaseAddress = Api.BaseUrl };
+        using var response = await http.PostAsJsonAsync(
+            "e/itests",
+            new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["name"] = UserContextFunctions.Report,
+                    ["data"] = new UserEvent(TestId),
+                    ["ts"] = sentAt.AddSeconds(15).ToUnixTimeMilliseconds(),
+                    ["user"] = new Dictionary<string, object> { [UserContextCodec.Key] = new Dictionary<string, object> { ["v"] = UserContextCodec.Version, ["t"] = copied } },
+                },
+            },
+            System.Text.Json.JsonSerializerOptions.Web,
+            Cancellation);
+        response.EnsureSuccessStatusCode();
+        var eventId = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Cancellation)).GetProperty("ids")[0].GetString()!;
+
+        var run = await Api.WaitForRunEndAsync(eventId, Cancellation, TimeSpan.FromSeconds(60));
+
+        run.Status.ShouldBe(RunStatus.Completed);
         var result = run.OutputAs<ReportResult>();
         RunIds.StartOf(result.RunId).ShouldNotBeNull().ShouldBeLessThan(sentAt.AddSeconds(15));
-        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(15));
         result.Direct.ShouldBe("nobody");
         Fixture.App.Logs.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Warning && record.Message.Contains("it has expired", StringComparison.Ordinal));
     }
+
+    // The signed-in user of the web app: what authentication would have put in HttpContext.User.
+    private static ClaimsPrincipal SignedInAda() => new(new ClaimsIdentity(
+        [new Claim("sub", "u-42"), new Claim("name", "Ada Lovelace"), new Claim("email", "ada@example.com"), new Claim("role", "admin"), new Claim("role", "support")],
+        "Cookies",
+        "name",
+        "role"));
 
     private async Task<WebApp> StartWebAppAsync(TimeSpan? lifetime = null) => await WebApp.StartAsync(Api.BaseUrl, lifetime);
 
@@ -150,6 +189,8 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
         private readonly WebApplication _app;
 
         private WebApp(WebApplication app) => _app = app;
+
+        public IServiceProvider Services => _app.Services;
 
         public static async Task<WebApp> StartAsync(Uri devServer, TimeSpan? lifetime)
         {
@@ -176,11 +217,7 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
             {
                 if (context.Request.Headers.ContainsKey("X-Signed-In"))
                 {
-                    context.User = new ClaimsPrincipal(new ClaimsIdentity(
-                        [new Claim("sub", "u-42"), new Claim("name", "Ada Lovelace"), new Claim("email", "ada@example.com"), new Claim("role", "admin"), new Claim("role", "support")],
-                        "Cookies",
-                        "name",
-                        "role"));
+                    context.User = SignedInAda();
                 }
 
                 return next(context);
