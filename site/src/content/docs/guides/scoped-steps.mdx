@@ -249,10 +249,12 @@ var count = await context.Step.RunAsync("count-open", async ct =>
 ### Transactions and execution strategies
 
 A step that needs several saves in one transaction opens the transaction itself. If the provider is set up with a
-retrying execution strategy, such as `EnableRetryOnFailure()`, Entity Framework refuses a transaction you start
-yourself unless the whole transaction runs inside `strategy.ExecuteAsync`. The strategy runs the delegate again after
-a transient failure, so the delegate must start from a clean state: clear the change tracker and build the entities
-inside it.
+retrying execution strategy, such as `EnableRetryOnFailure()`, Entity Framework throws on the first command you run in
+a transaction you started yourself, unless the whole transaction runs inside `strategy.ExecuteAsync`. The strategy runs
+the delegate again after a transient failure, so the delegate must start from a clean state: clear the change tracker
+and build the entities inside it. Pass the step's token to `ExecuteAsync` as well, so that the strategy stops retrying,
+and waiting between retries, when the call is canceled. The delegate also looks for the payment that an earlier
+execution committed before it does anything else, for the reason given under [idempotency keys](#idempotency-keys):
 
 {/* check: body OrderPlaced */}
 ```csharp
@@ -263,30 +265,37 @@ var order = context.Event.Data;
 var captured = await context.Step.RunScopedAsync("capture-payment", async (ShopDbContext db, CancellationToken ct) =>
 {
     var strategy = db.Database.CreateExecutionStrategy();
-    return await strategy.ExecuteAsync(async () =>
+    return await strategy.ExecuteAsync(async token =>
     {
         db.ChangeTracker.Clear();
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
 
-        var row = await db.Orders.SingleAsync(o => o.Id == order.OrderId, ct);
+        // An earlier execution of this step may have committed and then been lost.
+        var existing = await db.Payments.SingleOrDefaultAsync(p => p.RunId == context.RunId && p.StepId == "capture-payment", token);
+        if (existing is not null)
+        {
+            return new PaymentRecorded(existing.Id);
+        }
+
+        var row = await db.Orders.SingleAsync(o => o.Id == order.OrderId, token);
         row.Status = "paid";
-        await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(token);
 
         var payment = new Payment { RunId = context.RunId, StepId = "capture-payment", OrderId = row.Id, Amount = row.Total };
         db.Payments.Add(payment);
-        await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(token);
 
-        await transaction.CommitAsync(ct);
+        await transaction.CommitAsync(token);
         return new PaymentRecorded(payment.Id);
-    });
+    }, ct);
 });
 ```
 
-The same code works without a retrying strategy; the default strategy runs the delegate once. If the connection drops
-while the transaction commits, Entity Framework cannot tell whether it committed and may run the delegate again, which
-is the same problem the next section solves for the step as a whole. See Microsoft's pages on
-[connection resiliency](https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency) and
-[the lifetime of a DbContext](https://learn.microsoft.com/ef/core/dbcontext-configuration/).
+Without a retrying strategy the delegate runs once. If the connection drops while the transaction commits, Entity
+Framework cannot tell whether it committed and may run the delegate again; the lookup at the top makes that harmless.
+If two executions of the step overlap, the unique index fails the save of the second, and its retry finds the payment.
+See Microsoft's pages on [connection resiliency](https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency)
+and [the lifetime of a DbContext](https://learn.microsoft.com/ef/core/dbcontext-configuration/).
 
 ### Idempotency keys
 
@@ -346,10 +355,12 @@ A step id used in a loop is numbered (`record-payment:1`), so build the id from 
 
 - A step that creates a row keys it by the run and the step, as above, or by a natural key such as the order id, behind
   a unique index.
-- A step that sets a value is safe to repeat as it is: an update to a fixed value, or an upsert by the entity's key,
-  which the provider spells `ON CONFLICT` or `MERGE` in SQL.
-- A step that changes a value relative to its old one, such as a stock count, is not. Add a row keyed by the run and
-  the step in the same save, so that the second save fails, or make the update conditional.
+- A step that sets a value to a fixed one is safe to repeat as it is. So is an upsert, but EF Core has no upsert API:
+  it takes raw SQL, `ExecuteSqlInterpolatedAsync` with the provider's `ON CONFLICT` or `MERGE`, or the look-up-then-insert
+  shown above.
+- A step that changes a value relative to its old one, such as a stock count, is not safe to repeat. Record the change in
+  a row keyed by the run and the step, in the same save: look for the row first and skip the change when it is there,
+  and let the unique index catch executions that overlap.
 
 Keep the keys as long as the run can still retry the step. A function triggered by `inngest/function.finished` can
 delete them when the run ends.
