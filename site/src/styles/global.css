@@ -457,7 +457,8 @@ html.js .idn-nojs-only {
   gap: 1rem;
 }
 
-@media (min-width: 50rem) {
+/* Two columns only from 64rem, where a card's code block is wide enough for the longest snippet at 14px. */
+@media (min-width: 64rem) {
   .idn-grid-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -493,7 +494,7 @@ html.js .idn-nojs-only {
 }
 
 .idn-grid-cards .expressive-code {
-  --ec-codeFontSize: 0.75rem;
+  --ec-codeFontSize: 0.875rem;
   --ec-codePadInl: 0.75rem;
   --ec-codePadBlk: 0.6rem;
 }
