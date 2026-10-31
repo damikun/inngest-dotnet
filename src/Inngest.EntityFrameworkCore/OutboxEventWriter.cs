@@ -49,6 +49,9 @@ internal sealed class OutboxEventWriter(JsonSerializerOptions serializer, TimePr
             // The time of the call that added the event, as for an event the client sends, and not the time the dispatcher
             // gets to it, which is later by however long Inngest was out of reach.
             Timestamp = (@event.Timestamp ?? now).UtcDateTime,
+
+            // Never the event's own, which the caller may set to any time.
+            CreatedAt = now.UtcDateTime,
             NextAttemptAt = now.UtcDateTime,
         };
     }

@@ -67,6 +67,8 @@ public sealed class DeliveryTests
         var row = (await host.RowsAsync()).ShouldHaveSingleItem();
         row.SentAt.ShouldBe(OutboxHost.Start.UtcDateTime);
         row.SentAt!.Value.Kind.ShouldBe(DateTimeKind.Utc);
+        row.CreatedAt.ShouldBe(OutboxHost.Start.UtcDateTime);
+        row.CreatedAt.Kind.ShouldBe(DateTimeKind.Utc);
         row.Attempts.ShouldBe(1);
         row.LeaseToken.ShouldBeNull();
         row.LeaseExpiresAt.ShouldBeNull();
@@ -126,6 +128,7 @@ public sealed class DeliveryTests
         await using var host = new OutboxHost(database);
         var happened = new DateTimeOffset(2026, 10, 29, 8, 30, 0, TimeSpan.FromHours(2));
 
+        host.Time.Advance(TimeSpan.FromMinutes(5));
         await using (var context = host.CreateContext())
         {
             context.AddInngestEvent(new InngestEvent("support/ticket.opened", new { TicketId = "t_42" })
@@ -138,6 +141,11 @@ public sealed class DeliveryTests
             });
             await context.SaveChangesAsync();
         }
+
+        // The time the caller gave is the event's. The row was added when it was added.
+        var stored = (await host.RowsAsync()).ShouldHaveSingleItem();
+        stored.Timestamp.ShouldBe(happened.UtcDateTime);
+        stored.CreatedAt.ShouldBe(OutboxHost.Start.UtcDateTime.AddMinutes(5));
 
         await host.Processor.DispatchAsync(CancellationToken.None);
 
@@ -206,10 +214,10 @@ public sealed class DeliveryTests
             options.AppId = "shop";
             options.IsDev = true;
         }).AddEntityFrameworkOutbox<ShopContext>();
-        services.AddDbContextFactory<ShopContext>((provider, options) =>
+        services.AddDbContextFactory<ShopContext>(options =>
         {
             database.Configure(options);
-            options.UseInngestOutbox(provider);
+            options.UseInngestOutbox();
         });
         await using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IDbContextFactory<ShopContext>>();
@@ -220,6 +228,10 @@ public sealed class DeliveryTests
             context.AddInngestEvent(new OrderPlaced("A-1", 10));
             await context.SaveChangesAsync();
         }
+
+        // The save woke the dispatcher, though the options of a factory have no service provider to pass.
+        var signal = provider.GetRequiredService<OutboxSignals>().For(typeof(ShopContext));
+        (await signal.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, CancellationToken.None)).ShouldBeTrue();
 
         (await provider.GetRequiredService<OutboxProcessor<ShopContext>>().DispatchAsync(CancellationToken.None)).ShouldBe(1);
 

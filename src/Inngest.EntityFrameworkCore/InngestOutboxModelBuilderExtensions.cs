@@ -33,6 +33,7 @@ public static class InngestOutboxModelBuilderExtensions
         entity.Property(message => message.Data).IsRequired();
         entity.Property(message => message.Version).HasMaxLength(OutboxEventWriter.MaxTextLength);
         entity.Property(message => message.Timestamp).HasConversion(Utc);
+        entity.Property(message => message.CreatedAt).HasConversion(Utc);
         entity.Property(message => message.NextAttemptAt).HasConversion(Utc);
         entity.Property(message => message.LastError).HasMaxLength(2000);
         entity.Property(message => message.LeaseToken).HasMaxLength(64);
