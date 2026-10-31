@@ -896,11 +896,53 @@ html.js .idn-nojs-only {
   top: 70%;
 }
 
-.idn-annotations > p {
-  margin: 0 0 1rem;
-  padding-inline-start: 1rem;
-  border-inline-start: 2px solid var(--idn-coral);
+/* The notes beside the landing page's code read as a line of numbered steps, in neutral colors so that nothing looks
+   like a failure. The last note, the return, ends the line with a check. */
+.idn-annotations {
+  counter-reset: idn-note;
+}
+.sl-markdown-content .idn-annotations > p {
+  position: relative;
+  margin: 0;
+  padding: 0 0 1.5rem 2.5rem;
   color: var(--sl-color-gray-2);
+  counter-increment: idn-note;
+}
+.sl-markdown-content .idn-annotations > p:last-child {
+  padding-bottom: 0;
+}
+.idn-annotations > p::before {
+  content: counter(idn-note);
+  position: absolute;
+  top: 0.15rem;
+  inset-inline-start: 0;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--idn-border-strong);
+  border-radius: 50%;
+  background-color: var(--idn-surface);
+  font-family: var(--__sl-font-mono);
+  font-size: var(--sl-text-xs);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--sl-color-gray-2);
+}
+.idn-annotations > p:last-child::before {
+  content: '✓';
+  border-color: var(--idn-ok);
+  color: var(--idn-ok);
+}
+/* The line that joins each number to the next. */
+.idn-annotations > p:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 2rem;
+  bottom: 0.1rem;
+  inset-inline-start: calc(0.8rem - 0.5px);
+  width: 1px;
+  background-color: var(--idn-border);
 }
 
 .fig-node > .num {
