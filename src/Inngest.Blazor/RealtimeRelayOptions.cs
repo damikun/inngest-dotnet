@@ -6,7 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Inngest;
 
-/// <summary>Settings of the source AddInngestRealtimeRelay registers, which reads the app's MapInngestRealtime endpoint.</summary>
+/// <summary>Settings of the source AddInngestRealtimeRelaySource registers, which reads the app's MapInngestRealtime endpoint.</summary>
 public sealed class RealtimeRelayOptions
 {
     /// <summary>
@@ -19,8 +19,9 @@ public sealed class RealtimeRelayOptions
     public Func<string, IReadOnlyList<string>, Uri>? Url { get; set; }
 
     /// <summary>
-    /// Used to read the data of typed topics. Set its TypeInfoResolver to a source-generated context to run without
-    /// reflection, as a trimmed WebAssembly app does; by default it reads any type by reflection where that is enabled.
+    /// Used to read the data of typed topics. By default it reads them by reflection, which stays enabled in Blazor
+    /// WebAssembly; an app that is trimmed with TrimMode full, or compiled ahead of time, sets its TypeInfoResolver to a
+    /// source-generated context for the data types instead.
     /// </summary>
     public JsonSerializerOptions SerializerOptions { get; set; } = CreateSerializerOptions();
 
@@ -35,7 +36,7 @@ public sealed class RealtimeRelayOptions
         return options;
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only used when reflection-based serialization is enabled, which trimmed and AOT apps turn off.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Only used when reflection-based serialization is enabled, which trimmed and AOT apps turn off.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only used when reflection-based serialization is enabled, which apps that are fully trimmed or compiled ahead of time turn off.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Only used when reflection-based serialization is enabled, which apps that are fully trimmed or compiled ahead of time turn off.")]
     private static DefaultJsonTypeInfoResolver CreateReflectionResolver() => new();
 }

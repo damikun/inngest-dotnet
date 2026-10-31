@@ -107,6 +107,29 @@ public sealed class RealtimeStateTests
     }
 
     [Fact]
+    public void Reading_the_text_again_only_turns_the_topics_that_grew_into_strings_again()
+    {
+        var state = new RealtimeState<string> { Capacity = 0 };
+        state.Add(new RealtimeMessage<string>(RealtimeMessageKind.StreamStart, "order:7", "a") { StreamId = "s1" });
+        state.Add(new RealtimeMessage<string>(RealtimeMessageKind.StreamStart, "order:7", "b") { StreamId = "s2" });
+        state.Add(Chunk("first", "a"));
+        state.Add(Chunk("second", "b"));
+        var before = state.TextByTopic;
+        var untouched = state.TextByTopic["b"];
+        var grown = state.TextByTopic["a"];
+
+        state.Add(Chunk(" more", "a"));
+
+        state.TextByTopic["a"].ShouldBe("first more");
+        ReferenceEquals(state.TextByTopic["b"], untouched).ShouldBeTrue();
+        ReferenceEquals(state.TextByTopic["a"], grown).ShouldBeFalse();
+
+        // Reading twice with nothing new between hands over the same strings.
+        ReferenceEquals(state.TextByTopic["a"], state.TextByTopic["a"]).ShouldBeTrue();
+        ReferenceEquals(state.TextByTopic, before).ShouldBeTrue();
+    }
+
+    [Fact]
     public void The_text_of_a_stream_stops_growing_at_its_limit_and_stays_one_piece()
     {
         var state = new RealtimeState<string> { Capacity = 0 };

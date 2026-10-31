@@ -12,9 +12,9 @@ public static class InngestBlazorServiceCollectionExtensions
     /// Makes components read realtime messages from Inngest itself, through IInngestRealtime, which AddInngest
     /// registers. Use it on the server: Blazor Server, the interactive server render mode, and the server project of an
     /// app that also renders in WebAssembly. Inngest is reached with the app's signing key, so nothing of it reaches
-    /// the browser.
+    /// the browser. The source registered last, by this or by AddInngestRealtimeRelaySource, is the one components get.
     /// </summary>
-    public static IServiceCollection AddInngestRealtimeSource(this IServiceCollection services)
+    public static IServiceCollection AddInngestRealtimeServerSource(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -26,9 +26,10 @@ public static class InngestBlazorServiceCollectionExtensions
     /// <summary>
     /// Makes components read realtime messages from the app's MapInngestRealtime endpoint, as server-sent events over an
     /// HttpClient, so a browser needs no signing key. Use it in WebAssembly, in the client project of an app that renders
-    /// there. It returns the builder of the HttpClient, for message handlers such as the one that attaches an access token.
+    /// there. It returns the builder of the HttpClient, for message handlers such as the one that attaches an access
+    /// token. The source registered last, by this or by AddInngestRealtimeServerSource, is the one components get.
     /// </summary>
-    public static IHttpClientBuilder AddInngestRealtimeRelay(this IServiceCollection services, Action<RealtimeRelayOptions> configure)
+    public static IHttpClientBuilder AddInngestRealtimeRelaySource(this IServiceCollection services, Action<RealtimeRelayOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);

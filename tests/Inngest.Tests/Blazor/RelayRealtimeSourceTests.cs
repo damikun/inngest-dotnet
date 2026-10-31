@@ -142,7 +142,7 @@ public sealed class RelayRealtimeSourceTests : IDisposable
         _relay.Answer(first);
         _relay.Answer(second);
         var states = new List<RealtimeConnectionState>();
-        var received = Collect(Source().SubscribeAsync("order:7", ["status"], Cancel, state => { lock (states) { states.Add(state); } }), count: 2);
+        var received = Collect(Source().SubscribeAsync("order:7", ["status"], state => { lock (states) { states.Add(state); } }, Cancel), count: 2);
 
         await first.SendAsync(Message("A"));
         await UntilAsync(() => States(states).Count >= 2);
@@ -177,33 +177,46 @@ public sealed class RelayRealtimeSourceTests : IDisposable
     }
 
     [Fact]
-    public async Task A_relay_that_keeps_closing_connections_is_met_with_longer_delays()
+    public Task A_relay_that_keeps_closing_connections_is_met_with_longer_delays() => AssertDelaysGrowAsync(deliverMessage: false);
+
+    [Fact]
+    public Task A_relay_that_delivers_a_message_and_closes_each_connection_is_met_with_longer_delays() => AssertDelaysGrowAsync(deliverMessage: true);
+
+    [Fact]
+    public async Task A_connection_that_held_for_five_seconds_starts_the_delays_over()
     {
-        // Each connection ends at once, so each counts as a failure.
-        for (var connection = 0; connection < 4; connection++)
+        var feeds = new[] { new SseFeed(), new SseFeed(), new SseFeed(), new SseFeed() };
+        foreach (var feed in feeds)
         {
-            var feed = new SseFeed();
             _relay.Answer(feed);
-            await feed.EndAsync();
         }
 
+        await feeds[0].EndAsync();
+        await feeds[1].EndAsync();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
-        var subscription = Collect(Source().SubscribeAsync("order:7", ["status"], stop.Token), count: 1);
-
-        // The idle timeout of 45 seconds is a timer too, so only the delays are looked at.
+        var subscription = Collect(Source().SubscribeAsync("order:7", ["status"], stop.Token), count: int.MaxValue);
         List<TimeSpan> Delays() => [.. _time.Timers.Where(due => due < TimeSpan.FromSeconds(40))];
-        for (var attempt = 1; attempt <= 3; attempt++)
+
+        // Two connections that close at once, then one that holds for ten seconds and is opened again at once.
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
             await UntilAsync(() => Delays().Count == attempt);
             _time.Advance(TimeSpan.FromSeconds(5));
             await UntilAsync(() => _relay.Requests.Count == attempt + 1);
         }
 
-        // About 0.5, 1 and 2 seconds, each up to a fifth less.
+        await feeds[2].SendAsync(Message("A"));
+        await UntilAsync(() => _relay.Requests.Count == 3);
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await feeds[2].EndAsync();
+        await UntilAsync(() => _relay.Requests.Count == 4);
+        await feeds[3].EndAsync();
+        await UntilAsync(() => Delays().Count == 3);
+
+        // The fourth connection closed at once, which is a first failure again: about 0.5 seconds, not 2.
         var delays = Delays();
-        delays[0].ShouldBeInRange(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(500));
         delays[1].ShouldBeInRange(TimeSpan.FromMilliseconds(800), TimeSpan.FromMilliseconds(1000));
-        delays[2].ShouldBeInRange(TimeSpan.FromMilliseconds(1600), TimeSpan.FromMilliseconds(2000));
+        delays[2].ShouldBeInRange(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(500));
         await stop.CancelAsync();
         await Should.ThrowAsync<OperationCanceledException>(() => subscription.WaitAsync(Wait, Cancel));
     }
@@ -218,7 +231,7 @@ public sealed class RelayRealtimeSourceTests : IDisposable
         _relay.Answer(HttpStatusCode.TooManyRequests);
         _relay.Answer(feed);
         var states = new List<RealtimeConnectionState>();
-        var received = Collect(Source().SubscribeAsync("order:7", ["status"], Cancel, state => { lock (states) { states.Add(state); } }), count: 1);
+        var received = Collect(Source().SubscribeAsync("order:7", ["status"], state => { lock (states) { states.Add(state); } }, Cancel), count: 1);
 
         await AdvanceUntilAsync(() => _relay.Requests.Count == 5, TimeSpan.FromSeconds(2));
         await feed.SendAsync(Message("A"));
@@ -259,12 +272,13 @@ public sealed class RelayRealtimeSourceTests : IDisposable
     [Fact]
     public async Task An_answer_that_is_not_an_event_stream_is_refused_as_an_EventSource_would()
     {
-        // A wrong address falls back to the page of the app, which is a 200.
+        // A wrong address falls back to the page of the app, and a cookie-authenticated endpoint that requires a user
+        // redirects to the login page. Either arrives as a 200.
         _relay.Answer(HttpStatusCode.OK, "text/html", "<html></html>");
 
         var exception = await Should.ThrowAsync<HttpRequestException>(() => Collect(Source().SubscribeAsync("order:7", ["status"], Cancel), count: 1));
 
-        exception.Message.ShouldBe("The realtime relay answered text/html instead of text/event-stream. Is the address right?");
+        exception.Message.ShouldBe("The realtime relay answered text/html instead of text/event-stream. Is the address right, and is the user signed in?");
         _relay.Requests.Count.ShouldBe(1);
     }
 
@@ -338,7 +352,7 @@ public sealed class RelayRealtimeSourceTests : IDisposable
     public async Task Without_an_address_subscribing_says_what_to_set()
     {
         var collection = new ServiceCollection().AddLogging();
-        collection.AddInngestRealtimeRelay(_ => { }).ConfigurePrimaryHttpMessageHandler(() => _relay);
+        collection.AddInngestRealtimeRelaySource(_ => { }).ConfigurePrimaryHttpMessageHandler(() => _relay);
         var source = Build(collection);
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() => Collect(source.SubscribeAsync("order:7", ["status"], Cancel), count: 1));
@@ -365,7 +379,7 @@ public sealed class RelayRealtimeSourceTests : IDisposable
         var collection = new ServiceCollection().AddLogging();
         collection.AddSingleton<TimeProvider>(_time);
         services?.Invoke(collection);
-        var http = collection.AddInngestRealtimeRelay(options =>
+        var http = collection.AddInngestRealtimeRelaySource(options =>
         {
             options.Url = (channel, topics) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}?topics={string.Join(',', topics)}");
             configure?.Invoke(options);
@@ -435,6 +449,43 @@ public sealed class RelayRealtimeSourceTests : IDisposable
 
             await Task.Delay(10, Cancel);
         }
+    }
+
+    // Every connection closes within five seconds, with or without a message first, so each is a failure that adds to
+    // the ones before it.
+    private async Task AssertDelaysGrowAsync(bool deliverMessage)
+    {
+        for (var connection = 0; connection < 4; connection++)
+        {
+            var feed = new SseFeed();
+            _relay.Answer(feed);
+            if (deliverMessage)
+            {
+                await feed.SendAsync(Message("A"));
+            }
+
+            await feed.EndAsync();
+        }
+
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var subscription = Collect(Source().SubscribeAsync("order:7", ["status"], stop.Token), count: int.MaxValue);
+
+        // The idle timeout of 45 seconds is a timer too, so only the delays are looked at.
+        List<TimeSpan> Delays() => [.. _time.Timers.Where(due => due < TimeSpan.FromSeconds(40))];
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await UntilAsync(() => Delays().Count == attempt);
+            _time.Advance(TimeSpan.FromSeconds(5));
+            await UntilAsync(() => _relay.Requests.Count == attempt + 1);
+        }
+
+        // About 0.5, 1 and 2 seconds, each up to a fifth less.
+        var delays = Delays();
+        delays[0].ShouldBeInRange(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(500));
+        delays[1].ShouldBeInRange(TimeSpan.FromMilliseconds(800), TimeSpan.FromMilliseconds(1000));
+        delays[2].ShouldBeInRange(TimeSpan.FromMilliseconds(1600), TimeSpan.FromMilliseconds(2000));
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => subscription.WaitAsync(Wait, Cancel));
     }
 
     private sealed class PageNavigationManager : NavigationManager

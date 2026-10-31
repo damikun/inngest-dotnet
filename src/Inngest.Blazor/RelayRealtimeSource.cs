@@ -60,8 +60,8 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
     public IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(
         string channel,
         IReadOnlyList<string> topics,
-        CancellationToken cancellationToken = default,
-        Action<RealtimeConnectionState>? onConnectionChanged = null)
+        Action<RealtimeConnectionState>? onConnectionChanged,
+        CancellationToken cancellationToken = default)
     {
         RealtimePayload.Check(channel, topics);
         return ReadAsync(
@@ -74,8 +74,8 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
 
     public IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(
         RealtimeTopic<T> topic,
-        CancellationToken cancellationToken = default,
-        Action<RealtimeConnectionState>? onConnectionChanged = null)
+        Action<RealtimeConnectionState>? onConnectionChanged,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(topic);
         RealtimePayload.Check(topic.Untyped);
@@ -110,6 +110,7 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
             // The ids of a stream mean nothing to the next connection.
             var reader = createReader();
             Exception? failure = null;
+            var streamed = false;
             HttpResponseMessage? response = null;
             try
             {
@@ -143,16 +144,17 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
                     }
                     else if (response.Content.Headers.ContentType?.MediaType != "text/event-stream")
                     {
-                        // Typically the page of the app, which a wrong address falls back to; an EventSource would not accept it either.
+                        // Typically the page of the app, which a wrong address falls back to, or the login page that an endpoint
+                        // requiring authorization redirects to under cookie authentication; an EventSource would not accept it either.
                         throw new HttpRequestException(
-                            $"The realtime relay answered {response.Content.Headers.ContentType?.MediaType ?? "no content type"} instead of text/event-stream. Is the address right?",
+                            $"The realtime relay answered {response.Content.Headers.ContentType?.MediaType ?? "no content type"} instead of text/event-stream. Is the address right, and is the user signed in?",
                             null,
                             status);
                     }
                     else
                     {
                         Log.RelayConnected(_logger, channel);
-                        opened = true;
+                        opened = streamed = true;
                         onConnectionChanged?.Invoke(RealtimeConnectionState.Open);
                         var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
                         var events = ServerSentEvents.ReadDataAsync(stream, _time, IdleTimeout, cancellationToken).GetAsyncEnumerator(cancellationToken);
@@ -172,8 +174,6 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
                                     failure = exception;
                                     break;
                                 }
-
-                                failures = 0;
 
                                 // A message whose data is not a T, as another publisher may send, is skipped rather than ending the subscription.
                                 RealtimeMessage<T>? message;
@@ -197,10 +197,17 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
                     }
                 }
 
-                if (failure is null && _time.GetElapsedTime(connectedAt) >= MinHealthyConnection)
+                // A connection that held for a while was working, so whatever ended it starts the delays over. One that did
+                // not counts with the failures before it, whatever it delivered, or a relay that sends a message and closes
+                // would be met with the first delay for ever.
+                if (streamed && _time.GetElapsedTime(connectedAt) >= MinHealthyConnection)
                 {
-                    onConnectionChanged?.Invoke(RealtimeConnectionState.Reconnecting);
-                    continue;
+                    failures = 0;
+                    if (failure is null)
+                    {
+                        onConnectionChanged?.Invoke(RealtimeConnectionState.Reconnecting);
+                        continue;
+                    }
                 }
 
                 failure ??= new IOException("The relay ended the connection within five seconds.");
@@ -225,7 +232,7 @@ internal sealed class RelayRealtimeSource : IRealtimeSource
     private Uri ResolveUrl(HttpClient client, string channel, IReadOnlyList<string> topics)
     {
         var map = _options.Url ?? throw new InvalidOperationException(
-            "Set RealtimeRelayOptions.Url to the address of the app's MapInngestRealtime endpoint, for example AddInngestRealtimeRelay(options => options.Url = (channel, topics) => new Uri(\"/api/realtime/\" + Uri.EscapeDataString(channel), UriKind.Relative)).");
+            "Set RealtimeRelayOptions.Url to the address of the app's MapInngestRealtime endpoint, for example AddInngestRealtimeRelaySource(options => options.Url = (channel, topics) => new Uri(\"/api/realtime/\" + Uri.EscapeDataString(channel), UriKind.Relative)).");
         var url = map(channel, topics) ?? throw new InvalidOperationException("RealtimeRelayOptions.Url returned null.");
 
         // The client of a WebAssembly app seldom has a base address of its own, and the endpoint is usually on the page's origin.

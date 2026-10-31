@@ -26,7 +26,7 @@ public sealed class RealtimeSourceRegistrationTests
             options.IsDev = true;
         });
         services.Replace(ServiceDescriptor.Singleton<IRealtimeApi>(api));
-        services.AddInngestRealtimeSource();
+        services.AddInngestRealtimeServerSource();
         await using var provider = services.BuildServiceProvider();
 
         var source = provider.GetRequiredService<IRealtimeSource>();
@@ -51,7 +51,7 @@ public sealed class RealtimeSourceRegistrationTests
             options.IsDev = true;
         });
         services.Replace(ServiceDescriptor.Singleton<IRealtimeApi>(api));
-        services.AddInngestRealtimeSource();
+        services.AddInngestRealtimeServerSource();
         await using var provider = services.BuildServiceProvider();
 
         var first = FirstAsync(provider.GetRequiredService<IRealtimeSource>().SubscribeAsync("order:7", ["status", "tokens"], Cancel));
@@ -65,7 +65,7 @@ public sealed class RealtimeSourceRegistrationTests
     {
         var services = new ServiceCollection().AddLogging();
 
-        var client = services.AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
+        var client = services.AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
 
         client.Name.ShouldBe("Inngest.Realtime");
         using var provider = services.BuildServiceProvider();
@@ -82,11 +82,11 @@ public sealed class RealtimeSourceRegistrationTests
             options.AppId = "shop";
             options.IsDev = true;
         });
-        server.AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
-        server.AddInngestRealtimeSource();
+        server.AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
+        server.AddInngestRealtimeServerSource();
         var browser = new ServiceCollection().AddLogging();
-        browser.AddInngestRealtimeSource();
-        browser.AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
+        browser.AddInngestRealtimeServerSource();
+        browser.AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"/realtime/{channel}", UriKind.Relative));
 
         using var serverProvider = server.BuildServiceProvider();
         using var browserProvider = browser.BuildServiceProvider();
@@ -103,8 +103,8 @@ public sealed class RealtimeSourceRegistrationTests
     {
         var services = new ServiceCollection();
 
-        services.AddInngestRealtimeSource();
-        services.AddInngestRealtimeSource();
+        services.AddInngestRealtimeServerSource();
+        services.AddInngestRealtimeServerSource();
 
         services.Count(descriptor => descriptor.ServiceType == typeof(IRealtimeSource)).ShouldBe(1);
     }
@@ -112,8 +112,8 @@ public sealed class RealtimeSourceRegistrationTests
     [Fact]
     public void Arguments_are_checked()
     {
-        Should.Throw<ArgumentNullException>(() => ((IServiceCollection)null!).AddInngestRealtimeSource());
-        Should.Throw<ArgumentNullException>(() => new ServiceCollection().AddInngestRealtimeRelay(null!));
+        Should.Throw<ArgumentNullException>(() => ((IServiceCollection)null!).AddInngestRealtimeServerSource());
+        Should.Throw<ArgumentNullException>(() => new ServiceCollection().AddInngestRealtimeRelaySource(null!));
     }
 
     private static async Task<T> FirstAsync<T>(IAsyncEnumerable<T> source)

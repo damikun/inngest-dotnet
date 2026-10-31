@@ -138,7 +138,7 @@ browser:
 {/* check: statements; WebApplicationBuilder builder */}
 ```csharp
 builder.Services.AddInngest(options => options.AppId = "shop");
-builder.Services.AddInngestRealtimeSource();
+builder.Services.AddInngestRealtimeServerSource();
 ```
 
 That is all for Blazor Server and for the interactive server render mode. The view lives in the circuit: it updates
@@ -173,7 +173,7 @@ An address without an origin is relative to the page:
 
 {/* check: statements; IServiceCollection services */}
 ```csharp
-services.AddInngestRealtimeRelay(options =>
+services.AddInngestRealtimeRelaySource(options =>
 {
     options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
 });
@@ -185,7 +185,7 @@ source drops messages of other topics.
 
 The source reads the endpoint with an `HttpClient` and streams the response, as an `EventSource` would read it:
 
-- Cookies go with a request to the page's own origin. For an endpoint on another origin, `AddInngestRealtimeRelay`
+- Cookies go with a request to the page's own origin. For an endpoint on another origin, `AddInngestRealtimeRelaySource`
   returns the builder of the `HttpClient`, so you can set its base address and add message handlers, such as one that
   attaches an access token or asks the browser to send credentials. The endpoint then needs CORS.
 - A connection that ends or fails is opened again after a delay that grows from half a second to 30 seconds, and one
@@ -212,7 +212,7 @@ internal sealed partial class AppJsonContext : JsonSerializerContext;
 
 {/* check: statements; IServiceCollection services */}
 ```csharp
-services.AddInngestRealtimeRelay(options =>
+services.AddInngestRealtimeRelaySource(options =>
 {
     options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
     options.SerializerOptions.TypeInfoResolver = AppJsonContext.Default;
@@ -229,13 +229,13 @@ endpoint that the WebAssembly side reads:
 ```csharp
 // Program.cs of the server project
 builder.Services.AddInngest(options => options.AppId = "shop");
-builder.Services.AddInngestRealtimeSource();
+builder.Services.AddInngestRealtimeServerSource();
 ```
 
 {/* check: statements; IServiceCollection services */}
 ```csharp
 // Program.cs of the client project
-services.AddInngestRealtimeRelay(options =>
+services.AddInngestRealtimeRelaySource(options =>
 {
     options.Url = (channel, topics) => new Uri($"/api/realtime/{Uri.EscapeDataString(channel)}", UriKind.Relative);
 });

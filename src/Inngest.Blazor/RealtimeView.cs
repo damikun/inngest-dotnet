@@ -254,10 +254,10 @@ public sealed class RealtimeView<TData> : ComponentBase, IAsyncDisposable
 
     private static IAsyncEnumerable<RealtimeMessage<TData>> Open(IRealtimeSource source, Subscription subscription, Action<RealtimeConnectionState> report, CancellationToken cancellationToken) =>
         subscription.Typed
-            ? source.SubscribeAsync(new RealtimeTopic<TData>(subscription.Channel, subscription.Topics[0]), cancellationToken, report)
+            ? source.SubscribeAsync(new RealtimeTopic<TData>(subscription.Channel, subscription.Topics[0]), report, cancellationToken)
 
             // Resolve checked that TData is JsonElement, which this is then.
-            : (IAsyncEnumerable<RealtimeMessage<TData>>)(object)source.SubscribeAsync(subscription.Channel, subscription.Topics, cancellationToken, report);
+            : (IAsyncEnumerable<RealtimeMessage<TData>>)(object)source.SubscribeAsync(subscription.Channel, subscription.Topics, report, cancellationToken);
 
     private bool IsCurrent(int generation) => !_disposed && generation == _generation;
 

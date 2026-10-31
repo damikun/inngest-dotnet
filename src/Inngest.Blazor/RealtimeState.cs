@@ -19,7 +19,8 @@ public sealed class RealtimeState<TData>
     private readonly MessageBuffer _messages = new();
     private readonly Dictionary<string, RealtimeMessage<TData>> _latestByTopic = new(StringComparer.Ordinal);
     private readonly Dictionary<string, StringBuilder> _text = new(StringComparer.Ordinal);
-    private IReadOnlyDictionary<string, string>? _textByTopic;
+    private readonly Dictionary<string, string> _textByTopic = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _textChanged = new(StringComparer.Ordinal);
 
     internal RealtimeState()
     {
@@ -44,8 +45,25 @@ public sealed class RealtimeState<TData>
     /// The text of the newest stream of each topic that has streamed one, which grows with every chunk and starts over
     /// with the next stream. Unlike Messages it does not forget old chunks.
     /// </summary>
-    public IReadOnlyDictionary<string, string> TextByTopic =>
-        _textByTopic ??= _text.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToString(), StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, string> TextByTopic
+    {
+        get
+        {
+            // Only the topics that grew since the last read become a string again, so that reading it on every render
+            // does not copy the text of every topic every time.
+            if (_textChanged.Count > 0)
+            {
+                foreach (var topic in _textChanged)
+                {
+                    _textByTopic[topic] = _text[topic].ToString();
+                }
+
+                _textChanged.Clear();
+            }
+
+            return _textByTopic;
+        }
+    }
 
     internal int Capacity
     {
@@ -58,7 +76,8 @@ public sealed class RealtimeState<TData>
         _messages.Clear();
         _latestByTopic.Clear();
         _text.Clear();
-        _textByTopic = null;
+        _textByTopic.Clear();
+        _textChanged.Clear();
         Latest = null;
         Error = null;
         Connection = connection;
@@ -99,7 +118,7 @@ public sealed class RealtimeState<TData>
         {
             case RealtimeMessageKind.StreamStart:
                 _text[message.Topic] = new StringBuilder();
-                _textByTopic = null;
+                _textChanged.Add(message.Topic);
                 break;
             case RealtimeMessageKind.StreamChunk when message.Text is { Length: > 0 } chunk:
                 if (!_text.TryGetValue(message.Topic, out var text))
@@ -112,7 +131,7 @@ public sealed class RealtimeState<TData>
                 if (room > 0)
                 {
                     text.Append(chunk, 0, Math.Min(room, chunk.Length));
-                    _textByTopic = null;
+                    _textChanged.Add(message.Topic);
                 }
 
                 break;

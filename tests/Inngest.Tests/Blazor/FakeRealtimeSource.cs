@@ -32,14 +32,14 @@ internal sealed class FakeRealtimeSource : IRealtimeSource
     public IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(
         string channel,
         IReadOnlyList<string> topics,
-        CancellationToken cancellationToken = default,
-        Action<RealtimeConnectionState>? onConnectionChanged = null) =>
+        Action<RealtimeConnectionState>? onConnectionChanged,
+        CancellationToken cancellationToken = default) =>
         Add(new FakeSubscription<JsonElement>(channel, [.. topics], cancellationToken, onConnectionChanged, IgnoreCancellation)).Read(cancellationToken);
 
     public IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(
         RealtimeTopic<T> topic,
-        CancellationToken cancellationToken = default,
-        Action<RealtimeConnectionState>? onConnectionChanged = null) =>
+        Action<RealtimeConnectionState>? onConnectionChanged,
+        CancellationToken cancellationToken = default) =>
         Add(new FakeSubscription<T>(topic.Channel, [topic.Name], cancellationToken, onConnectionChanged, IgnoreCancellation)).Read(cancellationToken);
 
     private FakeSubscription<T> Add<T>(FakeSubscription<T> subscription)

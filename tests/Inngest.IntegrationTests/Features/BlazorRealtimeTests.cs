@@ -92,7 +92,7 @@ public sealed class BlazorRealtimeTests(EvaluationEnvironment environment) : Eva
     {
         var context = new BunitContext();
         context.Services.AddSingleton(Realtime);
-        context.Services.AddInngestRealtimeSource();
+        context.Services.AddInngestRealtimeServerSource();
         return context;
     }
 
@@ -101,7 +101,7 @@ public sealed class BlazorRealtimeTests(EvaluationEnvironment environment) : Eva
     {
         var context = new BunitContext();
         context.Services
-            .AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
+            .AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
             .ConfigurePrimaryHttpMessageHandler(() => relay.GetTestServer().CreateHandler());
         return context;
     }

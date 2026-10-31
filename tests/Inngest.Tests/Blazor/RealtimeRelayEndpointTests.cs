@@ -28,7 +28,7 @@ public sealed class RealtimeRelayEndpointTests
         await using var context = new BunitContext();
         context.Services.AddLogging();
         context.Services
-            .AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
+            .AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
             .ConfigurePrimaryHttpMessageHandler(() => relay.GetTestServer().CreateHandler());
         var topic = new RealtimeTopic<RelayProgress>("order:o-1", "status");
 
@@ -48,7 +48,7 @@ public sealed class RealtimeRelayEndpointTests
         await using var context = new BunitContext();
         context.Services.AddLogging();
         context.Services
-            .AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
+            .AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
             .ConfigurePrimaryHttpMessageHandler(() => relay.GetTestServer().CreateHandler());
 
         var cut = context.Render<RealtimeView<RelayProgress>>(parameters => parameters
@@ -72,7 +72,7 @@ public sealed class RealtimeRelayEndpointTests
         await using var relay = await StartRelayAsync();
         var services = new ServiceCollection().AddLogging();
         services
-            .AddInngestRealtimeRelay(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
+            .AddInngestRealtimeRelaySource(options => options.Url = (channel, _) => new Uri($"http://relay.test/realtime/{Uri.EscapeDataString(channel)}"))
             .ConfigurePrimaryHttpMessageHandler(() => relay.GetTestServer().CreateHandler());
         await using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
@@ -81,14 +81,14 @@ public sealed class RealtimeRelayEndpointTests
 
         var first = FirstAsync(source.SubscribeAsync(
             new RealtimeTopic<RelayProgress>("order:o-1", "status"),
-            Cancel,
             state =>
             {
                 lock (states)
                 {
                     states.Add(state);
                 }
-            }));
+            },
+            Cancel));
         await UntilAsync(() => { lock (states) { return states.Contains(RealtimeConnectionState.Reconnecting); } });
 
         // The client waits a moment before it connects again, and Inngest accepts the subscription by then.
