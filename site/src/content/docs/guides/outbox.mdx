@@ -15,7 +15,9 @@ neither. A hosted dispatcher reads the table and sends the events to Inngest aft
 
 ## Set it up
 
-Add the package. It builds on Entity Framework Core 8 for `net8.0` and Entity Framework Core 10 for `net10.0`:
+Add the package. The `net8.0` build is made for Entity Framework Core 8 and the `net10.0` build for Entity Framework
+Core 10. Entity Framework Core 9 is not supported: an app on .NET 9 gets the `net8.0` build, which needs Entity Framework
+Core 8, and with Entity Framework Core 9 the host refuses to start and says so.
 
 ```bash
 dotnet add package Inngest.EntityFrameworkCore --prerelease
@@ -59,19 +61,24 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddInngest(options => options.AppId = "shop")
     .AddEntityFrameworkOutbox<ShopContext>();
 
-builder.Services.AddDbContext<ShopContext>((services, options) => options
+builder.Services.AddDbContext<ShopContext>(options => options
     .UseNpgsql(builder.Configuration.GetConnectionString("Shop"))
-    .UseInngestOutbox(services));
+    .UseInngestOutbox());
 
 var app = builder.Build();
 app.MapInngest();
 app.Run();
 ```
 
-`AddEntityFrameworkOutbox` adds the hosted dispatcher of that context. `UseInngestOutbox` is an interceptor that
-wakes the dispatcher when a save that added events has committed, so they leave within moments. Without it they leave
-at the next poll, 5 seconds later by default. Both are needed for each `DbContext` that has events to send, and each
-has its own table, settings and dispatcher.
+`AddEntityFrameworkOutbox` adds the hosted dispatcher of that context. Call it for each `DbContext` that has events to
+send; each has its own table, settings and dispatcher. `UseInngestOutbox` is an interceptor that makes the events leave
+sooner: it wakes the dispatcher when a save that added events has committed, where without it they leave at the next
+poll, 5 seconds later by default. It finds the dispatcher through the application's services that Entity Framework
+leaves in the options of the context, so it can be called wherever the options are built, in the callbacks of
+`AddDbContext` and `AddDbContextPool` with or without a service provider, of `AddDbContextFactory`, and in
+`OnConfiguring`. When the dispatcher starts, it says once, at the information level, if the context has no
+`UseInngestOutbox`. `UseInngestOutbox(services)` does the same and also fails when the options are built if the outbox
+is not registered.
 
 ## Add events to a unit of work
 
@@ -125,6 +132,12 @@ when the event stands for something the code can name, such as an order. The col
 so a second attempt at the same work fails the save with a `DbUpdateException` instead of announcing the order twice.
 The key is checked against the rows that are still in the table, which are kept for the retention time.
 
+- The id, the name and the version are limited to 255 characters. Longer ones fail when the event is added.
+- A database that compares text without regard to case, which is the default of SQL Server and MySQL, takes two ids that
+  differ only in case for the same key, so the second one fails the save. PostgreSQL and SQLite tell them apart.
+- An event added inside a function does not carry the sessions of the run (`FunctionContext.Sessions`), because the
+  dispatcher sends it outside the run. Set `Meta.Sessions` on the event if it should belong to a session.
+
 ## How events are sent
 
 The dispatcher of each context repeats three steps. It starts when the host starts and takes no more work when it
@@ -140,22 +153,23 @@ stops.
 
 Three things start a pass: a save that added events and has committed, the poll interval, and the end of a pass that
 found events, which may have left more behind. When the save used a transaction of the code's own, the wake-up comes
-with its commit, not with the save. With a `TransactionScope`, or a transaction that is committed outside Entity
-Framework Core, the wake-up comes too early or not at all, and the poll finds the events.
+with its commit, not with the save. With a `TransactionScope` it comes at the save, before the scope completes, so the
+dispatcher finds nothing and the events leave at the next poll. A transaction that is committed outside Entity Framework
+Core gives no wake-up, and the poll finds the events.
 
-### At least once, and why a resend is harmless
+### At least once, and the repeat of an id
 
 A dispatcher can send a batch and die before it records that, or lose the connection to the database at that point.
 The events are then still due when their lease runs out, and another dispatcher sends them again. Delivery is at
 least once.
 
-That is safe because an event keeps the id it was added with, on every attempt, and Inngest starts the functions of an
-event once per id. Against the dev server (`inngest/inngest:v1.49.0`) a send that repeated an id was answered with a
-success and an event id of its own, and the function it triggers started no run. Inngest documents 24 hours as the time
-it remembers an id, and the server's source keeps the key of a run for that long; only a repeat within seconds was
-tried, and only against the dev server. A resend that comes later than 24 hours, which takes a
-dispatcher that was down for as long, would start runs again. What was checked is the starting of runs; whether a repeat
-can also resume a run that waits for the event was not.
+An event keeps the id it was added with, on every attempt, so the repeat is an event with an id that Inngest has seen.
+Inngest's documentation says it drops a repeated id for 24 hours. What was checked here: against the dev server
+(`inngest/inngest:v1.49.0`) a send that repeated an id seconds after the first was answered with a success and an event
+id of its own, and the function it triggers started no run. The dev server's source, read at the v1.49.0 tag, keeps the
+key of a run for 24 hours. Not checked: Inngest Cloud, a repeat after hours, and whether a repeat can also resume a run
+that waits for the event. A resend that comes later than 24 hours, which takes a dispatcher that was down for as long,
+would start runs again.
 
 ### When sending fails
 
@@ -165,9 +179,9 @@ its own failures. `Attempts` and `LastError` say how often and why.
 
 When Inngest turns a request down because of its events (400, 409, 412, 413 or 422), for example an event that is too
 large, the events of that request are sent one at a time, so that the one it objects to does not hold back the others.
-That event stays in the table and is tried again at the retry interval, with an error in the log at every attempt that
-names it. It will not go through until the row is fixed or deleted. If Inngest is down or the event key is wrong, the
-events are not split: they fail together, as one request.
+Each event that is refused stays in the table and is tried again at the retry interval, with an error in the log at
+every attempt that names its id and its name. It will not go through until the row is fixed or deleted. If Inngest is
+down or the event key is wrong, the events are not split: they fail together, as one request.
 
 A request that takes longer than `SendTimeout` counts as failed. When the host stops, the events a dispatcher had
 claimed are given back at once and do not cost an attempt, so another instance sends them without waiting for the lease.
@@ -177,6 +191,15 @@ claimed are given back at once and do not cost an attempt, so another instance s
 Events are sent oldest first within a batch, but nothing keeps one event from arriving after a later one: batches go out
 from several dispatchers, and a failed event waits while its neighbours pass. Inngest does not promise an order between
 events either. If a function needs one, put a sequence number or a version in the data.
+
+### Clocks
+
+The instances compare their own clocks with times that other instances wrote: when a lease ends, when a retry is due
+and whether a new event is due. Keep the clocks in step. A dispatcher whose clock runs ahead takes events from one that
+is still sending them only if it is ahead by more than `LeaseDuration` minus `SendTimeout`, which is 40 seconds with the
+defaults, and a repeat is dropped by its id in any case. An event saved by an instance whose clock runs ahead, and that
+runs no dispatcher itself, is not due for the dispatchers of the others until their clocks reach its time, so it
+waits as long as the clock is ahead. The `ts` it is sent with is that clock's time too.
 
 ### Cleanup
 
@@ -205,7 +228,7 @@ inngest.AddEntityFrameworkOutbox<ShopContext>(options =>
 | `DispatcherEnabled` | `true` | Runs the dispatcher in this process. Turn it off in a process that only adds events, and keep it on in at least one other. |
 | `PollInterval` | 5 seconds | How long the dispatcher waits for a wake-up before it looks anyway. This is how it finds events that other processes saved and retries that fell due. |
 | `BatchSize` | 100 | The most events one claim takes and one request sends. |
-| `LeaseDuration` | 1 minute | How long a dispatcher owns what it claimed. After a crash its events wait this long. Must be longer than `SendTimeout`. |
+| `LeaseDuration` | 1 minute | How long a dispatcher owns what it claimed. After a crash its events wait this long. At least twice `SendTimeout`, so that a request Inngest refuses can still be followed by requests for single events. |
 | `SendTimeout` | 20 seconds | How long one request may take, the retries of the SDK's client included. |
 | `RetryDelay` | 5 seconds | The wait after an event's first failed attempt. Each further failure doubles it. |
 | `MaxRetryDelay` | 5 minutes | The longest wait between attempts. |
@@ -223,8 +246,8 @@ using Microsoft.EntityFrameworkCore;
 
 var cutoff = DateTime.UtcNow.AddMinutes(-5);
 var stuck = await db.Set<InngestOutboxMessage>()
-    .Where(message => message.SentAt == null && message.Timestamp < cutoff)
-    .OrderBy(message => message.Timestamp)
+    .Where(message => message.SentAt == null && message.CreatedAt < cutoff)
+    .OrderBy(message => message.CreatedAt)
     .ToListAsync(cancellationToken);
 
 foreach (var message in stuck)
@@ -233,18 +256,27 @@ foreach (var message in stuck)
 }
 ```
 
-All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as JSON text.
+All times in the table are UTC. `CreatedAt` is when the row was added. `Timestamp` is the event's own time, which the
+code can set to any time, so it says nothing about how long a row has waited. `Data`, `User` and `Sessions` hold the
+event as JSON text.
 
 ## What to know
 
 - **The table holds the event as the SDK serialized it.** Middleware that changes events as they leave, such as
   encryption, runs when the dispatcher sends them, so the table holds the plain data. Middleware that wraps sends
   sees these events with no run, because no function sends them.
-- **Entity Framework Core 8 and 10.** The `net8.0` build is made for Entity Framework Core 8 and the `net10.0` build for
-  Entity Framework Core 10, where `ExecuteUpdate` lives in a different assembly. An app on .NET 9 gets the `net8.0`
-  build, so it needs Entity Framework Core 8; with Entity Framework Core 9 the host refuses to start and says so.
-- **Providers.** The dispatcher uses only LINQ that Entity Framework Core translates for relational providers. It was
-  run against SQLite and PostgreSQL; other providers were not tried.
+- **Entity Framework Core 8 and 10.** Entity Framework Core 9 is not supported. `ExecuteUpdate` lives in a different
+  assembly in Entity Framework Core 8 and in 9 and later, so the `net8.0` build, which an app on .NET 9 gets, only runs
+  on Entity Framework Core 8.
+- **Providers.** The dispatcher uses only LINQ that Entity Framework Core translates for relational providers. The
+  tests of this repository run it on SQLite with Entity Framework Core 8 and 10, and on PostgreSQL with Entity Framework
+  Core 10 and Npgsql 10 on .NET 10 only. Other providers, and other versions of the PostgreSQL provider, were not tried.
+- **SQL Server.** With its default locking `READ COMMITTED`, a query waits for rows that open transactions have inserted.
+  The dispatcher's query reads the part of the index that holds the events a transaction has just added, so one long
+  unit of work that adds an event stalls the dispatchers of every instance until it commits, or until the command times
+  out. Turn on `READ_COMMITTED_SNAPSHOT` for the database (`ALTER DATABASE ... SET READ_COMMITTED_SNAPSHOT ON`), which
+  Azure SQL Database has by default. This was not run on SQL Server; it follows from how its locking works. PostgreSQL
+  readers do not wait for writers, which the tests show with an event that a transaction has saved and not committed.
 - **One database per registration.** A dispatcher reads the database that `TContext` connects to in a new scope. An app
   that picks the database per tenant is not covered.
 - **No Native AOT.** Entity Framework Core does not support it, and the package does not declare itself compatible. The
@@ -254,6 +286,6 @@ All times in the table are UTC. `Data`, `User` and `Sessions` hold the event as 
   dispatcher too, use SQLite in memory and register a fake `IInngestClient` before `AddInngest`, which keeps a client
   that is already registered. The package's own tests are built that way.
 
-The dispatcher logs under categories that start with `Inngest.EntityFrameworkCore`, with event ids 600 to 609.
+The dispatcher logs under categories that start with `Inngest.EntityFrameworkCore`, with event ids 600 to 610.
 
 See [Sending events](/inngest-dotnet/guides/sending-events/) for events that are not part of a transaction.

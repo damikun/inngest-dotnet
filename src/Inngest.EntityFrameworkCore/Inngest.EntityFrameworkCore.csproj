@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>Inngest.EntityFrameworkCore</RootNamespace>
-    <Description>A transactional outbox for the Inngest .NET SDK on Entity Framework Core: events are saved in the same transaction as the app's data and sent to Inngest afterwards, each with an id of its own, so that a resend creates no second run.</Description>
+    <Description>A transactional outbox for the Inngest .NET SDK on Entity Framework Core: events are saved in the same transaction as the app's data and sent to Inngest afterwards, each under an id of its own, which Inngest uses to drop a repeated send.</Description>
     <PackageTags>$(PackageTags);entity-framework-core;ef-core;outbox;transactional-outbox</PackageTags>
     <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
     <PackageValidationBaselineVersion />

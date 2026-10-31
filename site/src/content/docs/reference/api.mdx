@@ -420,13 +420,15 @@ Package `Inngest.EntityFrameworkCore`. See [Transactional outbox](/inngest-dotne
 | Member | Purpose |
 |---|---|
 | `ModelBuilder.AddInngestOutbox(Action<EntityTypeBuilder<InngestOutboxMessage>>?)` | Maps the `InngestOutbox` table in the model of a `DbContext`; the callback changes the mapping, for example its name or schema. In `Microsoft.EntityFrameworkCore`. |
-| `DbContextOptionsBuilder.UseInngestOutbox(IServiceProvider)` | Lets saves wake the dispatcher once they have committed, instead of at the next poll. In `Microsoft.EntityFrameworkCore`. |
+| `DbContextOptionsBuilder.UseInngestOutbox()` | Lets saves wake the dispatcher once they have committed, instead of at the next poll. Works wherever the options are built, with or without a service provider. In `Microsoft.EntityFrameworkCore`. |
+| `DbContextOptionsBuilder.UseInngestOutbox(IServiceProvider)` | The same, and fails when the options are built if `AddEntityFrameworkOutbox` was not called. In `Microsoft.EntityFrameworkCore`. |
 | `DbContext.AddInngestEvent<T>(T data, string? id = null)` | Adds the data as an event named `T.EventName` to the unit of work, serialized with the SDK's serializer options, and returns the row. The id is generated unless given. In `Microsoft.EntityFrameworkCore`. |
 | `DbContext.AddInngestEvent(InngestEvent @event)` | The same for an `InngestEvent`, which keeps its `Id`, `User`, `Timestamp`, `Version` and the sessions of `Meta`. In `Microsoft.EntityFrameworkCore`. |
 
 **`InngestOutboxMessage`**, the entity of the table, with all times in UTC: `Id` (the key, and the id the event is sent
-under), `Name`, `Data`, `User` and `Sessions` (JSON text), `Version`, `Timestamp` (when the event happened),
-`NextAttemptAt`, `Attempts`, `LastError`, `LeaseToken`, `LeaseExpiresAt` and `SentAt`.
+under; at most 255 characters, as `Name` and `Version` are), `Name`, `Data`, `User` and `Sessions` (JSON text), `Version`,
+`Timestamp` (the event's own time, which the code may set), `CreatedAt` (when the row was added), `NextAttemptAt`,
+`Attempts`, `LastError`, `LeaseToken`, `LeaseExpiresAt` and `SentAt`.
 
 **`InngestOutboxOptions`**:
 
@@ -435,7 +437,7 @@ under), `Name`, `Data`, `User` and `Sessions` (JSON text), `Version`, `Timestamp
 | `DispatcherEnabled` | Runs the dispatcher in this process. `true` by default. |
 | `PollInterval` | How long the dispatcher waits for a wake-up before it looks anyway. 5 seconds by default. |
 | `BatchSize` | The most events one claim takes and one request sends. 100 by default. |
-| `LeaseDuration`, `SendTimeout` | How long a dispatcher owns the events it claimed (1 minute) and how long one request may take (20 seconds). The lease must be longer. |
+| `LeaseDuration`, `SendTimeout` | How long a dispatcher owns the events it claimed (1 minute) and how long one request may take (20 seconds). The lease must be at least twice the timeout. |
 | `RetryDelay`, `MaxRetryDelay` | The wait after the first failed attempt, doubled with each failure, and its cap. 5 seconds and 5 minutes by default. |
 | `Retention`, `CleanupInterval`, `CleanupBatchSize` | How long sent events stay (1 day), how often older ones are deleted (5 minutes) and how many one `DELETE` removes (1000). |
 

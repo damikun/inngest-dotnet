@@ -500,7 +500,7 @@ per call.
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them, and it does not encrypt the data of `step.invoke`, which has no payload hook, nor the input of AI wrap steps and the request of inference steps, which no payload hook covers. |
 | Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
 | Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. `InngestInferChatClient` has Inngest call an OpenAI-compatible provider instead (`step.ai.infer`). |
-| Transactional outbox: events saved with the app's data in one transaction and sent afterwards, once per id | Supported (`Inngest.EntityFrameworkCore`) on Entity Framework Core 8 (net8.0) and 10 (net10.0), tested on SQLite and PostgreSQL; not Native AOT |
+| Transactional outbox: events saved with the app's data in one transaction and sent afterwards under one id each | Supported (`Inngest.EntityFrameworkCore`) on Entity Framework Core 8 (net8.0) and 10 (net10.0), not 9; the tests run SQLite on both and PostgreSQL with EF Core 10 and Npgsql 10 on net10.0 only; not Native AOT |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
@@ -733,63 +733,84 @@ library is for, and the tool stays free of dependencies. Its types are internal,
 
 `Inngest.EntityFrameworkCore` makes sending an event part of a database transaction. The app adds events to its
 `DbContext` with `AddInngestEvent`, `SaveChanges` stores them with its data, and a hosted dispatcher per context type sends them
-afterwards. Delivery is at least once; what makes a resend harmless is that every attempt carries the row's event id.
+afterwards. Delivery is at least once. What is meant to make a resend harmless is that every attempt carries the row's event id,
+which Inngest is documented to drop when it repeats within 24 hours; see Event ids below for what was checked.
 
 - **Table.** `InngestOutboxMessage`, mapped by `ModelBuilder.AddInngestOutbox()` as `InngestOutbox`. The key is the event
-  id, a ULID unless the code gives one, so a second row for the same fact fails the save. `Data`, `User` and `Sessions` are
-  the event's JSON as text, written when the event is added; times are UTC `DateTime`s with a converter that makes the kind
-  UTC, because providers return them unspecified. One index on (`SentAt`, `NextAttemptAt`) serves the claim and the cleanup.
+  id, a ULID unless the code gives one, so a second row for the same fact fails the save. The id, the name and the version
+  are limited to 255 characters, and a case-insensitive collation (the default of SQL Server and MySQL) makes ids that differ
+  only in case the same key. `Data`, `User` and `Sessions` are the event's JSON as text, written when the event is added;
+  times are UTC `DateTime`s with a converter that makes the kind UTC, because providers return them unspecified. `Timestamp` is
+  the event's `ts`, which the caller may set to any time, so `CreatedAt` records when the row was added. One index on
+  (`SentAt`, `NextAttemptAt`) serves the claim and the cleanup.
 - **Adding.** `AddInngestEvent` makes the checks the client makes when it sends (name, data and user as JSON objects, sessions)
   and serializes through the `JsonTypeInfo` of `InngestSettings.SerializerOptions`, so a failure is found while the code that
   added the event is on the stack and trimmed apps use the metadata they already registered for `SendAsync`. It finds the
-  writer in the application service provider that `AddDbContext` leaves in the context's options. The event keeps the time
-  it was added as its `ts`, not the time the dispatcher sends it. `PropagatedSessions` is refused, because it only exists for
-  events sent from a run.
-- **Waking.** One interceptor serves every context. `AddInngestEvent` marks the context; `SavedChanges` wakes the dispatcher
-  at once when no transaction of the code's own is open, and otherwise leaves the wake-up to `TransactionCommitted`, so the
-  dispatcher is not woken to find nothing. A rollback clears the mark. The signal is a one-slot channel per context type, so
-  a wake-up that comes while the dispatcher is busy is kept, and many count as one. A `TransactionScope` commits later than EF
-  can see, which only costs a poll. The poll interval is the fallback for everything else, including saves by other processes.
+  writer in the application service provider that `AddDbContext`, `AddDbContextPool` and `AddDbContextFactory` leave in the
+  context's options. The event keeps the time it was added as its `ts`, not the time the dispatcher sends it.
+  `PropagatedSessions` is refused, because it only exists for events sent from a run, and an event added inside a function does
+  not inherit the run's sessions, because the dispatcher sends it outside the run.
+- **Waking.** One interceptor instance serves every context and needs no service provider at configuration time: it finds the
+  signal through the application services of the context that saved, so `UseInngestOutbox()` works in the callbacks that have
+  no provider and in `OnConfiguring`. When the dispatcher starts it says once if the context's options lack the interceptor.
+  `AddInngestEvent` marks the context; `SavedChanges` wakes the dispatcher at once when no transaction of the code's own is
+  open, and otherwise leaves the wake-up to `TransactionCommitted`, so the dispatcher is not woken to find nothing. A rollback
+  clears the mark. The signal is a one-slot channel per context type, so a wake-up that comes while the dispatcher is busy is
+  kept, and many count as one. With a `TransactionScope` EF sees no transaction of its own, so the wake comes at the save, before
+  the scope completes, and the events leave at the next poll (checked on PostgreSQL; SQLite has no ambient transactions). The poll
+  interval is the fallback for everything else, including saves by other processes.
 - **Claiming.** Dispatchers take no lock. A claim selects the ids of the due rows (`SentAt` null, `NextAttemptAt` passed, no
   live lease), then `ExecuteUpdate`s those ids with a token and an expiry, repeating the test for "due" in the `WHERE` of the
-  update, and reads back the rows that hold the token. The two statements matter: on PostgreSQL, an `UPDATE ... WHERE id IN
+  update, and reads back the rows that hold the token, by key as well, because the token has no index and the table holds a
+  day of sent rows. The two statements matter: on PostgreSQL, an `UPDATE ... WHERE id IN
   (SELECT ... LIMIT n)` that waited for a row another one was updating took the row as well and overwrote the token (checked
   with two sessions), where the repeated test in the outer `WHERE` made the loser update nothing. A dispatcher that died holds its
   rows until the lease ends. Marking sent or failed names the token, so a dispatcher that lost its lease changes nothing.
 - **Sending.** One request per claimed batch, each event with its own `id`, through `IInngestClient`, so the client's retries and
   the middleware apply. A request Inngest refuses because of its events (400, 409, 412, 413, 422, or an event the client
   refuses to write) is repeated event by event, so one bad event does not hold back the others; other failures fail the batch
-  together. A failed event is retried after `RetryDelay`, doubling per failure up to `MaxRetryDelay`, and is never given up; a
-  refused one is logged at error level on every attempt. When the host stops, claimed events are released without an attempt.
+  together. The first of those requests is sent whatever is left of the lease, and the others only while the lease covers
+  another request, so every pass decides at least one event; the options require a lease of at least twice `SendTimeout` for
+  the same reason. A failed event is retried after `RetryDelay`, doubling per failure up to `MaxRetryDelay`, and is never
+  given up; each refused one is logged at error level on every attempt, with its id and name. When the host stops, claimed
+  events are released without an attempt.
+- **Clocks.** Leases, retries and the due test compare an instance's clock with times other instances wrote, because the
+  clock is the `TimeProvider`'s and not the database's. A dispatcher takes rows another is still sending only if its clock is
+  ahead by more than `LeaseDuration` minus `SendTimeout`; a row saved by an instance whose clock is ahead waits for the
+  others' clocks, unless that instance dispatches it itself.
 - **Cleanup.** Sent rows older than `Retention` (a day, as long as Inngest remembers ids) are deleted with `ExecuteDelete` in
   batches, on a loop of its own so that a long cleanup never delays a send.
+- **SQL Server.** Under the locking `READ COMMITTED` that is its on-premises default, the due query waits for rows that open
+  transactions inserted, so one long unit of work that adds an event stalls every dispatcher until it commits; the remedy is
+  `READ_COMMITTED_SNAPSHOT`, on by default in Azure SQL Database. This follows from how SQL Server locks and was not run.
+  PostgreSQL does not wait (a test holds an uncommitted event while a dispatcher runs).
 - **Event ids.** Inngest takes any string as an event id. The dev server (v1.49.0) starts a function's run once per id: a
-  second send under the same id is answered 200 with a new internal event id, and no run starts. The server's source says
-  that a repeated event can exist in its event store, because the id is enforced when scheduling runs, and keeps the run's
-  idempotency key for 24 hours
-  (`FunctionIdempotencyPeriod`), which is what Inngest's documentation gives for Inngest Cloud; only a repeat within seconds was
-  tested, and only against the dev server.
+  second send under the same id is answered 200 with a new internal event id, and no run starts. The server's source, read at the
+  v1.49.0 tag (28cb533), says that a repeated event can exist in its event store, because the id is enforced when scheduling
+  runs, and keeps the run's idempotency key for 24 hours (`FunctionIdempotencyPeriod`), which is what Inngest's documentation
+  gives for Inngest Cloud. Only a repeat within seconds was tested, and only against the dev server.
 
-How the established outboxes differ, where it shaped this one. CAP stores messages in the app's transaction through its own
-transaction wrapper and, after the commit, pushes them into an in-process queue; its retry processor polls for failed rows and
-serializes instances with a lock row in a table that expires (`UseStorageLock`), and its cleanup deletes expired rows in
-batches of 1000. MassTransit locks one outbox state row per unit of work with provider-specific statements (`FOR UPDATE SKIP
-LOCKED`, `UPDLOCK, READPAST`), sends in sequence order inside that transaction and deletes the rows it sent; its commit signal is
-a cancelled delay when the scope ends after the entity left the `Added` state. Wolverine stores envelopes with an owner node
-id, sends from memory after the commit, and lets a durability agent reassign the rows of nodes that left the cluster. This
-package takes no cluster membership and no provider-specific SQL: a lease column set by `ExecuteUpdate` is the only
-coordination, which suits Inngest because it does not order events and drops a repeated id.
+How the established outboxes differ, where it shaped this one (read at CAP ad19c50, MassTransit d9f61f7 and Wolverine e9110b7,
+all of October 2026). CAP stores messages in the app's transaction through its own transaction wrapper and, after the commit,
+pushes them into an in-process queue; its retry processor polls for failed rows and serializes instances with a lock row in a
+table that expires (`UseStorageLock`), and its cleanup deletes expired rows in batches of 1000. MassTransit locks one outbox
+state row per unit of work with provider-specific statements (`FOR UPDATE SKIP LOCKED`, `UPDLOCK, READPAST`), sends in
+sequence order inside that transaction and deletes the rows it sent; its commit signal is a cancelled delay when the scope ends
+after the entity left the `Added` state. Wolverine stores envelopes with an owner node id, sends from memory after the commit,
+and lets a durability agent reassign the rows of nodes that left the cluster. This package takes no cluster membership and no
+provider-specific SQL: a lease column set by `ExecuteUpdate` is the only coordination, which suits Inngest because it does not
+order events and drops a repeated id.
 
 **EF Core versions.** `ExecuteUpdate` and `ExecuteDelete` are in `Microsoft.EntityFrameworkCore.Relational` in EF Core 8 and in
 `Microsoft.EntityFrameworkCore` from EF Core 9 on, so code compiled against one does not run on the other (a
 `MissingMethodException`). The net8.0 build uses EF Core 8 and the net10.0 build EF Core 10, selected in
-`Directory.Packages.props`; an app on .NET 9 gets the net8.0 build, and the dispatcher refuses to start when it finds EF Core 9
-loaded, naming the reason. EF Core is not trim or Native AOT compatible (its `DbContext` constructors are marked
-`RequiresUnreferencedCode` and `RequiresDynamicCode`), so the project sets `IsAotCompatible` to false while keeping the
-analyzers on; its own code has no warning.
+`Directory.Packages.props`; an app on .NET 9 gets the net8.0 build, so EF Core 9 is not supported, and the dispatcher refuses to
+start when it finds EF Core 9 loaded, naming the reason. There is no net9.0 target, because the SDK has none. EF Core is not
+trim or Native AOT compatible (its `DbContext` constructors are marked `RequiresUnreferencedCode` and `RequiresDynamicCode`), so
+the project sets `IsAotCompatible` to false while keeping the analyzers on; its own code has no warning.
 
 **Tests.** `tests/Inngest.EntityFrameworkCore.Tests` runs against SQLite on both runtimes (the net8.0 build on EF Core 8, in a
 container when the machine has no .NET 8 runtime). `tests/Inngest.IntegrationTests/Outbox` runs a dispatcher against PostgreSQL
-(Testcontainers), including four dispatchers at once and the order of claims that would overwrite a token if the update did not
-repeat the test for "due", and against the dev server: an event saved through the outbox starts its function, and a resend
-under the same id starts nothing.
+with Testcontainers, on net10.0 only, so with EF Core 10 and Npgsql 10: four dispatchers at once, the order of claims that would
+overwrite a token if the update did not repeat the test for "due", commit visibility and a `TransactionScope`. Against the dev
+server, an event saved through the outbox starts its function, and a resend under the same id starts nothing.
