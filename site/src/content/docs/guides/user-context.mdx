@@ -124,13 +124,19 @@ public sealed class ExportReport(ICurrentUser user, IReportAccess access) : Inng
 | `IssuedAt` | When the sender took the claims, or null without a user. Use it to treat an old snapshot with more care. |
 
 A run has no user when the event came from somewhere that has none: a cron trigger, another service, a webhook, the
-Inngest dashboard, or a sender that is not signed in. When Inngest replays a function, `event.user` is empty, as its
-[send reference](https://www.inngest.com/docs/reference/events/send) says, so a replayed run has none either.
+Inngest dashboard, or a sender that is not signed in. Inngest Cloud documents that `event.user` is empty when it replays a
+function (see its [send reference](https://www.inngest.com/docs/reference/events/send)), so a replayed run has no user
+there. The open-source dev server reloads the user of the event instead, so development and production can differ. A
+replay or a rerun is a new run with an id of its own, and it is judged by the time it was created, so a payload that has
+expired by then is not accepted whichever server keeps it.
 
 `ICurrentUser` always answers for the run whose code is running. It is a singleton, and it is the same in every scope of
 the run: the scope of the call, a scope your code creates in a step, a singleton's. Outside a run it is nobody. The user
 is restored when the function starts, and the function class is created before that, so a service must read the user
-when it uses it and not in its constructor. `ClaimsPrincipal` is also registered, as a scoped service, for code that
+when it uses it and not in its constructor. For the same reason `OnRunStartAsync` and the other hooks that run before the
+function starts see nobody, and so does the code of a middleware registered before `AddUserContext` ahead of its `next()`.
+A task that the function starts keeps the user of its run for as long as the call lasts; once the call has answered, the
+task sees nobody. `ClaimsPrincipal` is also registered, as a scoped service, for code that
 wants one: it is the principal as it is when the service is created, which is anonymous before the function starts. An
 app that registered its own `ClaimsPrincipal` keeps it.
 
@@ -319,9 +325,15 @@ Anyone with your event key can send an event with any `user`. What they can do w
 - **Move a payload to another event:** nothing. A payload is bound to the name of its event, and one made for an
   invocation to the function that is invoked.
 - **Send a payload they copied again,** for example from the dashboard: the run starts as that user until the payload
-  expires. This is the same as sending the original event again, so keep `Lifetime` as short as your delays allow, keep
-  the event key secret, and make functions that act for a user idempotent.
+  expires, with any data they like. A far timestamp does not stretch it, because a run is judged by the later of its
+  creation and the event's timestamp. Keep `Lifetime` as short as your delays allow, and keep the event key secret.
 - **Read the claims:** nothing, without the keys.
+
+What the payload protects is the claims, the times, the name of the event and, for an invocation, the function. Nothing
+else in the event is part of it: not the data, the id, the timestamp or the other keys of `user`, which anyone who can
+send the event can set. So a restored user says who the sender was and not that the rest of the event is theirs: a
+function that acts for a user checks the data against the user, such as an order's owner against `sub`, and makes the
+work idempotent.
 
 Whoever holds the key ring can make payloads for any user, so treat it like a signing key.
 

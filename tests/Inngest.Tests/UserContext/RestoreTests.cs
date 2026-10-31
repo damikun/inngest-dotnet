@@ -459,6 +459,62 @@ public sealed class RestoreTests
     }
 
     [Fact]
+    public async Task A_task_the_function_starts_keeps_the_user_of_its_run_until_the_call_has_answered()
+    {
+        await using var app = NewApp();
+        var gate = new TaskCompletionSource();
+        Task<bool>? afterwards = null;
+        var function = TestFunction.Define(async context =>
+        {
+            var user = context.Services.GetRequiredService<ICurrentUser>();
+            var whileRunning = await Task.Run(() => user.IsAuthenticated);
+            afterwards = Task.Run(async () =>
+            {
+                await gate.Task;
+                return user.IsAuthenticated;
+            });
+            return whileRunning;
+        });
+
+        var result = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+        gate.SetResult();
+
+        result.Body.ShouldBe("true");
+        (await afterwards!).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_hooks_that_run_before_the_function_starts_see_nobody_and_the_hooks_after_it_see_the_user()
+    {
+        var seen = new List<string>();
+        await using var app = NewApp(inngest: inngest => inngest.AddMiddleware(new Watcher(seen)));
+
+        await app.CallAsync(UserContextApp.Observe(), Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        seen.ShouldBe(["start:nobody", "complete:Ada Lovelace"]);
+    }
+
+    // Middleware registered after AddUserContext, so it is inside it: its hooks that run once the function has started see
+    // the user, and OnRunStartAsync, which runs before, does not.
+    private sealed class Watcher(List<string> seen) : InngestMiddleware
+    {
+        public override ValueTask OnRunStartAsync(FunctionContext context)
+        {
+            seen.Add("start:" + Who(context));
+            return ValueTask.CompletedTask;
+        }
+
+        public override ValueTask OnRunCompleteAsync(FunctionContext context, object? output)
+        {
+            seen.Add("complete:" + Who(context));
+            return ValueTask.CompletedTask;
+        }
+
+        private static string Who(FunctionContext context) =>
+            context.Services.GetRequiredService<ICurrentUser>() is { IsAuthenticated: true } user ? user.Principal.Identity!.Name! : "nobody";
+    }
+
+    [Fact]
     public async Task Each_call_has_a_user_of_its_own()
     {
         await using var app = NewApp();
