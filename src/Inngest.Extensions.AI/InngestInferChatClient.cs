@@ -12,8 +12,9 @@ namespace Inngest;
 /// provider that speaks the OpenAI chat completions API and no worker waits for the answer. The step saves the provider's
 /// response with the run, so a replay never calls the model again. It works inside a run only, as inference steps do, and
 /// throws elsewhere. Inngest stores the request with the run, the API key included. A streaming call returns the saved
-/// response as updates once the model has finished. Put it under <c>UseInngestFunctionInvocation</c> to let the model
-/// call tools; it needs no <c>UseInngestSteps</c>, being a step already.
+/// response as updates once the model has finished. An answer that is an error or has no choices fails the call for good.
+/// A "strict" additional property of the options or of a function asks for strict structured outputs. Put it under
+/// <c>UseInngestFunctionInvocation</c> to let the model call tools; it needs no <c>UseInngestSteps</c>, being a step already.
 /// </summary>
 public sealed class InngestInferChatClient : IChatClient
 {

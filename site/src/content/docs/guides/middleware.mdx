@@ -346,6 +346,10 @@ that the default strategies wrote are still decrypted, so data can move from one
   ciphertext if it is registered before it.
 - A value grows by a third and by about 120 bytes of envelope, which counts against the size limits Inngest puts on
   events and step results.
+- The input of an AI wrap step and the request of an inference step are stored in the clear: the payload hooks cover what a
+  step returns, not what it was made with. That includes the messages and options, and the arguments of tool calls, that the
+  [chat client steps](/inngest-dotnet/guides/ai/#what-the-input-costs) record, which `InngestStepsOptions.RecordInput`
+  turns off. The results of those steps are encrypted like any other.
 - It works under Native AOT. Event data types go in the serializer context as for any event.
 - The test host reports what is stored, so `Output` and `SentEvents` show encrypted values when encryption is added to
   the services it runs. Tests of functions usually leave it out.

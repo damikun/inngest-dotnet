@@ -22,6 +22,9 @@ pipeline, tool loop included.
 dotnet add package Inngest.Extensions.AI --prerelease
 ```
 
+The package builds on Microsoft.Extensions.AI. On net8.0 that brings System.Text.Json 10 with it, which is newer than the
+one the runtime ships, so an app on net8.0 that adds the package runs on the newer one.
+
 It adds two stages to a `ChatClientBuilder`. Stages added first are the outermost, so the stage that runs the tools
 goes first and calls the stage that makes the model call a step, once for each round:
 
@@ -62,13 +65,17 @@ client serves a controller, a unit test and a function.
 
 | Call | Step | Input the Inngest UI shows | Saved with the run |
 |---|---|---|---|
-| `GetResponseAsync` | `chat`, then `chat:1`, `chat:2`, ... | `{"messages": [...], "options": {...}}` | The `ChatResponse` as JSON |
-| `GetStreamingResponseAsync` | The same ids | The same | The whole response, as JSON |
-| A tool call | `tool <name>`, then `tool <name>:1`, ... | `{"name": ..., "callId": ..., "arguments": {...}}` | `{"result": ...}` |
+| `GetResponseAsync` | `chat`, then `chat:1`, `chat:2`, ... | `{"messages": [...], "options": {...}}` | The `ChatResponse` as JSON, and a digest of the input |
+| `GetStreamingResponseAsync` | The same ids | The same | The whole response, as JSON, and the digest |
+| A tool call | `tool <name>`, then `tool <name>:1`, ... | `{"name": ..., "callId": ..., "arguments": {...}}` | `{"result": ..., "inputDigest": ...}` |
 
 All of them are [AI wrap steps](/inngest-dotnet/guides/steps/#calls-to-ai-models), so the Inngest UI shows them as
 calls to a model with their input. The ids follow the rules of any [step id](/inngest-dotnet/guides/steps/#step-ids):
 the same call gets the same id on every replay, and the SDK numbers repeats in the order they are made.
+
+The digest is a hash of the input, not the input, written as `"inngest": {"inputDigest": ...}` next to the response, which
+readers of a `ChatResponse` skip. A replay compares it with the input of the call that gets the result, to catch the
+mix-up that [Naming a step](#naming-a-step) describes.
 
 The messages, options and responses are written with `AIJsonUtilities.DefaultOptions` of Microsoft.Extensions.AI, which
 knows `AIContent` and its subtypes. Text, reasoning, function calls and results, usage and the finish reason all make
@@ -83,31 +90,49 @@ JSON, so the code between calls sees the same on the first call and on replays.
 
 ## Naming a step
 
-Without a name, the model calls of a run are `chat`, `chat:1` and so on, in the order they are made. That order is the
-same on every replay when the calls are made from the function itself, one after the other or together with
-`Task.WhenAll`. Calls that reach the client from other threads, such as `Task.Run` or a `Parallel.ForEachAsync` loop,
-arrive in no fixed order, so which of them gets `chat` and which `chat:1` can change from one replay to the next, and a
-result then goes to the wrong call. Name each such call, so that its id does not depend on timing:
+Without a name, the model calls of a run are `chat`, `chat:1` and so on, in the order they reach the client. That order
+is the same on every replay when nothing but steps is awaited before the calls: one after the other, or together with
+`Task.WhenAll` over calls that the function makes at once. It is not when something else is awaited first, such as a
+database query, an `HttpClient` request or a `Task.Delay`. Calls like that reach the client in the order those finish,
+which differs from one replay to the next, so which of them gets `chat` and which `chat:1` changes, and each can be
+handed the response that was made for another.
 
-{/* check: body OrderPlaced; IChatClient chat */}
+Name each such call, so that its id does not depend on timing:
+
+{/* check: body OrderPlaced; IChatClient chat; IProfiles profiles */}
 ```csharp
 using Microsoft.Extensions.AI;
 
-string[] languages = ["cs", "de", "fr"];
+string[] userIds = ["u-1", "u-2", "u-3"];
 
-var translations = await Task.WhenAll(languages.Select(language => Task.Run(() =>
-    chat.GetResponseAsync(
-        $"Translate the thank-you note for order {context.Event.Data.OrderId} to {language}.",
-        new ChatOptions().WithInngestStepId($"translate-{language}"),
-        cancellationToken))));
+// Each call waits for a lookup of its own, so the calls reach the client in the order the lookups finish.
+var notes = await Task.WhenAll(userIds.Select(async userId =>
+{
+    var profile = await profiles.LoadAsync(userId, cancellationToken);
+    return await chat.GetResponseAsync(
+        $"Write a short thank-you note for {profile.Name}.",
+        new ChatOptions().WithInngestStepId($"note-{userId}"),
+        cancellationToken);
+}));
 ```
 
-`WithInngestStepId` puts the name in `ChatOptions.AdditionalProperties`, and the client takes it out before the options
-reach the model, so a provider never sends it on. A name gets `:1`, `:2` for repeats like any id. Naming calls is also
-how to tell them apart in the Inngest UI.
+`WithInngestStepId` puts the name in `ChatOptions.AdditionalProperties`, as a string, and the client takes it out before
+the options reach the model, so a provider never sends it on. A name gets `:1`, `:2` for repeats like any id. Naming
+calls is also how to tell them apart in the Inngest UI.
+
+To catch the mix-up, each saved result carries a digest of the input it was made for. When a replay hands a call a result
+with another digest than its own input has, the client logs a warning that names the step and `WithInngestStepId`. The
+warning comes from a logger that is not silenced while the run replays, so it appears once for each such step in each
+call of the function. It is a warning and not an exception, because a prompt with a part that changes between replays,
+such as the time, would then fail the run on every replay: it gets the warning on every replay, and the fix is to name
+the call, to keep the changing part out of the prompt, or to ignore the warning. An input edited in the Inngest UI does
+not change the digest, which is that of the input the code asked for.
 
 Tool steps are named for the tool, and a model that calls the same tool twice in one response gets the ids in the order
-of its calls, so they need no name.
+of its calls, so they need no name. Conversations that run side by side would claim the same tool ids in no fixed order,
+so a conversation that you name carries its name into its tool steps: with `WithInngestStepId("plan")` the steps are
+`plan`, `plan tool get_weather`, `plan:1`. The result of a tool is saved with a digest of its arguments and checked in the
+same way.
 
 ## Streaming
 
@@ -129,13 +154,23 @@ var reply = await chat
     .ToChatResponseAsync(cancellationToken);
 ```
 
-Subscribers receive the text as a stream, as `PublishStreamAsync` sends it. This is why the step publishes through
-`IInngestRealtime` and does not use the `PublishStreamAsync` step tool: a step cannot be called inside the handler of
-another, and the model call is the step that reads the stream. A publishing step of its own would also have to save
-the text, which leaves out the function calls, usage and finish reason of the response, and the two steps could
-disagree after a failure. The consequences are small. A retry of the model step streams again, and subscribers see a
-second stream. A replay publishes nothing. Failing to publish is logged as a warning and does not fail the model call,
-which would otherwise be made, and paid for, again.
+Subscribers receive the text as a stream, as `PublishStreamAsync` sends it. A model sends an update every few characters,
+and Inngest takes at most 1,000 chunks of up to 1 KB in a stream, so the text is gathered into chunks. A chunk goes out
+when it is full, or when the text has waited 100 milliseconds, and the wait grows to a second once the stream has 500
+chunks, so that a long answer does not use them up. A text that still outgrows the limit, which is about a megabyte, is
+published up to it and the rest is left out, with a warning in the log. The model call is not affected.
+
+This is why the step publishes through `IInngestRealtime` and does not use the `PublishStreamAsync` step tool: a step
+cannot be called inside the handler of another, and the model call is the step that reads the stream. A publishing step
+of its own would also have to save the text, which leaves out the function calls, usage and finish reason of the
+response, and the two steps could disagree after a failure.
+
+If the model fails in the middle of its stream, the step is retried, and the retry publishes the stream again from the
+start. Inngest ends a publish request that stops early like one that finished, so subscribers see the first stream end
+where the model failed, with the text up to there, and then a second stream with the whole text. The streams have
+different `StreamId`s and the same `RunId`, so a page that shows the text starts over at each `StreamStart` of its run. A
+replay publishes nothing. Failing to publish is logged as a warning and does not fail the model call, which would
+otherwise be made, and paid for, again.
 
 ## Tools
 
@@ -152,6 +187,10 @@ the step fails at once. Throw `NonRetriableException` from a tool to skip the re
 The tools run in the handler of their step, outside the async flow of the function, so state that the function keeps
 in async-local variables is not visible to them. `FunctionInvokingChatClient.CurrentContext` is set there, so a tool can
 still ask the client to stop calling the model by setting `Terminate`, and a replay stops where the run did.
+
+A tool that changes the context of its call, which `FunctionInvokingChatClient.CurrentContext` gives it, such as its
+`Options` or `Messages`, changes it only when the step runs. A replay hands back the saved result and does not run the
+tool, so the context stays as the client made it. Only `Terminate` is saved with the result and set again.
 
 Tools the model asks for in one response are steps like any others made together: set
 `AllowConcurrentInvocation` and they run as parallel steps, each in a call of its own. Without it they run one after the
@@ -181,12 +220,32 @@ API key included. A streaming call returns the saved response as updates once th
 not stream the answer to the SDK. It speaks the OpenAI chat format only; for another provider's format, call
 `InferAsync` yourself.
 
+Strict structured outputs are asked for as Microsoft's adapter for the OpenAI client takes them: with a `strict`
+additional property, `true` or `false`, on the `ChatOptions` or on an `AIFunction`, which wins for that function. Without
+it, the request has no `strict` and the schemas of the response format and of the tools go out as Microsoft.Extensions.AI
+made them. With `true`, they are changed into what strict mode takes, which is no additional properties, every
+property required and no keywords OpenAI does not support, such as `minLength`, which move into the description, and the
+request says `"strict": true`.
+
+An answer that is an error, in an `error` object, or that has no choices fails the call with what the provider said, as
+a `NonRetriableException`: Inngest saved the answer with the run, so a retry would read the same one. A refusal comes back
+as an `ErrorContent` with the code `Refusal`, and goes out as `refusal` when the assistant's message is sent again.
+
+The mapping leaves out reasoning content, author names, data content that is not an image, and the additional properties
+of messages and content. Of the options it sends `ModelId`, `Instructions`, `Temperature`, `TopP`, `FrequencyPenalty`,
+`PresencePenalty`, `MaxOutputTokens`, `Seed`, `StopSequences`, `ResponseFormat`, `Tools`, `ToolMode` and
+`AllowMultipleToolCalls`, and no others. `MaxOutputTokens` goes out as `max_completion_tokens`, which the current models
+take, and not as `max_tokens`.
+
 ## Editing the input
 
 The Inngest UI can rerun a step with an edited input. For a model call, the edited `messages` and `options` are what
 the model is called with, and the tools and the request factory of the call are kept as the code passed them, as they
-are not JSON. For a tool call, the edited `arguments` are what the tool is called with. An edit that is not an object
-with `messages`, or with `arguments`, fails the step at once.
+are not JSON. For a tool call, the edited `arguments` are what the tool is called with. An edit that cannot be read, such
+as one that is not an object with `messages`, or with `arguments`, or that names a kind of content that does not exist,
+fails the step at once, as reading it again would fail the same way. Values in the `additionalProperties` of an edit that
+are booleans, numbers or strings are handed to the model as a `bool`, a `long` or `double`, and a `string`, as a provider
+tests for those, and objects and arrays stay `JsonElement`s.
 
 Without an edit, the model gets the messages and options the caller passed, not a copy read back from the recorded
 JSON, so what JSON cannot hold, such as the raw representations of a provider, still reaches it.
@@ -207,7 +266,8 @@ builder
 ```
 
 The steps are then plain run steps. The results are saved either way, and so are the model's answers and the tools'
-results, which is where the sensitive data usually is as well. A step whose input cannot be written as JSON, such as
+results, which is where the sensitive data usually is as well, and so is a digest of each input, which is a hash of it and
+not the input. A step whose input cannot be written as JSON, such as
 one with an additional property of a type the app has no contract for under Native AOT, runs without its input and logs
 a warning once.
 

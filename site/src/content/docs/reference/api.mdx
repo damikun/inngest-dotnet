@@ -368,13 +368,13 @@ Package `Inngest.Extensions.AI`. The extension methods are in `Microsoft.Extensi
 | Member | Purpose |
 |---|---|
 | `ChatClientBuilder.UseInngestSteps(Action<InngestStepsOptions>?)` | Makes each call to the model inside a run a step: the messages and options are its input, the `ChatResponse` as JSON its result, and a replay returns the saved response without calling the model. A streaming call runs the whole stream in its step. Outside a run, and inside a step handler, calls pass through. |
-| `ChatClientBuilder.UseInngestFunctionInvocation(Action<FunctionInvokingChatClient>?, Action<InngestStepsOptions>?)` | Adds a `FunctionInvokingChatClient`, as `UseFunctionInvocation` does, whose invocations of tools inside a run are steps named `tool <name>`, with the arguments as input and `{"result": ...}` saved. |
-| `ChatOptions.WithInngestStepId(string)` | Names the step of one call, in place of `chat`, for calls that reach the client from other threads in no fixed order. The client removes the name before the options reach the model. |
-| `ChatOptions.WithInngestRealtimeStream(RealtimeTopic)` | Publishes the text of a streaming call to the topic while the model produces it. Failing to publish does not fail the call. |
+| `ChatClientBuilder.UseInngestFunctionInvocation(Action<FunctionInvokingChatClient>?, Action<InngestStepsOptions>?)` | Adds a `FunctionInvokingChatClient`, as `UseFunctionInvocation` does, whose invocations of tools inside a run are steps named `tool <name>`, with the arguments as input and `{"result": ...}` saved. A tool that throws is retried like any step, except for an `ArgumentException`, which fails its step at once. |
+| `ChatOptions.WithInngestStepId(string)` | Names the step of one call, in place of `chat`, for calls that reach the client in no fixed order, such as ones made after a request that finishes at varying times. The steps of its tools carry the name. The client removes the name before the options reach the model. |
+| `ChatOptions.WithInngestRealtimeStream(RealtimeTopic)` | Publishes the text of a streaming call to the topic while the model produces it, gathered into chunks of up to 1 KB, at most 1,000 to a stream. Failing to publish does not fail the call. |
 
 **`InngestInferChatClient(Uri endpoint, string model, string? apiKey = null, IReadOnlyDictionary<string, string>? headers = null)`**,
 in the `Inngest` namespace, is an `IChatClient` whose calls are inference steps in the OpenAI chat completions format: Inngest
-makes the request, and no worker waits for it. It works inside a run only.
+makes the request, and no worker waits for it. It works inside a run only, sends `max_completion_tokens`, and fails for good on an answer that is an error or has no choices. A `strict` additional property of the options, or of a function, asks for strict structured outputs.
 
 **`InngestStepsOptions`**, in the `Inngest` namespace: `RecordInput` (default `true`) records the messages and options of a
 model call, or the arguments of a tool call, as the input of its step; without it the step is a plain run step.

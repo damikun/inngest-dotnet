@@ -136,7 +136,7 @@ public sealed class InputDigestTests : IDisposable
                 var second = await chat.GetResponseAsync($"Say goodbye in {language}", new ChatOptions().WithInngestStepId($"goodbye-{language}"));
                 return (first.Text, second.Text);
             }).ToArray();
-            foreach (var language in execution % 2 == 1 ? languages : languages.Reverse())
+            foreach (var language in execution % 2 == 1 ? languages : (string[])[languages[1], languages[0]])
             {
                 gates[language].SetResult();
             }
