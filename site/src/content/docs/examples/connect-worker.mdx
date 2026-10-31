@@ -168,11 +168,11 @@ USER $APP_UID
 ENTRYPOINT ["dotnet", "Worker.dll"]
 ```
 
-The worker image needs only the .NET runtime, not ASP.NET Core, and exposes no port. Give it the signing key; the
-web app needs the event key:
+The worker image needs only the .NET runtime, not ASP.NET Core, and exposes no port. Give it the signing key to
+connect, and the event key because it sends `ThumbnailsReady`; the web app needs the event key:
 
 ```bash
-docker run -e INNGEST_SIGNING_KEY=signkey-prod-... media-worker:latest
+docker run -e INNGEST_SIGNING_KEY=signkey-prod-... -e INNGEST_EVENT_KEY=... media-worker:latest
 docker run -p 8080:8080 -e INNGEST_EVENT_KEY=... media-web:latest
 ```
 

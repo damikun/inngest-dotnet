@@ -354,7 +354,8 @@ between, and the function's timeout is the only limit.
 ## MapInngest on Lambda
 
 `Amazon.Lambda.AspNetCoreServer.Hosting` runs an ASP.NET Core app as a Lambda function. `AddAWSLambdaHosting` replaces
-Kestrel, and `MapInngest` works as it does anywhere, with nothing from `Inngest.AwsLambda`:
+Kestrel, and `MapInngest` works as it does anywhere. It comes from `Inngest.AspNetCore`, and nothing from
+`Inngest.AwsLambda` is used:
 
 ```csharp title="Program.cs"
 using Amazon.Lambda.AspNetCoreServer.Hosting;

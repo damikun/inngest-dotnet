@@ -376,6 +376,7 @@ Run steps in an ASP.NET Core endpoint, answer the caller directly, and hand the 
 
 {/* check: statements; WebApplication app */}
 ```csharp
+app.UseInngestDurableEndpoints();
 app.MapPost("/pay", (IStepTools step) =>
     step.RunAsync("charge", () => "paid"))
     .WithDurableEndpoint();

@@ -31,7 +31,8 @@ dotnet add package Inngest.Testing.Containers
 
 The server and the app have to reach each other, so neither can be told the other's address before it starts. Start the
 container first, then the app, and then have the container sync the app at the address it listens on. This fixture runs
-an ASP.NET Core app on a port the system picks:
+an ASP.NET Core app on a port the system picks. It uses `MapInngest`, so the test project needs `Inngest.AspNetCore` and the
+ASP.NET Core framework, which it has when it references your app:
 
 ```csharp title="InngestFixture.cs"
 using Inngest;

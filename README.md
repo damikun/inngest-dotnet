@@ -197,15 +197,6 @@ the template package holds files only.
    dotnet add package Inngest.AspNetCore
    ```
 
-   Or reference it in your project file. `*` restores the newest version; put a version
-   such as `1.0.0` there instead to pin it:
-
-   ```xml
-   <ItemGroup>
-     <PackageReference Include="Inngest.AspNetCore" Version="*" />
-   </ItemGroup>
-   ```
-
    For a worker with no public endpoint, install `Inngest.Connect` instead.
 
 2. **Register the function and map the endpoint.** `AddInngest` registers the SDK and your functions, and

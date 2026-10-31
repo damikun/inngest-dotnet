@@ -368,7 +368,7 @@ The SDK's extension methods for these steps, such as `RunAsync` with a handler t
 the typed `WaitForEventAsync<T>` and `SendEventAsync<T>`, end up in these six methods, and so do their overloads that
 take a `StepOptions` in place of the id. `ParallelAsync` needs nothing from the fake. The other members of
 `IStepTools` have defaults that throw `NotSupportedException`: `WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync`,
-`InferAsync`, `AIWrapAsync`, `RunScopedAsync`, `PublishAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by
+`InferAsync`, `AIWrapAsync`, `RunScopedAsync`, `PublishAsync`, `PublishStreamAsync` and `InvokeAsync<TFunction, TResult>`, which invokes by
 class and needs the app's registrations to find the function's id. Implement the ones the function under test calls;
 [Scoped steps](/inngest-dotnet/guides/scoped-steps/#testing) shows `RunScopedAsync`.
 

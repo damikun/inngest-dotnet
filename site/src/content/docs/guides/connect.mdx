@@ -26,15 +26,6 @@ Install `Inngest.Connect` from NuGet. It brings in `Inngest`:
 dotnet add package Inngest.Connect
 ```
 
-Or reference it in the project file. `*` restores the newest version; put a version such as
-`1.0.0` there instead to pin it:
-
-```xml title="Worker.csproj"
-<ItemGroup>
-  <PackageReference Include="Inngest.Connect" Version="*" />
-</ItemGroup>
-```
-
 Then call `AddConnect` instead of mapping an endpoint. A worker needs no web server at all; the generic host is
 enough:
 

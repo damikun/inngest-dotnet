@@ -207,7 +207,8 @@ each here. To watch several topics of a channel use one view with a `Channel` an
 
 ## WebAssembly
 
-A WebAssembly app has no signing key, so the server relays the messages. Map a `MapInngestRealtime` endpoint whose
+A WebAssembly app has no signing key, so the server relays the messages. `MapInngestRealtime` comes from
+`Inngest.AspNetCore`, which the server project installs. Map an endpoint whose
 callback checks that the signed-in user may see the channel, and returns the channel and the topics the request may
 receive, or null for a 403:
 

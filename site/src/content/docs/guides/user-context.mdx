@@ -35,6 +35,7 @@ which you set up yourself, because the apps that send and restore users have to
 
 {/* check: statements; WebApplicationBuilder builder */}
 ```csharp title="Program.cs"
+using Inngest;
 using Microsoft.AspNetCore.DataProtection;
 
 builder.Services
@@ -53,6 +54,7 @@ functions needs the same key ring and application name, and only `AddUserContext
 
 {/* check: statements; HostApplicationBuilder builder */}
 ```csharp title="Program.cs of the worker"
+using Inngest;
 using Microsoft.AspNetCore.DataProtection;
 
 builder.Services

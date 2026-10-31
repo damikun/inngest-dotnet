@@ -75,7 +75,7 @@ app.Run();
 
 `AddInngestFunctions()` is the same as writing `AddFunction<ChargeOrder>()` and `AddFunction<SendReceipt>()`, for every
 class. The compiler finds the classes while it builds the project, from the attribute, so there is no assembly scanning
-at run time and nothing for the trimmer to keep. What the generator writes for the project above, without the comments:
+at run time and nothing for the trimmer to keep. What the generator writes for the project above, without the comments and the `GeneratedCode` attribute:
 
 {/* check: skip */}
 ```csharp

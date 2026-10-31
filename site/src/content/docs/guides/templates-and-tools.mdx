@@ -247,6 +247,7 @@ dev server looks for apps on its own, on the ports it knows.
 | `--project <path>` | The folder, or project file, whose launch settings give the address. The current folder by default. |
 | `--cli-version <version>` | Runs another release of the Inngest CLI, such as `1.50.0`. |
 | `-h`, `--help` | Shows the usage. |
+| `--version` | Shows the version of the tool and of the Inngest CLI it runs by default. Only on its own, as in `dotnet inngest --version`. |
 
 The tool owns `--project` and `--cli-version`. Every other option goes to `inngest dev` as it is and in the order it
 was given, so `dotnet inngest dev --port 9000 --persist` works, and so does an option of a later release of the CLI.
@@ -294,7 +295,7 @@ about 100 MB unpacked.
 
 `INNGEST_DOTNET_CACHE` names another folder for the whole cache. Delete a version's folder to remove it. A machine
 without access to GitHub can use the cache as it is: put the binary of the release in the folder of its version
-and system, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
+and system, such as `1.49.0/linux_amd64`, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
 
 The tool checks a download once, when it installs it, and runs the binary it finds in the cache from then on. So the
 cache folder must be writable by you alone. The default is in your own profile. Do not point `INNGEST_DOTNET_CACHE`

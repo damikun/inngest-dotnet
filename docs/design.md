@@ -249,7 +249,7 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Testing.Containers.AspNetCore` | `InngestWebApplicationFactory`, a `WebApplicationFactory` that runs the app on Kestrel against the container. Depends on `Microsoft.AspNetCore.Mvc.Testing`, so it is a package of its own and targets net10.0 only. |
 | `Inngest.Templates` | The `inngest-web` and `inngest-worker` templates for `dotnet new`. A template package: files, no assembly. |
 | `dotnet-inngest` | A .NET tool, `dotnet inngest dev`, that downloads the Inngest CLI, checks it and runs the dev server. Depends on nothing but the framework. |
-| `Inngest.SignalR` | `AddInngestSignalR`, `MapInngestRealtimeHub` and `InngestRealtimeBridge<THub>`, which forward realtime messages to SignalR clients through `IHubContext<THub>`: clients join through a hub method guarded by a callback, share one subscription per channel and topics, and get each message on a queue of their own, by connection id and never through a group, so that instances on a backplane deliver once. Reads the realtime subscriber of `Inngest` through `InternalsVisibleTo`, takes `RealtimeSubscription` from `Inngest.AspNetCore`, and uses the SignalR of the ASP.NET Core shared framework. No release includes it yet, so its project file clears the package validation baseline. |
+| `Inngest.SignalR` | `AddInngestSignalR`, `MapInngestRealtimeHub` and `InngestRealtimeBridge<THub>`, which forward realtime messages to SignalR clients through `IHubContext<THub>`: clients join through a hub method guarded by a callback, share one subscription per channel and topics, and get each message on a queue of their own, by connection id and never through a group, so that instances on a backplane deliver once. Reads the realtime subscriber of `Inngest` through `InternalsVisibleTo`, takes `RealtimeSubscription` from `Inngest.AspNetCore`, and uses the SignalR of the ASP.NET Core shared framework. |
 | `Inngest.Blazor` | `RealtimeView`, a headless Blazor component, and `IRealtimeSource`, the realtime messages as an async stream, with a source for the server (`AddInngestRealtimeServerSource`, over `IInngestRealtime`) and one for WebAssembly (`AddInngestRealtimeRelaySource`, which reads a `MapInngestRealtime` endpoint). A Razor class library that references `Microsoft.AspNetCore.Components.Web` as a package, not the shared framework, so it runs in the browser. |
 | `Inngest.UserContext` | `AddUserContext`, a middleware that attaches selected claims of the current user to the events an app sends, protected with ASP.NET Core Data Protection, and restores them in runs as `ICurrentUser` and `ClaimsPrincipal`. Depends on `Microsoft.AspNetCore.DataProtection`, which has no framework reference, so workers without ASP.NET Core use it. |
 | `Inngest.UserContext.AspNetCore` | `AddUserContextFromHttpContext`, which takes the user of an event sent while serving a request from `HttpContext.User`. Uses the ASP.NET Core shared framework. |
@@ -271,11 +271,7 @@ of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exa
 same way, so it depends on exactly the `Inngest.AspNetCore` of its own version too, as `Inngest.AspNetCore` does on the
 `Inngest.Webhooks` whose internal receiver `MapInngestWebhook` uses. Package validation compares every
 package with the last release on nuget.org, so `dotnet pack` fails on a change that would break code built against it;
-`PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after each release. `Inngest.Encryption`,
-`Inngest.Sentry`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, the two `Inngest.Testing.Containers` packages,
-`Inngest.Templates`, `dotnet-inngest`, `Inngest.AwsLambda`, `Inngest.AzureFunctions`, `Inngest.Blazor`, `Inngest.SignalR`,
-`Inngest.UserContext`, `Inngest.UserContext.AspNetCore` and `Inngest.Webhooks` have no release to compare with yet, so
-their project files clear the baseline until their first one.
+`PackageValidationBaselineVersion` in `src/Directory.Build.props` is raised after each release.
 Every package with an assembly is `IsAotCompatible` except four. The two container packages: Testcontainers and
 `Microsoft.AspNetCore.Mvc.Testing` are built on reflection, and the packages are for test projects, which are neither
 trimmed nor compiled ahead of time. `Inngest.EntityFrameworkCore`: the constructors of EF Core's `DbContext` require
@@ -283,8 +279,8 @@ unreferenced and dynamic code. And `Inngest.Aspire.Hosting`, below.
 
 `Inngest.Aspire.Hosting` is a different kind of package: it runs in the AppHost, not in the app, so it does not
 reference `Inngest` and is not pinned to its version. It is not `IsAotCompatible`, because `Aspire.Hosting` declares
-neither trimming nor Native AOT support and an AppHost is never published as a native binary. Its project file clears
-the baseline too. Aspire reserves the `Aspire.` prefix on nuget.org, hence the name.
+neither trimming nor Native AOT support and an AppHost is never published as a native binary. Aspire
+reserves the `Aspire.` prefix on nuget.org, hence the name.
 
 ### Code layout
 
