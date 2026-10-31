@@ -65,7 +65,6 @@ public sealed class SignalRConnectionTests
     public async Task Only_the_clients_that_joined_receive_it_and_each_receives_it_once()
     {
         var feed = new SseFeed();
-        _api.Answer(feed);
         await using var app = await StartAsync();
         await using var first = new Client(app);
         await using var second = new Client(app);
@@ -74,6 +73,11 @@ public sealed class SignalRConnectionTests
         await second.StartAsync();
         await bystander.StartAsync();
         await first.Connection.InvokeAsync("Subscribe", Order, new[] { "status" }, Cancel);
+
+        // The feed goes to the subscription of [status] alone. The one of [status, tokens] opens on a task of its own as
+        // well, and given the only answer it would take the feed away with it when it closes.
+        await Wait.UntilAsync(() => _api.Subscriptions.Count == 1);
+        _api.Answer(feed);
         await second.Connection.InvokeAsync("Subscribe", Order, new[] { "status", "tokens" }, Cancel);
         await second.Connection.InvokeAsync("Unsubscribe", Order, new[] { "status", "tokens" }, Cancel);
         await second.Connection.InvokeAsync("Subscribe", Order, new[] { "status" }, Cancel);
@@ -157,6 +161,10 @@ public sealed class SignalRConnectionTests
         await client.StartAsync();
         var firstId = client.Connection.ConnectionId;
         await client.Connection.InvokeAsync("Subscribe", Order, new[] { "status" }, Cancel);
+
+        // The subscription opens on a task of its own. It has to take the first answer before the client leaves, or the
+        // subscription after the reconnect would be given it instead of the second.
+        await Wait.UntilAsync(() => _api.Subscriptions.Count == 1);
         await client.Connection.StopAsync(Cancel);
         await Wait.UntilAsync(() => _api.Subscriptions[0].IsCancellationRequested);
 

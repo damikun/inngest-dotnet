@@ -114,14 +114,29 @@ internal static class Wait
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
+    // A condition that throws is not met yet, such as one that reads a subscription the bridge has still to open on a
+    // task of its own; the last failure goes into the timeout.
     public static async Task UntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + Timeout;
-        while (!condition())
+        Exception? failure = null;
+        while (true)
         {
+            try
+            {
+                if (condition())
+                {
+                    return;
+                }
+            }
+            catch (Exception exception) when (exception is ArgumentOutOfRangeException or InvalidOperationException)
+            {
+                failure = exception;
+            }
+
             if (DateTime.UtcNow > deadline)
             {
-                throw new TimeoutException("The condition was not met in time.");
+                throw new TimeoutException("The condition was not met in time.", failure);
             }
 
             await Task.Delay(10, TestContext.Current.CancellationToken);
