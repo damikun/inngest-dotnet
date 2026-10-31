@@ -99,7 +99,8 @@ public sealed class SdkSettingsTests
 
         var settings = Resolve(_ => { }, variables.GetValueOrDefault);
 
-        variables.Keys.ShouldBe(["INNGEST_DEV"]);
+        variables.Keys.ShouldBe(["INNGEST_DEV", "INNGEST_BASE_URL", "INNGEST_API_BASE_URL", "INNGEST_EVENT_API_BASE_URL"], ignoreOrder: true);
+        variables["INNGEST_DEV"].ShouldBe(Server.AbsoluteUri);
         settings.IsDev.ShouldBeTrue();
         settings.ApiBaseUrl.ShouldBe(Server);
         settings.EventApiBaseUrl.ShouldBe(Server);
@@ -112,11 +113,95 @@ public sealed class SdkSettingsTests
 
         var settings = Resolve(_ => { }, variables.GetValueOrDefault);
 
-        variables.Keys.ShouldBe(["INNGEST_BASE_URL", "INNGEST_SIGNING_KEY", "INNGEST_EVENT_KEY"], ignoreOrder: true);
+        variables.Keys.ShouldBe(
+            ["INNGEST_DEV", "INNGEST_BASE_URL", "INNGEST_API_BASE_URL", "INNGEST_EVENT_API_BASE_URL", "INNGEST_SIGNING_KEY", "INNGEST_EVENT_KEY"],
+            ignoreOrder: true);
+        variables["INNGEST_DEV"].ShouldBe("0");
         settings.IsDev.ShouldBeFalse();
         settings.ApiBaseUrl.ShouldBe(Server);
         settings.EventApiBaseUrl.ShouldBe(Server);
         settings.EventKey.ShouldBe("events-1");
-        settings.SigningKey.ShouldNotBeNull();
+        settings.SigningKey.ShouldNotBeNull().Value.ShouldBe(SigningKey);
+    }
+
+    // What the developer's machine may have set, which a process the test starts inherits. Each set would send the app
+    // somewhere else, or switch signature checks off, if the container's variables did not take precedence.
+    public static TheoryData<string> Machines =>
+    [
+        "cloud",
+        "dev flag",
+        "dev address",
+        "every address",
+    ];
+
+    private static Dictionary<string, string> Machine(string name) => name switch
+    {
+        "cloud" => new()
+        {
+            ["INNGEST_BASE_URL"] = "https://api.inngest.com",
+            ["INNGEST_EVENT_KEY"] = "from-the-machine",
+            ["INNGEST_SIGNING_KEY"] = "signkey-prod-0123456789abcdef",
+        },
+        "dev flag" => new() { ["INNGEST_DEV"] = "1" },
+        "dev address" => new() { ["INNGEST_DEV"] = "http://localhost:8288", ["INNGEST_BASE_URL"] = "http://localhost:8288" },
+        _ => new()
+        {
+            ["INNGEST_DEV"] = "1",
+            ["INNGEST_BASE_URL"] = "https://api.inngest.com",
+            ["INNGEST_API_BASE_URL"] = "https://api.inngest.com",
+            ["INNGEST_EVENT_API_BASE_URL"] = "https://inn.gs",
+            ["INNGEST_EVENT_KEY"] = "from-the-machine",
+            ["INNGEST_SIGNING_KEY"] = "signkey-prod-0123456789abcdef",
+        },
+    };
+
+    // A process starts with its parent's variables, and the container's are set on top of them.
+    private static Func<string, string?> Inherit(string machine, IReadOnlyDictionary<string, string> container)
+    {
+        var environment = Machine(machine);
+        foreach (var (name, value) in container)
+        {
+            environment[name] = value;
+        }
+
+        return environment.GetValueOrDefault;
+    }
+
+    [Theory]
+    [MemberData(nameof(Machines))]
+    public void A_process_that_inherits_other_settings_still_talks_to_the_dev_server(string machine)
+    {
+        var settings = Resolve(_ => { }, Inherit(machine, SdkSettings.ToEnvironment(Server, Dev)));
+
+        settings.IsDev.ShouldBeTrue();
+        settings.ApiBaseUrl.ShouldBe(Server);
+        settings.EventApiBaseUrl.ShouldBe(Server);
+    }
+
+    [Theory]
+    [MemberData(nameof(Machines))]
+    public void A_process_that_inherits_other_settings_still_checks_signatures_against_the_self_hosted_server(string machine)
+    {
+        var settings = Resolve(_ => { }, Inherit(machine, SdkSettings.ToEnvironment(Server, SelfHosted)));
+
+        // An inherited INNGEST_DEV=1 would switch the signature checks off, and the tests would still pass.
+        settings.IsDev.ShouldBeFalse();
+        settings.ApiBaseUrl.ShouldBe(Server);
+        settings.EventApiBaseUrl.ShouldBe(Server);
+        settings.EventKey.ShouldBe("events-1");
+        settings.SigningKey.ShouldNotBeNull().Value.ShouldBe(SigningKey);
+    }
+
+    [Fact]
+    public void Variables_the_container_does_not_set_still_apply()
+    {
+        // The guide says so: the container owns the mode, the addresses and the keys, and nothing else.
+        var environment = new Dictionary<string, string> { ["INNGEST_SERVE_ORIGIN"] = "http://shop.test:5000" };
+        foreach (var (name, value) in SdkSettings.ToEnvironment(Server, Dev))
+        {
+            environment[name] = value;
+        }
+
+        Resolve(_ => { }, environment.GetValueOrDefault).ServeOrigin.ShouldBe(new Uri("http://shop.test:5000"));
     }
 }

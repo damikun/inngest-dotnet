@@ -23,14 +23,32 @@ internal static class SdkSettings
         }
     }
 
-    // INNGEST_DEV carries the address of a dev server, as the SDKs of every language read it.
-    public static IReadOnlyDictionary<string, string> ToEnvironment(Uri baseAddress, InngestServerConfiguration configuration) =>
-        configuration.SelfHosted
-            ? new Dictionary<string, string>
-            {
-                ["INNGEST_BASE_URL"] = baseAddress.AbsoluteUri,
-                ["INNGEST_SIGNING_KEY"] = configuration.SigningKey!,
-                ["INNGEST_EVENT_KEY"] = configuration.EventKey!,
-            }
-            : new Dictionary<string, string> { ["INNGEST_DEV"] = baseAddress.AbsoluteUri };
+    // The variables are meant for a process that inherits its parent's, so each one the machine may have set to something
+    // that would win is set here too. The SDK reads the address of the API from INNGEST_API_BASE_URL, then
+    // INNGEST_BASE_URL, then the dev server's address, and that of the event API from INNGEST_EVENT_API_BASE_URL first,
+    // and INNGEST_DEV decides the mode: 0 for cloud mode, with signatures checked, or the address of the dev server.
+    // Those are the names of every Inngest SDK.
+    public static IReadOnlyDictionary<string, string> ToEnvironment(Uri baseAddress, InngestServerConfiguration configuration)
+    {
+        var address = baseAddress.AbsoluteUri;
+        var variables = new Dictionary<string, string>
+        {
+            ["INNGEST_BASE_URL"] = address,
+            ["INNGEST_API_BASE_URL"] = address,
+            ["INNGEST_EVENT_API_BASE_URL"] = address,
+        };
+
+        if (configuration.SelfHosted)
+        {
+            variables["INNGEST_DEV"] = "0";
+            variables["INNGEST_SIGNING_KEY"] = configuration.SigningKey!;
+            variables["INNGEST_EVENT_KEY"] = configuration.EventKey!;
+        }
+        else
+        {
+            variables["INNGEST_DEV"] = address;
+        }
+
+        return variables;
+    }
 }
