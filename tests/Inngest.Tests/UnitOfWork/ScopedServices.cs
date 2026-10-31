@@ -57,6 +57,8 @@ internal sealed class ScopeLog
 
 internal abstract class ScopedProbe
 {
+    private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     protected ScopedProbe(ScopeLog log)
     {
         Log = log;
@@ -69,18 +71,25 @@ internal abstract class ScopedProbe
     // 1 for the first instance made, in the order the log saw them.
     public int Number { get; }
 
-    public bool IsDisposed { get; protected set; }
+    public bool IsDisposed { get; private set; }
+
+    // Completes once the instance is disposed. A call that is canceled ends without waiting for a handler that is still
+    // unwinding, so a test of that waits here before it looks at the log.
+    public Task WhenDisposed => _disposed.Task;
 
     protected ScopeLog Log { get; }
+
+    protected void MarkDisposed()
+    {
+        IsDisposed = true;
+        Log.Disposed(this);
+        _disposed.TrySetResult();
+    }
 }
 
 internal sealed class Probe(ScopeLog log) : ScopedProbe(log), IDisposable
 {
-    public void Dispose()
-    {
-        IsDisposed = true;
-        Log.Disposed(this);
-    }
+    public void Dispose() => MarkDisposed();
 }
 
 // Disposable only asynchronously, as a DbContext may be.
@@ -88,8 +97,7 @@ internal sealed class AsyncProbe(ScopeLog log) : ScopedProbe(log), IAsyncDisposa
 {
     public ValueTask DisposeAsync()
     {
-        IsDisposed = true;
-        Log.Disposed(this);
+        MarkDisposed();
         return ValueTask.CompletedTask;
     }
 }
@@ -98,8 +106,7 @@ internal sealed class ThrowingProbe(ScopeLog log) : ScopedProbe(log), IDisposabl
 {
     public void Dispose()
     {
-        IsDisposed = true;
-        Log.Disposed(this);
+        MarkDisposed();
         throw new InvalidOperationException("disposal failed");
     }
 }

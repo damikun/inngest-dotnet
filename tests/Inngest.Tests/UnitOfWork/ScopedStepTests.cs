@@ -75,9 +75,10 @@ public sealed class ScopedStepTests : IDisposable
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Probe? probe = null;
         var function = TestFunction.Define(async context => await context.Step.RunScopedAsync("work", async (services, ct) =>
         {
-            services.GetRequiredService<Probe>();
+            probe = services.GetRequiredService<Probe>();
             inside.SetResult();
             await Task.Delay(Timeout.Infinite, ct);
             return 1;
@@ -90,6 +91,10 @@ public sealed class ScopedStepTests : IDisposable
         await cancellation.CancelAsync();
 
         await Should.ThrowAsync<OperationCanceledException>(call);
+
+        // The call ends as soon as it is canceled, without waiting for the handler to unwind, so the scope can still be
+        // open here. It is disposed once the handler has seen the token.
+        await probe!.WhenDisposed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         _scopes.Timeline.ShouldBe(["create 1", "dispose 1"]);
     }
 
