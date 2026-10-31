@@ -374,7 +374,7 @@ function banner(c: BannerColors): string {
   // The facts, each after a coral dot, in two centered rows.
   const rows = [
     ['.NET 8 and .NET 10', 'ASP.NET Core or Connect', 'Native AOT'],
-    ['3,144 unit tests', '327 end-to-end tests', 'Apache 2.0'],
+    ['3,716 unit tests', '351 end-to-end tests', 'Apache 2.0'],
   ];
   const size = 13;
   const tracking = size * 0.04;
