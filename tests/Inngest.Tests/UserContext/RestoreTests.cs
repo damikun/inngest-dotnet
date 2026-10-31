@@ -401,6 +401,33 @@ public sealed class RestoreTests
     }
 
     [Fact]
+    public async Task A_scoped_step_sees_the_same_user_as_the_function()
+    {
+        await using var app = NewApp();
+        var function = TestFunction.Define(async context =>
+            await context.Step.RunScopedAsync("scoped", (services, _) =>
+            {
+                var user = services.GetRequiredService<ICurrentUser>();
+                return Task.FromResult(new
+                {
+                    OwnScope = !ReferenceEquals(services, context.Services),
+                    user.IsAuthenticated,
+                    Name = user.Principal.Identity?.Name,
+                    FromThePrincipalService = services.GetRequiredService<ClaimsPrincipal>().Claims.Count(),
+                });
+            }));
+
+        var result = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        result.OpCodes.ShouldBe(["StepRun"]);
+        var data = result.Op().GetProperty("data");
+        data.GetProperty("ownScope").GetBoolean().ShouldBeTrue();
+        data.GetProperty("isAuthenticated").GetBoolean().ShouldBeTrue();
+        data.GetProperty("name").GetString().ShouldBe("Ada Lovelace");
+        data.GetProperty("fromThePrincipalService").GetInt32().ShouldBe(5);
+    }
+
+    [Fact]
     public async Task A_singleton_and_code_run_off_the_scheduler_see_the_user_of_the_run_that_calls_them()
     {
         await using var app = NewApp(inngest: inngest => inngest.Services.AddSingleton<Audit>());
