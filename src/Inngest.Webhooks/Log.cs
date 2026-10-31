@@ -26,13 +26,13 @@ internal static partial class Log
     [LoggerMessage(EventId = 705, Level = LogLevel.Debug, Message = "Sent event {EventName} with id {EventId} for a {Provider} webhook")]
     public static partial void Sent(ILogger logger, string provider, string eventName, string? eventId);
 
-    [LoggerMessage(EventId = 706, Level = LogLevel.Error, Message = "Could not send the event of a {Provider} webhook to Inngest. The webhook is answered with a failure, so the provider delivers it again.")]
+    [LoggerMessage(EventId = 706, Level = LogLevel.Error, Message = "Could not send the event of a {Provider} webhook to Inngest. The webhook is answered with a failure, so a provider that retries delivers it again.")]
     public static partial void SendFailed(ILogger logger, Exception exception, string provider);
 
-    [LoggerMessage(EventId = 707, Level = LogLevel.Error, Message = "Inngest did not accept the event of a {Provider} webhook within {Timeout}. The webhook is answered with a failure, so the provider delivers it again.")]
+    [LoggerMessage(EventId = 707, Level = LogLevel.Error, Message = "Inngest did not accept the event of a {Provider} webhook within {Timeout}. The webhook is answered with a failure, so a provider that retries delivers it again.")]
     public static partial void SendTimedOut(ILogger logger, string provider, TimeSpan timeout);
 
-    [LoggerMessage(EventId = 708, Level = LogLevel.Warning, Message = "Rejected a {Provider} webhook whose event Inngest's client refused: {Reason}")]
+    [LoggerMessage(EventId = 708, Level = LogLevel.Error, Message = "The event of a {Provider} webhook will never be accepted: {Reason}. Delivering the webhook again fails the same way, so it is answered with a client error.")]
     public static partial void EventRefused(ILogger logger, string provider, string reason);
 
     [LoggerMessage(EventId = 709, Level = LogLevel.Error, Message = "The verifier or the transform of the {Provider} webhook threw an exception")]

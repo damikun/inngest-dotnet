@@ -78,18 +78,11 @@ internal sealed class WebhookReceiver
             return WebhookOutcome.BadRequest;
         }
 
-        // The event holds elements of the document, so it lives until the event has been sent.
+        // The document reads the body in place, and the event is made of its elements, so it lives until the send is over.
         using (document)
         {
             var delivery = new WebhookDelivery(provider, verification.DeliveryId, document.RootElement, request);
-            try
-            {
-                return await SendAsync(delivery, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                delivery.Release();
-            }
+            return await SendAsync(delivery, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -122,6 +115,15 @@ internal sealed class WebhookReceiver
             return WebhookOutcome.Failed;
         }
 
+        // What the event holds of the request's document is copied, because the event may be kept after the request: by the
+        // test host, or by middleware. The pooled body goes back to the pool as soon as the request ends.
+        @event = Owned(@event);
+        if (!CanBeWritten(@event))
+        {
+            Log.EventRefused(_logger, provider, "its payload cannot be written as JSON, for example because a string holds an unpaired surrogate");
+            return WebhookOutcome.Refused;
+        }
+
         using var timeout = new CancellationTokenSource(_options.SendTimeout, _time);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
@@ -130,7 +132,7 @@ internal sealed class WebhookReceiver
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // The provider hung up. It will deliver the webhook again, so nothing is lost.
+            // The provider hung up. A provider that retries delivers the webhook again, so nothing is lost.
             throw;
         }
         catch (OperationCanceledException)
@@ -138,12 +140,18 @@ internal sealed class WebhookReceiver
             Log.SendTimedOut(_logger, provider, _options.SendTimeout);
             return WebhookOutcome.Unavailable;
         }
+        catch (InngestException exception) when (exception.StatusCode is { } status && IsPermanent(status))
+        {
+            // Inngest refused the event itself, such as an event that is too large. A copy of it fails the same way.
+            Log.EventRefused(_logger, provider, exception.Message);
+            return status == StatusCodes.PayloadTooLarge ? WebhookOutcome.PayloadTooLarge : WebhookOutcome.Refused;
+        }
         catch (ArgumentException exception)
         {
             // The client refuses an event it cannot send: a reserved name, or data that is not a JSON object. Sending it
             // again would fail the same way. The message names the problem, not the payload.
             Log.EventRefused(_logger, provider, exception.Message);
-            return WebhookOutcome.BadRequest;
+            return WebhookOutcome.Refused;
         }
         catch (Exception exception)
         {
@@ -153,5 +161,44 @@ internal sealed class WebhookReceiver
 
         Log.Sent(_logger, provider, @event.Name, @event.Id);
         return WebhookOutcome.Accepted;
+    }
+
+    // A client error says the request is wrong, and the same request is wrong again, except when the server only asks to wait
+    // (the statuses the client itself retries).
+    private static bool IsPermanent(int status) => status is >= 400 and < 500 and not (408 or 425 or 429);
+
+    private static InngestEvent Owned(InngestEvent @event) =>
+        @event.Data is JsonElement || @event.User is JsonElement
+            ? @event with { Data = Owned(@event.Data), User = Owned(@event.User) }
+            : @event;
+
+    private static object? Owned(object? value) => value is JsonElement element ? element.Clone() : value;
+
+    // A string with an unpaired surrogate escape parses, and then no client can write it as JSON, so it would fail every
+    // attempt. Writing it once here tells that apart from a send that failed.
+    private static bool CanBeWritten(InngestEvent @event) => CanBeWritten(@event.Data) && CanBeWritten(@event.User);
+
+    private static bool CanBeWritten(object? value)
+    {
+        if (value is not JsonElement element)
+        {
+            return true;
+        }
+
+        try
+        {
+            using var writer = new Utf8JsonWriter(Stream.Null);
+            element.WriteTo(writer);
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static class StatusCodes
+    {
+        public const int PayloadTooLarge = 413;
     }
 }

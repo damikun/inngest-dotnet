@@ -21,8 +21,12 @@ internal enum WebhookOutcome
     // The signature is valid but the body is not JSON, or is not something an event can be made of.
     BadRequest,
 
-    // Inngest did not accept the event in time, or at all. The provider delivers the webhook again, and the delivery id
-    // makes the new attempt a duplicate if the first one got through after all.
+    // The event was made but will never be accepted: Inngest or its client refuses it, or its payload cannot be written as
+    // JSON. Delivering the webhook again fails the same way, so the answer is a client error, not a failure to try again.
+    Refused,
+
+    // Inngest did not accept the event in time, or failed in a way that may pass. A provider that retries delivers the
+    // webhook again, and the delivery id makes the new attempt a duplicate if the first one got through after all.
     Unavailable,
 
     // The verifier or the transform threw.
@@ -37,7 +41,7 @@ internal static class WebhookOutcomes
         WebhookOutcome.Skipped => 204,
         WebhookOutcome.Unauthorized => 401,
         WebhookOutcome.PayloadTooLarge => 413,
-        WebhookOutcome.BadRequest => 400,
+        WebhookOutcome.BadRequest or WebhookOutcome.Refused => 400,
         WebhookOutcome.Unavailable => 503,
         _ => 500,
     };

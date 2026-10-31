@@ -9,9 +9,11 @@ namespace Inngest;
 /// the app's client secret.
 /// </summary>
 /// <remarks>
-/// Shopify signs the body and nothing else: a delivery has no signed timestamp, <c>X-Shopify-Triggered-At</c> is not
-/// covered by the signature, and neither is <c>X-Shopify-Webhook-Id</c>, the id of the delivery. After the client secret
-/// is rotated the signatures can take up to an hour to change, so give both secrets for that time.
+/// Shopify signs the body and nothing else. A delivery has no signed timestamp, and no header is covered by the
+/// signature: not <c>X-Shopify-Triggered-At</c>, not <c>X-Shopify-Topic</c>, which names the event, not
+/// <c>X-Shopify-Webhook-Id</c>, which becomes its id, and not <c>X-Shopify-Shop-Domain</c>. Anyone who holds one captured
+/// delivery can send it again under another topic, id or shop. After the client secret is rotated the signatures can take
+/// up to an hour to change, so give both secrets for that time.
 /// </remarks>
 public sealed class ShopifyWebhookVerifier : IWebhookVerifier
 {

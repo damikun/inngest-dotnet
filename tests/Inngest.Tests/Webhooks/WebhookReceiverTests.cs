@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.Json;
 using Inngest.Tests.Execution;
 using Inngest.Webhooks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 
 namespace Inngest.Tests.Webhooks;
@@ -192,17 +194,110 @@ public sealed class WebhookReceiverTests
 
         outcome.ShouldBe(WebhookOutcome.Unavailable);
         outcome.StatusCode().ShouldBe(503);
-        _logger.Collector.GetSnapshot().ShouldContain(record => record.Level == Microsoft.Extensions.Logging.LogLevel.Error && record.Exception == _client.Fail);
+        _logger.Collector.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Error && record.Exception == _client.Fail);
     }
 
     [Fact]
-    public async Task An_event_the_client_refuses_is_a_bad_request_because_sending_it_again_would_fail_the_same_way()
+    public async Task An_event_the_client_refuses_is_refused_with_a_client_error_because_sending_it_again_would_fail_the_same_way()
     {
         _client.Fail = new ArgumentException("The event name 'inngest/x' is reserved.");
 
         var outcome = await Receiver().ReceiveAsync(StripeRequest(), Cancellation);
 
-        outcome.ShouldBe(WebhookOutcome.BadRequest);
+        outcome.ShouldBe(WebhookOutcome.Refused);
+        outcome.StatusCode().ShouldBe(400);
+        _logger.Collector.GetSnapshot().Where(record => record.Level == LogLevel.Error).ShouldHaveSingleItem()
+            .Message.ShouldContain("fails the same way");
+    }
+
+    [Theory]
+    [InlineData(400, 400)]
+    [InlineData(401, 400)]
+    [InlineData(403, 400)]
+    [InlineData(404, 400)]
+    [InlineData(409, 400)]
+    [InlineData(412, 400)]
+    [InlineData(422, 400)]
+    [InlineData(413, 413)]
+    [InlineData(408, 503)]
+    [InlineData(425, 503)]
+    [InlineData(429, 503)]
+    [InlineData(500, 503)]
+    [InlineData(502, 503)]
+    [InlineData(503, 503)]
+    [InlineData(504, 503)]
+    public async Task What_Inngest_answers_decides_whether_delivering_the_webhook_again_could_help(int status, int answered)
+    {
+        _client.Fail = new InngestException($"Inngest API error: {status}", status);
+
+        var outcome = await Receiver().ReceiveAsync(StripeRequest(), Cancellation);
+
+        outcome.StatusCode().ShouldBe(answered);
+    }
+
+    [Fact]
+    public async Task A_failure_that_names_no_status_is_one_that_may_pass()
+    {
+        _client.Fail = new InngestException("Could not reach Inngest to send events: connection refused");
+
+        (await Receiver().ReceiveAsync(StripeRequest(), Cancellation)).ShouldBe(WebhookOutcome.Unavailable);
+    }
+
+    [Fact]
+    public async Task Inngest_saying_the_event_is_too_large_is_answered_with_413_and_logged_as_an_error_that_will_repeat()
+    {
+        _client.Fail = new InngestException("Inngest API error: 413 Event payload too large", 413);
+
+        var outcome = await Receiver().ReceiveAsync(StripeRequest(), Cancellation);
+
+        outcome.StatusCode().ShouldBe(413);
+        _logger.Collector.GetSnapshot().Where(record => record.Level == LogLevel.Error).ShouldHaveSingleItem()
+            .Message.ShouldContain("fails the same way");
+    }
+
+    [Fact]
+    public async Task A_payload_with_an_unpaired_surrogate_parses_but_cannot_be_written_and_is_refused_without_a_send()
+    {
+        var request = SignedStripe("""{"id":"evt_1","type":"invoice.paid","data":{"object":{"note":"\ud83d"}}}""");
+
+        var outcome = await Receiver().ReceiveAsync(request, Cancellation);
+
+        outcome.ShouldBe(WebhookOutcome.Refused);
+        outcome.StatusCode().ShouldBe(400);
+        _client.Sent.ShouldBeEmpty();
+        _logger.Collector.GetSnapshot().Where(record => record.Level == LogLevel.Error).ShouldHaveSingleItem()
+            .Message.ShouldContain("surrogate");
+    }
+
+    [Fact]
+    public async Task The_event_that_was_sent_can_be_kept_and_read_after_the_request_has_ended()
+    {
+        await Receiver().ReceiveAsync(StripeRequest(), Cancellation);
+
+        // The document that read the body is gone by now, and in a host the pooled body too.
+        var kept = _client.Events.ShouldHaveSingleItem();
+        var data = (JsonElement)kept.Data!;
+        data.GetProperty("data").GetProperty("object").GetProperty("note").GetString().ShouldBe("private-note-7731");
+        JsonSerializer.Serialize(kept.Data).ShouldBe(Body);
+    }
+
+    [Fact]
+    public async Task What_a_transform_takes_from_the_payload_can_be_kept_too()
+    {
+        var options = new WebhookOptions
+        {
+            Transform = (delivery, @event) => @event with
+            {
+                Data = delivery.Payload.GetProperty("data"),
+                User = delivery.Payload.GetProperty("data").GetProperty("object"),
+            },
+        };
+
+        await Receiver(options: options).ReceiveAsync(StripeRequest(), Cancellation);
+
+        var kept = _client.Events.ShouldHaveSingleItem();
+        ((JsonElement)kept.Data!).GetProperty("object").GetProperty("id").GetString().ShouldBe("in_1");
+        ((JsonElement)kept.User!).GetProperty("note").GetString().ShouldBe("private-note-7731");
     }
 
     [Fact]

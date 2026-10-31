@@ -22,10 +22,13 @@ public static class InngestWebhookEndpointRouteBuilderExtensions
     /// the delivery, so that a delivery sent again is not run twice. The answer comes as soon as Inngest has accepted the
     /// event, and has no body: 200 when the event was sent, 204 when <see cref="WebhookOptions.Transform"/> dropped the
     /// delivery, 401 when the signature is missing or wrong or the timestamp is out of range, 413 when the body is over
-    /// <see cref="WebhookOptions.MaxBodySize"/>, 400 when the payload is not JSON or not something an event can be made of,
-    /// and 503 when Inngest does not accept the event, so that the provider delivers the webhook again. Nothing waits for
-    /// runs. The endpoint allows anonymous callers, since a webhook proves who sent it with its signature, which fails
-    /// closed. Rate limiting and an address allow list are the app's to add to the result.
+    /// <see cref="WebhookOptions.MaxBodySize"/> or Inngest refuses the event as too large, 400 when the payload is not
+    /// JSON, is not something an event can be made of, or is an event Inngest or its client will never accept, and 503
+    /// when Inngest does not accept the event in time or fails in a way that may pass, so that a provider that retries
+    /// delivers the webhook again. Nothing waits for runs. The endpoint allows anonymous callers, since a webhook proves
+    /// who sent it with its signature, which fails closed. Rate limiting and an address allow list are the app's to add to
+    /// the result. GitHub and Shopify sign the body only: the event name and the id come from headers that anyone who
+    /// holds one captured delivery can change.
     /// </summary>
     public static IEndpointConventionBuilder MapInngestWebhook(
         this IEndpointRouteBuilder endpoints,

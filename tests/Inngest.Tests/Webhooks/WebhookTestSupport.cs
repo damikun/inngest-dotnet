@@ -61,8 +61,21 @@ internal sealed record SentEvent(string Name, string? Id, string DataJson);
 internal sealed class RecordingInngestClient : IInngestClient
 {
     private readonly List<SentEvent> _sent = [];
+    private readonly List<InngestEvent> _events = [];
 
     public string AppId => "test";
+
+    // The events themselves, as the test host and middleware keep them, to be read after the request has ended.
+    public IReadOnlyList<InngestEvent> Events
+    {
+        get
+        {
+            lock (_sent)
+            {
+                return [.. _events];
+            }
+        }
+    }
 
     public IReadOnlyList<SentEvent> Sent
     {
@@ -107,6 +120,7 @@ internal sealed class RecordingInngestClient : IInngestClient
         lock (_sent)
         {
             _sent.Add(new SentEvent(@event.Name, @event.Id, json));
+            _events.Add(@event);
         }
 
         return new SendEventsResult(["01HQ0000000000000000000001"]);

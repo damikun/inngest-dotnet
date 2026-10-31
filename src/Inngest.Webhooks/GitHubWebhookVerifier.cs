@@ -9,9 +9,11 @@ namespace Inngest;
 /// the body, keyed with the webhook's secret. The older <c>X-Hub-Signature</c>, which uses SHA-1, is ignored.
 /// </summary>
 /// <remarks>
-/// GitHub signs the body and nothing else: a delivery has no signed timestamp, so a captured request verifies for as
-/// long as the secret stays the same, and the headers, <c>X-GitHub-Delivery</c> among them, are not covered by the
-/// signature. Several secrets can be given so that a secret can be replaced without downtime.
+/// GitHub signs the body and nothing else. A delivery has no signed timestamp, so a captured request verifies for as
+/// long as the secret stays the same. The headers are not covered by the signature: <c>X-GitHub-Event</c>, which names
+/// the event, and <c>X-GitHub-Delivery</c>, which becomes its id, can be changed by anyone who holds one captured
+/// delivery, who can then send it again under another event name or id. Several secrets can be given so that a secret can
+/// be replaced without downtime.
 /// </remarks>
 public sealed class GitHubWebhookVerifier : IWebhookVerifier
 {

@@ -10,7 +10,8 @@ public interface IWebhookRequest
 {
     /// <summary>
     /// The body exactly as it arrived. Signatures are computed over these bytes, so a body that was parsed and written
-    /// again does not verify.
+    /// again does not verify. The host owns the memory, and the SDK reads it in place without copying it: keep it unchanged
+    /// until the request has been handled. After that the host may reuse or clear it, so copy what must outlive the request.
     /// </summary>
     ReadOnlyMemory<byte> Body { get; }
 

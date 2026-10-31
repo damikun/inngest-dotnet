@@ -45,7 +45,9 @@ public sealed record HmacWebhookOptions
 
     /// <summary>
     /// The header that carries the id of the delivery, such as <c>X-GitHub-Delivery</c>, which becomes the id of the
-    /// event so that a delivery sent again is not run twice. Null for a provider without one.
+    /// event so that a delivery sent again is not run twice. A delivery without it is answered with 400. The signed text does
+    /// not include this header, so whoever holds one captured request can send it again under another id. Null for a
+    /// provider without one, whose events then have no id.
     /// </summary>
     public string? DeliveryIdHeader { get; init; }
 }

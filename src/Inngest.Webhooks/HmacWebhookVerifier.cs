@@ -11,9 +11,12 @@ namespace Inngest;
 /// <remarks>
 /// A header can hold several signatures, and several secrets can be given, so that a secret can be replaced without
 /// downtime: a request is accepted when any signature matches any of the secrets. Secrets are used as the text they are
-/// written as. Without a <see cref="HmacWebhookOptions.TimestampHeader"/> nothing in the request says when it was sent,
-/// so a captured request is accepted again for as long as the secret stays the same; the id of the event is then what
-/// stops it from running twice, for as long as Inngest keeps ids.
+/// written as. Without a <see cref="HmacWebhookOptions.TimestampHeader"/> nothing signed says when the request was sent,
+/// so a captured request is accepted again for as long as the secret stays the same. If
+/// <see cref="HmacWebhookOptions.DeliveryIdHeader"/> is set, its value becomes the id of the event, and Inngest drops a
+/// second event with the same id for 24 hours; but the signed text does not include that header, so whoever holds one
+/// captured request can send it again under another id. Without an id header the events have no id and nothing
+/// deduplicates them.
 /// </remarks>
 public sealed class HmacWebhookVerifier : IWebhookVerifier
 {
