@@ -3,7 +3,7 @@ using Amazon.Lambda.APIGatewayEvents;
 
 [JsonSerializable(typeof(UserSignedUp))]
 [JsonSerializable(typeof(Welcome))]
-internal sealed partial class ShopJson : JsonSerializerContext;
+internal sealed partial class FunctionJson : JsonSerializerContext;
 
 [JsonSerializable(typeof(APIGatewayHttpApiV2ProxyRequest))]
 [JsonSerializable(typeof(APIGatewayHttpApiV2ProxyResponse))]

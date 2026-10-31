@@ -149,7 +149,7 @@ services
     .AddInngest(options =>
     {
         options.AppId = "shop";
-        options.SerializerOptions.TypeInfoResolverChain.Insert(0, ShopJson.Default);
+        options.SerializerOptions.TypeInfoResolverChain.Insert(0, FunctionJson.Default);
     })
     .AddFunction<SendWelcomeEmail>();
 
@@ -169,7 +169,7 @@ using Amazon.Lambda.APIGatewayEvents;
 
 [JsonSerializable(typeof(UserSignedUp))]
 [JsonSerializable(typeof(Welcome))]
-internal sealed partial class ShopJson : JsonSerializerContext;
+internal sealed partial class FunctionJson : JsonSerializerContext;
 
 [JsonSerializable(typeof(APIGatewayHttpApiV2ProxyRequest))]
 [JsonSerializable(typeof(APIGatewayHttpApiV2ProxyResponse))]

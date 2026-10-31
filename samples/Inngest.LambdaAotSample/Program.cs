@@ -12,7 +12,7 @@ services
     .AddInngest(options =>
     {
         options.AppId = "shop";
-        options.SerializerOptions.TypeInfoResolverChain.Insert(0, ShopJson.Default);
+        options.SerializerOptions.TypeInfoResolverChain.Insert(0, FunctionJson.Default);
     })
     .AddFunction<SendWelcomeEmail>();
 
