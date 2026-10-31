@@ -123,7 +123,8 @@ public sealed class FetchStepTests : IDisposable
         var result = await _host.CallAsync(function, Call.New().Data("get-user", """{"body":"x"}"""));
 
         result.StatusCode.ShouldBe(500);
-        result.Json.GetProperty("message").GetString().ShouldBe("The stored result of fetch step \"get-user\" has no \"status_code\".");
+        result.Json.GetProperty("message").GetString().ShouldBe(
+            "The result of step \"get-user\" could not be read as HttpResponseMessage: The stored result has no \"status_code\".");
     }
 
     private Task<CallResult> Report(Func<IStepTools, Task> step) =>

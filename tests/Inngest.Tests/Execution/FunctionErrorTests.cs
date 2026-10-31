@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Inngest.Functions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -36,6 +37,63 @@ public sealed class FunctionErrorTests : IDisposable
         result.NoRetry.ShouldBe(true);
         result.Json.GetProperty("name").GetString().ShouldBe("JsonException");
         result.Json.TryGetProperty("type", out _).ShouldBeFalse();
+    }
+
+    // Unlike an event, a stored step result was written by the code itself, so one that no longer fits usually means the
+    // code changed while the run was in flight. It is retried, so that a fix deployed in time lets the run go on.
+    [Fact]
+    public async Task A_stored_step_result_that_does_not_fit_its_type_names_the_step_and_is_retried()
+    {
+        var result = await _host.CallAsync(LoadsOrder(), Call.New().Data("load", """{"total":"not a number"}"""));
+
+        result.StatusCode.ShouldBe(500);
+        result.NoRetry.ShouldBe(false);
+        result.Json.GetProperty("name").GetString().ShouldBe("JsonException");
+        var message = result.Json.GetProperty("message").GetString()!;
+        message.ShouldStartWith("The result of step \"load\" could not be read as Order: The JSON value could not be converted to ");
+        message.ShouldContain("Path: $.total");
+        result.Json.GetProperty("cause").GetProperty("name").GetString().ShouldBe("JsonException");
+    }
+
+    [Fact]
+    public async Task On_the_last_attempt_a_stored_step_result_that_does_not_fit_fails_the_run()
+    {
+        var result = await _host.CallAsync(LoadsOrder(), Call.New().Attempt(3, maxAttempts: 4).Data("load", """{"total":"not a number"}"""));
+
+        result.StatusCode.ShouldBe(400);
+        result.NoRetry.ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task A_function_can_catch_a_stored_step_result_that_does_not_fit()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            try
+            {
+                return (await context.Step.RunAsync("load", _ => Task.FromResult(new Order(1)))).Total;
+            }
+            catch (JsonException)
+            {
+                return "caught";
+            }
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("load", """{"total":"not a number"}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Json.GetString().ShouldBe("caught");
+    }
+
+    [Fact]
+    public async Task A_stored_step_result_that_does_not_fit_names_a_generic_type_with_its_arguments()
+    {
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("counts", _ => Task.FromResult(new Dictionary<string, int?>())));
+
+        var result = await _host.CallAsync(function, Call.New().Data("counts", """{"a":"x"}"""));
+
+        result.Json.GetProperty("message").GetString()!.ShouldStartWith(
+            "The result of step \"counts\" could not be read as Dictionary<String, Int32?>: ");
     }
 
     [Fact]
@@ -89,6 +147,9 @@ public sealed class FunctionErrorTests : IDisposable
 
         result.StatusCode.ShouldBe(200);
     }
+
+    private static FunctionDefinition LoadsOrder() =>
+        TestFunction.Define(async context => (await context.Step.RunAsync("load", _ => Task.FromResult(new Order(1)))).Total);
 
     public sealed record Order(int Total);
 }

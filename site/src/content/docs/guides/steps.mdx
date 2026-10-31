@@ -102,6 +102,13 @@ on the call that ran the step too, so the function always sees the result the sa
 round-trip through `System.Text.Json`: records, DTOs, primitives, lists. Do not return services, streams, or
 entities with navigation properties.
 
+A run keeps the results its steps returned, and every later call reads them with the code deployed then. When a change
+to a step's result type leaves stored JSON that no longer fits it, such as a property that became a number, the runs in
+flight fail when they reach that step. The error names the step and the type, and the run is retried as for any other
+error, so a fix or a rollback deployed before the retries run out lets those runs go on. To change what a step returns,
+keep the new type able to read the old JSON, or give the step a new id, so that runs in flight run it again instead of
+reading the old result.
+
 Results count toward Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits): a few MiB per step
 and in total per run. Store large data elsewhere and return a reference to it.
 

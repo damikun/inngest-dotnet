@@ -254,15 +254,50 @@ internal abstract class FoundStep<T>(string id) : FoundStep(id)
     protected abstract T Read(JsonElement value, JsonSerializerOptions options);
 
     // Reads the memoized result once the payload transforms of the call's middleware, when it has any, have
-    // rewritten it. Read copies what it needs, so the rewritten JSON is released right away.
+    // rewritten it. Read copies what it needs, so the rewritten JSON is released right away. A result that does not fit
+    // the step's type, usually because the code changed while the run was in flight, fails the function like any other
+    // error, and is retried, so that a fix deployed in time lets the run go on. The serializer's message gives the type
+    // and the path but not the step, so the step is named here.
     private T ReadData(JsonElement value, JsonSerializerOptions options)
     {
-        if (Owner.Transforms is not { } transforms)
+        try
         {
-            return Read(value, options);
+            if (Owner.Transforms is not { } transforms)
+            {
+                return Read(value, options);
+            }
+
+            using var transformed = transforms.TransformStepResult(CreateInfo(memoized: true), value);
+            return Read(transformed.Value, options);
+        }
+        catch (JsonException exception)
+        {
+            throw new JsonException(Unreadable(exception), exception.Path, exception.LineNumber, exception.BytePositionInLine, exception);
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new NotSupportedException(Unreadable(exception), exception);
+        }
+    }
+
+    private string Unreadable(Exception exception) =>
+        $"The result of step \"{FinalId}\" could not be read as {TypeName(typeof(T))}: {exception.Message}";
+
+    // The name of a type with its type arguments: List<Order> rather than List`1, and Int32? rather than Nullable`1.
+    private static string TypeName(Type type)
+    {
+        if (Nullable.GetUnderlyingType(type) is { } underlying)
+        {
+            return TypeName(underlying) + "?";
         }
 
-        using var transformed = transforms.TransformStepResult(CreateInfo(memoized: true), value);
-        return Read(transformed.Value, options);
+        if (!type.IsGenericType)
+        {
+            return type.Name;
+        }
+
+        var name = type.Name;
+        var tick = name.IndexOf('`', StringComparison.Ordinal);
+        return $"{(tick < 0 ? name : name[..tick])}<{string.Join(", ", type.GetGenericArguments().Select(TypeName))}>";
     }
 }

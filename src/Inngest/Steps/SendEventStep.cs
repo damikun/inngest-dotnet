@@ -58,7 +58,7 @@ internal sealed class SendEventStep(string id, IReadOnlyList<InngestEvent> event
             !value.TryGetProperty("ids", out var ids) ||
             ids.ValueKind != JsonValueKind.Array)
         {
-            throw new JsonException($"The stored result of step \"{FinalId}\" has no \"ids\" array.");
+            throw new JsonException("The stored result has no \"ids\" array.");
         }
 
         var list = new string[ids.GetArrayLength()];

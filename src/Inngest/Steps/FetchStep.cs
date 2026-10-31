@@ -72,7 +72,7 @@ internal sealed class FetchStep(string id, HttpRequestMessage request, KeyValueP
             || !value.TryGetProperty("status_code", out var status)
             || !status.TryGetInt32(out var statusCode))
         {
-            throw new JsonException($"The stored result of fetch step \"{FinalId}\" has no \"status_code\".");
+            throw new JsonException("The stored result has no \"status_code\".");
         }
 
         var text = value.TryGetProperty("body", out var content) && content.ValueKind == JsonValueKind.String
