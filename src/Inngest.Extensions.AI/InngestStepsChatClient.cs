@@ -136,20 +136,14 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
                         publisher?.Write(update.Text);
                     }
                 }
-                catch (Exception exception)
+                finally
                 {
-                    // The stream ends as failed, and the retry of the step streams again from the start.
+                    // The stream ends where the model stopped, also when it failed, and the retry of the step streams again, from the
+                    // start and as a stream of its own.
                     if (publisher is not null)
                     {
-                        await publisher.CompleteAsync(exception).ConfigureAwait(false);
+                        await publisher.CompleteAsync().ConfigureAwait(false);
                     }
-
-                    throw;
-                }
-
-                if (publisher is not null)
-                {
-                    await publisher.CompleteAsync().ConfigureAwait(false);
                 }
 
                 response = updates.ToChatResponse();

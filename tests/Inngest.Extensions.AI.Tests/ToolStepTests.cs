@@ -45,6 +45,45 @@ public sealed class ToolStepTests
     }
 
     [Fact]
+    public async Task A_conversation_that_was_named_carries_its_name_into_the_steps_of_its_tools()
+    {
+        var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "get_weather", "Prague")) : Says("It is sunny in Prague."));
+        var chat = Pipeline(model);
+        var options = new ChatOptions { Tools = [Weather(() => { })] }.WithInngestStepId("plan");
+        await using var host = For(async context => (await chat.GetResponseAsync("What is the weather in Prague?", options)).Text);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Steps.Select(step => step.Id).ShouldBe(["plan", "plan tool get_weather", "plan:1"]);
+    }
+
+    [Fact]
+    public async Task A_result_that_cannot_be_written_as_JSON_fails_the_tool_step_for_good_instead_of_running_the_tool_again()
+    {
+        var invocations = 0;
+        var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "charge", "Prague")) : Says("Charged."));
+        var chat = Pipeline(model);
+
+        // A result that is no JSON and that System.Text.Json refuses to write: System.Type.
+        var charge = AIFunctionFactory.Create(
+            (string city) =>
+            {
+                invocations++;
+                return typeof(int);
+            },
+            new AIFunctionFactoryOptions { Name = "charge", MarshalResult = (result, _, _) => new ValueTask<object?>(result) });
+        await using var host = For(async context => (await chat.GetResponseAsync("Charge", new ChatOptions { Tools = [charge] })).Text, retries: 3);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        invocations.ShouldBe(1);
+        var step = run.GetStep("tool charge");
+        (step.Status, step.Attempts).ShouldBe((TestStepStatus.Failed, 1));
+        step.Error!.Message.ShouldStartWith("The result of tool charge could not be written as JSON");
+    }
+
+    [Fact]
     public async Task The_arguments_are_the_input_of_the_tool_step_and_the_result_is_its_output()
     {
         var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "get_weather", "Prague")) : Says("Done."));

@@ -110,6 +110,127 @@ public sealed class InferChatClientTests
     }
 
     [Fact]
+    public async Task The_schema_of_a_response_format_goes_out_as_it_is_and_without_strict_unless_strict_is_asked_for()
+    {
+        var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
+        await using var host = For(async context =>
+            (await client.GetResponseAsync("Answer", new ChatOptions { ResponseFormat = ChatResponseFormat.ForJsonSchema<Answer>() })).Text);
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Infer("chat", Parse(Hello)), Cancel);
+
+        var format = run.GetStep("chat").Options.GetProperty("body").GetProperty("response_format");
+        format.GetProperty("type").GetString().ShouldBe("json_schema");
+        var jsonSchema = format.GetProperty("json_schema");
+        jsonSchema.GetProperty("name").GetString().ShouldBe("Answer");
+        jsonSchema.TryGetProperty("strict", out _).ShouldBeFalse();
+
+        // The schema Microsoft.Extensions.AI makes of a .NET type is not one that strict mode takes: it allows other
+        // properties, does not require them all, and has keywords that strict mode does not know.
+        var schema = jsonSchema.GetProperty("schema");
+        schema.TryGetProperty("additionalProperties", out _).ShouldBeFalse();
+        schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ShouldBe(["text"]);
+        schema.GetProperty("properties").GetProperty("text").GetProperty("minLength").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Asked_for_strict_the_schemas_are_changed_into_the_dialect_it_takes_as_Microsofts_adapter_does()
+    {
+        var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
+        var forecast = AIFunctionFactory.Create((string city, int days = 3) => $"Sunny in {city} for {days} days", "forecast", "Gets a forecast");
+        await using var host = For(async context => (await client.GetResponseAsync(
+            "Answer",
+            new ChatOptions
+            {
+                ResponseFormat = ChatResponseFormat.ForJsonSchema<Answer>(),
+                Tools = [forecast],
+                AdditionalProperties = new() { ["strict"] = true },
+            })).Text);
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Infer("chat", Parse(Hello)), Cancel);
+
+        var body = run.GetStep("chat").Options.GetProperty("body");
+        var jsonSchema = body.GetProperty("response_format").GetProperty("json_schema");
+        jsonSchema.GetProperty("strict").GetBoolean().ShouldBeTrue();
+        var schema = jsonSchema.GetProperty("schema");
+        schema.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
+        schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ShouldBe(["text", "score"]);
+
+        // What strict mode does not take stays readable to the model, in the description.
+        var text = schema.GetProperty("properties").GetProperty("text");
+        text.TryGetProperty("minLength", out _).ShouldBeFalse();
+        text.GetProperty("description").GetString()!.ShouldContain("minLength: 3");
+
+        var function = body.GetProperty("tools")[0].GetProperty("function");
+        function.GetProperty("strict").GetBoolean().ShouldBeTrue();
+        var parameters = function.GetProperty("parameters");
+        parameters.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
+        parameters.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ShouldBe(["city", "days"]);
+    }
+
+    [Fact]
+    public async Task A_function_can_decide_on_strict_for_itself()
+    {
+        var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
+        var loose = AIFunctionFactory.Create(
+            (string city, int days = 3) => $"{city} {days}",
+            new AIFunctionFactoryOptions { Name = "loose", AdditionalProperties = new Dictionary<string, object?> { ["strict"] = false } });
+        var strict = AIFunctionFactory.Create((string city, int days = 3) => $"{city} {days}", "strict", "Strict by the options");
+        await using var host = For(async context => (await client.GetResponseAsync(
+            "Answer",
+            new ChatOptions { Tools = [loose, strict], AdditionalProperties = new() { ["strict"] = true } })).Text);
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Infer("chat", Parse(Hello)), Cancel);
+
+        var tools = run.GetStep("chat").Options.GetProperty("body").GetProperty("tools").EnumerateArray().Select(tool => tool.GetProperty("function")).ToArray();
+        tools[0].GetProperty("strict").GetBoolean().ShouldBeFalse();
+        tools[0].GetProperty("parameters").GetProperty("required").EnumerateArray().Select(name => name.GetString()).ShouldBe(["city"]);
+        tools[1].GetProperty("strict").GetBoolean().ShouldBeTrue();
+        tools[1].GetProperty("parameters").GetProperty("required").EnumerateArray().Select(name => name.GetString()).ShouldBe(["city", "days"]);
+    }
+
+    [Theory]
+    [InlineData("""{"error":{"message":"The model `gpt-9` does not exist","type":"invalid_request_error","code":"model_not_found"}}""", "The provider answered with an error: The model `gpt-9` does not exist")]
+    [InlineData("""{"error":"Rate limit reached"}""", "The provider answered with an error: Rate limit reached")]
+    [InlineData("""{"id":"chatcmpl-1","object":"chat.completion","choices":[]}""", "The provider answered without choices")]
+    [InlineData("""{"object":"list"}""", "The provider answered without choices")]
+    public async Task An_answer_that_is_an_error_or_has_no_choices_fails_with_what_the_provider_said(string answer, string expected)
+    {
+        var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
+        await using var host = For(async context => (await client.GetResponseAsync("Hello")).Text);
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Infer("chat", Parse(answer)), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Failed);
+        run.Error.ShouldBeOfType<NonRetriableException>().Message.ShouldStartWith(expected);
+    }
+
+    [Fact]
+    public async Task A_refusal_is_an_error_content_with_the_code_Refusal_in_both_directions()
+    {
+        const string Refused = """
+            {"id":"chatcmpl-4","model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":null,"refusal":"I can't help with that."},"finish_reason":"stop"}]}
+            """;
+        var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
+        ChatResponse? seen = null;
+        await using var host = For(async context =>
+        {
+            seen = await client.GetResponseAsync("Do something forbidden");
+            await client.GetResponseAsync(
+                [new ChatMessage(ChatRole.User, "Do something forbidden"), .. seen.Messages, new ChatMessage(ChatRole.User, "Please")],
+                new ChatOptions().WithInngestStepId("again"));
+            return null;
+        });
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Infer("chat", Parse(Refused)).Infer("again", Parse(Hello)), Cancel);
+
+        var refusal = seen!.Messages.ShouldHaveSingleItem().Contents.ShouldHaveSingleItem().ShouldBeOfType<ErrorContent>();
+        (refusal.ErrorCode, refusal.Message).ShouldBe(("Refusal", "I can't help with that."));
+        var assistant = run.GetStep("again").Options.GetProperty("body").GetProperty("messages")[1];
+        (assistant.GetProperty("role").GetString(), assistant.GetProperty("refusal").GetString()).ShouldBe(("assistant", "I can't help with that."));
+        assistant.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task A_stream_hands_out_the_saved_response_as_updates_and_a_call_can_name_its_step()
     {
         var client = new InngestInferChatClient(Endpoint, "gpt-4o-mini");
@@ -158,6 +279,8 @@ public sealed class InferChatClientTests
         (metadata.ProviderName, metadata.ProviderUri, metadata.DefaultModelId).ShouldBe(("inngest-infer", Endpoint, "gpt-4o-mini"));
         client.GetService<IChatClient>().ShouldBeSameAs(client);
     }
+
+    private sealed record Answer([property: System.ComponentModel.DataAnnotations.MinLength(3)] string Text, int? Score = null);
 
     private static JsonElement Parse(string json)
     {

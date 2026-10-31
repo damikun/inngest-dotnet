@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Inngest.Tests.Execution;
 using Microsoft.Extensions.AI;
 
@@ -96,6 +97,51 @@ public sealed class EditedInputTests : IDisposable
         model.CallCount.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData("""[{"messages":[{"role":"user","contents":[{"$type":"hologram","text":"Hi"}]}]}]""")]
+    [InlineData("""[{"messages":"Write a limerick"}]""")]
+    [InlineData("""[{"messages":[{"role":"user","contents":[{"$type":"text","text":"Hi"}]}],"options":{"temperature":"hot"}}]""")]
+    public async Task An_edit_that_cannot_be_read_fails_the_step_for_good(string edited)
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var function = TestFunction.Define(async context => (await chat.GetResponseAsync("Write a haiku")).Text);
+
+        var result = await _host.CallAsync(function, Call.New().Input("chat", edited));
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        result.Op().GetProperty("error").GetProperty("message").GetString()!.ShouldContain("edited input of a model call could not be read");
+        model.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task An_edit_hands_the_primitive_additional_properties_to_the_model_as_the_types_they_were()
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var function = TestFunction.Define(async context => (await chat.GetResponseAsync("Write a haiku")).Text);
+        const string Edited = """
+            [{"messages":[{"role":"user","contents":[{"$type":"text","text":"Hi","additionalProperties":{"lang":"cs"}}],"additionalProperties":{"pinned":false}}],
+              "options":{"additionalProperties":{"logprobs":true,"top_logprobs":5,"bias":0.5,"user":"u-1","nothing":null,"stop":["a","b"],"extra":{"k":1}}}}]
+            """;
+
+        await _host.CallAsync(function, Call.New().Input("chat", Edited));
+
+        var received = model.Options.ShouldHaveSingleItem()!.AdditionalProperties!;
+        received["logprobs"].ShouldBe(true);
+        received["top_logprobs"].ShouldBe(5L);
+        received["bias"].ShouldBe(0.5);
+        received["user"].ShouldBe("u-1");
+        received["nothing"].ShouldBeNull();
+
+        // Arrays and objects stay JSON.
+        received["stop"].ShouldBeOfType<JsonElement>().GetArrayLength().ShouldBe(2);
+        received["extra"].ShouldBeOfType<JsonElement>().GetProperty("k").GetInt32().ShouldBe(1);
+        var message = model.Messages.ShouldHaveSingleItem().ShouldHaveSingleItem();
+        message.AdditionalProperties!["pinned"].ShouldBe(false);
+        message.Contents[0].AdditionalProperties!["lang"].ShouldBe("cs");
+    }
+
     [Fact]
     public async Task Arguments_edited_in_the_Inngest_UI_reach_the_tool()
     {
@@ -140,5 +186,22 @@ public sealed class EditedInputTests : IDisposable
 
         result.OpCodes.ShouldBe(["StepFailed"]);
         result.Op().GetProperty("error").GetProperty("message").GetString()!.ShouldContain("\"arguments\" object");
+    }
+
+    [Fact]
+    public async Task Arguments_that_cannot_be_read_fail_the_tool_step_for_good()
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestFunctionInvocation().UseInngestSteps().Build();
+        var weather = AIFunctionFactory.Create((string city) => $"Sunny in {city}", "get_weather", "Gets the weather of a city");
+        var function = TestFunction.Define(async context => (await chat.GetResponseAsync("Weather?", new ChatOptions { Tools = [weather] })).Text);
+        const string Calling = """
+            {"messages":[{"role":"assistant","contents":[{"$type":"functionCall","callId":"call_1","name":"get_weather","arguments":{"city":"Prague"}}]}]}
+            """;
+
+        var result = await _host.CallAsync(function, Call.New().Data("chat", Calling).Input("tool get_weather", """[{"arguments":"Brno"}]"""));
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        result.Op().GetProperty("error").GetProperty("message").GetString()!.ShouldContain("edited input of a tool call could not be read");
     }
 }

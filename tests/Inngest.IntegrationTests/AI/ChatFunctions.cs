@@ -9,6 +9,7 @@ internal static class ChatFunctions
 {
     public const string Agent = "ai/chat.agent";
     public const string Streaming = "ai/chat.stream";
+    public const string StreamingFailure = "ai/chat.stream-failure";
 
     public static RealtimeTopic Tokens(string testId) => new($"run:{testId}", "tokens");
 
@@ -48,9 +49,21 @@ internal static class ChatFunctions
                 var reply = await chat.GetStreamingResponseAsync("Where is my order?", options).ToChatResponseAsync();
                 return reply.Text;
             });
+
+        // The model fails in the middle of its first stream, after two words, and the retry of the step streams it whole.
+        inngest.AddFunction<RunEvent>(
+            new FunctionOptions { Id = "chat-stream-failure", Triggers = [Trigger.Event(StreamingFailure)] },
+            static async (context, _) =>
+            {
+                var chat = new ChatClientBuilder(new ScriptedChatClient(context.Observed(), failFirstStream: true)).UseInngestSteps().Build();
+                var options = new ChatOptions().WithInngestRealtimeStream(Tokens(context.Event.Data.TestId));
+
+                var reply = await chat.GetStreamingResponseAsync("Where is my order?", options).ToChatResponseAsync();
+                return reply.Text;
+            });
     }
 
-    private sealed class ScriptedChatClient(TestRecording observed) : IChatClient
+    private sealed class ScriptedChatClient(TestRecording observed, bool failFirstStream = false) : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
@@ -66,11 +79,17 @@ internal static class ChatFunctions
             ChatOptions? options = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            observed.Record("model");
-            foreach (var word in new[] { "Your ", "order ", "is ", "on ", "its ", "way" })
+            var attempt = observed.Record("model");
+            var words = new[] { "Your ", "order ", "is ", "on ", "its ", "way" };
+            for (var i = 0; i < words.Length; i++)
             {
                 await Task.Delay(150, cancellationToken);
-                yield return new ChatResponseUpdate(ChatRole.Assistant, word);
+                if (failFirstStream && attempt == 1 && i == 2)
+                {
+                    throw new HttpRequestException("The connection to the model was reset.");
+                }
+
+                yield return new ChatResponseUpdate(ChatRole.Assistant, words[i]);
             }
         }
 

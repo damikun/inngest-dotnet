@@ -33,7 +33,6 @@ internal sealed class StreamPublisher
     private string _pending = string.Empty;
     private int _sent;
     private bool _closed;
-    private volatile bool _aborting;
     private bool _timerArmed;
     private ITimer? _timer;
 
@@ -84,9 +83,9 @@ internal sealed class StreamPublisher
         }
     }
 
-    // Ends the stream and waits until Inngest has taken it. Never throws. With a failure, the stream is ended as failed: the
-    // request is aborted instead of finished, after the text that was gathered has gone out.
-    public Task CompleteAsync(Exception? failure = null)
+    // Ends the stream and waits until Inngest has taken it. Never throws. A stream whose model failed is ended the same way:
+    // Inngest ends a request that stops early like one that finished, so aborting it would tell subscribers no more.
+    public Task CompleteAsync()
     {
         var tooLong = false;
         lock (_gate)
@@ -95,8 +94,7 @@ internal sealed class StreamPublisher
             {
                 tooLong = Flush(all: true, final: true);
                 _closed = true;
-                _aborting = failure is not null;
-                _chunks.Writer.TryComplete(failure);
+                _chunks.Writer.TryComplete();
             }
 
             _timer?.Dispose();
@@ -114,41 +112,46 @@ internal sealed class StreamPublisher
     // other half. Returns whether the limit was reached, which ends the stream there. Called with the lock held.
     private bool Flush(bool all, bool final)
     {
-        while (_pending.Length > 0)
+        var offset = 0;
+        var limitReached = false;
+        while (offset < _pending.Length)
         {
-            var length = ChunkLength(_pending, all, final);
+            var length = ChunkLength(_pending, offset, all, final);
             if (length == 0)
             {
-                return false;
+                break;
             }
 
             if (_sent == MaxChunks)
             {
+                limitReached = true;
                 _closed = true;
-                _pending = string.Empty;
                 _chunks.Writer.TryComplete();
-                return true;
+                offset = _pending.Length;
+                break;
             }
 
-            _chunks.Writer.TryWrite(_pending[..length]);
-            _pending = _pending[length..];
+            _chunks.Writer.TryWrite(_pending.Substring(offset, length));
+            offset += length;
             _sent++;
         }
 
-        return false;
+        _pending = offset == 0 ? _pending : _pending[offset..];
+        return limitReached;
     }
 
-    // How much of the text goes into the next chunk: whole characters up to the size of a chunk, and none yet when all of it
-    // fits and is not to be sent. A surrogate pair is never split between chunks, so a high surrogate left at the end waits
+    // How much of the text from start goes into the next chunk: whole characters up to the size of a chunk, and none yet when all
+    // of it fits and is not to be sent. A surrogate pair is never split between chunks, so a high surrogate left at the end waits
     // for its other half, unless nothing more is coming.
-    private static int ChunkLength(string text, bool all, bool final)
+    private static int ChunkLength(string text, int start, bool all, bool final)
     {
         var bytes = 0;
         var length = 0;
-        while (length < text.Length)
+        while (start + length < text.Length)
         {
-            var pair = char.IsHighSurrogate(text[length]) && length + 1 < text.Length && char.IsLowSurrogate(text[length + 1]);
-            var size = pair ? 4 : text[length] < 0x80 ? 1 : text[length] < 0x800 ? 2 : 3;
+            var index = start + length;
+            var pair = char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]);
+            var size = pair ? 4 : text[index] < 0x80 ? 1 : text[index] < 0x800 ? 2 : 3;
             if (bytes + size > MaxChunkBytes)
             {
                 return length;
@@ -163,7 +166,7 @@ internal sealed class StreamPublisher
             return 0;
         }
 
-        return !final && length > 0 && char.IsHighSurrogate(text[length - 1]) ? length - 1 : length;
+        return !final && length > 0 && char.IsHighSurrogate(text[start + length - 1]) ? length - 1 : length;
     }
 
     private void Arm()
@@ -213,12 +216,7 @@ internal sealed class StreamPublisher
         {
             // Writes after a failure are refused instead of piling up.
             Close(exception);
-
-            // The request failing was asked for when the model failed, which is no news.
-            if (!_aborting)
-            {
-                Log.StreamNotPublished(_logger, _stepId, _topic.Name, _topic.Channel, exception.Message);
-            }
+            Log.StreamNotPublished(_logger, _stepId, _topic.Name, _topic.Channel, exception.Message);
         }
     }
 

@@ -143,6 +143,48 @@ public sealed class StreamingStepTests
     }
 
     [Fact]
+    public async Task The_updates_of_a_stream_are_gathered_into_chunks_before_they_are_published()
+    {
+        var model = new FakeChatClient((_, _) => new ChatResponse(new ChatMessage(ChatRole.Assistant, "Once upon a time there was a fox")));
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var options = new ChatOptions().WithInngestRealtimeStream(new RealtimeTopic("chat:42", "tokens"));
+        var realtime = new RecordingRealtime();
+        var services = Services(async context => (await chat.GetStreamingResponseAsync("Tell me a story", options).ToChatResponseAsync()).Text);
+        services.AddSingleton<IInngestRealtime>(realtime);
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.GetOutput<string>().ShouldBe("Once upon a time there was a fox");
+
+        // The model sent a word at a time, in a moment, and Inngest took the text as one chunk.
+        realtime.Chunks.ShouldBe(["Once upon a time there was a fox"]);
+    }
+
+    [Fact]
+    public async Task A_stream_the_model_fails_in_ends_where_it_stopped_and_the_retry_streams_the_whole_text_again()
+    {
+        var model = new FakeChatClient((_, _) => new ChatResponse(new ChatMessage(ChatRole.Assistant, "Once upon a time there was a fox")))
+        {
+            FailStreamAfter = call => call == 0 ? 3 : null,
+        };
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var options = new ChatOptions().WithInngestRealtimeStream(new RealtimeTopic("chat:42", "tokens"));
+        var services = Services(async context => (await chat.GetStreamingResponseAsync("Tell me a story", options).ToChatResponseAsync()).Text).AddFakeLogging();
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.GetOutput<string>().ShouldBe("Once upon a time there was a fox");
+        run.GetStep("chat").Attempts.ShouldBe(2);
+
+        // Inngest ends a request that stopped early like one that finished, so the first stream is over, with the text up to the
+        // failure, and the retry publishes another with all of it.
+        run.Published.Select(message => message.Data.GetString()).ShouldBe(["Once upon a ", "Once upon a time there was a fox"]);
+        host.Services.GetFakeLogCollector().GetSnapshot().ShouldNotContain(record => record.Message.Contains("could not be streamed"));
+    }
+
+    [Fact]
     public async Task A_stream_that_fails_is_retried_as_a_step()
     {
         var model = new FakeChatClient { Fail = call => call == 0 ? new HttpRequestException("connection reset") : null };

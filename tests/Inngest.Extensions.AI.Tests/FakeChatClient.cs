@@ -15,6 +15,9 @@ internal sealed class FakeChatClient(Func<int, IList<ChatMessage>, ChatResponse>
     // Throws on the calls it is asked about, counted from zero.
     public Func<int, Exception?>? Fail { get; set; }
 
+    // Throws in the middle of the streams of the calls it is asked about, after the number of updates it answers.
+    public Func<int, int?>? FailStreamAfter { get; set; }
+
     public int CallCount
     {
         get
@@ -76,6 +79,8 @@ internal sealed class FakeChatClient(Func<int, IList<ChatMessage>, ChatResponse>
 
         // The text in pieces of a word, as a provider sends it, then the rest of the response in a last update.
         var response = Respond(call, history);
+        var failAfter = FailStreamAfter?.Invoke(call);
+        var yielded = 0;
         foreach (var message in response.Messages)
         {
             foreach (var content in message.Contents)
@@ -85,6 +90,11 @@ internal sealed class FakeChatClient(Func<int, IList<ChatMessage>, ChatResponse>
                 {
                     foreach (var piece in Pieces(text.Text))
                     {
+                        if (yielded++ == failAfter)
+                        {
+                            throw new HttpRequestException("The connection was reset.");
+                        }
+
                         yield return new ChatResponseUpdate(message.Role, piece) { MessageId = message.MessageId ?? "m1" };
                     }
                 }

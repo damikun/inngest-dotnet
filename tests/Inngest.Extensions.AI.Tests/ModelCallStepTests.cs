@@ -230,6 +230,66 @@ public sealed class ModelCallStepTests
     }
 
     [Fact]
+    public async Task A_response_with_additional_properties_that_are_not_JSON_is_saved_without_them_and_the_model_is_not_called_again()
+    {
+        // System.Type is a value System.Text.Json refuses to write, as the objects of a provider are under Native AOT.
+        var model = new FakeChatClient((_, _) => new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, [new TextContent("Hello!") { AdditionalProperties = new() { ["raw"] = typeof(int) } }])
+            {
+                AdditionalProperties = new() { ["raw"] = typeof(int) },
+            })
+        {
+            ModelId = "gpt-test",
+            AdditionalProperties = new() { ["raw"] = typeof(int) },
+        });
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var services = Services(async context =>
+        {
+            var reply = await chat.GetResponseAsync("Say hello");
+            await context.Step.SleepAsync("pause", TimeSpan.FromMinutes(1));
+            return reply.Text;
+        }).AddFakeLogging();
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Sleep("pause"), Cancel);
+
+        run.GetOutput<string>().ShouldBe("Hello!");
+        model.CallCount.ShouldBe(1);
+        run.GetStep("chat").Attempts.ShouldBe(1);
+        var saved = run.GetStep("chat").Output!.Value;
+        saved.GetProperty("modelId").GetString().ShouldBe("gpt-test");
+        saved.TryGetProperty("additionalProperties", out _).ShouldBeFalse();
+        var warning = host.Services.GetFakeLogCollector().GetSnapshot().Where(record => record.Message.Contains("left out of what the step saves")).ShouldHaveSingleItem();
+        warning.Message.ShouldStartWith("The response of step chat has additional properties that are not JSON");
+    }
+
+    [Fact]
+    public async Task A_response_that_cannot_be_written_as_JSON_at_all_fails_the_step_for_good_instead_of_paying_for_the_model_again()
+    {
+        var model = new FakeChatClient((_, _) => new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call_1", "lookup", new Dictionary<string, object?> { ["type"] = typeof(int) })])));
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        await using var host = For(async context =>
+        {
+            try
+            {
+                await chat.GetResponseAsync("Look it up");
+                return "answered";
+            }
+            catch (StepFailedException failure)
+            {
+                return failure.Message;
+            }
+        }, retries: 3);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.GetOutput<string>().ShouldStartWith("The response of the model could not be written as JSON");
+        model.CallCount.ShouldBe(1);
+        run.GetStep("chat").Attempts.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task What_the_model_answered_survives_the_round_trip_through_the_memo()
     {
         var created = new DateTimeOffset(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
