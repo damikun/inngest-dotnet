@@ -219,9 +219,21 @@ builder.Services.AddDbContextPool<ShopDbContext>(options =>
 });
 ```
 
-If a step needs only a `DbContext`, `IDbContextFactory<T>` does the same without the SDK: inject the factory into the
-function and create the context inside a plain `RunAsync`. A scoped step is for steps that use several scoped services
-that must share one context, such as repositories or a unit of work class registered as scoped.
+If a step needs only a `DbContext`, `IDbContextFactory<T>` does the same without the SDK. `AddDbContextPool` does not
+register the factory: register it with `AddDbContextFactory`, or `AddPooledDbContextFactory` for a pool, inject it into
+the function and create the context inside a plain `RunAsync`. A scoped step is for steps that use several scoped
+services that must share one context, such as repositories or a unit of work class registered as scoped. Such a class
+commits when the handler tells it to, with a call that can fail the step, never when it is disposed.
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+builder.Services.AddDbContextFactory<ShopDbContext>(options =>
+{
+    // Your provider, for example options.UseNpgsql(connectionString).
+});
+```
 
 {/* check: body OrderPlaced; IDbContextFactory<ShopDbContext> dbFactory */}
 ```csharp
