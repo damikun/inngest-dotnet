@@ -395,7 +395,7 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
     }
 
     // The connection cannot keep up, or cannot be sent to. A message it misses is a gap it cannot know of, so it starts
-    // over: it is taken out of all its subscriptions, what is queued for it is dropped, and it is told which
+    // over: it is taken out of all its subscriptions, what is queued for it but news is dropped, and it is told which
     // subscriptions it lost, as it asked for them, to join them again. The connection stays open, for the app may use
     // it for more than this, and ending it would tell the client not to reconnect. Returns whether it lost any.
     private bool Lose(Listener listener, string reason)
@@ -408,37 +408,78 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
                 return false;
             }
 
-            var lost = new Request[listener.Requests.Count];
-            listener.Requests.Values.CopyTo(lost, 0);
-            listener.Requests.Clear();
-            foreach (var request in lost)
-            {
-                RemoveListener(request.Feed, listener, ref orphaned);
-            }
-
-            // The messages go; the news of earlier losses stays.
-            List<Outgoing>? news = null;
-            while (listener.Queue.Reader.TryRead(out var queued))
-            {
-                if (queued.Channel is not null)
-                {
-                    (news ??= []).Add(queued);
-                }
-            }
-
-            foreach (var item in news ?? [])
-            {
-                listener.Queue.Writer.TryWrite(item);
-            }
-
-            foreach (var request in lost)
-            {
-                listener.Queue.Writer.TryWrite(new Outgoing(reason, request.Channel, request.Topics));
-            }
+            var lost = TakeAll(listener, ref orphaned);
+            DropMessages(listener);
+            Notify(listener, lost, reason);
         }
 
         Close(orphaned);
         return true;
+    }
+
+    // Queues the news that these subscriptions of the listener are lost. The news is never dropped for want of room: if
+    // the queue has none, the connection is too far behind to be told one thing at a time, and it starts over as Lose
+    // has it do, with the subscriptions it has left lost as well and told as "behind". Returns whether it came to that.
+    // Called under the lock.
+    private bool Tell(Listener listener, List<Request> lost, string reason, ref List<Feed>? orphaned)
+    {
+        var told = 0;
+        while (told < lost.Count && listener.Queue.Writer.TryWrite(new Outgoing(reason, lost[told].Channel, lost[told].Topics)))
+        {
+            told++;
+        }
+
+        if (told == lost.Count)
+        {
+            return false;
+        }
+
+        var behind = TakeAll(listener, ref orphaned);
+        DropMessages(listener);
+        Notify(listener, lost.GetRange(told, lost.Count - told), reason);
+        Notify(listener, behind, BehindReason);
+        return true;
+    }
+
+    // Takes the listener out of all the feeds it is in, and returns what it asked for to be in them. Called under the lock.
+    private List<Request> TakeAll(Listener listener, ref List<Feed>? orphaned)
+    {
+        List<Request> taken = [.. listener.Requests.Values];
+        listener.Requests.Clear();
+        foreach (var request in taken)
+        {
+            RemoveListener(request.Feed, listener, ref orphaned);
+        }
+
+        return taken;
+    }
+
+    // Empties the queue of its messages, which would arrive after a gap, and leaves the news in it. Called under the lock.
+    private static void DropMessages(Listener listener)
+    {
+        List<Outgoing>? news = null;
+        while (listener.Queue.Reader.TryRead(out var queued))
+        {
+            if (queued.Channel is not null)
+            {
+                (news ??= []).Add(queued);
+            }
+        }
+
+        foreach (var item in news ?? [])
+        {
+            listener.Queue.Writer.TryWrite(item);
+        }
+    }
+
+    // Called under the lock, after DropMessages, when the queue has room unless a client has not read news for as long as
+    // it takes to lose more subscriptions than the queue holds.
+    private static void Notify(Listener listener, List<Request> lost, string reason)
+    {
+        foreach (var request in lost)
+        {
+            listener.Queue.Writer.TryWrite(new Outgoing(reason, request.Channel, request.Topics));
+        }
     }
 
     // Hands every message of the subscription to the queues of the feed's connections.
@@ -470,7 +511,8 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
     private void Fail(Feed feed, Exception exception)
     {
         Log.FeedFailed(_logger, feed.Channel, exception.Message);
-        List<(Listener Listener, Request Request)> lost = [];
+        List<Feed>? orphaned = null;
+        List<string>? behind = null;
         lock (_gate)
         {
             Forget(feed);
@@ -478,20 +520,27 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             Volatile.Write(ref feed.Listeners, []);
             foreach (var listener in affected)
             {
+                List<Request>? lost = null;
                 foreach (var (requestKey, request) in listener.Requests.ToArray())
                 {
                     if (request.Feed == feed)
                     {
                         listener.Requests.Remove(requestKey);
-                        lost.Add((listener, request));
+                        (lost ??= []).Add(request);
                     }
+                }
+
+                if (lost is not null && Tell(listener, lost, InngestEndedReason, ref orphaned))
+                {
+                    (behind ??= []).Add(listener.ConnectionId);
                 }
             }
         }
 
-        foreach (var (listener, request) in lost)
+        Close(orphaned);
+        foreach (var connectionId in behind ?? [])
         {
-            Offer(listener, new Outgoing(InngestEndedReason, request.Channel, request.Topics));
+            Log.ListenerFellBehind(_logger, connectionId, _options.MaxQueuedMessagesPerConnection);
         }
     }
 

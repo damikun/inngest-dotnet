@@ -646,6 +646,99 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
     }
 
     [Fact]
+    public async Task A_client_whose_queue_is_full_is_still_told_that_Inngest_ended_its_only_subscription()
+    {
+        var app = _rig.AddInstance(configure: options =>
+        {
+            options.MaxQueuedMessagesPerConnection = 8;
+            options.MaxSubscriptionsPerConnection = 4;
+        });
+        var feed = new SseFeed();
+        app.Api.Answer(feed);
+        var slow = new FakeCaller("slow");
+        var quick = new FakeCaller("quick");
+        _rig.Hubs.Hold("slow");
+        await app.Bridge.SubscribeAsync(slow, Order, ["status"], Cancel);
+        await app.Bridge.SubscribeAsync(quick, Order, ["status"], Cancel);
+
+        // One message is under way to the slow client and eight wait: its queue is full, though not over.
+        await feed.SendAsync("""{"n":0}""");
+        await Wait.UntilAsync(() => _rig.Hubs.IsHeld("slow"));
+        for (var n = 1; n < 9; n++)
+        {
+            await feed.SendAsync($$"""{"n":{{n}}}""");
+            await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == n + 1);
+        }
+
+        // Inngest ends the stream, and then refuses to open it again.
+        app.Api.TokenFailure = new InngestException("Failed to get a subscription token for channel \"order:o-1\": 401 Unauthorized", 401);
+        await feed.EndAsync();
+
+        // Both hear of it. The queue of the slow client had no room for the news, so the messages in it made some.
+        await Wait.UntilAsync(() => _rig.Hubs.To("quick").Any(delivery => delivery.Method == "RealtimeError"));
+        _rig.Hubs.Release("slow");
+        await Wait.UntilAsync(() => _rig.Hubs.To("slow").Any(delivery => delivery.Method == "RealtimeError"));
+        var lost = _rig.Hubs.To("slow").Single(delivery => delivery.Method == "RealtimeError").Lost;
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status"]);
+        lost.Reason.ShouldBe("inngest-ended");
+        _rig.Hubs.Messages("slow").ShouldBe(["""{"n":0}"""]);
+        _rig.Hubs.To("quick").Single(delivery => delivery.Method == "RealtimeError").Lost.Reason.ShouldBe("inngest-ended");
+        app.Bridge.FeedCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_client_whose_queue_is_full_hears_of_the_subscription_Inngest_ended_and_of_those_it_loses_with_it()
+    {
+        var app = _rig.AddInstance(configure: options =>
+        {
+            options.MaxQueuedMessagesPerConnection = 8;
+            options.MaxSubscriptionsPerConnection = 4;
+        });
+        var ended = new SseFeed();
+        var kept = new SseFeed();
+        app.Api.Answer(ended);
+        app.Api.Answer(kept);
+        var slow = new FakeCaller("slow");
+        var quick = new FakeCaller("quick");
+        _rig.Hubs.Hold("slow");
+        await app.Bridge.SubscribeAsync(slow, "order:a", ["status"], Cancel);
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 1);
+        await app.Bridge.SubscribeAsync(slow, "order:b", ["status"], Cancel);
+        await app.Bridge.SubscribeAsync(quick, "order:b", ["status"], Cancel);
+
+        // The slow client's queue is full of messages of the second subscription.
+        await kept.SendAsync("""{"n":0}""");
+        await Wait.UntilAsync(() => _rig.Hubs.IsHeld("slow"));
+        for (var n = 1; n < 9; n++)
+        {
+            await kept.SendAsync($$"""{"n":{{n}}}""");
+            await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == n + 1);
+        }
+
+        // Inngest ends the first subscription. The slow client cannot be told one thing at a time, so it loses the other too.
+        app.Api.TokenFailure = new InngestException("Failed to get a subscription token for channel \"order:a\": 401 Unauthorized", 401);
+        await ended.EndAsync();
+        await Wait.UntilAsync(() => app.Bridge.FeedCount == 1);
+        _rig.Hubs.Release("slow");
+
+        await Wait.UntilAsync(() => _rig.Hubs.To("slow").Count(delivery => delivery.Method == "RealtimeError") == 2);
+        var lost = _rig.Hubs.To("slow").Where(delivery => delivery.Method == "RealtimeError").Select(delivery => delivery.Lost).OrderBy(item => item.Channel).ToArray();
+        lost[0].Channel.ShouldBe("order:a");
+        lost[0].Reason.ShouldBe("inngest-ended");
+        lost[1].Channel.ShouldBe("order:b");
+        lost[1].Topics.ShouldBe(["status"]);
+        lost[1].Reason.ShouldBe("behind");
+        _rig.Hubs.Messages("slow").ShouldBe(["""{"n":0}"""]);
+        slow.Aborted.ShouldBeFalse();
+
+        // The quick client is in the second subscription still, and the slow one is out of it.
+        await kept.SendAsync("""{"n":"next"}""");
+        await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == 10);
+        _rig.Hubs.Messages("slow").Count.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task The_methods_clients_listen_on_can_be_chosen()
     {
         var app = _rig.AddInstance(configure: options =>
