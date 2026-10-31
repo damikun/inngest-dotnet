@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace Inngest.Tests.Webhooks;
@@ -61,9 +62,10 @@ public sealed class VerifierRobustnessTests
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void Enormous_and_hostile_headers_are_rejected_in_bounded_time(string name)
+    public void Enormous_and_hostile_headers_are_rejected_without_an_exception_and_without_a_runaway_cost(string name)
     {
         var (_, verifier, headers) = Verifiers.Single(candidate => candidate.Name == name);
+        var watch = Stopwatch.StartNew();
         var hostile = new[]
         {
             new string('v', 200_000),
@@ -85,6 +87,10 @@ public sealed class VerifierRobustnessTests
 
             verifier.Verify(request, Now).IsValid.ShouldBeFalse();
         }
+
+        // The work is linear in the size of the headers, and these are a few hundred kilobytes: a second or two on a busy
+        // machine at the very most. The limit is generous on purpose, so that only a cost that grows out of hand fails it.
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(30));
     }
 
     [Theory]

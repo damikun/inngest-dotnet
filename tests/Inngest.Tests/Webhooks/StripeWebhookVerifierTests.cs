@@ -62,6 +62,25 @@ public sealed class StripeWebhookVerifierTests
     }
 
     [Fact]
+    public void The_first_t_is_the_timestamp_of_both_the_signature_and_the_tolerance_and_a_second_one_changes_nothing()
+    {
+        var verifier = new StripeWebhookVerifier(Secret);
+        var stale = Timestamp - 3600;
+        var staleSignature = Signing.Stripe(Secret, stale, Encoding.UTF8.GetBytes(Body));
+
+        // The first t signed the body and is recent: a stale second t is ignored.
+        verifier.Verify(Signed($"t={Timestamp},v1={Signature},t={stale}"), Arrival).IsValid.ShouldBeTrue();
+
+        // The second t would have made the signature right, but it is not the one that is read.
+        verifier.Verify(Signed($"t={stale},v1={Signature},t={Timestamp}"), Arrival).IsValid.ShouldBeFalse();
+
+        // The first t signed the body and is stale: a recent second t does not make the request recent.
+        var result = verifier.Verify(Signed($"t={stale},v1={staleSignature},t={Timestamp}"), Arrival);
+        result.IsValid.ShouldBeFalse();
+        result.Reason.ShouldNotBeNull().ShouldContain("tolerance");
+    }
+
+    [Fact]
     public void A_rolled_secret_signs_with_both_secrets_and_either_one_passes()
     {
         var both = $"t={Timestamp},v1={OldSignature},v1={Signature}";

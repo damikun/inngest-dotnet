@@ -60,6 +60,29 @@ public sealed class StandardWebhooksVerifierTests
     }
 
     [Fact]
+    public void A_request_with_both_families_is_read_as_the_webhook_one_and_the_families_are_not_tried_in_turn()
+    {
+        var verifier = new StandardWebhooksVerifier(Secret);
+        var garbage = "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+        // The webhook headers are right: the svix ones are not looked at, and the id is the webhook-id.
+        var webhookFirst = Signed()
+            .With("svix-id", "msg_other")
+            .With("svix-timestamp", Timestamp.ToString())
+            .With("svix-signature", garbage);
+        var result = verifier.Verify(webhookFirst, Arrival);
+        result.IsValid.ShouldBeTrue();
+        result.DeliveryId.ShouldBe(Id);
+
+        // The svix headers are right but the webhook ones are not: the request is rejected, not rescued by the other family.
+        var svixRight = Signed(garbage)
+            .With("svix-id", Id)
+            .With("svix-timestamp", Timestamp.ToString())
+            .With("svix-signature", BodySignature);
+        verifier.Verify(svixRight, Arrival).IsValid.ShouldBeFalse();
+    }
+
+    [Fact]
     public void A_family_of_headers_with_one_missing_is_not_mixed_with_the_other()
     {
         var request = new TestWebhookRequest(Body)

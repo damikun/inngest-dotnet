@@ -18,7 +18,9 @@ namespace Inngest;
 /// with the old and the new one, and a request is accepted when any signature matches any of the secrets given here.
 /// Only <c>v1</c> signatures are checked. The asymmetric <c>v1a</c> signatures of the specification are ignored: .NET has
 /// no Ed25519 in its libraries, and a request that has only those is rejected. A timestamp more than the tolerance away
-/// from the time of arrival, in either direction, rejects the request, after its signature has been checked.
+/// from the time of arrival, in either direction, rejects the request, after its signature has been checked. A request
+/// with both families of headers is read as the <c>webhook-</c> one, and the <c>svix-</c> headers are not tried if its
+/// signature fails.
 /// </remarks>
 public sealed class StandardWebhooksVerifier : IWebhookVerifier
 {
