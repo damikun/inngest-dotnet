@@ -1,3 +1,4 @@
+using System.Formats.Tar;
 using System.Net;
 using System.Runtime.InteropServices;
 using Inngest.Tool;
@@ -20,7 +21,8 @@ public sealed class CliInstallerTests : IDisposable
 
     private static string Url(string file, string version = Version) => $"https://github.com/inngest/inngest/releases/download/v{version}/{file}";
 
-    private static byte[] LinuxArchive() => Archives.TarGz(("inngest", Archives.Binary), ("LICENSE.md", "license"u8.ToArray()));
+    // As in the releases: the license, 30,630 bytes of it, and then the binary.
+    private static byte[] LinuxArchive() => Archives.TarGz(("LICENSE.md", new byte[30_630]), ("inngest", Archives.Binary));
 
     // A release this tool carries the checksums of, as the pinned one is, with an asset for Linux.
     private CliInstaller Installer(byte[] archive)
@@ -474,6 +476,34 @@ public sealed class CliInstallerTests : IDisposable
         File.Exists(Path.Combine(_cache.Path, "escaped")).ShouldBeFalse();
         File.Exists(Path.Combine(_cache.Path, "..", "escaped")).ShouldBeFalse();
         Directory.GetFileSystemEntries(CliFolder()).Length.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(TarEntryFormat.Ustar)]
+    [InlineData(TarEntryFormat.Pax)]
+    [InlineData(TarEntryFormat.Gnu)]
+    public async Task The_binary_is_found_in_a_tar_archive_of_any_format(TarEntryFormat format)
+    {
+        var installer = Installer(Archives.TarGz(format, ("LICENSE.md", new byte[30_630]), ("inngest", Archives.Binary)));
+
+        var binary = await installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken);
+
+        File.ReadAllBytes(binary).ShouldBe(Archives.Binary);
+    }
+
+    // On a stream that cannot seek, the reader of .NET 8 skips one byte too few over the unread data of an entry that is a
+    // single byte long, and then cannot parse the next header. The installer reads the data of the entries it skips.
+    [Theory]
+    [InlineData(TarEntryFormat.Ustar)]
+    [InlineData(TarEntryFormat.Pax)]
+    [InlineData(TarEntryFormat.Gnu)]
+    public async Task Entries_of_one_byte_in_front_of_the_binary_are_skipped_on_every_runtime(TarEntryFormat format)
+    {
+        var installer = Installer(Archives.TarGz(format, ("VERSION", [1]), ("LICENSE.md", new byte[30_630]), ("NOTICE", [1]), ("inngest", Archives.Binary)));
+
+        var binary = await installer.EnsureInstalledAsync(Version, Linux(), TestContext.Current.CancellationToken);
+
+        File.ReadAllBytes(binary).ShouldBe(Archives.Binary);
     }
 
     [Fact]

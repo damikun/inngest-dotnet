@@ -75,21 +75,28 @@ internal static class Archives
 {
     public static readonly byte[] Binary = Encoding.UTF8.GetBytes("#!/bin/sh\necho inngest\n");
 
-    // The archive GoReleaser makes for Linux and macOS: the binary and the license at the top, the binary without the
-    // execute bit as far as a test can tell.
-    public static byte[] TarGz(params (string Name, byte[] Content)[] entries)
+    // The archive GoReleaser makes for Linux and macOS: written by Go, in the POSIX ustar format, and the binary comes
+    // after the license. The files carry no execute bit as far as a test can tell, which the tool must not depend on.
+    public static byte[] TarGz(params (string Name, byte[] Content)[] entries) => TarGz(TarEntryFormat.Ustar, entries);
+
+    public static byte[] TarGz(TarEntryFormat format, params (string Name, byte[] Content)[] entries)
     {
         using MemoryStream buffer = new();
         using (GZipStream gzip = new(buffer, CompressionLevel.Fastest, leaveOpen: true))
-        using (TarWriter writer = new(gzip, TarEntryFormat.Pax, leaveOpen: true))
+        using (TarWriter writer = new(gzip, format, leaveOpen: true))
         {
             foreach (var (name, content) in entries)
             {
-                writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name)
+                TarEntry entry = format switch
                 {
-                    DataStream = new MemoryStream(content),
-                    Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead,
-                });
+                    TarEntryFormat.Ustar => new UstarTarEntry(TarEntryType.RegularFile, name),
+                    TarEntryFormat.Pax => new PaxTarEntry(TarEntryType.RegularFile, name),
+                    TarEntryFormat.Gnu => new GnuTarEntry(TarEntryType.RegularFile, name),
+                    _ => throw new ArgumentOutOfRangeException(nameof(format)),
+                };
+                entry.DataStream = new MemoryStream(content);
+                entry.Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
+                writer.WriteEntry(entry);
             }
         }
 

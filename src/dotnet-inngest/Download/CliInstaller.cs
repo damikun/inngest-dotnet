@@ -296,6 +296,12 @@ internal sealed class CliInstaller(
                 Write(entry.DataStream, destination);
                 return true;
             }
+
+            // The data of an entry that is not wanted is read here, and not left for the reader to skip. On a stream that
+            // cannot seek, as the one of a GZipStream, the reader of .NET 8 skips one byte too few over the data of an entry
+            // that is a single byte long, and cannot parse the next header. The archives of the releases do not have such
+            // an entry, but another version might.
+            entry.DataStream?.CopyTo(Stream.Null);
         }
 
         return false;
