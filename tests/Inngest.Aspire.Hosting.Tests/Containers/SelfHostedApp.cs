@@ -10,6 +10,8 @@ public sealed class SelfHostedApp : AppHostFixture
 
     protected override void Configure(IDistributedApplicationTestingBuilder builder)
     {
+        // Nothing waits for anything here: the server and the projects start together, and the server finds the project
+        // when it answers.
         var inngest = builder.AddInngestSelfHosted("inngest");
         var shop = builder.AddProject<Projects.TestApp>("shop")
             .WithHttpEndpoint(name: "http")

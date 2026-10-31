@@ -851,14 +851,25 @@ specific to Inngest:
   (`ConnectOptions.GatewayUrl`). A worker that is started outside `WithReference` gets the server's answer. The tests
   start a Connect worker against both servers.
 - **Dev and self-hosted.** The dev server's reference is `INNGEST_DEV=<address>`, as
-  `samples/Inngest.Sample/compose.yaml` has it for dev mode, and `INNGEST_BASE_URL` with the same address for SDKs that
-  read only that. The self-hosted server's reference is `INNGEST_DEV=0`, the base URL and the two keys, as the `cloud`
-  profile of that file has it; `0` is set because projects inherit the environment of the AppHost, and an inherited
-  `INNGEST_DEV=1` would turn off signature checks. The keys reach the server through `INNGEST_SIGNING_KEY` and
-  `INNGEST_EVENT_KEY`, which its CLI reads (flag, then variable, then file), so they are not in the command line.
-  `inngest start` takes a signing key only as hex of even length, so the generated one is 64 digits.
+  `samples/Inngest.Sample/compose.yaml` has it for dev mode. The self-hosted server's reference is `INNGEST_DEV=0` and
+  the two keys, as the `cloud` profile of that file has it; `0` is set because projects inherit the environment of the
+  AppHost, and an inherited `INNGEST_DEV=1` would turn off signature checks. Both also get the address in
+  `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL`: `InngestSettings` reads the last two
+  before the base URL, so an inherited one would win over it. Other `INNGEST_*` variables of the AppHost's environment
+  still reach the projects, and an `INNGEST_SERVE_ORIGIN` makes runs undeliverable without a word, which the guide says.
+  The keys reach the server through `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY`, which its CLI reads (flag, then
+  variable, then file), so they are not in the command line. `inngest start` takes a signing key only as hex of even
+  length, so the generated one is 64 digits, and a key that is not is reported when the server starts.
+- **The manifest.** The dev server is excluded (`ExcludeFromManifest`), and `WithReference` to it sets nothing in
+  publish mode: a reference would dangle, and `INNGEST_DEV` would put a deployed app into dev mode, which checks no
+  signatures. The self-hosted server is a `container.v0` with its keys as parameters, and what refers to it has settings
+  for cloud mode. `ManifestTests` writes the manifest through the publish mode of an AppHost and checks that every
+  `{resource.…}` expression names a resource in it.
 - **Tests.** `tests/Inngest.Aspire.Hosting.Tests` is itself an AppHost project: `Aspire.Hosting.Testing` finds the
   orchestrator and the dashboard through assembly attributes that `Aspire.AppHost.Sdk` writes, and has no other way to
-  find them. The `AppModel` tests resolve arguments and environments for endpoints that the test allocates. The
-  `Containers` tests run both servers in Docker next to a project and a Connect worker, through the real orchestrator.
+  find them. The `AppModel` tests resolve arguments and environments for endpoints that the test allocates.
+  `PinnedVersionsTests` fails when the Aspire version of `global.json` (the AppHost SDK) differs from the packages in
+  `Directory.Packages.props`, or when the default image differs from the one that the harness of the integration tests
+  runs. The `Containers` tests run both servers in Docker next to a project and a Connect worker, through the real
+  orchestrator, with an inherited `INNGEST_*` environment that the settings of `WithReference` must win over.
 

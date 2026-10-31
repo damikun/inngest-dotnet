@@ -18,9 +18,11 @@ internal static class Poll
                     return value;
                 }
             }
-            catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                // The server or the app is not up yet, or does not know the resource yet.
+                // Whatever a server or an app that is still starting answers with: a refused connection, a timeout, a body
+                // that is not JSON yet, or an app that is not known yet. Only the cancellation of the test itself ends the wait
+                // early, and running out of time ends it with the last of these.
                 lastFailure = exception;
             }
 

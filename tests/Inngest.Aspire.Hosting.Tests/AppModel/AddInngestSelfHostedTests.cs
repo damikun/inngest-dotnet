@@ -30,7 +30,7 @@ public sealed class AddInngestSelfHostedTests
         var inngest = builder.AddInngestSelfHosted("inngest", port: 18288, connectPort: 18289);
 
         var image = inngest.Resource.Annotations.OfType<ContainerImageAnnotation>().ShouldHaveSingleItem();
-        (image.Registry, image.Image, image.Tag).ShouldBe(("docker.io", "inngest/inngest", "v1.49.0"));
+        (image.Registry, image.Image, image.Tag).ShouldBe(("docker.io", "inngest/inngest", InngestContainerImageTags.Tag));
         inngest.Resource.Entrypoint.ShouldBe("inngest");
         inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "http").Port.ShouldBe(18288);
         var connect = inngest.Resource.Annotations.OfType<EndpointAnnotation>().Single(endpoint => endpoint.Name == "connect");

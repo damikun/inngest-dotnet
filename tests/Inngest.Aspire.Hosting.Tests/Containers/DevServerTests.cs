@@ -94,6 +94,10 @@ public sealed class DevServerTests(DevServerApp fixture) : IClassFixture<DevServ
         await fixture.WaitForHealthyAsync("shop", cancellationToken);
         var server = new ServerApi(fixture.App.CreateHttpClient("inngest", "http"), "dev-key");
 
+        // An event that the server receives before it has synced the app starts no run, and the server syncs the app when it
+        // next polls, which can be after the project is healthy.
+        await server.WaitForFunctionAsync("aspire-test-app", "aspire-test-app-hello", Timeout, cancellationToken);
+
         // The app sends the event to INNGEST_BASE_URL, and the server runs the function.
         using var shop = fixture.App.CreateHttpClient("shop", "http");
         using var sent = await shop.PostAsync("send", content: null, cancellationToken);

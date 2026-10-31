@@ -1,6 +1,6 @@
 <!-- Aspire.Hosting.Testing starts an AppHost with the orchestrator and the dashboard that the Aspire AppHost SDK locates
      and records in the assembly, and finds the assembly by that record. So the test project is an AppHost project too. -->
-<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+<Project Sdk="Aspire.AppHost.Sdk">
   <PropertyGroup>
     <TargetFramework>$(LatestTargetFramework)</TargetFramework>
     <OutputType>Exe</OutputType>

@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Aspire.Hosting.Tests.AppModel;
@@ -44,6 +45,30 @@ internal static class Model
 
         ThrowIfFailed(configuration);
         return [.. configuration.Arguments.Select(argument => argument.Value)];
+    }
+
+    // The manifest `aspire publish` writes for the model that the callback builds. It runs the AppHost in publish mode, which
+    // writes the file and stops without starting anything.
+    public static async Task<JsonDocument> ManifestAsync(Action<IDistributedApplicationBuilder> configure)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"inngest-aspire-{Guid.NewGuid():N}");
+        var manifestPath = Path.Combine(directory, "manifest.json");
+        try
+        {
+            var builder = DistributedApplication.CreateBuilder(["--operation", "publish", "--publisher", "manifest", "--output-path", manifestPath]);
+            configure(builder);
+            using var app = builder.Build();
+            await app.RunAsync(TestContext.Current.CancellationToken).WaitAsync(ResolutionTimeout * 3);
+
+            return JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
     }
 
     // The builder reports a value it cannot resolve in its result rather than by throwing, wrapped in an AggregateException.

@@ -15,11 +15,11 @@ public sealed class AddInngestTests
 
         var inngest = builder.AddInngest("inngest");
 
-        // The tag is the version of the Inngest CLI that this repository tests against, so a change shows up here.
+        // PinnedVersionsTests checks the tag against the one that the integration tests of the repository run.
         var image = inngest.Resource.Annotations.OfType<ContainerImageAnnotation>().ShouldHaveSingleItem();
         image.Registry.ShouldBe("docker.io");
         image.Image.ShouldBe("inngest/inngest");
-        image.Tag.ShouldBe("v1.49.0");
+        image.Tag.ShouldBe(InngestContainerImageTags.Tag);
         inngest.Resource.Entrypoint.ShouldBe("inngest");
         inngest.Resource.IsSelfHosted.ShouldBeFalse();
         inngest.Resource.SigningKeyParameter.ShouldBeNull();

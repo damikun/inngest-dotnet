@@ -21,10 +21,11 @@ Add the package to the AppHost project, not to the apps. The version is a previe
 dotnet add package Inngest.Aspire.Hosting --prerelease
 ```
 
-The package is built against Aspire 13.6 (`Aspire.Hosting` 13.6.4) and targets `net8.0` and `net10.0`. It has no
-dependency on the `Inngest` package, because the AppHost only has to know the names of the settings, not the SDK. It
-runs in the AppHost, which is never trimmed or published as a native binary, so unlike the other packages it is not
-marked as trim or Native AOT compatible; `Aspire.Hosting` is not either.
+The package needs Aspire 13.6.4 or later. It depends on `Aspire.Hosting` 13.6.4, so an AppHost on an older 13.x is
+raised to that version. It targets `net8.0` and `net10.0`, and it has no dependency on the `Inngest` package, because
+the AppHost only has to know the names of the settings, not the SDK. It runs in the AppHost, which is never trimmed or
+published as a native binary, so unlike the other packages it is not marked as trim or Native AOT compatible;
+`Aspire.Hosting` is not either.
 
 nuget.org reserves the `Aspire.` prefix for the Aspire team and its partners, so a community package cannot be called
 `Aspire.Hosting.Inngest`; hence `Inngest.Aspire.Hosting`, like `CommunityToolkit.Aspire.Hosting.*`.
@@ -48,6 +49,11 @@ inngest.WithApp(shop);
 builder.Build().Run();
 ```
 
+`WithApp` builds the address from the endpoint of the project that is named `http`. A project made from a template has
+one from the `http` profile of its `launchSettings.json`. Without one the server fails to start with "The endpoint
+`http` is not defined for the resource": give the project one with `WithHttpEndpoint(name: "http")`, or pass the name
+of another endpoint to `WithApp`.
+
 Run the AppHost and the dashboard shows two resources. `inngest` is healthy once the server answers `GET /health`
 and its Connect gateway answers `GET /ready`, and its row links to the server's UI as **Inngest UI**. `shop` starts
 once the server is healthy, because of `WaitFor`. The server then syncs `shop` and lists its functions in the UI;
@@ -65,7 +71,8 @@ What the three calls do:
   server.
 - **`WithApp`** adds the project's URL to the arguments of the server (`-u`). The server calls it to sync the
   functions, and again every 5 seconds, which is the dev server's polling interval, so a project that starts after the
-  server, or restarts with other functions, is found.
+  server, or restarts with other functions, is found. Until the first sync the server knows no function of the project,
+  so an event that reaches it by then starts no run.
 
 Do not make the server wait for the project with `WaitFor`: the project would wait for the server and the server for
 the project.
@@ -79,6 +86,8 @@ the project.
 |---|---|---|
 | `INNGEST_DEV` | the address of the server, which turns on dev mode and points the SDK at it | `0` |
 | `INNGEST_BASE_URL` | the address of the server | the address of the server |
+| `INNGEST_API_BASE_URL` | the address of the server | the address of the server |
+| `INNGEST_EVENT_API_BASE_URL` | the address of the server | the address of the server |
 | `INNGEST_SIGNING_KEY` | | the signing key |
 | `INNGEST_EVENT_KEY` | | the event key |
 | `INNGEST_CONNECT_GATEWAY_URL` | the address of the gateway | the address of the gateway |
@@ -89,9 +98,16 @@ server on the container network. The same `WithReference` is right for both, and
 Aspire: the app is an ordinary Inngest app that reads its settings from the environment.
 
 `INNGEST_DEV` is set to the address in dev mode so that any SDK that reads the address from it, such as the TypeScript
-one, finds the server too; `INNGEST_BASE_URL` has the same address for SDKs that read only that. A self-hosted server
-sets `INNGEST_DEV` to `0` on purpose. Projects inherit the environment of the AppHost, and an `INNGEST_DEV` left in
-it would otherwise switch off the checks of signatures.
+one, finds the server too; `INNGEST_BASE_URL` has the same address for SDKs that read only that. The SDK reads
+`INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL` before `INNGEST_BASE_URL`, so they are set as well. A
+self-hosted server sets `INNGEST_DEV` to `0` on purpose.
+
+Projects inherit the environment of the AppHost, and the settings above win over the same variables in it, so an
+`INNGEST_DEV` or an `INNGEST_API_BASE_URL` left in a shell does not send a project elsewhere or switch off the checks
+of signatures. Every other `INNGEST_*` variable of that environment still reaches the projects, and some of them break
+a run without saying so. An `INNGEST_SERVE_ORIGIN` makes the server call an address that is not the project's, so its
+runs cannot be delivered. Unset such a variable before you start the AppHost, or replace it for one project with
+`WithEnvironment`.
 
 ## How the server reaches an app
 
@@ -190,14 +206,55 @@ kept in the user secrets of the AppHost, when it has them, as `Parameters:innges
 Unlike the dev server, the self-hosted server polls for apps only when it is told to, so the integration starts it with
 a polling interval of 5 seconds.
 
+## Keeping the state
+
+The dev server holds its runs and events in memory, and the self-hosted server writes a SQLite database, `main.db`, to
+`/.inngest` inside its container. Both lose their state when the container is removed, because the integration adds
+no volume. Inngest v1.49.0 can keep it: `inngest dev --persist` writes the dev server's database to the same
+directory, and a volume at that directory survives the container. Pass the flag with `WithArgs` and add the volume:
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var inngest = builder.AddInngest("inngest")
+    .WithArgs("--persist")
+    .WithVolume("inngest-data", "/.inngest");
+```
+
+The self-hosted server always writes its database, so it needs only the volume. `inngest start` also takes
+`--sqlite-dir <directory>` to move the database, and then the volume goes to that directory:
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var inngest = builder.AddInngestSelfHosted("inngest")
+    .WithVolume("inngest-data", "/.inngest");
+```
+
+`WithLifetime(ContainerLifetime.Persistent)` keeps the container itself, memory and all, across runs of the AppHost. The
+integration starts no Postgres or Redis for the self-hosted server; `inngest start` takes their addresses as
+`--postgres-uri` and `--redis-uri`.
+
+## In a manifest
+
+`aspire publish` writes a manifest that deployment tools turn into a deployment. What it holds depends on the server:
+
+- **The dev server is not in it.** It checks no signatures, so a deployment must not run it. `WithReference` to the dev
+  server adds nothing to a manifest either, because `INNGEST_DEV` would put the deployed app into dev mode. The
+  app deploys in cloud mode, with the keys and addresses that you give it where it is deployed.
+- **The self-hosted server is in it**, as a container resource: the image and tag, the entrypoint and the arguments
+  (`start --poll-interval 5` and a `-u` for each app, as an expression of the app's address), the `http` and `connect`
+  endpoints, and the keys as the secret parameters `<name>-signing-key` and `<name>-event-key`, which the deployment
+  asks for or generates. The projects that reference it get `INNGEST_DEV=0`, the addresses, the keys and the gateway
+  address as references to that resource and those parameters.
+
+The self-hosted server keeps its state inside its container, as it does on your machine, so a deployment that replaces
+the container loses it, and the manifest has no volume or database for it. Treat the integration as a way to run
+Inngest while you develop; [Deploying](/inngest-dotnet/guides/deploying/) covers production.
+
 ## What it does not do
 
-- **It keeps no state.** The dev server holds its runs and events in memory, and the self-hosted server writes its
-  database inside the container. Both lose them with the container. There is no volume, and no Postgres or Redis for
-  the self-hosted server; use `WithLifetime(ContainerLifetime.Persistent)` if the container should outlive a run of
-  the AppHost.
-- **It does not deploy anything.** Aspire writes the container into a manifest like any other, but Inngest in
-  production is Inngest Cloud or a server you run and size yourself. See [Deploying](/inngest-dotnet/guides/deploying/).
+- **It keeps no state beyond its container.** See [Keeping the state](#keeping-the-state).
+- **It does not deploy Inngest.** The manifest has the self-hosted server as described above, but Inngest in production
+  is Inngest Cloud or a server you run and size yourself.
 - **It cannot be called from an AppHost written in another language.** The methods are not exported for Aspire's
   polyglot AppHosts.
 
@@ -205,4 +262,4 @@ a polling interval of 5 seconds.
 
 The integration works under `Aspire.Hosting.Testing`, which is how this repository tests it. Its tests start the dev
 server, a small app and a Connect worker, wait for them to be healthy and run a function through the server, and do the
-same against the self-hosted server. They need Docker.
+same against the self-hosted server. They need Docker. Other tests write the manifest of both servers and read it.

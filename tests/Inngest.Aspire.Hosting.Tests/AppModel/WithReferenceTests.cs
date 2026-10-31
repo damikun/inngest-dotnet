@@ -32,9 +32,11 @@ public sealed class WithReferenceTests
         var environment = await Model.EnvironmentAsync(shop.Resource);
         environment["INNGEST_DEV"].ShouldBe("http://localhost:18288");
         environment["INNGEST_BASE_URL"].ShouldBe("http://localhost:18288");
+        environment["INNGEST_API_BASE_URL"].ShouldBe("http://localhost:18288");
+        environment["INNGEST_EVENT_API_BASE_URL"].ShouldBe("http://localhost:18288");
         environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://localhost:18289/v0/connect");
-        environment.Keys.Where(key => key.StartsWith("INNGEST_", StringComparison.Ordinal)).Order()
-            .ShouldBe(["INNGEST_BASE_URL", "INNGEST_CONNECT_GATEWAY_URL", "INNGEST_DEV"]);
+        environment.Keys.Where(key => key.StartsWith("INNGEST_", StringComparison.Ordinal)).Order().ShouldBe(
+            ["INNGEST_API_BASE_URL", "INNGEST_BASE_URL", "INNGEST_CONNECT_GATEWAY_URL", "INNGEST_DEV", "INNGEST_EVENT_API_BASE_URL"]);
     }
 
     [Fact]
@@ -48,6 +50,8 @@ public sealed class WithReferenceTests
         var environment = await Model.EnvironmentAsync(worker.Resource);
         environment["INNGEST_DEV"].ShouldBe("http://inngest.dev.internal:8288");
         environment["INNGEST_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_API_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_EVENT_API_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
         environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://inngest.dev.internal:8289/v0/connect");
     }
 
@@ -64,6 +68,8 @@ public sealed class WithReferenceTests
         var environment = await Model.EnvironmentAsync(shop.Resource);
         environment["INNGEST_DEV"].ShouldBe("0");
         environment["INNGEST_BASE_URL"].ShouldBe("http://localhost:18288");
+        environment["INNGEST_API_BASE_URL"].ShouldBe("http://localhost:18288");
+        environment["INNGEST_EVENT_API_BASE_URL"].ShouldBe("http://localhost:18288");
         environment["INNGEST_SIGNING_KEY"].ShouldBe(SigningKey);
         environment["INNGEST_EVENT_KEY"].ShouldBe("event-key-1");
         environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://localhost:18289/v0/connect");
@@ -96,25 +102,9 @@ public sealed class WithReferenceTests
 
         var environment = await Model.EnvironmentAsync(worker.Resource);
         environment["INNGEST_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_API_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
+        environment["INNGEST_EVENT_API_BASE_URL"].ShouldBe("http://inngest.dev.internal:8288");
         environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://inngest.dev.internal:8289/v0/connect");
-    }
-
-    [Fact]
-    public async Task In_the_manifest_the_settings_refer_to_the_endpoint_and_the_parameters()
-    {
-        var builder = Model.CreateBuilder();
-        var inngest = AddSelfHostedServer(builder);
-        var shop = builder.AddProject<Projects.TestApp>("shop").WithReference(inngest);
-
-        var configuration = await ExecutionConfigurationBuilder.Create(shop.Resource)
-            .WithEnvironmentVariablesConfig()
-            .BuildAsync(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TestContext.Current.CancellationToken);
-
-        var environment = configuration.EnvironmentVariables.ToDictionary();
-        environment["INNGEST_BASE_URL"].ShouldBe("{inngest.bindings.http.url}");
-        environment["INNGEST_CONNECT_GATEWAY_URL"].ShouldBe("ws://{inngest.bindings.connect.host}:{inngest.bindings.connect.port}/v0/connect");
-        environment["INNGEST_SIGNING_KEY"].ShouldBe("{signing.value}");
-        environment["INNGEST_EVENT_KEY"].ShouldBe("{events.value}");
     }
 
     [Fact]

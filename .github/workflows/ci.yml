@@ -94,10 +94,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
-      # Aspire starts both Inngest servers in Docker next to a project and a Connect worker, and the tunnel it uses to reach
-      # the host is likewise unproven on Linux runners.
-      - name: Aspire integration tests with containers
-        run: dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --filter-namespace "Inngest.Aspire.Hosting.Tests.Containers"
+
+  # The Aspire integration starts both Inngest servers in Docker next to a project and a Connect worker, and reaches the
+  # project through the tunnel that Aspire starts. Like the suite above, that is unproven on Linux runners, so a failure
+  # does not fail CI. It is a job of its own, so that a failing suite above does not skip it behind that setting and each
+  # has its own time limit.
+  aspire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --filter-namespace "Inngest.Aspire.Hosting.Tests.Containers"
 
   # Packs the packages of this repository into a folder, installs the template package from it and builds what the
   # templates make against it, so nuget.org is needed for the rest of what those projects use. That packs four projects

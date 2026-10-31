@@ -22,8 +22,15 @@ public static class InngestResourceBuilderExtensions
     /// The server does not scan for apps; <see cref="WithApp{TApp}(IResourceBuilder{InngestServerResource}, IResourceBuilder{TApp}, string, string)"/> tells it where they are.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This version of the package runs the <c>v1.49.0</c> tag of the <c>inngest/inngest</c> image. Change it with
     /// <c>WithImageTag</c>.
+    /// </para>
+    /// <para>
+    /// The dev server checks no signatures, so it is left out of a manifest, and <c>WithReference</c> adds no settings
+    /// to one. An app that is deployed from the manifest runs in cloud mode and takes its keys from where it is
+    /// deployed.
+    /// </para>
     /// </remarks>
     /// <param name="builder">The AppHost builder.</param>
     /// <param name="name">The name of the resource.</param>
@@ -49,7 +56,8 @@ public static class InngestResourceBuilderExtensions
     /// <remarks>
     /// The server keeps its state in the container: it adds no volume, database or Redis. Keys that are not given are
     /// generated and kept in the user secrets of the AppHost, as Aspire does for passwords. A signing key you give
-    /// must be a hex string of even length, without a <c>signkey-</c> prefix.
+    /// must be a hex string of even length, without a <c>signkey-</c> prefix. Unlike the dev server, the self-hosted
+    /// server is part of a manifest, with its keys as parameters.
     /// </remarks>
     /// <param name="builder">The AppHost builder.</param>
     /// <param name="name">The name of the resource.</param>
@@ -129,11 +137,11 @@ public static class InngestResourceBuilderExtensions
 
     /// <summary>
     /// Gives the resource the settings the Inngest SDK reads to find the server. For the dev server that is
-    /// <c>INNGEST_DEV</c>, which turns on dev mode and holds the server's address, and <c>INNGEST_BASE_URL</c> with the
-    /// same address for SDKs that read only that. For a self-hosted server it is <c>INNGEST_BASE_URL</c>,
+    /// <c>INNGEST_DEV</c>, which turns on dev mode and holds the server's address. For a self-hosted server it is
     /// <c>INNGEST_SIGNING_KEY</c> and <c>INNGEST_EVENT_KEY</c>, with <c>INNGEST_DEV</c> set to <c>0</c> so that an
-    /// <c>INNGEST_DEV</c> in the environment of the AppHost cannot turn off signature checks. Both get
-    /// <c>INNGEST_CONNECT_GATEWAY_URL</c>, the address of the Connect gateway, for workers.
+    /// <c>INNGEST_DEV</c> in the environment of the AppHost cannot turn off signature checks. Both get the address in
+    /// <c>INNGEST_BASE_URL</c>, <c>INNGEST_API_BASE_URL</c> and <c>INNGEST_EVENT_API_BASE_URL</c>, and the address of
+    /// the Connect gateway in <c>INNGEST_CONNECT_GATEWAY_URL</c>, for workers.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -142,9 +150,18 @@ public static class InngestResourceBuilderExtensions
     /// wait for the server; add <c>WaitFor</c> if it must not start before the server is healthy.
     /// </para>
     /// <para>
+    /// The SDK reads <c>INNGEST_API_BASE_URL</c> and <c>INNGEST_EVENT_API_BASE_URL</c> before <c>INNGEST_BASE_URL</c>, and
+    /// a resource inherits the environment of the AppHost, so both are set to keep an address from there out. Other
+    /// <c>INNGEST_*</c> variables of that environment still reach the resource.
+    /// </para>
+    /// <para>
     /// The server tells a worker to dial the gateway on the port that it listens on in the container, which is not
     /// the port that Aspire publishes it on. The worker takes the address of the gateway from
     /// <c>INNGEST_CONNECT_GATEWAY_URL</c> instead.
+    /// </para>
+    /// <para>
+    /// A manifest has these settings for a self-hosted server only. The dev server is not in a manifest, so a
+    /// reference to it adds nothing to one.
     /// </para>
     /// </remarks>
     /// <typeparam name="TDestination">The type of the resource that gets the settings.</typeparam>
@@ -166,19 +183,29 @@ public static class InngestResourceBuilderExtensions
             .WithReferenceRelationship(server)
             .WithEnvironment(context =>
             {
+                // The dev server is not in a manifest. Whatever refers to it there would dangle, and INNGEST_DEV would put
+                // the deployed app into dev mode, which checks no signatures.
+                if (!server.IsSelfHosted && context.ExecutionContext.IsPublishMode)
+                {
+                    return;
+                }
+
                 if (server.IsSelfHosted)
                 {
                     context.EnvironmentVariables["INNGEST_DEV"] = "0";
-                    context.EnvironmentVariables["INNGEST_BASE_URL"] = address;
                     context.EnvironmentVariables["INNGEST_SIGNING_KEY"] = server.SigningKeyParameter!;
                     context.EnvironmentVariables["INNGEST_EVENT_KEY"] = server.EventKeyParameter!;
                 }
                 else
                 {
                     context.EnvironmentVariables["INNGEST_DEV"] = address;
-                    context.EnvironmentVariables["INNGEST_BASE_URL"] = address;
                 }
 
+                // The SDK reads the API and event API addresses before the base URL, and the environment of the AppHost
+                // may have set them.
+                context.EnvironmentVariables["INNGEST_BASE_URL"] = address;
+                context.EnvironmentVariables["INNGEST_API_BASE_URL"] = address;
+                context.EnvironmentVariables["INNGEST_EVENT_API_BASE_URL"] = address;
                 context.EnvironmentVariables["INNGEST_CONNECT_GATEWAY_URL"] = gateway;
             });
     }
@@ -189,7 +216,7 @@ public static class InngestResourceBuilderExtensions
         int? port,
         int? connectPort)
     {
-        return builder.AddResource(resource)
+        var server = builder.AddResource(resource)
             .WithImage(InngestContainerImageTags.Image, InngestContainerImageTags.Tag)
             .WithImageRegistry(InngestContainerImageTags.Registry)
             .WithIconName("Flash")
@@ -233,6 +260,10 @@ public static class InngestResourceBuilderExtensions
                     context.EnvironmentVariables["INNGEST_EVENT_KEY"] = eventKey;
                 }
             });
+
+        // The dev server is a tool for the developer's machine. A manifest that ran it would give a deployed app a server
+        // that checks no signatures.
+        return resource.IsSelfHosted ? server : server.ExcludeFromManifest();
     }
 
     // inngest start exits when the signing key is not hex of even length, which shows up as a container that stopped. A key

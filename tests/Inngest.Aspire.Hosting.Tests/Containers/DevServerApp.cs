@@ -8,11 +8,13 @@ public sealed class DevServerApp : AppHostFixture
 {
     protected override void Configure(IDistributedApplicationTestingBuilder builder)
     {
+        // The projects wait for the server, as they do in the guide and the sample. The server then finds them by polling.
         var inngest = builder.AddInngest("inngest");
         var shop = builder.AddProject<Projects.TestApp>("shop")
             .WithHttpEndpoint(name: "http")
             .WithHttpHealthCheck("/health")
-            .WithReference(inngest);
+            .WithReference(inngest)
+            .WaitFor(inngest);
         inngest.WithApp(shop);
 
         // A worker is not registered with the server. It dials the gateway of the server it references.
@@ -20,6 +22,7 @@ public sealed class DevServerApp : AppHostFixture
             .WithHttpEndpoint(name: "http")
             .WithHttpHealthCheck("/health")
             .WithEnvironment("TEST_WORKER", "true")
-            .WithReference(inngest);
+            .WithReference(inngest)
+            .WaitFor(inngest);
     }
 }

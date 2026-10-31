@@ -1,6 +1,6 @@
 <!-- An Aspire AppHost for the sample app. Running it starts the Inngest dev server in Docker, the sample next to it, and
      the Aspire dashboard, which links the server's UI. -->
-<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+<Project Sdk="Aspire.AppHost.Sdk">
   <PropertyGroup>
     <TargetFramework>$(LatestTargetFramework)</TargetFramework>
     <OutputType>Exe</OutputType>
