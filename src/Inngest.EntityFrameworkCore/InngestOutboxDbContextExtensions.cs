@@ -2,7 +2,6 @@
 
 using Inngest;
 using Inngest.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace Microsoft.EntityFrameworkCore;
 
@@ -13,7 +12,10 @@ public static class InngestOutboxDbContextExtensions
     /// saved by the next SaveChanges together with the other changes, committed or rolled back with them, and a
     /// dispatcher sends it after the commit. Returns the row, whose Id is the id Inngest gets the event under. The id is
     /// generated unless one is given; an id the code derives from the work, such as an order number, makes a second
-    /// attempt at the same work fail at the unique key instead of sending a second event.
+    /// attempt at the same work fail at the unique key instead of sending a second event. The id, the name and the
+    /// version are at most 255 characters, and a database that compares text without regard to case, as SQL Server and
+    /// MySQL do by default, takes ids that differ only in case for the same key. An event added inside a function does not
+    /// carry the run's sessions, because the dispatcher sends it outside the run; set them in Meta.
     /// </summary>
     public static InngestOutboxMessage AddInngestEvent<T>(this DbContext context, T data, string? id = null)
         where T : IInngestEventData
@@ -47,7 +49,7 @@ public static class InngestOutboxDbContextExtensions
         }
 
         // The application's services are where AddDbContext leaves them, and the writer is one of them.
-        return context.GetService<IDbContextOptions>().FindExtension<CoreOptionsExtension>()?.ApplicationServiceProvider?.GetService(typeof(OutboxEventWriter)) as OutboxEventWriter
+        return OutboxServices.ApplicationServicesOf(context)?.GetService(typeof(OutboxEventWriter)) as OutboxEventWriter
             ?? throw new InvalidOperationException(
                 $"{name} cannot reach the outbox. Call AddEntityFrameworkOutbox<{name}>() on the Inngest builder, and register the context with AddDbContext, so that it knows the application's services.");
     }

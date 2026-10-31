@@ -10,10 +10,18 @@ namespace Inngest.EntityFrameworkCore;
 // commit when the code opened one around the save. A wake-up is a hint and the poll finds the events without it, so the
 // cases this cannot see, such as a TransactionScope that commits later, only cost the time until the next poll.
 //
-// One instance serves every context of the app. What it knows about a save, it knows from the context itself:
-// AddInngestEvent marks the context, and the marks are cleared as soon as they were acted on or the transaction ended.
-internal sealed class OutboxInterceptor(OutboxSignals signals) : SaveChangesInterceptor, IDbTransactionInterceptor
+// One instance serves every context of the app, and it needs nothing from the code that configured the context, which
+// may not have a service provider at hand (the AddDbContext overloads without one, OnConfiguring). What it knows about a
+// save, it knows from the context itself: AddInngestEvent marks the context, and the marks are cleared as soon as they
+// were acted on or the transaction ended. The dispatcher's signal it finds in the application services of the context.
+internal sealed class OutboxInterceptor : SaveChangesInterceptor, IDbTransactionInterceptor
 {
+    private OutboxInterceptor()
+    {
+    }
+
+    public static OutboxInterceptor Instance { get; } = new();
+
     public override int SavedChanges(SaveChangesCompletedEventData eventData, int result)
     {
         Saved(eventData.Context);
@@ -77,10 +85,15 @@ internal sealed class OutboxInterceptor(OutboxSignals signals) : SaveChangesInte
         }
     }
 
-    private void Wake(DbContext context, OutboxPending pending)
+    private static void Wake(DbContext context, OutboxPending pending)
     {
         pending.Added = false;
         pending.AwaitingCommit = false;
-        signals.For(context.GetType()).Notify();
+
+        // Without the outbox registered nobody listens, and nothing was added with AddInngestEvent in the first place.
+        if (OutboxServices.ApplicationServicesOf(context)?.GetService(typeof(OutboxSignals)) is OutboxSignals signals)
+        {
+            signals.For(context.GetType()).Notify();
+        }
     }
 }

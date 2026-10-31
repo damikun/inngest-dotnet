@@ -20,7 +20,8 @@ internal sealed class OutboxDispatcher<TContext>(
 {
     private readonly string _context = typeof(TContext).Name;
 
-    // A setup that cannot work stops the host from starting, instead of showing up as the same error on every poll.
+    // A setup that cannot work stops the host from starting, instead of showing up as the same error on every poll. One that
+    // works but is slower than it could be, a context without UseInngestOutbox, is said once.
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         if (processor.Settings.DispatcherEnabled)
@@ -30,10 +31,16 @@ internal sealed class OutboxDispatcher<TContext>(
             var scope = scopes.CreateAsyncScope();
             await using (scope.ConfigureAwait(false))
             {
-                if (scope.ServiceProvider.GetRequiredService<TContext>().Model.FindEntityType(typeof(InngestOutboxMessage)) is null)
+                var database = scope.ServiceProvider.GetRequiredService<TContext>();
+                if (database.Model.FindEntityType(typeof(InngestOutboxMessage)) is null)
                 {
                     throw new InvalidOperationException(
                         $"{typeof(TContext).Name} does not map the outbox table. Call modelBuilder.AddInngestOutbox() in OnModelCreating.");
+                }
+
+                if (!OutboxServices.HasInterceptor(database))
+                {
+                    Log.NoWakeUp(logger, _context, processor.Settings.PollInterval);
                 }
             }
         }

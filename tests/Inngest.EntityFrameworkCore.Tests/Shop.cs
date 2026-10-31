@@ -48,3 +48,11 @@ public sealed class RenamedContext(DbContextOptions<RenamedContext> options) : D
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.AddInngestOutbox(outbox => outbox.ToTable("Outbox", "inngest"));
 }
+
+// A context that adds the interceptor in OnConfiguring, where there is no service provider to pass.
+public sealed class ConfiguringContext(DbContextOptions<ConfiguringContext> options) : DbContext(options)
+{
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) => optionsBuilder.UseInngestOutbox();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddInngestOutbox();
+}

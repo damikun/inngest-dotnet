@@ -32,11 +32,11 @@ internal sealed class PostgresOutboxHost : IAsyncDisposable
             options.AppId = "shop";
             options.IsDev = true;
         }).AddEntityFrameworkOutbox<ShopContext>(configure);
-        services.AddDbContext<ShopContext>((provider, options) =>
+        services.AddDbContext<ShopContext>(options =>
         {
             options.UseNpgsql(connectionString);
             contextOptions?.Invoke(options);
-            options.UseInngestOutbox(provider);
+            options.UseInngestOutbox();
         });
         _provider = services.BuildServiceProvider();
     }
@@ -46,6 +46,9 @@ internal sealed class PostgresOutboxHost : IAsyncDisposable
     public FakeTimeProvider Time { get; }
 
     public OutboxProcessor<ShopContext> Processor => _provider.GetRequiredService<OutboxProcessor<ShopContext>>();
+
+    // What the dispatcher waits on, and the interceptor sets after a save.
+    public OutboxSignal Signal => _provider.GetRequiredService<OutboxSignals>().For(typeof(ShopContext));
 
     // A context of its own in a scope of its own, like the one a request gets.
     public ShopContext CreateContext() => _provider.CreateScope().ServiceProvider.GetRequiredService<ShopContext>();

@@ -19,7 +19,7 @@ internal sealed class OutboxHost : IAsyncDisposable
         Action<InngestOutboxOptions>? configure = null,
         RecordingInngestClient? client = null,
         FakeTimeProvider? time = null,
-        bool wakeOnSave = true,
+        ContextRegistration registration = ContextRegistration.WithProvider,
         Action<InngestOptions>? inngest = null,
         Action<DbContextOptionsBuilder>? contextOptions = null)
     {
@@ -37,15 +37,41 @@ internal sealed class OutboxHost : IAsyncDisposable
             options.IsDev = true;
             inngest?.Invoke(options);
         }).AddEntityFrameworkOutbox<ShopContext>(configure);
-        services.AddDbContext<ShopContext>((provider, options) =>
+        switch (registration)
         {
-            database.Configure(options);
-            contextOptions?.Invoke(options);
-            if (wakeOnSave)
-            {
-                options.UseInngestOutbox(provider);
-            }
-        });
+            case ContextRegistration.WithProvider:
+                services.AddDbContext<ShopContext>((provider, options) =>
+                {
+                    database.Configure(options);
+                    contextOptions?.Invoke(options);
+                    options.UseInngestOutbox(provider);
+                });
+                break;
+            case ContextRegistration.WithoutProvider:
+                services.AddDbContext<ShopContext>(options =>
+                {
+                    database.Configure(options);
+                    contextOptions?.Invoke(options);
+                    options.UseInngestOutbox();
+                });
+                break;
+            case ContextRegistration.Pooled:
+                services.AddDbContextPool<ShopContext>(options =>
+                {
+                    database.Configure(options);
+                    contextOptions?.Invoke(options);
+                    options.UseInngestOutbox();
+                });
+                break;
+            default:
+                services.AddDbContext<ShopContext>(options =>
+                {
+                    database.Configure(options);
+                    contextOptions?.Invoke(options);
+                });
+                break;
+        }
+
         _provider = services.BuildServiceProvider();
 
         using var scope = _provider.CreateScope();
@@ -87,4 +113,20 @@ internal sealed class OutboxHost : IAsyncDisposable
     }
 
     public async ValueTask DisposeAsync() => await _provider.DisposeAsync();
+}
+
+// How the app registers its context: with UseInngestOutbox in each of the ways to build the options, or without.
+public enum ContextRegistration
+{
+    // AddDbContext with the service provider, UseInngestOutbox(provider).
+    WithProvider,
+
+    // AddDbContext without one, UseInngestOutbox().
+    WithoutProvider,
+
+    // AddDbContextPool, which has no provider either.
+    Pooled,
+
+    // No UseInngestOutbox at all.
+    None,
 }

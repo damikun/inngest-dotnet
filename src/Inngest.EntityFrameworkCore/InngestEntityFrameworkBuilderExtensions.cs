@@ -15,11 +15,11 @@ public static class InngestEntityFrameworkBuilderExtensions
     /// Adds a transactional outbox for the DbContext TContext: events added with AddInngestEvent are saved in the same
     /// transaction as the rest of the unit of work, and a hosted dispatcher sends them to Inngest afterwards. Delivery
     /// is at least once: an event whose send is not recorded, for example because the process died in between, is sent
-    /// again with the same id, which Inngest drops. The context needs the table
-    /// (modelBuilder.AddInngestOutbox() in OnModelCreating, and a migration) and
-    /// UseInngestOutbox(serviceProvider) in its options if saves are to wake the dispatcher at once instead of at the
-    /// next poll. Every instance of the app runs a dispatcher; they share the table without a lock. Call it once for each
-    /// DbContext that has events to send; each has its own table, settings and dispatcher.
+    /// again with the same id, which Inngest is documented to drop within 24 hours. The context needs the table
+    /// (modelBuilder.AddInngestOutbox() in OnModelCreating, and a migration), and UseInngestOutbox() in its options if
+    /// saves are to wake the dispatcher at once instead of at the next poll. Every instance of the app runs a dispatcher;
+    /// they share the table without a lock. Call it once for each DbContext that has events to send; each has its own
+    /// table, settings and dispatcher.
     /// </summary>
     public static IInngestBuilder AddEntityFrameworkOutbox<TContext>(this IInngestBuilder builder, Action<InngestOutboxOptions>? configure = null)
         where TContext : DbContext
@@ -38,7 +38,6 @@ public static class InngestEntityFrameworkBuilderExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<InngestOutboxOptions>, OutboxOptionsValidator>());
 
         services.TryAddSingleton<OutboxSignals>();
-        services.TryAddSingleton<OutboxInterceptor>();
         services.TryAddSingleton(static provider => new OutboxEventWriter(
             provider.GetRequiredService<InngestSettings>().SerializerOptions,
             provider.GetRequiredService<TimeProvider>()));

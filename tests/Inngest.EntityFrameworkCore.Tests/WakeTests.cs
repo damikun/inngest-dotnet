@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.EntityFrameworkCore.Tests;
 
@@ -18,6 +19,58 @@ public sealed class WakeTests
         await host.PlaceOrderAsync("A-1");
 
         (await WokenAsync(host)).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(ContextRegistration.WithProvider)]
+    [InlineData(ContextRegistration.WithoutProvider)]
+    [InlineData(ContextRegistration.Pooled)]
+    public async Task A_save_wakes_the_dispatcher_however_the_options_of_the_context_are_built(ContextRegistration registration)
+    {
+        using var database = SqliteDatabase.Single();
+        await using var host = new OutboxHost(database, registration: registration);
+
+        await host.PlaceOrderAsync("A-1");
+
+        (await WokenAsync(host)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UseInngestOutbox_in_OnConfiguring_wakes_it_too()
+    {
+        using var database = SqliteDatabase.Single();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IInngestClient>(new RecordingInngestClient());
+        services.AddInngest(options =>
+        {
+            options.AppId = "shop";
+            options.IsDev = true;
+        }).AddEntityFrameworkOutbox<ConfiguringContext>();
+        services.AddDbContext<ConfiguringContext>(options => database.Configure(options));
+        await using var provider = services.BuildServiceProvider();
+
+        await using (var context = provider.CreateScope().ServiceProvider.GetRequiredService<ConfiguringContext>())
+        {
+            await context.Database.EnsureCreatedAsync();
+            context.AddInngestEvent(new OrderPlaced("A-1", 10));
+            await context.SaveChangesAsync();
+        }
+
+        var signal = provider.GetRequiredService<OutboxSignals>().For(typeof(ConfiguringContext));
+        (await signal.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, CancellationToken.None)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UseInngestOutbox_in_two_places_wakes_it_once_and_does_no_harm()
+    {
+        using var database = SqliteDatabase.Single();
+        await using var host = new OutboxHost(database, contextOptions: options => options.UseInngestOutbox());
+
+        await host.PlaceOrderAsync("A-1");
+
+        (await WokenAsync(host)).ShouldBeTrue();
+        (await WokenAsync(host, Silence)).ShouldBeFalse();
     }
 
     [Fact]
@@ -140,7 +193,7 @@ public sealed class WakeTests
     public async Task Without_UseInngestOutbox_nothing_wakes_it_and_the_poll_has_to_do()
     {
         using var database = SqliteDatabase.Single();
-        await using var host = new OutboxHost(database, wakeOnSave: false);
+        await using var host = new OutboxHost(database, registration: ContextRegistration.None);
 
         await host.PlaceOrderAsync("A-1");
 

@@ -31,7 +31,7 @@ public sealed class DispatcherTests
     public async Task The_poll_finds_events_that_nothing_woke_the_dispatcher_for()
     {
         using var database = SqliteDatabase.Shared();
-        await using var host = new OutboxHost(database, options => options.PollInterval = TimeSpan.FromSeconds(30), wakeOnSave: false);
+        await using var host = new OutboxHost(database, options => options.PollInterval = TimeSpan.FromSeconds(30), registration: ContextRegistration.None);
         await using var running = await RunAsync(host);
 
         await host.PlaceOrderAsync("A-1");
@@ -52,6 +52,9 @@ public sealed class DispatcherTests
         await host.PlaceOrderAsync("A-1");
 
         await Eventually(() => host.Client.Events.Count == 1, TestContext.Current.CancellationToken, advance: TimeSpan.FromSeconds(6), host.Time);
+
+        // The client has the event before the dispatcher has marked the row, so the row is waited for as well.
+        await Eventually(() => host.RowsAsync().GetAwaiter().GetResult() is [{ SentAt: not null }], TestContext.Current.CancellationToken);
         (await host.RowsAsync()).ShouldHaveSingleItem().Attempts.ShouldBe(3);
     }
 
@@ -101,10 +104,31 @@ public sealed class DispatcherTests
         await host.Dispatcher.StartAsync(CancellationToken.None);
         await host.PlaceOrderAsync("A-1");
         host.Time.Advance(TimeSpan.FromHours(1));
+
+        // The host does not wait for ExecuteAsync to get going, so the dispatcher says it is off a moment after it started.
+        await Eventually(() => host.Logs.GetSnapshot().Any(record => record.Message.Contains("does not send events in this process", StringComparison.Ordinal)), TestContext.Current.CancellationToken);
         await host.Dispatcher.StopAsync(CancellationToken.None);
 
         host.Client.Requests.ShouldBeEmpty();
-        host.Logs.GetSnapshot().ShouldContain(record => record.Message.Contains("does not send events in this process", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_context_set_up_without_UseInngestOutbox_is_said_to_have_no_wake_ups_when_the_dispatcher_starts()
+    {
+        using var withoutDatabase = SqliteDatabase.Single();
+        using var withDatabase = SqliteDatabase.Single();
+        await using var without = new OutboxHost(withoutDatabase, registration: ContextRegistration.None);
+        await using var with = new OutboxHost(withDatabase, registration: ContextRegistration.WithoutProvider);
+
+        await without.Dispatcher.StartAsync(CancellationToken.None);
+        await with.Dispatcher.StartAsync(CancellationToken.None);
+        await without.Dispatcher.StopAsync(CancellationToken.None);
+        await with.Dispatcher.StopAsync(CancellationToken.None);
+
+        // Said once, at the level of information, since nothing is lost by it: the events are found at the next poll.
+        var said = without.Logs.GetSnapshot().Where(record => record.Message.Contains("is not set up with UseInngestOutbox", StringComparison.Ordinal)).ToList();
+        said.ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Information);
+        with.Logs.GetSnapshot().ShouldNotContain(record => record.Message.Contains("UseInngestOutbox", StringComparison.Ordinal));
     }
 
     [Fact]

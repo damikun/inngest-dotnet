@@ -36,4 +36,7 @@ internal static partial class Log
 
     [LoggerMessage(EventId = 609, Level = LogLevel.Debug, Message = "Gave {Count} claimed events of the outbox of {Context} back, so that the next dispatcher takes them at once.")]
     public static partial void Released(ILogger logger, int count, string context);
+
+    [LoggerMessage(EventId = 610, Level = LogLevel.Information, Message = "{Context} is not set up with UseInngestOutbox, so a save in this process does not wake the dispatcher: events are found at the next poll, within {PollInterval}. Nothing else is lost by that.")]
+    public static partial void NoWakeUp(ILogger logger, string context, TimeSpan pollInterval);
 }
