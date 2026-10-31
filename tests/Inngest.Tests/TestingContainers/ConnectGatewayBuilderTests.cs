@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using DotNet.Testcontainers.Builders;
 using static Inngest.Tests.TestingContainers.BuilderHarness;
 
@@ -54,19 +56,68 @@ public sealed class ConnectGatewayBuilderTests
     {
         var wait = Wait.ForUnixContainer().UntilExternalTcpPortIsAvailable(8288).UntilMessageIsLogged("started");
 
-        Builder().WithWaitStrategy(wait).Build().Configuration.WaitStrategies.Count().ShouldBe(3);
-        Builder().WithWaitStrategy(wait).WithConnectGateway().Build().Configuration.WaitStrategies.Count().ShouldBe(3);
+        // The very strategies the caller built, with and without a gateway; a replaced one is another object.
+        Builder().WithWaitStrategy(wait).Build().Configuration.WaitStrategies.ShouldBeSameAs(wait.Build());
+        Builder().WithWaitStrategy(wait).WithConnectGateway().Build().Configuration.WaitStrategies.ShouldBeSameAs(wait.Build());
     }
 
     [Fact]
-    public void Each_container_of_one_builder_picks_its_own_free_port()
+    public void The_default_wait_is_made_for_each_container()
+    {
+        var builder = Builder();
+
+        builder.Build().Configuration.WaitStrategies.ShouldNotBeSameAs(builder.Build().Configuration.WaitStrategies);
+    }
+
+    [Fact]
+    public async Task Every_container_of_one_builder_has_a_gateway_port_of_its_own()
     {
         var builder = Builder().WithConnectGateway();
+        var containers = Enumerable.Range(0, 5).Select(_ => builder.Build()).ToList();
 
-        // Free ports are picked from the kernel's, so two picks in a row differ unless the first was handed out again.
-        var ports = Enumerable.Range(0, 5).Select(_ => builder.Build().ConnectGatewayPort).Distinct().Count();
+        // The ports are held until the containers start, so no two can be the same.
+        containers.Select(container => container.ConnectGatewayPort).Distinct().Count().ShouldBe(5);
 
-        ports.ShouldBeGreaterThan(1);
+        foreach (var container in containers)
+        {
+            await container.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_gateway_port_the_builder_picked_stays_taken_until_the_container_is_disposed()
+    {
+        var container = Builder().WithConnectGateway().Build();
+        var port = container.ConnectGatewayPort.ShouldNotBeNull();
+
+        // Whatever tries to listen on the port in the meantime, such as a second test run, is refused.
+        Should.Throw<SocketException>(() => Listen(port));
+
+        await container.DisposeAsync();
+
+        Should.NotThrow(() => Listen(port));
+    }
+
+    [Fact]
+    public async Task A_gateway_port_the_caller_chose_is_left_alone()
+    {
+        var port = FreePort();
+        await using var container = Builder().WithConnectGateway(port).Build();
+
+        Should.NotThrow(() => Listen(port));
+    }
+
+    private static int FreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Any, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static void Listen(int port)
+    {
+        using var listener = new TcpListener(IPAddress.Any, port);
+        listener.Start();
     }
 
     [Theory]

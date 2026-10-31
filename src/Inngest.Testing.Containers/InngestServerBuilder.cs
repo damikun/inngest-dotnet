@@ -123,7 +123,8 @@ public sealed class InngestServerBuilder : ContainerBuilder<InngestServerBuilder
     /// </summary>
     /// <param name="port">
     /// The port inside the container and on the host. A free port of the host is picked when the container is built if
-    /// none is given.
+    /// none is given, and kept from other processes until the container starts. A start can still fail if Docker finds
+    /// the port taken then; build the container again to get another.
     /// </param>
     /// <returns>A configured instance of <see cref="InngestServerBuilder" />.</returns>
     public InngestServerBuilder WithConnectGateway(int? port = null) =>
@@ -150,26 +151,46 @@ public sealed class InngestServerBuilder : ContainerBuilder<InngestServerBuilder
         var configuration = DockerResourceConfiguration;
         var signingKey = configuration.SelfHosted ? configuration.SigningKey ?? RandomHex(32) : null;
         var eventKey = configuration.SelfHosted ? configuration.EventKey ?? $"test-{RandomHex(8)}" : null;
-        int? gatewayPort = configuration.ConnectGateway ? configuration.ConnectGatewayPort ?? FreePort.Pick() : null;
 
-        var builder = With(new InngestServerConfiguration(signingKey: signingKey, eventKey: eventKey, connectGatewayPort: gatewayPort))
-            .WithCommand(new OverwriteEnumerable<string>(CreateCommand(configuration, signingKey, eventKey, gatewayPort)))
-            .WithCreateParameterModifier(parameters => ReserveServerPorts(parameters, gatewayPort));
-
-        if (gatewayPort is { } port)
+        // A gateway port the caller did not choose is held until the container starts, so that nobody else takes it
+        // while the image is pulled.
+        var reservation = configuration.ConnectGateway && configuration.ConnectGatewayPort is null ? PortReservation.Take() : null;
+        try
         {
-            builder = builder.WithPortBinding(port, port);
-        }
+            int? gatewayPort = configuration.ConnectGateway ? configuration.ConnectGatewayPort ?? reservation?.Port : null;
 
-        // A wait strategy replaces the one before it, and one with conditions of its own is the caller's: the default
-        // is only the check that the container runs.
-        if (builder.DockerResourceConfiguration.WaitStrategies.Count() <= 1)
+            // The provider remembers the container it was started with, so each container needs a provider of its own.
+            var builder = With(new InngestServerConfiguration(signingKey: signingKey, eventKey: eventKey, connectGatewayPort: gatewayPort))
+                .WithCommand(new OverwriteEnumerable<string>(CreateCommand(configuration, signingKey, eventKey, gatewayPort)))
+                .WithCreateParameterModifier(parameters => ReserveServerPorts(parameters, gatewayPort))
+                .WithConnectionStringProvider(new InngestServerConnectionStringProvider());
+
+            if (gatewayPort is { } port)
+            {
+                builder = builder.WithPortBinding(port, port);
+            }
+
+            // A wait strategy replaces the one before it, and one with conditions of its own is the caller's: the default
+            // is only the check that the container runs.
+            if (builder.DockerResourceConfiguration.WaitStrategies.Count() <= 1)
+            {
+                var ready = UntilReady(InngestPort, "/health");
+                builder = builder.WithWaitStrategy(gatewayPort is { } gateway ? ready.UntilHttpRequestIsSucceeded(request => request.ForPort((ushort)gateway).ForPath("/ready"), Polling) : ready);
+            }
+
+            var container = new InngestServerContainer(builder.DockerResourceConfiguration);
+            if (reservation is not null)
+            {
+                container.Hold(reservation);
+            }
+
+            return container;
+        }
+        catch
         {
-            var ready = UntilReady(InngestPort, "/health");
-            builder = builder.WithWaitStrategy(gatewayPort is { } gateway ? ready.UntilHttpRequestIsSucceeded(request => request.ForPort((ushort)gateway).ForPath("/ready"), Polling) : ready);
+            reservation?.Dispose();
+            throw;
         }
-
-        return new InngestServerContainer(builder.DockerResourceConfiguration);
     }
 
     /// <inheritdoc />
@@ -179,8 +200,7 @@ public sealed class InngestServerBuilder : ContainerBuilder<InngestServerBuilder
             .WithPortBinding(InngestPort, true)
             // Docker Desktop resolves host.docker.internal on its own; Linux needs it mapped to the host gateway.
             .WithExtraHost(HostAccess.ContainerHostName, "host-gateway")
-            .WithEnvironment("DO_NOT_TRACK", "1")
-            .WithConnectionStringProvider(new InngestServerConnectionStringProvider());
+            .WithEnvironment("DO_NOT_TRACK", "1");
     }
 
     /// <inheritdoc />

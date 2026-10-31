@@ -15,6 +15,7 @@ namespace Inngest.Testing.Containers;
 public sealed class InngestServerContainer : DockerContainer
 {
     private readonly InngestServerConfiguration _configuration;
+    private PortReservation? _reservation;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="InngestServerContainer" /> class.
@@ -51,6 +52,9 @@ public sealed class InngestServerContainer : DockerContainer
 
     internal InngestServerConfiguration Configuration => _configuration;
 
+    // The gateway port the builder picked, kept from other processes until Docker is about to publish it.
+    internal void Hold(PortReservation reservation) => _reservation = reservation;
+
     /// <summary>
     /// Gets the address of the server's API as the test reaches it: events, the REST and GraphQL APIs and the health
     /// check. The container must be running.
@@ -71,19 +75,25 @@ public sealed class InngestServerContainer : DockerContainer
     }
 
     /// <summary>
-    /// Gets the same settings as <see cref="Configure"/> as the <c>INNGEST_*</c> environment variables the SDKs read, for
-    /// an app that reads its configuration from the environment or that another SDK serves. The container must be
-    /// running.
+    /// Gets the same settings as <see cref="Configure"/> as the <c>INNGEST_*</c> variables the SDKs read, for an app that
+    /// reads its configuration from the environment, such as a process the test starts. A process inherits the variables
+    /// of the machine, so every variable that decides the mode or an address is set, and an inherited
+    /// <c>INNGEST_DEV=1</c> or <c>INNGEST_BASE_URL</c> does not win: <c>INNGEST_DEV</c> is the dev server's address, or
+    /// <c>0</c> for the self-hosted server, and <c>INNGEST_BASE_URL</c>, <c>INNGEST_API_BASE_URL</c> and
+    /// <c>INNGEST_EVENT_API_BASE_URL</c> the address of the server. The self-hosted server's keys are
+    /// <c>INNGEST_SIGNING_KEY</c> and <c>INNGEST_EVENT_KEY</c>. Other inherited <c>INNGEST_*</c> variables still apply.
+    /// The container must be running.
     /// </summary>
     /// <returns>The variable names and values.</returns>
     public IReadOnlyDictionary<string, string> GetSdkEnvironment() => SdkSettings.ToEnvironment(GetBaseAddress(), _configuration);
 
     /// <summary>
     /// Has the server register the app that listens at this URL, which an SDK does by answering a PUT with its
-    /// registration. The app registers the URL the request arrived on, so the request carries the host name the
-    /// container reaches the app by, <c>host.docker.internal</c>, whatever address the test used; the server then calls
-    /// the app on it. A self-hosted server's apps verify signatures, so the request is signed with its signing key.
-    /// Returns once the server knows the app's functions, and throws if the app refuses.
+    /// registration. The app registers the URL the request arrived on and the server then calls it, so the request
+    /// names the address the container reaches the app by: <c>host.docker.internal</c> for a loopback address, which is
+    /// the container itself in there, and any other address as given. Like the server's own sync, the request says which
+    /// kind of server it comes from, and a self-hosted server's apps verify signatures, so it is signed with the signing
+    /// key. Returns once the server knows the app's functions, and throws if the app refuses.
     /// </summary>
     /// <param name="appUrl">
     /// The URL of the app's Inngest endpoint as the test reaches it, such as <c>http://localhost:5000/api/inngest</c>.
@@ -99,7 +109,12 @@ public sealed class InngestServerContainer : DockerContainer
         var urlForContainer = HostAccess.ForContainer(appUrl);
 
         using var request = new HttpRequestMessage(HttpMethod.Put, HostAccess.ForTest(appUrl));
+
+        // The app registers the URL the request arrived on, which is built from the Host header.
         request.Headers.Host = urlForContainer.Authority;
+
+        // The app passes the kind on to the server it registers with, which checks that it is that kind of server.
+        request.Headers.Add("X-Inngest-Server-Kind", IsDevServer ? "dev" : "cloud");
         if (SigningKey is { } signingKey)
         {
             request.Headers.Add("X-Inngest-Signature", Sign(signingKey));
@@ -136,6 +151,22 @@ public sealed class InngestServerContainer : DockerContainer
 
             throw new InvalidOperationException($"The Inngest server ({Image.FullName}) did not become ready. Its log:\n{log}", exception);
         }
+    }
+
+    /// <inheritdoc />
+    protected override Task UnsafeStartContainerAsync(CancellationToken ct = default)
+    {
+        // The container exists, so the image is pulled: let Docker have the port the builder picked for the gateway.
+        _reservation?.Release();
+        return base.UnsafeStartContainerAsync(ct);
+    }
+
+    /// <inheritdoc />
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        // A container that was built and never started still holds its gateway port.
+        _reservation?.Release();
+        await base.DisposeAsyncCore().ConfigureAwait(false);
     }
 
     // An empty request body signs as the timestamp alone: the signature is a MAC of the body followed by t.

@@ -135,6 +135,20 @@ public sealed class DevServerBuilderTests
     }
 
     [Fact]
+    public void Every_container_of_one_builder_has_a_connection_string_provider_of_its_own()
+    {
+        // A provider remembers the container it was started with, so one shared by two containers answers for the last.
+        var builder = Builder();
+
+        var first = builder.Build().Configuration.ConnectionStringProvider;
+        var second = builder.Build().Configuration.ConnectionStringProvider;
+
+        first.ShouldNotBeNull();
+        second.ShouldNotBeNull();
+        first.ShouldNotBeSameAs(second);
+    }
+
+    [Fact]
     public void An_image_can_be_given_as_text_or_as_an_image()
     {
         new InngestServerBuilder(new DotNet.Testcontainers.Images.DockerImage(Image)).WithDockerEndpoint("tcp://127.0.0.1:1")
