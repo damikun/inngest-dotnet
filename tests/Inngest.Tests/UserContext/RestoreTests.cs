@@ -586,6 +586,34 @@ public sealed class RestoreTests
         seen.ShouldNotBeNull().IsAuthenticated.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task A_failure_handler_runs_as_nobody_under_FailRun_when_the_run_that_failed_failed_on_its_user()
+    {
+        UserContextApp.Seen? seen = null;
+        await using var app = NewApp(
+            options => options.OnInvalid = InvalidUserContextAction.FailRun,
+            inngest => inngest.AddFunction(
+                new FunctionOptions { Id = "fn", Triggers = [Trigger.Event(UserContextApp.EventName)] },
+                (_, _) => Task.FromResult<object?>("never"),
+                (context, _) =>
+                {
+                    seen = UserContextApp.SeenBy(context);
+                    return Task.CompletedTask;
+                }));
+        var created = app.Time.GetUtcNow();
+        var original = UserContextApp.EventJson(app.Seal(UserContextApp.Ada()));
+
+        // The run was created after the payload expired, so FailRun failed it, and Inngest then sent function.failed.
+        var late = created.AddDays(8);
+        var main = await app.CallAsync(app.Function("fn"), Call.New().Event(original), late);
+        var handler = await app.CallAsync(app.Function("fn-failure"), Call.New().Event(FailedEvent("test-app-fn", RunId(late), original)), late);
+
+        main.StatusCode.ShouldBe(400);
+        handler.StatusCode.ShouldBe(200);
+        seen.ShouldNotBeNull().IsAuthenticated.ShouldBeFalse();
+        app.Logs.GetSnapshot().Where(record => record.Level == LogLevel.Warning && record.Message.Contains("it has expired", StringComparison.Ordinal)).ShouldHaveSingleItem();
+    }
+
     private static string RunId(DateTimeOffset time) => UserContextApp.RunIdAt(time);
 
     // The event Inngest sends when a run fails, which carries the event of the run that failed.

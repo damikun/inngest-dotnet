@@ -61,7 +61,7 @@ internal sealed class UserContextMiddleware(
         RunUsers.Set(context, read.Snapshot);
         if (read.Snapshot is null)
         {
-            Reject(context, user.EventName, read.Problem);
+            Reject(context, user.EventName, read.Problem, user.OfFailedRun);
         }
     }
 
@@ -79,6 +79,7 @@ internal sealed class UserContextMiddleware(
         var @event = raw;
         var runId = context.RunId;
         var runningFunction = Compose(context.FunctionId);
+        var ofFailedRun = false;
         if (registry.TryGet(runningFunction, out var function))
         {
             if (function.FailureHandlerFor is { } failedId)
@@ -94,6 +95,7 @@ internal sealed class UserContextMiddleware(
                 }
 
                 // The user is judged as the failed run judged it, not by the time its failure was found.
+                ofFailedRun = true;
                 runningFunction = Compose(failedId);
                 if (data.TryGetProperty("run_id", out var failedRun) && failedRun.ValueKind == JsonValueKind.String)
                 {
@@ -115,7 +117,7 @@ internal sealed class UserContextMiddleware(
             ? nameElement.GetString()!
             : string.Empty;
         // An invocation is for one function, and the text must say that it is this one.
-        found = new EventUser(user, name, runId, ScheduledAt(@event), name == SystemEvents.FunctionInvoked ? runningFunction : null);
+        found = new EventUser(user, name, runId, ScheduledAt(@event), name == SystemEvents.FunctionInvoked ? runningFunction : null, ofFailedRun);
         return true;
     }
 
@@ -138,9 +140,11 @@ internal sealed class UserContextMiddleware(
     // The registry knows functions by "<app id>-<function id>".
     private string Compose(string functionId) => $"{settings.AppId}-{functionId}";
 
-    private void Reject(FunctionContext context, string eventName, UserReadProblem problem)
+    // A failure handler runs because the run it belongs to failed, often on this very user, so it never fails on one: it
+    // takes the anonymous path, with the warning, and can do what it is there for.
+    private void Reject(FunctionContext context, string eventName, UserReadProblem problem, bool ofFailedRun)
     {
-        if (_options.OnInvalid == InvalidUserContextAction.FailRun)
+        if (_options.OnInvalid == InvalidUserContextAction.FailRun && !ofFailedRun)
         {
             var message = $"The user in event {eventName} cannot be used because {Describe(problem)}.";
             throw problem == UserReadProblem.Unreadable ? new InvalidOperationException(message) : new NonRetriableException(message);
@@ -203,5 +207,11 @@ internal sealed class UserContextMiddleware(
         return attached ?? events;
     }
 
-    private readonly record struct EventUser(JsonElement Json, string EventName, string RunId, DateTimeOffset? Scheduled, string? Function);
+    private readonly record struct EventUser(
+        JsonElement Json,
+        string EventName,
+        string RunId,
+        DateTimeOffset? Scheduled,
+        string? Function,
+        bool OfFailedRun);
 }

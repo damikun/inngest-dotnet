@@ -294,13 +294,13 @@ is, and `OnInvalid` decides what the run does:
 | Setting | A run whose payload cannot be used |
 |---|---|
 | `Anonymous` (the default) | Writes one warning and runs without a user. |
-| `FailRun` | Fails. An expired payload, one made for another event and one with an unknown format fail without retries; one that cannot be unprotected is retried, because the key store may only be unreachable for now, and fails on the last attempt. |
+| `FailRun` | Fails. An expired payload, one made for another event or function and one with an unknown format fail without retries; one that cannot be unprotected is retried, because the app may not have the sender's newest key yet, and fails on the last attempt. A failure handler never fails on its user: it takes the `Anonymous` path, so that it can do what it is there for. |
 
 | Reason in the log | What it means |
 |---|---|
 | it has expired | The run was created after the expiry. |
-| it was made for another event | The event name is not the one the payload was made for. |
-| it could not be unprotected | It was changed, or made with a key or purpose this app does not have. The app's key ring or application name usually differs from the sender's. Data Protection reports every failure the same way, so an unreachable key store looks like this too; its own logs have the cause. |
+| it was made for another event or function | The event name, or for an invocation the invoked function, is not the one the payload was made for. |
+| it could not be unprotected | It was changed, or made with a key or purpose this app does not have. The app's key ring or application name usually differs from the sender's. A key store that cannot be read is not this: Data Protection reports it as an exception, the call fails whatever `OnInvalid` says, and Inngest retries it, because running without the user would give the same run different users on different calls. |
 | its format is not known to this version | The format version is newer than this package. Deploy the restoring apps before the senders when you upgrade. |
 | it is not valid | The payload was protected but is not a user. |
 
