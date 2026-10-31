@@ -270,21 +270,35 @@ public sealed class ServeInngestTests
         var stream = new FailingStream();
         var request = harness.NewRequest("POST", FunctionsHarness.CallUrl, stream);
 
-        await Should.ThrowAsync<IOException>(FunctionsHarness.ServeAsync(request));
+        // The pool caches a returned array for the thread that returns it, unless that thread holds one of the size already,
+        // as a thread other tests share may. So the request is served on a new thread, where the stream fails at once and
+        // so all of it runs, and the next renter of that size on that thread is handed the array the stream was filling.
+        Task<FakeHttpResponseData>? served = null;
+        byte[]? next = null;
+        var thread = new Thread(() =>
+        {
+            served = FunctionsHarness.ServeAsync(request);
+            if (served.IsCompleted && stream.Buffer is { } filled)
+            {
+                next = ArrayPool<byte>.Shared.Rent(filled.Length);
+            }
+        });
+        thread.Start();
+        thread.Join();
 
-        harness.Engine.Calls.ShouldBeEmpty();
-
-        // The read ran on this thread, which got the array back in its own cache of the pool, so the next renter of that
-        // size on this thread is handed the very array the stream was filling.
-        var buffer = stream.Buffer.ShouldNotBeNull();
-        var next = ArrayPool<byte>.Shared.Rent(buffer.Length);
         try
         {
-            next.ShouldBeSameAs(buffer);
+            served.ShouldNotBeNull().IsCompleted.ShouldBeTrue();
+            await Should.ThrowAsync<IOException>(served);
+            harness.Engine.Calls.ShouldBeEmpty();
+            next.ShouldBeSameAs(stream.Buffer.ShouldNotBeNull());
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(next);
+            if (next is not null)
+            {
+                ArrayPool<byte>.Shared.Return(next);
+            }
         }
     }
 
