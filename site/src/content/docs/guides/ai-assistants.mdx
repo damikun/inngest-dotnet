@@ -35,6 +35,7 @@ callback given to `createFunction`, and an event's data is a record.
 |---|---|
 | `inngest.createFunction` | A class that derives from `InngestFunction<TEventData>` and overrides `ExecuteAsync`, with `[InngestFunction("id")]` and `[EventTrigger("name")]` on it, registered with `AddFunction<T>()`. Or `AddFunction(FunctionOptions, handler)`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
 | `serve` | `AddInngest(...)` on the services, then `app.MapInngest("/api/inngest")`. `AddConnect()` instead for a worker with no endpoint; see [Connect](/inngest-dotnet/guides/connect/). |
+| `inngest.endpoint` | `app.UseInngestDurableEndpoints()`, then `[DurableEndpoint("id")]` on a controller action or `WithDurableEndpoint("id")` on a minimal API endpoint. The handler takes the step tools as an `IStepTools step` parameter, and there is no `context`. The API is experimental: suppress the diagnostic `INNGEST001`. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/). |
 | `inngest.send` | `IInngestClient.SendAsync(new InngestEvent("name", data))`, or `SendAsync(record)` for a record that implements `IInngestEventData`. See [Sending events](/inngest-dotnet/guides/sending-events/). |
 | `step.run` | `context.Step.RunAsync(id, handler)` |
 | `step.sleep` | `SleepAsync(id, TimeSpan.FromHours(1))` |
@@ -150,6 +151,10 @@ its saved result at once. The call that reaches a new step ends there: the SDK r
 the rest of the function. Everything that is not in a step runs on every call.
 [How it works](/inngest-dotnet/how-it-works/) shows a run call by call, and
 [Steps](/inngest-dotnet/guides/steps/) covers ids and results. The rules follow from that.
+
+With checkpointing on, and in a [durable endpoint](/inngest-dotnet/guides/durable-endpoints/), a step that runs your
+code does not end the call. A step that has to wait, such as a sleep, a wait for an event or an invoke, still does, and
+later calls run the code from the top again. The rules are the same.
 
 ### 1. Put side effects in steps
 
@@ -273,8 +278,8 @@ await context.Step.RunAsync("mark-paid", ct => orders.MarkPaidAsync(order.OrderI
 
 ### 5. Do not rely on `finally` or `using` around a step
 
-The call that reaches a new step is dropped inside the block, so the `finally` block and the `Dispose` of a `using`
-do not run in that call. A lock released in `finally` stays held. Inside a step handler they run as usual.
+The call that reaches a new step is dropped inside the block (with checkpointing or in a durable endpoint, the call
+that reaches a step that has to wait), so the `finally` block and the `Dispose` of a `using` do not run in that call. A lock released in `finally` stays held. Inside a step handler they run as usual.
 [Middleware](/inngest-dotnet/guides/middleware/#when-next-never-returns) has the same rule. To allow one run at a
 time for a key, across every instance of the app, use `[Concurrency(1, Key = "event.data.customerId")]`; see
 [Flow control](/inngest-dotnet/guides/flow-control/).
@@ -407,6 +412,44 @@ var location = await context.Step.RunAsync("store-export",
     ct => exports.StoreAsync(order.OrderId, ct));
 ```
 
+### 9. In a durable endpoint, read the request in a step before the first wait
+
+A durable endpoint runs steps in an ASP.NET Core handler, and a call that resumes the run runs the handler from the
+top again, so rules 1 to 8 hold. A call that resumes it carries the original method, body and query, but not the
+headers or the user. Read what the handler needs from them in a step before its first step that waits, and the saved
+result comes back on every call. Code that the handler starts and that outlives the call must not touch
+`HttpContext`, which ASP.NET Core reuses once the request is over.
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapPost("/orders/{orderId}/ship", async (string orderId, HttpContext http, IStepTools step, IEmailSender email) =>
+{
+    // Wrong: the call that resumes the run after the sleep has no user, so recipient is empty there.
+    var recipient = http.User.FindFirst("email")?.Value ?? "";
+
+    await step.SleepAsync("wait-for-packing", TimeSpan.FromSeconds(30));
+
+    await step.RunAsync("send-confirmation", ct => email.SendAsync(recipient, "Your order has shipped", ct));
+    return Results.Accepted();
+})
+.WithDurableEndpoint();
+```
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapPost("/orders/{orderId}/ship", async (string orderId, HttpContext http, IStepTools step, IEmailSender email) =>
+{
+    // Right: a step reads the user once, before the first wait, and every call gets the saved result.
+    var recipient = await step.RunAsync("read-recipient", () => http.User.FindFirst("email")?.Value ?? "");
+
+    await step.SleepAsync("wait-for-packing", TimeSpan.FromSeconds(30));
+
+    await step.RunAsync("send-confirmation", ct => email.SendAsync(recipient, "Your order has shipped", ct));
+    return Results.Accepted();
+})
+.WithDurableEndpoint();
+```
+
 ## Add the rules to your repository
 
 Paste this block into `AGENTS.md`, `CLAUDE.md` or a Cursor rules file in the repository that uses the SDK. It holds the
@@ -422,8 +465,9 @@ This project uses inngest-dotnet, a community .NET port of the Inngest TypeScrip
 - Docs for tools: https://damikun.github.io/inngest-dotnet/llms.txt lists every page as Markdown, each page is also at its address with `.md` in place of the trailing slash, and https://damikun.github.io/inngest-dotnet/llms-full.txt holds all of them. Read https://damikun.github.io/inngest-dotnet/guides/ai-assistants.md before writing code with the SDK. Signatures are in https://damikun.github.io/inngest-dotnet/reference/api.md.
 - A function is a class that derives from `InngestFunction<TEventData>`, with `[InngestFunction("id")]` and `[EventTrigger("event/name")]` on it and `public override async Task<object?> ExecuteAsync(FunctionContext<TEventData> context, CancellationToken cancellationToken)`. Register it with `AddFunction<T>()` after `AddInngest(...)`, and serve it with `app.MapInngest("/api/inngest")`.
 - Steps are methods of `context.Step`: `RunAsync`, `SleepAsync`, `SleepUntilAsync`, `WaitForEventAsync`, `WaitForSignalAsync`, `InvokeAsync`, `SendEventAsync`, `FetchAsync`, `InferAsync`, `AIWrapAsync`, `PublishAsync`. Application code sends events with `IInngestClient.SendAsync`. Run steps in parallel with `Task.WhenAll`.
+- A durable endpoint (beta) runs steps in an ASP.NET Core handler: `app.UseInngestDurableEndpoints()`, and `[DurableEndpoint("id")]` on a controller action or `.WithDurableEndpoint("id")` on a minimal API endpoint. The handler takes `IStepTools step` as a parameter and calls `step.RunAsync(...)`, with no `context`. The API is experimental: suppress the diagnostic `INNGEST001`.
 
-Inngest calls the function again after every step, and every call runs it from the top. A step that finished returns its saved result. The call that reaches a new step ends there. So:
+Inngest calls the function again after every step, and every call runs it from the top. A step that finished returns its saved result. The call that reaches a new step ends there (with checkpointing, or in a durable endpoint, the call that reaches a step that has to wait). So:
 
 1. Side effects (emails, database writes, API calls) go inside steps only. Code outside a step runs on every call.
 2. A step id is a constant, or is built from event data, results of earlier steps and loop indexes. Never from the clock, `Guid.NewGuid()` or `Random`.
@@ -433,4 +477,5 @@ Inngest calls the function again after every step, and every call runs it from t
 6. Never block on a step's task with `.Result`, `.Wait()` or `GetAwaiter().GetResult()`. Always `await` it.
 7. Never call a step inside another step's handler. Call the steps one after the other.
 8. Keep a step's output under 4 MiB and return a reference to large data. A run holds at most 32 MiB of state and 1,000 steps, and one send takes at most 5,000 events.
+9. In a durable endpoint, a call that resumes the run has the original method, body and query, but no headers and no user. Read them in a step before the first step that waits. Code the handler starts that outlives the call must not touch `HttpContext`.
 ```

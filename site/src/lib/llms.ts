@@ -36,7 +36,7 @@ export interface Site {
 const OPTIONAL = new Set(['Interactive', 'Project', 'Internals']);
 
 const SUMMARY =
-  'inngest-dotnet is a community .NET port of the Inngest TypeScript SDK. It runs durable functions and background workflows written in C#: steps that run once and retry on their own, sleeps and waits for events that last days, parallel steps, and flow control such as concurrency, throttling and rate limits. Functions are served from an ASP.NET Core endpoint or from a Connect worker. It is not affiliated with or endorsed by Inngest Inc.';
+  'inngest-dotnet is a community .NET port of the Inngest TypeScript SDK. It runs durable functions and background workflows written in C#: steps that run once and retry on their own, sleeps and waits for events that last days, parallel steps, and flow control such as concurrency, throttling and rate limits. Functions are served from an ASP.NET Core endpoint or from a Connect worker. Durable endpoints, in beta, let an ASP.NET Core endpoint run steps and answer its caller directly. It is not affiliated with or endorsed by Inngest Inc.';
 
 const cache = new Map<string, Promise<Site>>();
 
