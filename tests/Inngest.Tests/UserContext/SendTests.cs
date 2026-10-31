@@ -183,6 +183,31 @@ public sealed class SendTests
     }
 
     [Fact]
+    public async Task A_claim_value_that_is_not_valid_text_is_left_out_and_the_event_is_still_sent()
+    {
+        // A name cut in the middle of an emoji has half a surrogate pair, which no encoding writes.
+        var principal = UserContextApp.Principal("Cookies", new Claim("sub", "u-1"), new Claim("name", "Ada\uD83C"), new Claim("role", "ok \uD83C\uDF89"));
+        await using var app = NewApp(new FixedSource(principal));
+
+        await app.Client.SendAsync(Order(), TestContext.Current.CancellationToken);
+
+        var claims = app.PayloadOf(app.SentEvents().Single().GetProperty("user")).GetProperty("c");
+        claims.EnumerateObject().Select(claim => claim.Name).ShouldBe(["sub", "role"]);
+        claims.GetProperty("role")[0].GetString().ShouldBe("ok \uD83C\uDF89");
+        app.Logs.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Warning && record.Message.Contains("claim name", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_user_whose_every_allowed_claim_is_not_valid_text_is_not_attached()
+    {
+        await using var app = NewApp(new FixedSource(UserContextApp.Principal("Cookies", new Claim("sub", "\uDC00"))));
+
+        await app.Client.SendAsync(Order(), TestContext.Current.CancellationToken);
+
+        app.SentEvents().Single().TryGetProperty("user", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task A_user_that_is_not_an_object_is_left_for_the_client_to_refuse()
     {
         await using var app = NewApp(new FixedSource(UserContextApp.Ada()));

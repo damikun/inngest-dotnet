@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Inngest.UserContext;
@@ -39,12 +40,13 @@ internal sealed class UserContextCodec
 
     private readonly IUserContextProtector _protector;
     private readonly TimeProvider _time;
+    private readonly ILogger _logger;
     private readonly HashSet<string> _allowed;
     private readonly long _lifetimeSeconds;
     private readonly int _maxSize;
     private readonly int _maxProtectedLength;
 
-    public UserContextCodec(IOptions<UserContextOptions> options, IUserContextProtector protector, TimeProvider time)
+    public UserContextCodec(IOptions<UserContextOptions> options, IUserContextProtector protector, TimeProvider time, ILogger<UserContextCodec> logger)
     {
         var settings = options.Value;
         if (UserContextOptionsValidator.Check(settings) is { Count: > 0 } problems)
@@ -54,6 +56,7 @@ internal sealed class UserContextCodec
 
         _protector = protector;
         _time = time;
+        _logger = logger;
         _allowed = new HashSet<string>(settings.Claims, StringComparer.Ordinal);
         _lifetimeSeconds = (long)settings.Lifetime.TotalSeconds;
         _maxSize = settings.MaxSize;
@@ -91,6 +94,14 @@ internal sealed class UserContextCodec
                     continue;
                 }
 
+                // Text that cannot be written as JSON would fail the send of an event that does not need to fail. The claim is
+                // left out, which is the safe way for a claim to be missing.
+                if (!IsText(claim.Value))
+                {
+                    Log.ClaimIsNotText(_logger, claim.Type);
+                    continue;
+                }
+
                 claims ??= new Dictionary<string, List<string>>(StringComparer.Ordinal);
                 if (!claims.TryGetValue(claim.Type, out var values))
                 {
@@ -117,6 +128,24 @@ internal sealed class UserContextCodec
             nameType == ClaimTypes.Name ? null : nameType,
             roleType == ClaimTypes.Role ? null : roleType,
             [.. claims.Select(static pair => new KeyValuePair<string, string[]>(pair.Key, [.. pair.Value]))]);
+    }
+
+    // False for a string with a surrogate that has no partner, which no encoding can write.
+    private static bool IsText(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(value[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // The protected text of a snapshot for an event of this name, or null when the claims are larger than MaxSize. function

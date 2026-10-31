@@ -19,6 +19,9 @@ internal static partial class Log
     [LoggerMessage(EventId = 714, Level = LogLevel.Warning, Message = "Run id {RunId} is not a ULID, so it says when the run was created, and the user of event {EventName} is judged by the time of each call instead. It may expire while the run goes on.")]
     public static partial void RunIdHasNoTime(ILogger logger, string runId, string eventName);
 
+    [LoggerMessage(EventId = 715, Level = LogLevel.Warning, Message = "The value of claim {ClaimType} is not valid text, so it is left out of the user.")]
+    public static partial void ClaimIsNotText(ILogger logger, string claimType);
+
     [LoggerMessage(EventId = 713, Level = LogLevel.Information, Message = "The user expires at {ExpiresAt:O}, before the invocation of {Function} can start a run, so it is passed on without a user.")]
     public static partial void UserExpiresBeforeInvocation(ILogger logger, string function, DateTimeOffset expiresAt);
 }
