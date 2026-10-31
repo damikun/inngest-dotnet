@@ -440,9 +440,9 @@ html.js .idn-nojs-only {
   font-size: var(--sl-text-xl);
 }
 
-/* The capabilities: small cards in as many columns as fit, in groups under headings. A card holds a title, one
-   sentence, a short snippet and a link to its guide. The link stays at the foot of the card, so the cards of a row end
-   on one line. */
+/* The capabilities: cards in two columns at most, so that their code has room to read, in groups under headings. A
+   card holds a title, one sentence, a short snippet and a link to its guide. The link stays at the foot of the card, so
+   the cards of a row end on one line. */
 .idn-capabilities > .sl-heading-wrapper {
   margin-top: 3rem;
   margin-bottom: 1.25rem;
@@ -464,13 +464,6 @@ html.js .idn-nojs-only {
 @media (min-width: 50rem) {
   .idn-grid-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* Three columns only where the grid has its full width of 80rem, so that a card holds a line of 48 characters. */
-@media (min-width: 86rem) {
-  .idn-grid-cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
