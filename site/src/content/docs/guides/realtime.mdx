@@ -139,8 +139,8 @@ page that falls 512 messages behind is disconnected rather than holding the othe
 
 An app that has SignalR can bring the messages to its clients through a hub, where a client joins and leaves channels
 with method calls and the app's callback decides who may join what. Clients that join the same topics share one
-subscription to Inngest, and an app with several instances on Redis or Azure SignalR Service delivers each message
-once. See [SignalR](/inngest-dotnet/guides/signalr/).
+subscription to Inngest, and several instances on Redis or Azure SignalR Service each send only to their own clients.
+See [SignalR](/inngest-dotnet/guides/signalr/).
 
 ### With the TypeScript client
 

@@ -493,6 +493,7 @@ Package `Inngest.SignalR`, which also brings in `Inngest.AspNetCore`. See [Signa
 | `IServiceCollection.AddInngestSignalR(Action<InngestSignalROptions>)` | Registers the bridge for `InngestRealtimeHub`. Call `AddSignalR` and `AddInngest` as well. In `Microsoft.Extensions.DependencyInjection`. |
 | `IServiceCollection.AddInngestSignalR<THub>(Action<InngestSignalROptions>)` | Registers the bridge for a hub of your own, which injects `InngestRealtimeBridge<THub>`. The options are read at once, so a missing `Authorize` fails the app at startup. |
 | `IEndpointRouteBuilder.MapInngestRealtimeHub(string pattern)` | Maps `InngestRealtimeHub` and returns its `HubEndpointConventionBuilder`. In `Microsoft.AspNetCore.Builder`. |
+| `IEndpointRouteBuilder.MapInngestRealtimeHub(string pattern, Action<HttpConnectionDispatcherOptions>)` | The same, with the options of the connections that `MapHub` takes, such as `CloseOnAuthenticationExpiration`. |
 
 **`InngestRealtimeHub`**, a sealed hub with `Subscribe(string channel, string[] topics)` and `Unsubscribe(string channel,
 string[] topics)`.
@@ -513,11 +514,14 @@ a group, so that instances on a backplane deliver each message once.
 |---|---|
 | `Authorize` | `Func<RealtimeSubscribeRequest, ValueTask<RealtimeSubscription?>>`, required: returns the subscription to join, which may have fewer topics or another channel, or null to refuse. |
 | `MessageMethod` | The client method that receives each message as a string of JSON. `"Realtime"` by default. |
-| `ErrorMethod` | The client method that hears of a subscription Inngest ended, with the channel and a text. `"RealtimeError"` by default. |
-| `MaxSubscriptionsPerConnection` | How many subscriptions one connection may be in. 32 by default. |
+| `ErrorMethod` | The client method that hears of a subscription the client lost, with the channel and topics it asked for and the reason: `"behind"`, `"send-failed"` or `"inngest-ended"`. The connection stays open. `"RealtimeError"` by default. |
+| `MaxSubscriptionsPerConnection` | How many subscriptions one connection may be in, counting each way it asked to join. 32 by default. |
+| `MaxQueuedMessagesPerConnection` | How many messages may wait for one connection. A connection that reaches it loses its subscriptions and is told. At least `MaxSubscriptionsPerConnection`. 512 by default. |
 
-**`RealtimeSubscribeRequest`**: `Caller` (the `HubCallerContext`), `Requested` (a `RealtimeSubscription`), `Services` (a
-scope of its own) and `CancellationToken`.
+**`RealtimeSubscribeRequest(HubCallerContext caller, RealtimeSubscription requested, IServiceProvider services,
+CancellationToken cancellationToken = default)`**, with `Caller`, `Requested`, `Services` (a scope of its own for each
+request) and `CancellationToken`. The bridge makes one for each client that asks to join, and a test can make one to call
+`Authorize` directly.
 
 ## Test host
 
