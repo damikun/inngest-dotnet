@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Inngest.Internal;
@@ -49,6 +51,44 @@ public sealed class ServeInngestTests
         var serveUrl = new Uri("https://shop.azurewebsites.net/api/inngest?region=eu");
         harness.Registry.Registrations.ShouldBe([(serveUrl, "azure-functions")]);
         harness.Api.Registrations.ShouldBe([new FakeInngestApi.Registration(FakeFunctionRegistry.RegistrationJson(serveUrl, "azure-functions"), "deploy-1", "dev")]);
+    }
+
+    [Fact]
+    public async Task ServeOrigin_and_ServePath_replace_the_url_the_host_received_in_an_out_of_band_sync()
+    {
+        // As behind a gateway, or on a plan where the host's address is that of the hop before the app.
+        await using var harness = new FunctionsHarness(CommHandlerHarness.DevSettings with
+        {
+            ServeOrigin = new Uri("https://api.shop.example.com"),
+            ServePath = "/inngest",
+        });
+        var request = harness.NewRequest("PUT", "http://shop-app.internal:8080/api/inngest?region=eu&deployId=deploy-1")
+            .WithHeader("X-Inngest-Server-Kind", "dev");
+
+        var response = await FunctionsHarness.ServeAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var serveUrl = new Uri("https://api.shop.example.com/inngest?region=eu");
+        harness.Registry.Registrations.ShouldBe([(serveUrl, "azure-functions")]);
+        harness.Api.Registrations.ShouldHaveSingleItem().Payload.ShouldBe(FakeFunctionRegistry.RegistrationJson(serveUrl, "azure-functions"));
+    }
+
+    [Fact]
+    public async Task ServeOrigin_and_ServePath_replace_the_url_Inngest_sent_in_an_in_band_sync()
+    {
+        await using var harness = new FunctionsHarness(CommHandlerHarness.DevSettings with
+        {
+            ServeOrigin = new Uri("https://api.shop.example.com"),
+            ServePath = "/inngest",
+        });
+        var request = harness.NewRequest("PUT", FunctionsHarness.EndpointUrl, FakeHttpRequestData.BodyOf("""{"url":"https://shop.azurewebsites.net/api/inngest"}"""))
+            .WithHeader("X-Inngest-Sync-Kind", "in_band");
+
+        var response = await FunctionsHarness.ServeAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.BodyText.ShouldContain("\"url\":\"https://api.shop.example.com/inngest\"");
+        harness.Registry.Registrations.ShouldBe([(new Uri("https://api.shop.example.com/inngest"), "azure-functions")]);
     }
 
     [Fact]
@@ -224,14 +264,28 @@ public sealed class ServeInngestTests
     }
 
     [Fact]
-    public async Task A_stream_that_fails_while_it_is_read_fails_the_function_and_returns_its_buffer()
+    public async Task A_stream_that_fails_while_it_is_read_fails_the_function_and_returns_its_buffer_to_the_pool()
     {
         await using var harness = new FunctionsHarness();
-        var request = harness.NewRequest("POST", FunctionsHarness.CallUrl, new FailingStream());
+        var stream = new FailingStream();
+        var request = harness.NewRequest("POST", FunctionsHarness.CallUrl, stream);
 
         await Should.ThrowAsync<IOException>(FunctionsHarness.ServeAsync(request));
 
         harness.Engine.Calls.ShouldBeEmpty();
+
+        // The read ran on this thread, which got the array back in its own cache of the pool, so the next renter of that
+        // size on this thread is handed the very array the stream was filling.
+        var buffer = stream.Buffer.ShouldNotBeNull();
+        var next = ArrayPool<byte>.Shared.Rent(buffer.Length);
+        try
+        {
+            next.ShouldBeSameAs(buffer);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(next);
+        }
     }
 
     [Fact]
@@ -448,6 +502,9 @@ public sealed class ServeInngestTests
     {
         private int _reads;
 
+        // The array of the buffer the first read was asked to fill.
+        public byte[]? Buffer { get; private set; }
+
         public override bool CanRead => true;
 
         public override bool CanSeek => false;
@@ -471,6 +528,7 @@ public sealed class ServeInngestTests
                 throw new IOException("The connection was lost.");
             }
 
+            Buffer = MemoryMarshal.TryGetArray<byte>(buffer, out var segment) ? segment.Array : null;
             buffer.Span[..16].Fill((byte)'x');
             return new ValueTask<int>(16);
         }
