@@ -8,7 +8,7 @@ const { entry } = Astro.locals.starlightRoute;
 const { title = entry.data.title, tagline, actions = [] } = entry.data.hero ?? {};
 const isHome = entry.id === 'index' || entry.id === '';
 
-const facts = ['.NET 8 and .NET 10', 'ASP.NET Core or Connect', 'Native AOT', '2,145 unit tests', '207 end-to-end tests', 'Apache 2.0'];
+const facts = ['.NET 8 and .NET 10', 'ASP.NET Core or Connect', 'Native AOT', '2,275 unit tests', '224 end-to-end tests', 'Apache 2.0'];
 ---
 
 <div class:list={['landing-hero', 'not-content', { home: isHome }]}>
