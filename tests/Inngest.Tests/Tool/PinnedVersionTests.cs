@@ -14,7 +14,7 @@ public sealed class PinnedVersionTests
         var image = $"inngest/inngest:v{CliRelease.PinnedVersion}";
 
         File.ReadAllText(Path.Combine(root, "tests", "Inngest.IntegrationTests", "Harness", "InngestServer.cs")).ShouldContain(image);
-        File.ReadAllText(Path.Combine(root, "site", "src", "components", "DevServer.astro")).ShouldContain(image);
+        File.ReadAllText(Path.Combine(root, "site", "src", "data", "dev-server.ts")).ShouldContain(image);
     }
 
     private static string? RepositoryRoot()
