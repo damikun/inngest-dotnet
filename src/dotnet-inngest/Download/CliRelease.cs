@@ -15,7 +15,8 @@ internal static partial class CliRelease
     public const string PinnedVersion = "1.49.0";
 
     // Release versions are semantic versions, which the tag spells with a leading v. The version ends up in a URL and in
-    // a folder name, so anything else is refused.
+    // a folder name, so anything else is refused: only ASCII digits (\d takes the digits of other scripts too), and \z
+    // for the end (a $ also matches before a final line break).
     public static bool TryNormalizeVersion(string requested, [NotNullWhen(true)] out string? version)
     {
         version = requested.StartsWith('v') ? requested[1..] : requested;
@@ -35,6 +36,6 @@ internal static partial class CliRelease
 
     public const string ChecksumsFileName = "checksums.txt";
 
-    [GeneratedRegex(@"^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$")]
+    [GeneratedRegex(@"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?\z")]
     private static partial Regex VersionPattern();
 }

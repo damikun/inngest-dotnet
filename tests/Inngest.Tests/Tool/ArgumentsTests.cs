@@ -115,6 +115,8 @@ public sealed class ArgumentsTests
     [InlineData("latest")]
     [InlineData("1.49")]
     [InlineData("../1.49.0")]
+    [InlineData("1.49.0\n")]
+    [InlineData("\u0661.\u0662.\u0663")]
     public void A_cli_version_that_is_no_version_is_invalid(string version)
     {
         var arguments = Arguments.Parse(["dev", "--cli-version", version]);

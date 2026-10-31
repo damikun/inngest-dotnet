@@ -70,7 +70,8 @@ public sealed class CliAssetTests
         version.ShouldBe(expected);
     }
 
-    // The version ends up in a URL and in the name of a folder.
+    // The version ends up in a URL and in the name of a folder. A $ in a pattern matches before a final line break and \d
+    // matches the digits of other scripts, so a line break and Arabic-Indic and full-width digits are among the cases.
     [Theory]
     [InlineData("")]
     [InlineData("latest")]
@@ -79,6 +80,13 @@ public sealed class CliAssetTests
     [InlineData("..")]
     [InlineData("1.49.0 ")]
     [InlineData("1.49.0?x=1")]
+    [InlineData("1.49.0\n")]
+    [InlineData("1.49.0\r\n")]
+    [InlineData("v1.49.0\n")]
+    [InlineData("1.49.0-beta\n")]
+    [InlineData("\u0661.\u0662.\u0663")]
+    [InlineData("1.49.\u0660")]
+    [InlineData("\uFF11.\uFF14.\uFF19")]
     public void Anything_else_is_not_a_version(string requested)
     {
         CliRelease.TryNormalizeVersion(requested, out var version).ShouldBeFalse();
