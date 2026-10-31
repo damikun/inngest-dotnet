@@ -442,6 +442,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
 ${references}
 ${reference('Inngest.Blazor')}
 ${reference('Inngest.Sentry')}
+${reference('Inngest.OpenTelemetry')}
 ${reference('Inngest.Testing')}
 ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}

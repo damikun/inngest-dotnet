@@ -123,6 +123,9 @@ public interface IInventory
     Task ReleaseAsync(string reservationId, CancellationToken cancellationToken);
 }
 
+// A middleware class that fragments register without defining it. The middleware guide defines one of its own.
+public sealed class TimingMiddleware : Inngest.InngestMiddleware;
+
 public sealed class SmtpEmailSender : IEmailSender
 {
     public Task<string> SendAsync(string to, string subject, CancellationToken cancellationToken) => Task.FromResult("message-id");
