@@ -56,6 +56,8 @@
     <!-- Only the .NET 10 package has WebApplicationFactory.UseKestrel, which Inngest.Testing.Containers.AspNetCore needs, so
          unlike TestHost there is no net8.0 version. -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
+    <!-- Only for a unit test that checks, against the worker's own code, the key under which its ASP.NET Core integration keeps the HttpContext. -->
+    <PackageVersion Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.1" />
     <!-- The SQLite provider of the EF Core line that Inngest.EntityFrameworkCore is built on, for each runtime. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />

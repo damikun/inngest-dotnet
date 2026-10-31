@@ -20,8 +20,9 @@ internal static class FunctionsEndpoint
     public const string Framework = "azure-functions";
 
     // Where the ASP.NET Core integration of the worker keeps the HttpContext of the request a function runs in; its
-    // FunctionContext.GetHttpContext() reads this entry. Without the integration there is none.
-    private const string HttpContextKey = "HttpRequestContext";
+    // FunctionContext.GetHttpContext() reads this entry, which a unit test checks against the package. Without the
+    // integration there is none.
+    public const string HttpContextKey = "HttpRequestContext";
 
     // The length of a stream sizes the first buffer only up to this much, as in InngestEndpoint, where the length is
     // declared by a caller whose signature has not been checked.
