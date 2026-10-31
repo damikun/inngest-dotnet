@@ -48,7 +48,10 @@ public sealed class SendTests
 
         await app.Client.SendAsync(Order(), TestContext.Current.CancellationToken);
 
-        var body = app.Http.Single.BodyText;
+        // The protected text is random and can hold a short value such as "Ada" by chance, so it is taken out before
+        // the search. What it holds is checked by unprotecting it, in the first test of this class.
+        var token = app.SentEvents().ShouldHaveSingleItem().GetProperty("user").GetProperty(UserContextCodec.Key).GetProperty("t").GetString()!;
+        var body = app.Http.Single.BodyText.Replace(token, "", StringComparison.Ordinal);
         body.ShouldNotContain("hunter2");
         body.ShouldNotContain("password");
         body.ShouldNotContain("ada@example.com");

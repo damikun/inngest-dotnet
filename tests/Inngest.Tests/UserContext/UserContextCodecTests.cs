@@ -128,8 +128,9 @@ public sealed class UserContextCodecTests
 
         var user = app.Seal(UserContextApp.Ada());
 
-        user.ShouldNotContain("u-42");
-        user.ShouldNotContain("Ada");
+        // Whole values, with a space or an @: the protected text is random and can hold a short one such as "Ada" by
+        // chance, but never these.
+        user.ShouldNotContain("Ada Lovelace");
         user.ShouldNotContain("ada@example.com");
         user.ShouldStartWith("""{"_inngest_dotnet_user":{"v":1,"t":"CfDJ8""");
     }
