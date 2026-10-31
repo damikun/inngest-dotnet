@@ -527,13 +527,23 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
   expresses all of them, and Slack's `v0:{timestamp}:{body}`, as options; GitHub and Shopify are two presets of it.
 - **Events.** The default mappings follow Inngest's own transforms where its guide has one (`stripe/<type>` with the
   event as data and its `id` as the id; `<prefix>/<type>` with the `data` of the payload for Clerk and Resend). The data
-  is a `JsonElement` of the request, which the client writes through the serializer options with `JsonElement`
-  metadata that `PublicTypesJsonContext` always adds, so it needs no reflection. Ids and names from a request are
-  checked for their shape (short visible ASCII) because GitHub's and Shopify's headers are not signed.
+  is a `JsonElement` of the payload, which the client writes through the serializer options with `JsonElement`
+  metadata that `PublicTypesJsonContext` always adds, so it needs no reflection, and nothing from a header is put in it:
+  only the body is signed by GitHub and Shopify, so their event names and ids, which come from headers, are checked for
+  their shape (short visible ASCII, the whole name at most 256 characters) but remain whatever a holder of one captured
+  delivery sends. A provider that has delivery ids needs one: a delivery without is a 400, since an event without an id
+  would never be deduplicated.
+- **Lifetime.** The parsed payload reads the pooled body in place. Before the send, a `JsonElement` as the event's `Data`
+  or `User` is cloned, so that the event can be kept (the test host's `SentEvents` and middleware do), and the pooled
+  body is cleared and returned when the request ends.
 - **Answers** have no body: 200, 204 (the transform dropped it), 401, 400, 413, 503 (Inngest did not accept the event
-  within `SendTimeout`, which is short because providers wait seconds) and 500 (a verifier or a transform threw). A failed
-  send is a 5xx on purpose: the provider delivers the webhook again and the delivery id makes a second attempt a
-  duplicate that Inngest drops.
+  within `SendTimeout`, which is short because providers wait seconds, or failed in a way that may pass) and 500 (a
+  verifier or a transform threw). A send that may pass is a 5xx on purpose: a provider that retries delivers the webhook
+  again and the delivery id makes a second attempt a duplicate that Inngest drops. A send that cannot pass is not: an
+  `InngestException` with a 4xx other than 408, 425 and 429 (the statuses the client itself retries) is answered 413 for
+  413 and 400 otherwise, a client refusal (`ArgumentException`) is a 400, and a payload that parses but cannot be written
+  (an unpaired surrogate escape) is found by writing it once before the send and is a 400; each is logged as an error
+  that says a redelivery fails the same way.
 
 ### What is supported
 

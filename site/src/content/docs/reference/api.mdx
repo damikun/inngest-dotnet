@@ -569,17 +569,17 @@ Each side registers its own source. An app that registers both gets the one regi
 Package `Inngest.Webhooks`, which `Inngest.AspNetCore` brings in; `MapInngestWebhook` is in `Inngest.AspNetCore`. See
 [Webhooks](/inngest-dotnet/guides/webhooks/).
 
-**`WebhookProvider`** says how a source of webhooks is verified and how its deliveries become events. `Name`,
-`Verifier` and `CreateEvent` are its members, and its constructor `(string name, IWebhookVerifier verifier,
-Func<WebhookDelivery, InngestEvent?> createEvent)` takes any other source. The factories:
+**`WebhookProvider`** says how a source of webhooks is verified and how its deliveries become events. Its constructor
+`(string name, IWebhookVerifier verifier, Func<WebhookDelivery, InngestEvent?> createEvent)` takes any other source. The
+factories:
 
 | Factory | Event |
 |---|---|
 | `Stripe(string secret, TimeSpan? tolerance = null)` | `stripe/<type>`, the Stripe event as data, its `id` as the id. Also with `IEnumerable<string>` secrets. |
-| `GitHub(string secret)` | `github/<X-GitHub-Event>`, the payload as data, `X-GitHub-Delivery` as the id. Also with `IEnumerable<string>` secrets. |
-| `Shopify(string secret)` | `shopify/<topic>` with dots for slashes, the payload and `shop_domain` as data, `X-Shopify-Webhook-Id` as the id. Also with `IEnumerable<string>` secrets. |
+| `GitHub(string secret)` | `github/<X-GitHub-Event>`, the payload as data, `X-GitHub-Delivery` as the id; the name and the id are unsigned headers, and a delivery without the id is a 400. Also with `IEnumerable<string>` secrets. |
+| `Shopify(string secret)` | `shopify/<topic>` with dots for slashes, the payload as data, `X-Shopify-Webhook-Id` as the id; the topic and the id are unsigned headers, and a delivery without the id is a 400. Also with `IEnumerable<string>` secrets. |
 | `StandardWebhooks(string eventPrefix, string secret, TimeSpan? tolerance = null)` | `<prefix>/<type>`, the `data` of the payload as data, `webhook-id` or `svix-id` as the id. Also with `IEnumerable<string>` secrets. |
-| `Hmac(string eventName, HmacWebhookOptions options, string secret)` | The one name, the payload as data, the header `options` names as the id. Also with `IEnumerable<string>` secrets. |
+| `Hmac(string eventName, HmacWebhookOptions options, string secret)` | The one name, the payload as data, the header `options` names as the id, which a delivery must then have; no id without such a header. Also with `IEnumerable<string>` secrets. |
 
 **`WebhookOptions`**, an immutable record:
 
@@ -587,10 +587,16 @@ Func<WebhookDelivery, InngestEvent?> createEvent)` takes any other source. The f
 |---|---|
 | `MaxBodySize` | The largest body accepted, in bytes; a larger request is answered with 413. 1 MiB by default. |
 | `SendTimeout` | How long to wait for Inngest to accept the event before answering 503. Four seconds by default. |
-| `Transform` | `Func<WebhookDelivery, InngestEvent, InngestEvent?>`: changes the event before it is sent, or returns null to drop the delivery with 204. |
+| `Transform` | `Func<WebhookDelivery, InngestEvent, InngestEvent?>`: changes the event before it is sent, or returns null to drop the delivery with 204. A `JsonElement` as the `Data` or `User` it returns is copied before the send. |
 
-**`WebhookDelivery`**, what a `Transform` and a provider's `CreateEvent` see: `Provider`, `DeliveryId`, `Payload` (a
-`JsonElement`, valid while the request is handled), `Services` and `GetHeader(string name)`.
+**`WebhookDelivery`**, what a `Transform` and a provider's `createEvent` see: `Provider`, `DeliveryId`, `Payload` (a
+`JsonElement`, valid while the request is handled), `Services` and `GetHeader(string name)`. Its constructor
+`(string provider, string? deliveryId, JsonElement payload, IWebhookRequest? request = null)` is public, to try a
+`Transform` in a test.
+
+An event that cannot be sent is answered with a client error, not a 503: 413 when Inngest says it is too large, 400 for
+another client error of Inngest, for a refusal of the client and for a payload that cannot be written as JSON. See
+[Webhooks](/inngest-dotnet/guides/webhooks/#what-happens-to-a-request).
 
 **Verifiers.** Each takes a secret or several, so that a secret can be replaced without downtime, and checks a request
 with `Verify(IWebhookRequest request, DateTimeOffset now)`, which returns a `WebhookVerification` and never throws for
@@ -600,8 +606,8 @@ what a request contains.
 |---|---|
 | `StandardWebhooksVerifier` | `webhook-id`, `webhook-timestamp` and `webhook-signature`, or the `svix-` headers: HMAC-SHA256 of `{id}.{timestamp}.{body}`, keyed with the base64 after `whsec_`; only `v1` signatures; a tolerance of five minutes by default |
 | `StripeWebhookVerifier` | `Stripe-Signature`, `t=` and `v1=`: HMAC-SHA256 of `{t}.{body}`, keyed with the text of the secret; a tolerance of five minutes by default |
-| `GitHubWebhookVerifier` | `X-Hub-Signature-256`, `sha256=` and the hex HMAC-SHA256 of the body; delivery id from `X-GitHub-Delivery` |
-| `ShopifyWebhookVerifier` | `X-Shopify-Hmac-Sha256`, the base64 HMAC-SHA256 of the body; delivery id from `X-Shopify-Webhook-Id` |
+| `GitHubWebhookVerifier` | `X-Hub-Signature-256`, `sha256=` and the hex HMAC-SHA256 of the body; delivery id from `X-GitHub-Delivery`, which the signature does not cover |
+| `ShopifyWebhookVerifier` | `X-Shopify-Hmac-Sha256`, the base64 HMAC-SHA256 of the body; delivery id from `X-Shopify-Webhook-Id`, which the signature does not cover |
 | `HmacWebhookVerifier` | Any HMAC of the body, with `HmacWebhookOptions` |
 
 **`HmacWebhookOptions`**, an immutable record: `SignatureHeader` (required), `Algorithm` (`HashAlgorithmName`, SHA-256 by
@@ -609,7 +615,8 @@ default), `SignatureEncoding` (`HmacSignatureEncoding.Hex` or `Base64`), `Signat
 `SignedContentPrefix`, `TimestampSeparator`, `Tolerance` and `DeliveryIdHeader`.
 
 To verify another source, implement **`IWebhookVerifier`**. **`IWebhookRequest`** is the request it sees, independent of
-the web framework: `Body` (the raw bytes), `GetHeader(string name)` and `Services`. **`WebhookVerification`** is a result:
+the web framework: `Body` (the raw bytes, owned by the host and read in place), `GetHeader(string name)` and `Services`.
+**`WebhookVerification`** is a result:
 `Valid(string? deliveryId = null)` or `Invalid(string reason)`, with `IsValid`, `DeliveryId` and `Reason`; the default
 value is not valid.
 

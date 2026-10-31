@@ -101,9 +101,10 @@ the analyzer checks and what it leaves to you, and covers the generator that reg
 [`MapInngestWebhook`](/inngest-dotnet/guides/webhooks/) needs nothing added to the context. The payload of a webhook is a
 `JsonElement`, which the SDK covers, so the event goes out as the provider sent it, and the verifiers use
 `System.Security.Cryptography` without reflection. What stays yours is the data type of the function that receives the
-event, as for any event, and the type a `Transform` puts in `Data` instead of the payload. An app that maps endpoints for
-Stripe, GitHub, Shopify, Clerk and an HMAC provider publishes as a Native AOT binary without warnings, and verifies and
-sends their webhooks.
+event, as for any event, and the type a `Transform` puts in `Data` instead of the payload, such as a `JsonObject` with a
+header added. An app that maps endpoints for Stripe, GitHub, Shopify, Clerk and an HMAC provider publishes as a Native AOT
+binary without warnings, and verifies and sends their webhooks. `samples/Inngest.AotSample` maps a Stripe endpoint, so
+the publish in CI covers the package.
 
 ## Class functions and middleware
 
