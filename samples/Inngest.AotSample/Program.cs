@@ -24,6 +24,13 @@ builder.Services
 var app = builder.Build();
 app.MapInngest();
 
+// Receives Stripe's webhooks as events named stripe/<type>, after checking their signature with the signing secret of the
+// webhook endpoint. The secret in appsettings.json is a placeholder. The endpoint is part of the Native AOT publish, so CI
+// covers the verifiers and the event mapping with the rest of the app.
+app.MapInngestWebhook(
+    "/webhooks/stripe",
+    WebhookProvider.Stripe(builder.Configuration["Stripe:WebhookSecret"] ?? throw new InvalidOperationException("Set Stripe:WebhookSecret to the signing secret of the webhook endpoint.")));
+
 // Sends a typed event, which WelcomeMember is triggered by: curl -X POST http://localhost:5000/members/Ada
 app.MapPost("/members/{name}", async (string name, IInngestClient inngest, CancellationToken cancellationToken) =>
 {
