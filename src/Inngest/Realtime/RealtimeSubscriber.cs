@@ -63,15 +63,21 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
                                 break;
                             }
 
-                            failures = 0;
                             yield return events.Current;
                         }
                     }
                 }
 
-                if (failure is null && time.GetElapsedTime(connectedAt) >= MinHealthyConnection)
+                // A connection that held for a while was working, so whatever ended it starts the delays over. One that did
+                // not counts with the failures before it, whatever it delivered, or a server that sends a message and closes
+                // would be met with the first delay for ever.
+                if (time.GetElapsedTime(connectedAt) >= MinHealthyConnection)
                 {
-                    continue;
+                    failures = 0;
+                    if (failure is null)
+                    {
+                        continue;
+                    }
                 }
 
                 failure ??= new IOException("Inngest closed the subscription right after opening it.");

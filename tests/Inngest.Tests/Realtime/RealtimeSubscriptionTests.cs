@@ -116,6 +116,77 @@ public sealed class RealtimeSubscriptionTests
     }
 
     [Fact]
+    public async Task A_subscription_that_delivers_a_message_and_closes_within_five_seconds_is_met_with_longer_delays()
+    {
+        var time = new RecordingTimeProvider(EngineHost.Now);
+        for (var connection = 0; connection < 4; connection++)
+        {
+            var feed = new SseFeed();
+            _api.Answer(feed);
+            await feed.SendAsync(Message("A"));
+            await feed.EndAsync();
+        }
+
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var reading = ReadAllAsync(new RealtimeSubscriber(_api, time, NullLogger<RealtimeSubscriber>.Instance).ReadAsync("order:7", ["status"], stop.Token));
+
+        // The idle timeout of 45 seconds is a timer too, so only the delays are looked at.
+        List<TimeSpan> Delays() => [.. time.Timers.Where(due => due < TimeSpan.FromSeconds(40))];
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await Until(() => Delays().Count == attempt);
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Until(() => _api.Subscriptions.Count == attempt + 1);
+        }
+
+        // About 0.5, 1 and 2 seconds, each up to a fifth less, although every connection delivered a message.
+        var delays = Delays();
+        delays[0].ShouldBeInRange(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(500));
+        delays[1].ShouldBeInRange(TimeSpan.FromMilliseconds(800), TimeSpan.FromMilliseconds(1000));
+        delays[2].ShouldBeInRange(TimeSpan.FromMilliseconds(1600), TimeSpan.FromMilliseconds(2000));
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => reading.WaitAsync(Wait, Cancel));
+    }
+
+    [Fact]
+    public async Task A_connection_that_held_for_five_seconds_starts_the_delays_over()
+    {
+        var time = new RecordingTimeProvider(EngineHost.Now);
+        var feeds = new[] { new SseFeed(), new SseFeed(), new SseFeed(), new SseFeed() };
+        foreach (var feed in feeds)
+        {
+            _api.Answer(feed);
+        }
+
+        await feeds[0].EndAsync();
+        await feeds[1].EndAsync();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var reading = ReadAllAsync(new RealtimeSubscriber(_api, time, NullLogger<RealtimeSubscriber>.Instance).ReadAsync("order:7", ["status"], stop.Token));
+        List<TimeSpan> Delays() => [.. time.Timers.Where(due => due < TimeSpan.FromSeconds(40))];
+
+        // Two connections that close at once, then one that holds for ten seconds and is opened again at once.
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await Until(() => Delays().Count == attempt);
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Until(() => _api.Subscriptions.Count == attempt + 1);
+        }
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        await feeds[2].EndAsync();
+        await Until(() => _api.Subscriptions.Count == 4);
+        await feeds[3].EndAsync();
+        await Until(() => Delays().Count == 3);
+
+        // The fourth connection closed at once, which is a first failure again: about 0.5 seconds, not 2.
+        var delays = Delays();
+        delays[1].ShouldBeInRange(TimeSpan.FromMilliseconds(800), TimeSpan.FromMilliseconds(1000));
+        delays[2].ShouldBeInRange(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(500));
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => reading.WaitAsync(Wait, Cancel));
+    }
+
+    [Fact]
     public async Task A_failure_of_Inngest_is_retried_after_a_delay()
     {
         var feed = new SseFeed();
