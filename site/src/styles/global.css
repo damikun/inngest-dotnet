@@ -530,11 +530,6 @@ html.js .idn-nojs-only {
   white-space: nowrap;
 }
 
-.idn-steps-explained {
-  margin-top: 1.75rem;
-  color: var(--sl-color-gray-2);
-}
-
 /* Diagrams on the landing page and in the guides share one vocabulary, drawn in HTML so the text stays real text at
    every width: nodes joined by labelled arrows, timelines of calls, and a fan-out. The frame is a size container:
    a flow stacks with vertical arrows when its frame is narrow and lines up in a row when there is room. */

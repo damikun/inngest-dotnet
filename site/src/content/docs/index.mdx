@@ -4,15 +4,16 @@ description: inngest-dotnet is an Inngest SDK for .NET. Write durable functions 
 template: splash
 editUrl: false
 hero:
-  title: Durable functions for .NET
-  tagline: Write background jobs and workflows as plain C# methods. Inngest runs every step once, retries only what fails and lets a run wait for days, so you ship reliable workflows without queues, state tables or cron glue.
+  title: Inngest SDK for .NET
+  tagline: Write Inngest functions as plain C# classes in your ASP.NET Core app, with realtime updates and the .NET ecosystem you already use. Inngest runs them; this SDK connects your .NET app to it.
   actions:
     - text: Get started
       link: /inngest-dotnet/guides/getting-started/
       icon: right-arrow
-    - text: How it works
-      link: /inngest-dotnet/how-it-works/
+    - text: What is Inngest?
+      link: https://www.inngest.com/
       variant: secondary
+      icon: external
     - text: GitHub
       link: https://github.com/damikun/inngest-dotnet
       variant: minimal
@@ -22,36 +23,18 @@ hero:
 import { LinkCard, Steps } from '@astrojs/starlight/components';
 import DevServer from '../../components/DevServer.astro';
 import Faq from '../../components/landing/Faq.astro';
-import Architecture from '../../components/landing/Architecture.astro';
 import Proof from '../../components/landing/Proof.astro';
 import Section from '../../components/landing/Section.astro';
 
-<Section id="how-it-works" eyebrow="How it works" title="Inngest calls your app for every step" lead="Inngest stores the run and calls your ASP.NET Core app for each step. Steps you start together with Task.WhenAll run in parallel, each in its own call. Your app keeps no state between calls; the SDK replays the function and tells Inngest what to do next.">
+<Section id="inngest" eyebrow="Built on Inngest" title="The .NET side of Inngest" lead="Inngest is the platform that runs your functions: it receives events, keeps the state of every run, retries what fails and shows each run in its dashboard. This SDK is how a .NET app takes part. You write the functions in C#, and the SDK serves them to Inngest and sends your events. Inngest's own documentation covers the platform.">
 
-<Architecture />
-
-<div class="idn-grid idn-grid-3 idn-steps-explained">
-<div>
-
-**1. An event starts a run.** Your code, a webhook or a schedule sends an event such as `shop/order.placed`, and
-Inngest starts a run of every function it triggers.
-
-</div>
-<div>
-
-**2. Each call replays the function.** Inngest calls `/api/inngest` with the results of the steps that already
-finished. The SDK hands them back instantly, so the function picks up where it stopped.
-
-</div>
-<div>
-
-**3. The answer says what is next.** The SDK answers `206` with the step it ran or reached, such as a sleep, or `200`
-with the output once the function returns.
-
-</div>
+<div class="idn-grid idn-grid-3">
+<LinkCard title="Inngest concepts" description="Events, triggers, runs, steps and waits, the terms these guides use, explained by Inngest." href="https://www.inngest.com/docs/durable-execution/concepts" />
+<LinkCard title="How Inngest functions run" description="How a run saves each step and resumes after a failure or a pause, the same for every SDK." href="https://www.inngest.com/docs/durable-execution/durable-workflows" />
+<LinkCard title="The Inngest dev server" description="Run Inngest on your machine and watch your .NET functions run step by step in its UI." href="https://www.inngest.com/docs/local-development" />
 </div>
 
-[See a real run, call by call](/inngest-dotnet/how-it-works/)
+[How it works](/inngest-dotnet/how-it-works/) shows what this SDK answers to each of Inngest's calls in a real run.
 
 </Section>
 

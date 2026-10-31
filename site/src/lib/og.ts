@@ -160,7 +160,7 @@ function renderHomeSvg({ title }: CardContent): string {
     path(shape(fonts.display, line, 80, left, y, -2.8).d, colors.title);
     y += 82;
   }
-  for (const line of ['Write background jobs and workflows', 'as plain C# methods.']) {
+  for (const line of ['Write Inngest functions as plain', 'C# classes in ASP.NET Core.']) {
     path(shape(fonts.text, line, 25, left, y + 8).d, colors.text);
     y += 35;
   }

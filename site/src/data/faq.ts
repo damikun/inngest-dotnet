@@ -18,15 +18,6 @@ export const faq: Faq[] = [
     answer: `.NET 8 or .NET 10 and an Inngest server: Inngest Cloud, a <a href="https://www.inngest.com/docs/platform-and-operations/self-host-inngest">self-hosted Inngest</a>, or the dev server on your machine. Functions are served from an ASP.NET Core endpoint, from Azure Functions or AWS Lambda, or from a <a href="${base}guides/connect/">Connect worker</a>.`,
   },
   {
-    question: 'How is this different from a job library or a message queue?',
-    answer: `A job runner retries a job as a whole. Here a function is split into steps whose results Inngest stores, so a retry resumes after the last step that finished, and a run can sleep or wait for an event for days without a worker holding it. Retries, schedules, flow control and the run history live in Inngest, not in your database. <a href="${base}how-it-works/">How it works</a> shows a run call by call.`,
-  },
-  {
-    question: 'What happens when the app restarts in the middle of a run?',
-    answer:
-      'Nothing is lost. The state of the run is in Inngest. It calls the app again, steps that finished return their saved results, and a step that was cut off is retried. Any instance of the app can take the next call.',
-  },
-  {
     question: 'Does Inngest have to reach my app over the internet?',
     answer: `With <code>MapInngest</code>, Inngest calls a public HTTPS endpoint in your app. With <a href="${base}guides/connect/">Connect</a>, the app opens a WebSocket to Inngest instead and needs no inbound port.`,
   },
