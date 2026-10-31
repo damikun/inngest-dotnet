@@ -8,7 +8,8 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Inngest.SourceGeneration.Functions;
 
 /// <summary>
-/// Says why AddInngestFunctions() leaves out a class with [InngestFunction], or why the attribute does nothing on it.
+/// In a project that generates AddInngestFunctions(), says why it leaves out a class with [InngestFunction], or why the
+/// attribute does nothing on it.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class FunctionClassAnalyzer : DiagnosticAnalyzer
@@ -24,7 +25,18 @@ public sealed class FunctionClassAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSymbolAction(AnalyzeType, SymbolKind.NamedType);
+        context.RegisterCompilationStartAction(OnCompilationStart);
+    }
+
+    // The diagnostics are about what the generated method does with a class, so a project that has not turned generation on
+    // gets none: a generic class that it registers by hand, or a private one it registers from inside its container, is
+    // not a mistake there.
+    private static void OnCompilationStart(CompilationStartAnalysisContext start)
+    {
+        if (RegistrationOptions.IsEnabled(start.Options.AnalyzerConfigOptionsProvider.GlobalOptions))
+        {
+            start.RegisterSymbolAction(AnalyzeType, SymbolKind.NamedType);
+        }
     }
 
     private static void AnalyzeType(SymbolAnalysisContext context)

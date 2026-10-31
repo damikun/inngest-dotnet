@@ -417,6 +417,7 @@ const docsProject = `<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Docs</RootNamespace>
+    <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" Version="4.0.2" />
@@ -435,10 +436,12 @@ ${reference('Inngest.Testing.Containers')}
 ${reference('Inngest.Testing.Containers.AspNetCore')}
 ${reference('Inngest.Encryption')}
 ${reference('Inngest.Extensions.AI')}
-    <!-- The generator and the analyzers come with the Inngest package; a project reference does not bring them, so the
-         snippets that call AddInngestFunctions() get them from the source. -->
+    <!-- The generator and the analyzers come with the Inngest package, and so does the file that tells the compiler the project
+         asked for the generator. A project reference brings neither, so the snippets that call AddInngestFunctions() get both
+         from the source. -->
     <ProjectReference Include="${join(repo, 'src', 'Inngest.SourceGeneration', 'Inngest.SourceGeneration.csproj')}" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <Import Project="${join(repo, 'src', 'Inngest', 'buildTransitive', 'Inngest.props')}" />
   <ItemGroup>
     <Using Include="Docs.Support" />
   </ItemGroup>

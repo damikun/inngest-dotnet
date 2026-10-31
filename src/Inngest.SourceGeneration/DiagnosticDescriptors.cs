@@ -17,7 +17,7 @@ internal static class DiagnosticDescriptors
         title: "A class with [InngestFunction] is not a function",
         messageFormat: "'{0}' has [InngestFunction] but does not derive from InngestFunction<TEventData> or InngestFunction<TEventData, TResult>, so it is not a function",
         category: FunctionsCategory,
-        defaultSeverity: DiagnosticSeverity.Error,
+        defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "The attribute configures a function class. On any other class it does nothing: the class cannot be registered, by AddFunction<T>() or by AddInngestFunctions(), and Inngest never runs it.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.NotAFunction.ToLowerInvariant());
@@ -45,7 +45,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor InaccessibleFunction = new(
         DiagnosticIds.InaccessibleFunction,
         title: "AddInngestFunctions() cannot reach a private function class",
-        messageFormat: "'{0}' cannot be reached from generated code because it, or a type that contains it, is private, protected or file-local, so AddInngestFunctions() does not register it",
+        messageFormat: "'{0}' cannot be reached from generated code because it, or a type that contains it, is private, protected, private protected or file-local, so AddInngestFunctions() does not register it",
         category: FunctionsCategory,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -64,12 +64,12 @@ internal static class DiagnosticDescriptors
 
     public static readonly DiagnosticDescriptor InvalidOption = new(
         DiagnosticIds.InvalidOption,
-        title: "An MSBuild property of AddInngestFunctions() has an invalid value",
-        messageFormat: "The MSBuild property {0} is '{1}', which is not {2}; AddInngestFunctions() is generated with '{3}' instead",
+        title: "An MSBuild property of the function registration has an invalid value",
+        messageFormat: "The MSBuild property {0} is '{1}', which is not {2}; '{3}' is used instead",
         category: FunctionsCategory,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "InngestFunctionsMethodName must be a C# identifier, and InngestFunctionsAccessibility must be public or internal.",
+        description: "InngestGenerateFunctionRegistration must be true or false, InngestFunctionsMethodName a C# identifier, and InngestFunctionsAccessibility public or internal.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.InvalidOption.ToLowerInvariant());
 
     public static readonly DiagnosticDescriptor TypeNotInJsonContext = new(

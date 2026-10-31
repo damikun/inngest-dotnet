@@ -3,6 +3,8 @@
     <TargetFramework>$(LatestTargetFramework)</TargetFramework>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Writes AddInngestFunctions(), which Program.cs calls, and checks the function classes. -->
+    <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />

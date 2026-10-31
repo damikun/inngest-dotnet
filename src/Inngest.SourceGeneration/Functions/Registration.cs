@@ -13,6 +13,12 @@ internal sealed record Registration(string AssemblyName, EquatableArray<string> 
 {
     public static Registration Create(ImmutableArray<string> typeNames, string assemblyName, RegistrationOptions options)
     {
+        // Until the project turns generation on there is nothing to register, however many classes it has.
+        if (!options.Enabled)
+        {
+            return new Registration(assemblyName, new EquatableArray<string>(ImmutableArray<string>.Empty), options);
+        }
+
         // A partial class is found once per part. The order is the names', so adding a file or moving a class
         // between files never reorders the registrations.
         var sorted = typeNames.Distinct(StringComparer.Ordinal).OrderBy(static name => name, StringComparer.Ordinal);

@@ -92,8 +92,9 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
 
     // A step saves what it returns with the run, and reads it back when the run continues, through the serializer options
     // of the app, so the type argument that names it must be in the context: RunAsync<T> and AIWrapAsync, the data
-    // WaitForEventAsync and WaitForSignalAsync wait for, the result of InvokeAsync and the response of InferAsync. The data
-    // that InvokeAsync and SendEventAsync send are values of whatever type the code gives them, and are left to the app.
+    // WaitForEventAsync and WaitForSignalAsync wait for, the result of InvokeAsync, the response of InferAsync and the data
+    // PublishAsync publishes. The data that InvokeAsync and SendEventAsync send are values of whatever type the code gives
+    // them, and are left to the app.
     private static void CheckStep(IMethodSymbol method, Location location, Lazy<JsonCoverage> coverage, Action<Diagnostic> report)
     {
         var arguments = method.TypeArguments;
@@ -118,6 +119,9 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
                 break;
             case "InferAsync" when arguments.Length == 1:
                 Check(arguments[0], location, "the response of an inference step", coverage, report);
+                break;
+            case "PublishAsync" when arguments.Length == 1:
+                Check(arguments[0], location, "the data a step publishes", coverage, report);
                 break;
         }
     }
@@ -149,16 +153,11 @@ public sealed class JsonSerializableAnalyzer : DiagnosticAnalyzer
             usage));
     }
 
-    // What the SDK serializes with a context of its own, and what is not a concrete type yet, needs nothing from the app.
+    // What is left to check is any concrete type: the ones the SDK's own context lists are in the coverage already.
     private static bool NeedsListing(ITypeSymbol type) =>
         type is not (IErrorTypeSymbol or IDynamicTypeSymbol or IPointerTypeSymbol)
-        && type.SpecialType is not (SpecialType.System_Object or SpecialType.System_Void)
-        && !ContainsTypeParameter(type)
-        && !InngestTypes.IsDeclaredBySdk(type)
-        && !IsJsonElement(type);
-
-    private static bool IsJsonElement(ITypeSymbol type) =>
-        type is { Name: "JsonElement", ContainingNamespace: { Name: "Json", ContainingNamespace: { Name: "Text", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } };
+        && type.SpecialType != SpecialType.System_Void
+        && !ContainsTypeParameter(type);
 
     private static bool ContainsTypeParameter(ITypeSymbol type) =>
         type switch

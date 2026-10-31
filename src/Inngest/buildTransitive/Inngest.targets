@@ -1,8 +1,9 @@
 <Project>
-  <!-- DisableInngestSourceGenerator=true takes the generator and the analyzers of this package out of a build, for the case
-       that one of them gets in the way. The package then does nothing at compile time; the SDK itself is not affected. -->
-  <Target Name="_InngestRemoveCompilerExtensions"
-          Condition="'$(DisableInngestSourceGenerator)' == 'true'"
+  <!-- DisableInngestAnalyzers=true takes everything this package runs in the compiler out of a build, the generator and the
+       analyzers, for the case that one of them gets in the way. The package then does nothing at compile time; the library
+       itself is not affected. -->
+  <Target Name="_InngestRemoveAnalyzers"
+          Condition="'$(DisableInngestAnalyzers)' == 'true'"
           AfterTargets="ResolvePackageDependenciesForBuild;ResolveNuGetPackageAssets">
     <ItemGroup>
       <Analyzer Remove="@(Analyzer)" Condition="'%(Analyzer.NuGetPackageId)' == 'Inngest'" />

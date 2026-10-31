@@ -8,8 +8,9 @@ using Microsoft.CodeAnalysis.Text;
 namespace Inngest.SourceGeneration.Functions;
 
 /// <summary>
-/// Writes AddInngestFunctions() for the assembly it compiles: an extension method on IInngestBuilder that calls
-/// AddFunction&lt;T&gt;() for each class with [InngestFunction], so the app lists none of them and no code scans for them.
+/// Writes AddInngestFunctions() for the assembly it compiles, once the project sets InngestGenerateFunctionRegistration to
+/// true: an extension method on IInngestBuilder that calls AddFunction&lt;T&gt;() for each class with [InngestFunction], so the
+/// app lists none of them and no code scans for them.
 /// </summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class FunctionRegistrationGenerator : IIncrementalGenerator
@@ -65,13 +66,25 @@ public sealed class FunctionRegistrationGenerator : IIncrementalGenerator
 
     private static void Emit(SourceProductionContext context, Registration registration)
     {
-        // A project without function classes has nothing to write, and a property it sets wrongly has no effect to report.
+        var options = registration.Options;
+        if (options.RejectedEnabled is { } enabled)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.InvalidOption,
+                Location.None,
+                RegistrationOptions.EnabledProperty,
+                enabled,
+                "true or false",
+                "false"));
+        }
+
+        // A project that has not opted in, or has no function classes, has nothing to write, and a property it sets wrongly
+        // has no effect to report.
         if (registration.TypeNames.Length == 0)
         {
             return;
         }
 
-        var options = registration.Options;
         if (options.RejectedMethodName is { } methodName)
         {
             context.ReportDiagnostic(Diagnostic.Create(

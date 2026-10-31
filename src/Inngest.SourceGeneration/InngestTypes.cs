@@ -24,8 +24,6 @@ internal static class InngestTypes
 
     public static bool IsBuilderExtensions(INamedTypeSymbol? type) => IsInngestType(type, "InngestBuilderExtensions");
 
-    // Anything the SDK declares is serialized by the SDK itself: its own context covers FunctionFailure, SendEventsResult
-    // and the like, so the app never lists them.
     public static bool IsDeclaredBySdk(ITypeSymbol type) => type.ContainingAssembly?.Name == "Inngest";
 
     private static bool IsInngestType(INamedTypeSymbol? type, string name) =>

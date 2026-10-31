@@ -13,9 +13,11 @@ internal sealed class GeneratorTest : CSharpSourceGeneratorTest<FunctionRegistra
     // What the generator writes for the version of the assembly that is running.
     private static readonly string GeneratorVersion = typeof(FunctionRegistrationGenerator).Assembly.GetName().Version!.ToString();
 
-    public GeneratorTest(string source, string? generated = null, string? properties = null, params string[] otherSources)
+    // The project has turned generation on unless the test says it has not.
+    public GeneratorTest(string source, string? generated = null, string? properties = null, bool enabled = true, params string[] otherSources)
     {
-        ProjectSetup.Configure(this, properties is null ? null : "is_global = true\n" + properties);
+        var turnedOn = enabled ? "build_property.InngestGenerateFunctionRegistration = true\n" : string.Empty;
+        ProjectSetup.Configure(this, "is_global = true\n" + turnedOn + properties);
         TestState.Sources.Add(source);
         foreach (var other in otherSources)
         {

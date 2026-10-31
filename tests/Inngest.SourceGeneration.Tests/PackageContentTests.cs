@@ -16,6 +16,7 @@ public sealed class PackageContentTests
         // A property the compiler is not told about reads as nothing, and the extension quietly does nothing.
         string[] read =
         [
+            RegistrationOptions.EnabledProperty,
             RegistrationOptions.MethodNameProperty,
             RegistrationOptions.AccessibilityProperty,
             ReflectionJson.PublishAotProperty,

@@ -7,7 +7,8 @@
     <CompilerVisibleProperty Include="PublishAot" />
     <CompilerVisibleProperty Include="PublishTrimmed" />
     <CompilerVisibleProperty Include="JsonSerializerIsReflectionEnabledByDefault" />
-    <!-- Name and accessibility of the generated AddInngestFunctions(). -->
+    <!-- AddInngestFunctions() is generated only when the project asks for it, with this name and accessibility. -->
+    <CompilerVisibleProperty Include="InngestGenerateFunctionRegistration" />
     <CompilerVisibleProperty Include="InngestFunctionsMethodName" />
     <CompilerVisibleProperty Include="InngestFunctionsAccessibility" />
   </ItemGroup>

@@ -25,8 +25,14 @@ internal static class Generation
             optionsProvider: Options(properties ?? new Dictionary<string, string>()),
             driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
 
-    // The MSBuild properties of a project, as the compiler passes them to a generator.
-    public static AnalyzerConfigOptionsProvider Options(IReadOnlyDictionary<string, string> properties) => new TestOptionsProvider(properties);
+    // The MSBuild properties of a project, as the compiler passes them to a generator. The project has turned generation on
+    // unless the properties say otherwise.
+    public static AnalyzerConfigOptionsProvider Options(IReadOnlyDictionary<string, string> properties)
+    {
+        var all = new Dictionary<string, string>(properties);
+        all.TryAdd("InngestGenerateFunctionRegistration", "true");
+        return new TestOptionsProvider(all);
+    }
 
     // The values the step with this name produced on the last run, and why each was produced: the same as before, rerun
     // with an equal result, or new.

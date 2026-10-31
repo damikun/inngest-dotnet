@@ -9,6 +9,8 @@ public sealed class FunctionClassAnalyzerTests
 {
     private const string Body = "public override Task<object?> ExecuteAsync(FunctionContext<string> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);";
 
+    private const string GenericBody = "public override Task<object?> ExecuteAsync(FunctionContext<T> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);";
+
     [Fact]
     public async Task A_class_that_AddInngestFunctions_registers_has_no_diagnostic()
     {
@@ -48,7 +50,7 @@ public sealed class FunctionClassAnalyzerTests
     }
 
     [Fact]
-    public async Task A_class_with_the_attribute_that_is_not_a_function_is_an_error()
+    public async Task A_class_with_the_attribute_that_is_not_a_function_is_reported()
     {
         const string source = """
             namespace Shop
@@ -226,12 +228,86 @@ public sealed class FunctionClassAnalyzerTests
         await Verify(source);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("is_global = true\nbuild_property.InngestGenerateFunctionRegistration = false\n")]
+    [InlineData("is_global = true\nbuild_property.InngestGenerateFunctionRegistration = \n")]
+    public async Task A_project_that_has_not_turned_generation_on_is_told_nothing(string? properties)
+    {
+        // Every kind of class the diagnostics are about, as a project that registers its classes by hand has them: a generic
+        // class closed by hand, a private nested class registered from its container, an abstract base, and an attribute on a
+        // class that is not a function. None of it is wrong there, and none of it may fail a build that warns as an error.
+        var source = $$"""
+            namespace Shop
+            {
+                [InngestFunction("generic")]
+                public sealed class GenericFunction<T> : InngestFunction<T>
+                {
+                    {{GenericBody}}
+                }
+
+                [InngestFunction("abstract")]
+                public abstract class AbstractFunction : InngestFunction<string>
+                {
+                }
+
+                [InngestFunction("not-a-function")]
+                public sealed class NotAFunction
+                {
+                }
+
+                [InngestFunction("no-constructor")]
+                public sealed class NoPublicConstructor : InngestFunction<string>
+                {
+                    internal NoPublicConstructor()
+                    {
+                    }
+
+                    {{Body}}
+                }
+
+                public static class Registrations
+                {
+                    [InngestFunction("hidden")]
+                    private sealed class Hidden : InngestFunction<string>
+                    {
+                        {{Body}}
+                    }
+
+                    public static IInngestBuilder Add(IInngestBuilder builder) => builder
+                        .AddFunction<GenericFunction<string>>()
+                        .AddFunction<Hidden>();
+                }
+            }
+            """;
+
+        await new InngestAnalyzerTest<FunctionClassAnalyzer>(Sources.Usings + source, properties).RunAsync();
+    }
+
+    [Fact]
+    public async Task The_switch_may_be_written_in_any_case()
+    {
+        const string source = """
+            namespace Shop
+            {
+                [InngestFunction("abstract")]
+                public abstract class {|#0:AbstractFunction|} : InngestFunction<string>
+                {
+                }
+            }
+            """;
+
+        var test = new InngestAnalyzerTest<FunctionClassAnalyzer>(Sources.Usings + source, "is_global = true\nbuild_property.InngestGenerateFunctionRegistration = True\n");
+        test.ExpectedDiagnostics.Add(Expect(DiagnosticDescriptors.AbstractFunction, 0, "Shop.AbstractFunction"));
+        await test.RunAsync();
+    }
+
     private static DiagnosticResult Expect(DiagnosticDescriptor descriptor, int markup, string name) =>
         new DiagnosticResult(descriptor).WithLocation(markup).WithArguments(name);
 
     private static async Task Verify(string source, params DiagnosticResult[] expected)
     {
-        var test = new InngestAnalyzerTest<FunctionClassAnalyzer>(Sources.Usings + source);
+        var test = new InngestAnalyzerTest<FunctionClassAnalyzer>(Sources.Usings + source, Sources.GenerationOn);
         test.ExpectedDiagnostics.AddRange(expected);
         await test.RunAsync();
     }

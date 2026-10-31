@@ -38,6 +38,9 @@ internal static class Sources
         }
         """;
 
+    // The MSBuild property of a project that has turned on the generated registration and the checks of its function classes.
+    public const string GenerationOn = "is_global = true\nbuild_property.InngestGenerateFunctionRegistration = true\n";
+
     // The MSBuild properties of an app that publishes with Native AOT, as the compiler sees them.
     public const string PublishAot = "is_global = true\nbuild_property.PublishAot = true\n";
 }

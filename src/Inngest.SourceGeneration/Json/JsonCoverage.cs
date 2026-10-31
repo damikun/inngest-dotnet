@@ -7,16 +7,36 @@ using Microsoft.CodeAnalysis;
 namespace Inngest.SourceGeneration.Json;
 
 // The types that source-generated System.Text.Json metadata exists for in a compilation: the types a JsonSerializerContext
-// lists, and every type those reach through their members, because the generator writes metadata for the whole graph
-// of a type it is asked for. A type outside both fails with a NotSupportedException when reflection is off, however
+// lists, the types Inngest's own context lists, and every type those reach, because the generator writes metadata for the
+// whole graph of a type it is asked for. A type outside fails with a NotSupportedException when reflection is off, however
 // ordinary it is: an int is only there if something that is listed has an int.
+//
+// "Reach" is what the generator of System.Text.Json does, which was checked against it: the types of the public properties
+// and fields (of non-public ones only with [JsonInclude]), without those marked [JsonIgnore]; the parameters of the one
+// constructor it would call; the element type of a collection, whose own members and constructors it ignores; the type
+// arguments of framework generics; [JsonDerivedType]. A type with a [JsonConverter] of its own has nothing reached through it.
 internal sealed class JsonCoverage
 {
+    // The types Inngest's PublicTypesJsonContext lists, which the SDK adds to the serializer options of every app. A test
+    // compares them with the context, so the two cannot drift apart.
+    internal static readonly string[] SdkTypes =
+    [
+        "Inngest.FunctionFailure",
+        "Inngest.FunctionError",
+        "Inngest.FunctionFinished",
+        "Inngest.FunctionCancelled",
+        "Inngest.SendEventsResult",
+    ];
+
     private readonly HashSet<ITypeSymbol> _covered = new(SymbolEqualityComparer.Default);
+
+    internal IReadOnlyCollection<ITypeSymbol> Types => _covered;
 
     public static JsonCoverage Create(Compilation compilation)
     {
         var coverage = new JsonCoverage();
+        coverage.AddSdkContext(compilation);
+
         var context = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonSerializerContext");
         var attribute = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonSerializableAttribute");
         if (context is null || attribute is null)
@@ -37,6 +57,23 @@ internal sealed class JsonCoverage
     }
 
     public bool Covers(ITypeSymbol type) => _covered.Contains(type);
+
+    private void AddSdkContext(Compilation compilation)
+    {
+        Add(compilation.GetSpecialType(SpecialType.System_Object));
+        if (compilation.GetTypeByMetadataName("System.Text.Json.JsonElement") is { } element)
+        {
+            Add(element);
+        }
+
+        foreach (var name in SdkTypes)
+        {
+            if (compilation.GetTypeByMetadataName(name) is { } type && InngestTypes.IsDeclaredBySdk(type))
+            {
+                Add(type);
+            }
+        }
+    }
 
     // A context in another project of the app counts. The framework's own assemblies do not define any a project could
     // use, and there are hundreds of them, so only the others that can use System.Text.Json are searched.
@@ -126,24 +163,68 @@ internal sealed class JsonCoverage
             if (type is IArrayTypeSymbol array)
             {
                 pending.Push(array.ElementType);
-                continue;
             }
-
-            if (type is not INamedTypeSymbol named)
+            else if (type is INamedTypeSymbol named)
             {
-                continue;
+                PushReached(named, pending);
             }
+        }
+    }
 
-            foreach (var argument in named.TypeArguments)
+    private static void PushReached(INamedTypeSymbol type, Stack<ITypeSymbol> pending)
+    {
+        // The metadata of a collection, a nullable or a tuple comes with the types it holds, and a framework type has no
+        // members of the app's to reach.
+        if (IsFrameworkType(type))
+        {
+            foreach (var argument in type.TypeArguments)
             {
                 pending.Push(argument);
             }
 
-            // The metadata of a collection or a primitive comes with the types it holds, and a framework type has no
-            // members of the app's to reach.
-            for (var current = named; current is not null && !IsFrameworkType(current); current = current.BaseType)
+            return;
+        }
+
+        // A converter reads and writes the type itself, and the generator looks no further.
+        if (type.TypeKind == TypeKind.Enum || HasAttribute(type, "JsonConverterAttribute"))
+        {
+            return;
+        }
+
+        foreach (var data in type.GetAttributes())
+        {
+            if (IsJsonAttribute(data.AttributeClass, "JsonDerivedTypeAttribute") && data.ConstructorArguments.Length > 0 && data.ConstructorArguments[0].Value is ITypeSymbol derived)
             {
-                PushMembers(current, pending);
+                pending.Push(derived);
+            }
+        }
+
+        // A collection is written as its elements, and its own members and constructors are not part of it, whether the
+        // framework or the app declares it: class Items : List<Line> reaches Line and nothing else.
+        if (ElementTypeOf(type) is { } element)
+        {
+            pending.Push(element);
+            return;
+        }
+
+        for (var current = type; current is not null && !IsFrameworkType(current); current = current.BaseType)
+        {
+            PushMembers(current, pending);
+        }
+
+        if (type.TypeKind == TypeKind.Interface)
+        {
+            foreach (var inherited in type.AllInterfaces)
+            {
+                PushMembers(inherited, pending);
+            }
+        }
+
+        if (SelectConstructor(type) is { } constructor)
+        {
+            foreach (var parameter in constructor.Parameters)
+            {
+                pending.Push(parameter.Type);
             }
         }
     }
@@ -154,31 +235,110 @@ internal sealed class JsonCoverage
         {
             switch (member)
             {
-                case IPropertySymbol { IsStatic: false, IsIndexer: false } property:
+                case IPropertySymbol { IsStatic: false, IsIndexer: false } property when IsSerialized(property, property.DeclaredAccessibility):
                     pending.Push(property.Type);
                     break;
-                case IFieldSymbol { IsStatic: false, IsImplicitlyDeclared: false } field:
+                case IFieldSymbol { IsStatic: false, IsImplicitlyDeclared: false } field when IsSerialized(field, field.DeclaredAccessibility):
                     pending.Push(field.Type);
                     break;
-                case IMethodSymbol { MethodKind: MethodKind.Constructor, DeclaredAccessibility: Accessibility.Public } constructor:
-                    foreach (var parameter in constructor.Parameters)
-                    {
-                        pending.Push(parameter.Type);
-                    }
-
-                    break;
-            }
-        }
-
-        // [JsonDerivedType(typeof(Circle))] on a base type adds the derived type to the metadata.
-        foreach (var data in type.GetAttributes())
-        {
-            if (data.AttributeClass?.Name == "JsonDerivedTypeAttribute" && data.ConstructorArguments.Length > 0 && data.ConstructorArguments[0].Value is ITypeSymbol derived)
-            {
-                pending.Push(derived);
             }
         }
     }
+
+    // Public members are written, and so are non-public ones that [JsonInclude] asks for and the generated code can reach (a
+    // private one fails when the context is used). [JsonIgnore] leaves a member out unless it only names a condition.
+    private static bool IsSerialized(ISymbol member, Accessibility accessibility) =>
+        !IsIgnored(member) && (accessibility == Accessibility.Public || (accessibility != Accessibility.Private && HasAttribute(member, "JsonIncludeAttribute")));
+
+    private static bool IsIgnored(ISymbol member)
+    {
+        foreach (var data in member.GetAttributes())
+        {
+            if (!IsJsonAttribute(data.AttributeClass, "JsonIgnoreAttribute"))
+            {
+                continue;
+            }
+
+            // The condition is Always when none is named.
+            foreach (var argument in data.NamedArguments)
+            {
+                if (argument.Key == "Condition")
+                {
+                    return argument.Value.Value is int condition && condition == AlwaysIgnore;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // JsonIgnoreCondition.Always.
+    private const int AlwaysIgnore = 1;
+
+    // The constructor the generator calls to read the type, whose parameters it needs metadata for: the one marked
+    // [JsonConstructor], else the only public one when the class has no public constructor without parameters. A struct and
+    // a class with a default constructor are created without a call, and a class with several public constructors and no
+    // mark has none chosen.
+    private static IMethodSymbol? SelectConstructor(INamedTypeSymbol type)
+    {
+        if (type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+        {
+            return null;
+        }
+
+        IMethodSymbol? onlyPublic = null;
+        var publicCount = 0;
+        var hasDefault = false;
+        foreach (var constructor in type.InstanceConstructors)
+        {
+            if (HasAttribute(constructor, "JsonConstructorAttribute"))
+            {
+                return constructor;
+            }
+
+            if (constructor.DeclaredAccessibility == Accessibility.Public)
+            {
+                publicCount++;
+                onlyPublic = constructor;
+                hasDefault |= constructor.Parameters.Length == 0;
+            }
+        }
+
+        return type.TypeKind == TypeKind.Class && !hasDefault && publicCount == 1 ? onlyPublic : null;
+    }
+
+    // T of the IEnumerable<T> a type implements: what the generator writes it as.
+    private static ITypeSymbol? ElementTypeOf(INamedTypeSymbol type)
+    {
+        foreach (var contract in type.AllInterfaces)
+        {
+            if (contract is { Name: "IEnumerable", Arity: 1, ContainingNamespace: { Name: "Generic", ContainingNamespace: { Name: "Collections", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } })
+            {
+                return contract.TypeArguments[0];
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasAttribute(ISymbol symbol, string name)
+    {
+        foreach (var data in symbol.GetAttributes())
+        {
+            if (IsJsonAttribute(data.AttributeClass, name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsJsonAttribute(INamedTypeSymbol? attribute, string name) =>
+        attribute is { ContainingNamespace: { Name: "Serialization", ContainingNamespace: { Name: "Json", ContainingNamespace: { Name: "Text", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } } }
+        && attribute.Name == name;
 
     private static bool IsFrameworkType(INamedTypeSymbol type)
     {
