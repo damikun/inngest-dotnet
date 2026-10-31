@@ -189,9 +189,9 @@ reports one, with the same id rules, retries and results. What differs is the sc
 The result is serialized to JSON after the scope has been disposed, and every replay reads it back
 ([Results are JSON](/inngest-dotnet/guides/steps/#results-are-json)); it also counts toward Inngest's
 [limits](https://www.inngest.com/docs/durable-execution/limits) on the size of a step's result. Return records, lists
-and ids, never tracked entities. An entity with navigation properties usually refers back to itself, which `System.Text.Json` refuses, and a
-query that has not run yet, such as an `IQueryable` or a lazy `Select`, would need the context that is gone. Project
-in the query and return what the function needs next:
+and ids, never tracked entities. An entity with navigation properties usually refers back to itself, which
+`System.Text.Json` refuses, and a query that has not run yet, such as an `IQueryable` or a lazy `Select`, would need
+the context that is gone. Project in the query and return what the function needs next:
 
 {/* check: body OrderPlaced; string orderId */}
 ```csharp
@@ -319,7 +319,8 @@ ran the step answers with it, or when [checkpointing](/inngest-dotnet/reference/
 lost before then, because the process stops, a proxy times out or the connection drops, Inngest retries the step, and
 the handler finds its rows already written. With checkpointing and a `BufferedSteps` above 1, every step that was not
 saved yet runs again. The same happens when the result cannot be serialized. Inngest's own page on
-[idempotency](https://www.inngest.com/docs/guides/handling-idempotency) makes the point about external services.
+[idempotency](https://www.inngest.com/docs/durable-execution/guides-and-advanced/idempotency) makes the point about
+external services.
 Deduplicating the event or the function, as [flow control](/inngest-dotnet/guides/flow-control/#idempotency) does,
 decides whether a run starts, not whether a step runs twice.
 
@@ -413,6 +414,7 @@ from a provider of the test and running the handler in it is all it takes:
 
 ```csharp
 using Inngest;
+using Microsoft.Extensions.DependencyInjection;
 
 public sealed class ScopingStepTools(IServiceProvider services) : IStepTools
 {
