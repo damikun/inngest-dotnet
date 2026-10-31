@@ -183,7 +183,8 @@ Each event that is refused stays in the table and is tried again at the retry in
 every attempt that names its id and its name. It will not go through until the row is fixed or deleted. If Inngest is
 down or the event key is wrong, the events are not split: they fail together, as one request.
 
-A request that takes longer than `SendTimeout` counts as failed. When the host stops, the events a dispatcher had
+Events that are too large for a request together, but not alone, are sent one at a time after every refused batch, so
+lower `BatchSize` for large events. A request that takes longer than `SendTimeout` counts as failed. When the host stops, the events a dispatcher had
 claimed are given back at once and do not cost an attempt, so another instance sends them without waiting for the lease.
 
 ### Order
