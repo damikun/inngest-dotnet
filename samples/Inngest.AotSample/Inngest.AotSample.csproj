@@ -9,6 +9,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Inngest\Inngest.csproj" />
     <ProjectReference Include="..\..\src\Inngest.AspNetCore\Inngest.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.UserContext\Inngest.UserContext.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.UserContext.AspNetCore\Inngest.UserContext.AspNetCore.csproj" />
   </ItemGroup>
   <!-- A package reference to Inngest brings its generator and analyzers, and the properties they read, with it. A project
        reference does not, so the sample takes them from the source of the repository. -->
