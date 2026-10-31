@@ -37,8 +37,9 @@ jobs:
       - run: dotnet build Inngest.slnx -c Release
       - run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release --no-build
       - run: dotnet test --project tests/Inngest.Extensions.AI.Tests/Inngest.Extensions.AI.Tests.csproj -c Release --no-build
-      # The source generator, the analyzers and the code fix of the Inngest package, on the compiler of this SDK.
-      - run: dotnet test --project tests/Inngest.SourceGeneration.Tests/Inngest.SourceGeneration.Tests.csproj -c Release --no-build
+      # The source generator, the analyzers and the code fix of the Inngest package, on the compiler of this SDK. The tests
+      # that pack the package and build an app from it take minutes, and run in the job below.
+      - run: dotnet test --project tests/Inngest.SourceGeneration.Tests/Inngest.SourceGeneration.Tests.csproj -c Release --no-build --filter-not-namespace "Inngest.SourceGeneration.Tests.Packaging"
       - name: Unit tests on .NET 8
         run: dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj -c Release -p:TestAllFrameworks=true --framework net8.0
       - name: Chat client unit tests on .NET 8
@@ -57,6 +58,21 @@ jobs:
         with:
           name: packages
           path: packages/
+
+  # Packs Inngest and Inngest.AspNetCore into a local feed and builds an app from them, to check that the generator and the
+  # analyzers reach it through the package: when it asks for them, and not before. The app is built with the SDK the job
+  # runs under and with the .NET 8 SDK, which the job installs, pinned by a global.json in the app's folder.
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet test --project tests/Inngest.SourceGeneration.Tests/Inngest.SourceGeneration.Tests.csproj -c Release --filter-namespace "Inngest.SourceGeneration.Tests.Packaging"
 
   integration:
     runs-on: ubuntu-latest
