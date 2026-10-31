@@ -608,11 +608,11 @@ when the sender took the claims. It is the user of the run whose code is running
 | Member | Purpose |
 |---|---|
 | `Claims` | The claim types that are attached, matched exactly. `sub` and `ClaimTypes.NameIdentifier` by default. |
-| `Lifetime` | How long after the claims were taken a run can still be created with them. Seven days by default. |
+| `Lifetime` | How long after the claims were taken a run can still start with them, judged by the later of its creation and its event's timestamp. Seven days by default. |
 | `MaxSize` | The largest size of the payload's JSON in UTF-8 bytes. 4096 by default; a larger user is not attached. |
 | `Propagate` | Whether the events a run sends carry its user. `true` by default. |
 | `EventFilter` | A `Func<InngestEvent, bool>` that picks the events that carry the user. `null` means all. |
-| `OnInvalid` | An `InvalidUserContextAction`: `Anonymous` (default) runs without a user and logs a warning, `FailRun` fails the run. |
+| `OnInvalid` | An `InvalidUserContextAction`: `Anonymous` (default) runs without a user and logs a warning, `FailRun` fails the run. A failure handler never fails on its user. |
 
 **`IUserContextSource`**: `GetUserAsync(CancellationToken)` returns the `ClaimsPrincipal` an event sent outside a run is
 sent for, or null. **`IUserContextProtector`**: `Protect(string)` and `TryUnprotect(string, out string?)`, which turn the

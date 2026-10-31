@@ -12,8 +12,8 @@ public enum InvalidUserContextAction
 
     /// <summary>
     /// Fails the run. A user that has expired, was made for another event or has an unknown format fails without retries.
-    /// One that cannot be unprotected is retried, because the key store may only be unreachable for now; if it never
-    /// can be read, the last attempt fails.
+    /// One that cannot be unprotected is retried, because the app may not have the sender's newest key yet; if it never
+    /// can be read, the last attempt fails. A failure handler never fails on its user: it takes the Anonymous path.
     /// </summary>
     FailRun,
 }

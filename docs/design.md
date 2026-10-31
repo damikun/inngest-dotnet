@@ -1072,10 +1072,16 @@ lets it see its internals. It has no counterpart in the TypeScript SDK.
   sibling scope a scoped step makes, and in singletons. A function that batches events gets no user: a batch has no
   single one.
 - **Validity.** A function replays from its top on every call, so a user that expired halfway through a run would change
-  under it. The expiry is compared with the creation time of the run, which its id holds (a ULID that Inngest makes and
-  every call shares), not with the clock of the call. An id that is not a ULID falls back to the clock of the call. Against
-  the dev server, an event with a future timestamp gets a run created when the event is received.
+  under it. The expiry is compared with the later of the creation time of the run, which its id holds (a ULID that
+  Inngest makes and every call shares), and the `ts` of its event (in the failed run's event for a failure handler), not
+  with the clock of the call. Against the dev server, the run of an event with a future timestamp is created when the
+  event is received but starts at the timestamp, so the creation time alone would let a payload copied from an event act
+  as its user years after it expired. A run held back by a queue after it was created keeps its user. An id that is not a
+  ULID falls back to the clock of the call, with a warning.
 - **Failure.** A payload that cannot be used gives an anonymous principal and one warning, written once per run through
   the replay-safe logger, that names the reason and the event and never the payload. `OnInvalid = FailRun` fails the run
-  instead: without retries, except for text that could not be unprotected, which may mean a key store that is down. Data
-  Protection reports every failure as a `CryptographicException`, so it cannot tell the two apart.
+  instead, except a failure handler: without retries, except for text that could not be unprotected, which is retried.
+  Data Protection lets the `CryptographicException` of a payload that is not valid through as it is and wraps every other
+  failure, such as a key store that cannot be read, in one with an `InnerException`. The default protector therefore
+  throws for the second kind, so that the call fails and is retried instead of running as nobody, and answers false for
+  the first.

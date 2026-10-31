@@ -20,11 +20,12 @@ public sealed class UserContextOptions
     public IReadOnlyList<string> Claims { get; set; } = ["sub", ClaimTypes.NameIdentifier];
 
     /// <summary>
-    /// How long after the claims were taken a run can still start with them: seven days by default. It is judged when
-    /// the run was created, which its id says, not at each call, so a run that started in time keeps its user while it
-    /// sleeps, waits and retries, and the user cannot change under it halfway. Events and invocations a run sends carry
+    /// How long after the claims were taken a run can still start with them: seven days by default. A run is judged once,
+    /// by the later of its creation, which its id says, and the timestamp of its event, not at each call. So a run that
+    /// started in time keeps its user while it sleeps, waits and retries, and the user cannot change under it halfway,
+    /// while an event scheduled further ahead than the lifetime carries no user. Events and invocations a run sends carry
     /// the same expiry, so a chain of runs cannot extend it. A longer lifetime lets a payload that leaked from an event
-    /// start runs for longer, a shorter one cuts off what Inngest delays: debounced, batched and scheduled runs.
+    /// start runs for longer, a shorter one cuts off what is delayed: debounced and scheduled runs.
     /// </summary>
     public TimeSpan Lifetime { get; set; } = TimeSpan.FromDays(7);
 
