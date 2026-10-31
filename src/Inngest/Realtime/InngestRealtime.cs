@@ -38,27 +38,42 @@ internal sealed class InngestRealtime(IRealtimeApi api, RealtimeSubscriber subsc
         return new RealtimeToken(channel, [.. topics], key) { ApiBaseUrl = settings.ApiBaseUrl.AbsoluteUri };
     }
 
-    public IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken = default) =>
+        SubscribeAsync(channel, topics, null, cancellationToken);
+
+    public IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken cancellationToken = default) =>
+        SubscribeAsync(topic, null, cancellationToken);
+
+    // The same, telling onConnection what the connection to Inngest is doing, which the public members have no way to say.
+    internal IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(
+        string channel,
+        IReadOnlyList<string> topics,
+        Action<RealtimeConnection>? onConnection,
+        CancellationToken cancellationToken)
     {
         RealtimePayload.Check(channel, topics);
-        return Subscribe(channel, [.. topics], new RealtimeMessageReader<JsonElement>(static data => data.Clone(), readDataOfEveryKind: true), cancellationToken);
+        return Subscribe(channel, [.. topics], new RealtimeMessageReader<JsonElement>(static data => data.Clone(), readDataOfEveryKind: true), onConnection, cancellationToken);
     }
 
-    public IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken cancellationToken = default)
+    internal IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(
+        RealtimeTopic<T> topic,
+        Action<RealtimeConnection>? onConnection,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(topic);
         RealtimePayload.Check(topic.Untyped);
         var typeInfo = (JsonTypeInfo<T>)settings.SerializerOptions.GetTypeInfo(typeof(T));
-        return Subscribe(topic.Channel, [topic.Name], new RealtimeMessageReader<T>(data => data.Deserialize(typeInfo), readDataOfEveryKind: false), cancellationToken);
+        return Subscribe(topic.Channel, [topic.Name], new RealtimeMessageReader<T>(data => data.Deserialize(typeInfo), readDataOfEveryKind: false), onConnection, cancellationToken);
     }
 
     private async IAsyncEnumerable<RealtimeMessage<T>> Subscribe<T>(
         string channel,
         IReadOnlyList<string> topics,
         RealtimeMessageReader<T> reader,
+        Action<RealtimeConnection>? onConnection,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var payload in subscriber.ReadAsync(channel, topics, cancellationToken).ConfigureAwait(false))
+        await foreach (var payload in subscriber.ReadAsync(channel, topics, onConnection, cancellationToken).ConfigureAwait(false))
         {
             // A message whose data is not a T, as another publisher may send, is skipped rather than ending the subscription.
             RealtimeMessage<T>? message;

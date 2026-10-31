@@ -187,6 +187,50 @@ public sealed class RealtimeSubscriptionTests
     }
 
     [Fact]
+    public async Task A_subscription_tells_when_it_connects_has_connected_and_loses_its_connection()
+    {
+        var first = new SseFeed();
+        var second = new SseFeed();
+        _api.Answer(first);
+        _api.Answer(second);
+        var states = new List<RealtimeConnection>();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var reading = ReadAllAsync(new RealtimeSubscriber(_api, _time, NullLogger<RealtimeSubscriber>.Instance)
+            .ReadAsync("order:7", ["status"], state => { lock (states) { states.Add(state); } }, stop.Token));
+
+        // Open as soon as the connection is, whether or not anything is published.
+        await Until(() => States(states).Count == 2);
+        States(states).ShouldBe([RealtimeConnection.Connecting, RealtimeConnection.Open]);
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await first.EndAsync();
+
+        await Until(() => States(states).Count == 4);
+        States(states).ShouldBe([RealtimeConnection.Connecting, RealtimeConnection.Open, RealtimeConnection.Reconnecting, RealtimeConnection.Open]);
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => reading.WaitAsync(Wait, Cancel));
+    }
+
+    [Fact]
+    public async Task A_subscription_that_has_not_connected_yet_does_not_say_it_is_reconnecting()
+    {
+        var feed = new SseFeed();
+        _api.Fail(new InngestException("Failed to subscribe to realtime messages: 503", 503));
+        _api.Answer(feed);
+        var states = new List<RealtimeConnection>();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancel);
+        var reading = ReadAllAsync(new RealtimeSubscriber(_api, _time, NullLogger<RealtimeSubscriber>.Instance)
+            .ReadAsync("order:7", ["status"], state => { lock (states) { states.Add(state); } }, stop.Token));
+
+        await _time.TimersCreated(1).WaitAsync(Wait, Cancel);
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await Until(() => States(states).Contains(RealtimeConnection.Open));
+
+        States(states).ShouldBe([RealtimeConnection.Connecting, RealtimeConnection.Connecting, RealtimeConnection.Open]);
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => reading.WaitAsync(Wait, Cancel));
+    }
+
+    [Fact]
     public async Task A_failure_of_Inngest_is_retried_after_a_delay()
     {
         var feed = new SseFeed();
@@ -244,6 +288,14 @@ public sealed class RealtimeSubscriptionTests
                     return;
                 }
             }
+        }
+    }
+
+    private static List<RealtimeConnection> States(List<RealtimeConnection> states)
+    {
+        lock (states)
+        {
+            return [.. states];
         }
     }
 

@@ -20,9 +20,19 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
     // A connection that ends sooner than this counts as a failure, so a server that keeps closing them is not hammered.
     private static readonly TimeSpan MinHealthyConnection = TimeSpan.FromSeconds(5);
 
-    public async IAsyncEnumerable<string> ReadAsync(string channel, IReadOnlyList<string> topics, [EnumeratorCancellation] CancellationToken cancellationToken)
+    public IAsyncEnumerable<string> ReadAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken) =>
+        ReadAsync(channel, topics, null, cancellationToken);
+
+    // Tells onConnection when it connects, has connected and loses the connection, from the thread that reads.
+    public async IAsyncEnumerable<string> ReadAsync(
+        string channel,
+        IReadOnlyList<string> topics,
+        Action<RealtimeConnection>? onConnection,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var failures = 0;
+        var opened = false;
+        onConnection?.Invoke(RealtimeConnection.Connecting);
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -44,6 +54,8 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
                 using (response)
                 {
                     Log.RealtimeConnected(logger, channel);
+                    opened = true;
+                    onConnection?.Invoke(RealtimeConnection.Open);
                     var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
                     var events = ServerSentEvents.ReadDataAsync(stream, time, IdleTimeout, cancellationToken).GetAsyncEnumerator(cancellationToken);
                     await using (events.ConfigureAwait(false))
@@ -76,6 +88,7 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
                     failures = 0;
                     if (failure is null)
                     {
+                        onConnection?.Invoke(RealtimeConnection.Reconnecting);
                         continue;
                     }
                 }
@@ -86,6 +99,7 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
             failures++;
             var delay = RetryDelay(failures);
             Log.RealtimeReconnecting(logger, channel, failure!.Message, (long)delay.TotalMilliseconds);
+            onConnection?.Invoke(opened ? RealtimeConnection.Reconnecting : RealtimeConnection.Connecting);
             await Task.Delay(delay, time, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -102,4 +116,12 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
         // Up to a fifth less, so that subscribers that failed together do not come back together.
         return delay * (1 - (Random.Shared.NextDouble() * 0.2));
     }
+}
+
+// What the connection of a subscription is doing, for the UI packages that show it.
+internal enum RealtimeConnection
+{
+    Connecting,
+    Open,
+    Reconnecting,
 }
