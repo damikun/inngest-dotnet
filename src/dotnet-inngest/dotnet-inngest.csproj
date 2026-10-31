@@ -17,6 +17,12 @@
     <PackageValidationBaselineVersion />
   </PropertyGroup>
   <ItemGroup>
+    <!-- The README that src/Directory.Build.props packs describes the SDK. This package has one of its own. The default
+         items are not there in the build that packs a project of two frameworks, so it is included, not updated. -->
+    <None Remove="$(MSBuildProjectDirectory)/../README.md;README.md" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Inngest.Tests" />
   </ItemGroup>
 </Project>
