@@ -19,10 +19,11 @@ and the .NET ecosystem you already use. Inngest runs them; this SDK connects you
 
 </div>
 
-inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com). It is a C# port of the Inngest
-TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js), and it follows .NET conventions: dependency
-injection, `IOptions`, `ILogger`, `CancellationToken`, `TimeSpan` and plain `Task`-based code. Serve your functions
-from ASP.NET Core, or from a worker that needs no public endpoint.
+inngest-dotnet is a community Inngest SDK for .NET. It speaks the same protocol as Inngest's official SDKs and
+follows .NET conventions: dependency injection, `IOptions`, `ILogger`, `CancellationToken`, `TimeSpan` and plain
+`Task`-based code. Packages for Aspire, Entity Framework Core, SignalR, Blazor, OpenTelemetry and more connect it to
+the rest of the .NET ecosystem. Serve your functions from ASP.NET Core, or from a worker that needs no public
+endpoint.
 
 <p align="center">
 <picture>
@@ -260,7 +261,6 @@ The documentation has complete examples:
 | Hosting | ASP.NET Core with `MapInngest`, any generic host with `AddConnect`, Azure Functions (isolated worker) and AWS Lambda |
 | Native AOT and trimming | Compatible, except `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and the Aspire app host, which are never compiled ahead of time. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
 | Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
-| Ported from | inngest-js v4.26.2 |
 
 ## Quality and testing
 
@@ -355,6 +355,6 @@ internals.
 
 Apache License 2.0. See [LICENSE](LICENSE).
 
-inngest-dotnet is a C# port of [inngest-js](https://github.com/inngest/inngest-js), Copyright 2022 Inngest Inc., also
-licensed under the Apache License 2.0. See [NOTICE](NOTICE). This project is not affiliated with or endorsed by
-Inngest Inc. "Inngest" is a trademark of Inngest Inc.
+Parts of inngest-dotnet are adapted from [inngest-js](https://github.com/inngest/inngest-js), Copyright 2022 Inngest
+Inc., also licensed under the Apache License 2.0. See [NOTICE](NOTICE). This project is not affiliated with or
+endorsed by Inngest Inc. "Inngest" is a trademark of Inngest Inc.

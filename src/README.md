@@ -3,8 +3,7 @@
 Write [Inngest](https://www.inngest.com) functions as plain C# classes in your ASP.NET Core app, with realtime updates
 and the .NET ecosystem you already use. Inngest runs them; this SDK connects your .NET app to it.
 
-inngest-dotnet is a community .NET SDK for Inngest, ported from the Inngest TypeScript SDK,
-[inngest-js](https://github.com/inngest/inngest-js). It targets .NET 8 and .NET 10 and is Native AOT compatible, except
+inngest-dotnet is a community Inngest SDK for .NET. It targets .NET 8 and .NET 10 and is Native AOT compatible, except
 `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and Aspire app hosts,
 which are never compiled ahead of time.
 
@@ -149,6 +148,6 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 
 ## License
 
-Apache License 2.0. inngest-dotnet is a C# port of inngest-js, Copyright 2022 Inngest Inc., also licensed under the
-Apache License 2.0; the package includes the NOTICE file. This project is not affiliated with or endorsed by Inngest
-Inc. "Inngest" is a trademark of Inngest Inc.
+Apache License 2.0. Parts of inngest-dotnet are adapted from inngest-js, Copyright 2022 Inngest Inc., also licensed
+under the Apache License 2.0; the package includes the NOTICE file. This project is not affiliated with or endorsed
+by Inngest Inc. "Inngest" is a trademark of Inngest Inc.

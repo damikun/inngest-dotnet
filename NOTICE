@@ -1,13 +1,12 @@
 inngest-dotnet
 Copyright 2026 the inngest-dotnet contributors
 
-This product is a C# port of the Inngest TypeScript SDK (inngest-js),
-https://github.com/inngest/inngest-js, Copyright 2022 Inngest Inc.,
-licensed under the Apache License, Version 2.0.
+This product includes source code adapted from the Inngest TypeScript SDK
+(inngest-js), https://github.com/inngest/inngest-js, Copyright 2022 Inngest
+Inc., licensed under the Apache License, Version 2.0.
 
-The original TypeScript sources were translated to C# and substantially
-modified to follow .NET conventions. Every source file ported from them
-carries a header stating that it was ported and modified; source files
-written for .NET alone carry the license header only. The port is not
-affiliated with or endorsed by Inngest Inc. "Inngest" is a trademark of
-Inngest Inc.
+Those TypeScript sources were translated to C# and substantially modified
+to follow .NET conventions. Every source file adapted from them carries a
+header stating that it was ported and modified; source files written for
+.NET alone carry the license header only. This product is not affiliated
+with or endorsed by Inngest Inc. "Inngest" is a trademark of Inngest Inc.

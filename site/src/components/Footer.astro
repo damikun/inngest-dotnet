@@ -12,8 +12,7 @@ const markdown = entry.id === '404' ? undefined : new URL(`${pageId(entry.id)}.m
 <Default><slot /></Default>
 <div class="community not-content">
   <p>
-    inngest-dotnet is a community port of the Inngest TypeScript SDK to .NET. It is not affiliated with or
-    endorsed by Inngest Inc.
+    inngest-dotnet is a community Inngest SDK for .NET. It is not affiliated with or endorsed by Inngest Inc.
   </p>
   <ul>
     {markdown && <li><a href={markdown} type="text/markdown">View as Markdown</a></li>}

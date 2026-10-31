@@ -53,13 +53,12 @@ function jsonLd(isHome: boolean, site: URL, page: URL, title: string, descriptio
     '@id': `${site.href}#software`,
     name: SITE_NAME,
     description:
-      'A .NET port of the Inngest TypeScript SDK: durable functions made of steps that retry on their own, sleep, wait for events and run in parallel, served from ASP.NET Core, Azure Functions, AWS Lambda or a Connect worker.',
+      'A community Inngest SDK for .NET: durable functions made of steps that retry on their own, sleep, wait for events and run in parallel, served from ASP.NET Core, Azure Functions, AWS Lambda or a Connect worker.',
     url: site.href,
     codeRepository: REPO_URL,
     programmingLanguage: 'C#',
     runtimePlatform: '.NET 10',
     license: 'https://www.apache.org/licenses/LICENSE-2.0',
-    isBasedOn: 'https://github.com/inngest/inngest-js',
     author: { '@type': 'Organization', name: 'inngest-dotnet contributors', url: REPO_URL },
     keywords: ['Inngest', '.NET', 'C#', 'ASP.NET Core', 'durable execution', 'workflows', 'background jobs'],
   };

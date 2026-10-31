@@ -3,11 +3,18 @@
 This document describes how the .NET SDK is put together and the wire protocol it speaks. It is written for
 people working on the SDK; the README covers usage.
 
-The SDK is a port of the official TypeScript SDK, [inngest-js](https://github.com/inngest/inngest-js) (v4.26.1
-at the time of the port, v4.26.2 for the features added after it), checked against the server's
-[SDK spec](https://github.com/inngest/inngest/blob/main/docs/SDK_SPEC.md) and the server's Go code. Where the
-spec and the TypeScript SDK disagree, the SDK does what the server actually relies on. Those cases are listed in
-[Spec deviations](#spec-deviations).
+inngest-dotnet is a community Inngest SDK for .NET. It speaks the same protocol as Inngest's official SDKs, checked
+against the server's [SDK spec](https://github.com/inngest/inngest/blob/main/docs/SDK_SPEC.md) and the server's Go
+code, and compared with the official SDKs for TypeScript ([inngest-js](https://github.com/inngest/inngest-js)
+v4.26.2), Go, and Kotlin and Java. Where the spec and inngest-js disagree, the SDK does what the server actually
+relies on; those cases are listed in [Spec deviations](#spec-deviations). The behavior that differs from inngest-js
+on purpose is in [Differences from the TypeScript SDK](#differences-from-the-typescript-sdk).
+
+It is built for .NET rather than translated to it. Functions are classes resolved from dependency injection, with
+their options as attributes, typed events and results, a dependency injection scope per step and settings from
+configuration. Packages connect it to ASP.NET Core, Azure Functions, AWS Lambda, Aspire, Entity Framework Core,
+SignalR, Blazor, Microsoft.Extensions.AI, OpenTelemetry, Sentry and Testcontainers. The rows marked .NET only in
+[What is supported](#what-is-supported) are the features particular to this SDK.
 
 ## Protocol
 

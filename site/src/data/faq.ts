@@ -11,7 +11,7 @@ export const faq: Faq[] = [
   {
     question: 'Is this an official Inngest SDK?',
     answer:
-      'No. inngest-dotnet is a community port of the official TypeScript SDK, inngest-js 4.26.2, and is not affiliated with Inngest Inc. It speaks the same protocol, and its end-to-end tests run against the Inngest server in dev and cloud mode.',
+      'No. inngest-dotnet is a community SDK and is not affiliated with Inngest Inc. It speaks the same protocol as the official Inngest SDKs, and its end-to-end tests run against the Inngest server in dev and cloud mode.',
   },
   {
     question: 'What do I need to run it?',

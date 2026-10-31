@@ -460,7 +460,7 @@ from `CLAUDE.md` with `@AGENTS.md`.
 ```markdown title="AGENTS.md" wrap
 ## Inngest .NET SDK (inngest-dotnet)
 
-This project uses inngest-dotnet, a community .NET port of the Inngest TypeScript SDK. Its API is not inngest-js's. Do not write inngest-js code in C#, and do not invent member names: look them up.
+This project uses inngest-dotnet, a community Inngest SDK for .NET. Its API is not inngest-js's. Do not write inngest-js code in C#, and do not invent member names: look them up.
 
 - Docs for tools: https://damikun.github.io/inngest-dotnet/llms.txt lists every page as Markdown, each page is also at its address with `.md` in place of the trailing slash, and https://damikun.github.io/inngest-dotnet/llms-full.txt holds all of them. Read https://damikun.github.io/inngest-dotnet/guides/ai-assistants.md before writing code with the SDK. Signatures are in https://damikun.github.io/inngest-dotnet/reference/api.md.
 - A function is a class that derives from `InngestFunction<TEventData>`, with `[InngestFunction("id")]` and `[EventTrigger("event/name")]` on it and `public override async Task<object?> ExecuteAsync(FunctionContext<TEventData> context, CancellationToken cancellationToken)`. Register it with `AddFunction<T>()` after `AddInngest(...)`, and serve it with `app.MapInngest("/api/inngest")`.
