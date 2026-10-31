@@ -2,6 +2,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using Inngest;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,13 +18,32 @@ public static class InngestSignalREndpointRouteBuilderExtensions
     /// </summary>
     public static HubEndpointConventionBuilder MapInngestRealtimeHub(this IEndpointRouteBuilder endpoints, [StringSyntax("Route")] string pattern)
     {
+        Check(endpoints, pattern);
+        return endpoints.MapHub<InngestRealtimeHub>(pattern);
+    }
+
+    /// <summary>
+    /// Maps <see cref="InngestRealtimeHub"/> as <see cref="MapInngestRealtimeHub(IEndpointRouteBuilder, string)"/> does,
+    /// with the options of the connections to it that <c>MapHub</c> takes, such as the transports and
+    /// <c>CloseOnAuthenticationExpiration</c>, which ends the connection of a user whose authentication expires.
+    /// </summary>
+    public static HubEndpointConventionBuilder MapInngestRealtimeHub(
+        this IEndpointRouteBuilder endpoints,
+        [StringSyntax("Route")] string pattern,
+        Action<HttpConnectionDispatcherOptions> configureOptions)
+    {
+        Check(endpoints, pattern);
+        ArgumentNullException.ThrowIfNull(configureOptions);
+        return endpoints.MapHub<InngestRealtimeHub>(pattern, configureOptions);
+    }
+
+    private static void Check(IEndpointRouteBuilder endpoints, string pattern)
+    {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrEmpty(pattern);
 
         // Resolving here fails at startup, not when the first client connects, when AddInngestSignalR was not called.
         _ = endpoints.ServiceProvider.GetService<InngestRealtimeBridge<InngestRealtimeHub>>()
             ?? throw new InvalidOperationException("Call services.AddInngestSignalR() before app.MapInngestRealtimeHub().");
-
-        return endpoints.MapHub<InngestRealtimeHub>(pattern);
     }
 }

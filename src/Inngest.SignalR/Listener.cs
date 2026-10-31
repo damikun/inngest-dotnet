@@ -6,29 +6,27 @@ namespace Inngest.SignalR;
 
 // A connection that joined feeds. It has a bounded queue of its own and a loop that sends the queue to the connection,
 // so that a connection that reads slowly holds up neither the other connections nor the pumps that feed it.
-internal sealed class Listener(string connectionId, Action abort, int capacity)
+internal sealed class Listener(string connectionId, int capacity)
 {
     public string ConnectionId { get; } = connectionId;
 
-    // Ends the connection itself, for one that cannot keep up.
-    public Action Abort { get; } = abort;
-
-    public Channel<Outgoing> Queue { get; } = Channel.CreateBounded<Outgoing>(new BoundedChannelOptions(capacity) { SingleReader = true, SingleWriter = false });
+    // The loop reads it, and the bridge empties it when the connection has to start over, so it has more than one reader.
+    public Channel<Outgoing> Queue { get; } = Channel.CreateBounded<Outgoing>(new BoundedChannelOptions(capacity) { SingleReader = false, SingleWriter = false });
 
     // Not disposed, as Feed.Stop: it has no timer, and the connection's end may cancel it while the loop ends.
     public CancellationTokenSource Stop { get; } = new();
 
-    // The feeds the connection is in, under the key they were granted and under the key that was requested when that
-    // differs, so that leaving takes either. Guarded by the bridge's lock.
-    public Dictionary<string, Feed> Feeds { get; } = new(StringComparer.Ordinal);
-
-    // The feeds in Feeds, each counted once. Guarded by the bridge's lock.
-    public int FeedCount { get; set; }
+    // What the connection asked to join, by the key of what it asked for. Guarded by the bridge's lock.
+    public Dictionary<string, Request> Requests { get; } = new(StringComparer.Ordinal);
 
     // Set under the bridge's lock; the pumps read it without.
     public volatile bool Ended;
 }
 
-// What a listener's loop sends: a message of Inngest as it is, or, when Channel is set, the news that the feed of that
-// channel ended.
-internal readonly record struct Outgoing(string? Channel, string Text);
+// One subscription as the client has it: the channel and topics it asked for, which Authorize may have turned into
+// another feed. The client gets these back when the subscription is lost, to join it again.
+internal sealed record Request(Feed Feed, string Channel, string[] Topics);
+
+// What a listener's loop sends: a message of Inngest as it is, or, when Channel is set, the news that the subscription to
+// these topics of that channel is lost, with the reason as the text.
+internal readonly record struct Outgoing(string Text, string? Channel = null, string[]? Topics = null);

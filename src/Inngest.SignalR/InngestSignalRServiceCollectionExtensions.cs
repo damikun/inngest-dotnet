@@ -38,20 +38,7 @@ public static class InngestSignalRServiceCollectionExtensions
         configure(options);
         Validate(options);
 
-        // A trimmed or Native AOT app has no reflection for SignalR's JSON protocol to read the topics of Subscribe and
-        // write the text of a message with. The app's own context comes first when it registers one.
-        if (!JsonSerializer.IsReflectionEnabledByDefault)
-        {
-            services.Configure<JsonHubProtocolOptions>(protocol =>
-            {
-                var resolvers = protocol.PayloadSerializerOptions.TypeInfoResolverChain;
-                if (!resolvers.Contains(SignalRJsonContext.Default))
-                {
-                    resolvers.Add(SignalRJsonContext.Default);
-                }
-            });
-        }
-
+        AddJsonContext(services, JsonSerializer.IsReflectionEnabledByDefault);
         services.TryAddSingleton(provider => new InngestRealtimeBridge<THub>(
             provider.GetService<RealtimeSubscriber>()
                 ?? throw new InvalidOperationException("Call services.AddInngest() before the Inngest SignalR bridge is used."),
@@ -61,6 +48,26 @@ public static class InngestSignalRServiceCollectionExtensions
             (provider.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance).CreateLogger("Inngest.SignalR.InngestRealtimeBridge"),
             provider.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None));
         return services;
+    }
+
+    // A trimmed or Native AOT app has no reflection for SignalR's JSON protocol to read the topics of Subscribe, the
+    // arguments of the news of a loss and the text of a message with. The app's own context comes first when it registers
+    // one, and the protocol is shared by all hubs, so this is done once.
+    internal static void AddJsonContext(IServiceCollection services, bool reflectionEnabled)
+    {
+        if (reflectionEnabled)
+        {
+            return;
+        }
+
+        services.Configure<JsonHubProtocolOptions>(protocol =>
+        {
+            var resolvers = protocol.PayloadSerializerOptions.TypeInfoResolverChain;
+            if (!resolvers.Contains(SignalRJsonContext.Default))
+            {
+                resolvers.Add(SignalRJsonContext.Default);
+            }
+        });
     }
 
     // Reports every problem at once, as the validators of the other packages do.
@@ -90,6 +97,11 @@ public static class InngestSignalRServiceCollectionExtensions
         if (options.MaxSubscriptionsPerConnection < 1)
         {
             failures.Add("InngestSignalROptions.MaxSubscriptionsPerConnection must be at least 1.");
+        }
+
+        if (options.MaxQueuedMessagesPerConnection < Math.Max(1, options.MaxSubscriptionsPerConnection))
+        {
+            failures.Add("InngestSignalROptions.MaxQueuedMessagesPerConnection must be at least 1 and at least MaxSubscriptionsPerConnection, so that a connection that lost its subscriptions can be told of each.");
         }
 
         if (failures.Count > 0)

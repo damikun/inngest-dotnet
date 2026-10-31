@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Tests.SignalR;
 
@@ -179,7 +180,10 @@ public sealed class SignalRConnectionTests
 
         await client.Connection.InvokeAsync("Subscribe", Order, new[] { "status" }, Cancel);
 
-        (await client.NextErrorAsync()).ShouldBe((Order, "The subscription to Inngest ended."));
+        var lost = await client.NextErrorAsync();
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status"]);
+        lost.Reason.ShouldBe("inngest-ended");
     }
 
     [Fact]
@@ -217,6 +221,100 @@ public sealed class SignalRConnectionTests
     }
 
     [Fact]
+    public async Task A_client_that_falls_behind_keeps_its_connection_is_told_what_it_lost_and_joins_again()
+    {
+        var first = new SseFeed();
+        var second = new SseFeed();
+        _api.Answer(first);
+        _api.Answer(second);
+        var hubs = new HoldingLifetimeManager<InngestRealtimeHub>(new DefaultHubLifetimeManager<InngestRealtimeHub>(NullLogger<DefaultHubLifetimeManager<InngestRealtimeHub>>.Instance));
+        await using var app = await StartAsync(hubs: hubs);
+        var bridge = app.Services.GetRequiredService<InngestRealtimeBridge<InngestRealtimeHub>>();
+        await using var client = new Client(app);
+        await client.StartAsync();
+        var closed = false;
+        client.Connection.Closed += _ =>
+        {
+            closed = true;
+            return Task.CompletedTask;
+        };
+        await client.Connection.InvokeAsync("Subscribe", Order, new[] { "status", "tokens" }, Cancel);
+        await Wait.UntilAsync(() => _api.Subscriptions.Count == 1);
+
+        // The writes to the client wait, as they do for one that does not read, while the messages keep coming. The first
+        // is under way before the rest.
+        hubs.Hold(client.Connection.ConnectionId!);
+        await first.SendAsync("""{"n":0}""");
+        await Wait.UntilAsync(() => hubs.IsHeld);
+        for (var n = 1; n < 600; n++)
+        {
+            await first.SendAsync($$"""{"n":{{n}}}""");
+        }
+
+        // Nobody else listens, so with the client's subscription gone, the subscription to Inngest closes.
+        await Wait.UntilAsync(() => bridge.FeedCount == 0);
+        await Wait.UntilAsync(() => _api.Subscriptions[0].IsCancellationRequested);
+        hubs.Release();
+
+        // It receives the message that was under way, then hears what it lost, as it asked for it. It is connected as before.
+        (await client.NextMessageAsync()).ShouldBe("""{"n":0}""");
+        var lost = await client.NextErrorAsync();
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status", "tokens"]);
+        lost.Reason.ShouldBe("behind");
+        client.Connection.State.ShouldBe(HubConnectionState.Connected);
+        closed.ShouldBeFalse();
+        bridge.ListenerCount.ShouldBe(1);
+
+        // Joining again with what it was told works on the same connection.
+        await client.Connection.InvokeAsync("Subscribe", lost.Channel, lost.Topics, Cancel);
+        await second.SendAsync("""{"n":"again"}""");
+        (await client.NextMessageAsync()).ShouldBe("""{"n":"again"}""");
+        client.Received.ShouldBe(2);
+        client.Connection.State.ShouldBe(HubConnectionState.Connected);
+    }
+
+    [Fact]
+    public async Task The_callback_can_be_called_with_a_request_made_in_a_test()
+    {
+        var options = new InngestSignalROptions { Authorize = request => ValueTask.FromResult<RealtimeSubscription?>(request.Caller.UserIdentifier == "ada" ? request.Requested : null) };
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var requested = new RealtimeSubscription(Order, ["status"]);
+
+        var granted = await options.Authorize(new RealtimeSubscribeRequest(new FakeCaller("c1", new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "ada")], "test"))), requested, provider, Cancel));
+        var refused = await options.Authorize(new RealtimeSubscribeRequest(new FakeCaller("c2"), requested, provider));
+
+        granted.ShouldBe(requested);
+        refused.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_options_of_the_connections_to_the_hub_can_be_chosen()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSignalR();
+        builder.Services.AddInngest(options =>
+        {
+            options.AppId = "shop";
+            options.IsDev = true;
+        });
+        builder.Services.AddInngestSignalR(options => options.Authorize = request => ValueTask.FromResult<RealtimeSubscription?>(request.Requested));
+        await using var app = builder.Build();
+        HttpTransportType? transports = null;
+
+        app.MapInngestRealtimeHub("/hub", options =>
+        {
+            options.Transports = HttpTransportType.LongPolling;
+            transports = options.Transports;
+        });
+
+        transports.ShouldBe(HttpTransportType.LongPolling);
+        Should.Throw<ArgumentNullException>(() => app.MapInngestRealtimeHub("/other", null!));
+    }
+
+    [Fact]
     public void The_bridge_needs_an_authorize_callback_and_sensible_options()
     {
         var services = new ServiceCollection();
@@ -233,9 +331,16 @@ public sealed class SignalRConnectionTests
             options.MaxSubscriptionsPerConnection = 0;
         }));
 
+        var queue = Should.Throw<InvalidOperationException>(() => services.AddInngestSignalR(options =>
+        {
+            options.Authorize = request => ValueTask.FromResult<RealtimeSubscription?>(request.Requested);
+            options.MaxQueuedMessagesPerConnection = 31;
+        }));
+
         missing.Message.ShouldContain("Authorize is required");
         same.Message.ShouldContain("must differ");
         none.Message.ShouldContain("at least 1");
+        queue.Message.ShouldContain("MaxQueuedMessagesPerConnection must be at least 1 and at least MaxSubscriptionsPerConnection");
     }
 
     [Fact]
@@ -259,13 +364,19 @@ public sealed class SignalRConnectionTests
     private async Task<WebApplication> StartAsync(
         Action<ISignalRServerBuilder>? signalR = null,
         Func<RealtimeSubscribeRequest, ValueTask<RealtimeSubscription?>>? authorize = null,
-        bool custom = false)
+        bool custom = false,
+        HubLifetimeManager<InngestRealtimeHub>? hubs = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         var server = builder.Services.AddSignalR();
         signalR?.Invoke(server);
+        if (hubs is not null)
+        {
+            builder.Services.AddSingleton(hubs);
+        }
+
         builder.Services.AddInngest(options =>
         {
             options.AppId = "shop";
@@ -300,7 +411,7 @@ public sealed class SignalRConnectionTests
     private sealed class Client : IAsyncDisposable
     {
         private readonly Channel<string> _messages = Channel.CreateUnbounded<string>();
-        private readonly Channel<(string Channel, string Text)> _errors = Channel.CreateUnbounded<(string, string)>();
+        private readonly Channel<(string Channel, string[] Topics, string Reason)> _errors = Channel.CreateUnbounded<(string, string[], string)>();
         private int _received;
 
         public Client(WebApplication app, string path = "/hub", bool messagePack = false)
@@ -323,7 +434,7 @@ public sealed class SignalRConnectionTests
                 Interlocked.Increment(ref _received);
                 _messages.Writer.TryWrite(message);
             });
-            Connection.On<string, string>("RealtimeError", (channel, text) => _errors.Writer.TryWrite((channel, text)));
+            Connection.On<string, string[], string>("RealtimeError", (channel, topics, reason) => _errors.Writer.TryWrite((channel, topics, reason)));
         }
 
         public HubConnection Connection { get; }
@@ -334,7 +445,7 @@ public sealed class SignalRConnectionTests
 
         public async Task<string> NextMessageAsync() => await _messages.Reader.ReadAsync(Cancel).AsTask().WaitAsync(Timeout, Cancel);
 
-        public async Task<(string Channel, string Text)> NextErrorAsync() => await _errors.Reader.ReadAsync(Cancel).AsTask().WaitAsync(Timeout, Cancel);
+        public async Task<(string Channel, string[] Topics, string Reason)> NextErrorAsync() => await _errors.Reader.ReadAsync(Cancel).AsTask().WaitAsync(Timeout, Cancel);
 
         public ValueTask DisposeAsync() => Connection.DisposeAsync();
     }

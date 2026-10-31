@@ -22,14 +22,25 @@ public sealed class InngestSignalROptions
     public string MessageMethod { get; set; } = "Realtime";
 
     /// <summary>
-    /// The client method that hears of a subscription that Inngest ended, with the channel and a short text. Everyone
-    /// who had joined it is out of it, and joins again to try anew. "RealtimeError" by default.
+    /// The client method that hears of a subscription the client lost, with three arguments: the channel and the topics
+    /// as the client asked for them when it joined, so that it joins again with the same call, and the reason. The
+    /// reason is "behind" when the client fell more than <see cref="MaxQueuedMessagesPerConnection"/> messages behind, and
+    /// what was queued for it was dropped; "send-failed" when a message could not be sent to it; and "inngest-ended"
+    /// when Inngest refused or ended the subscription. The connection stays open. "RealtimeError" by default.
     /// </summary>
     public string ErrorMethod { get; set; } = "RealtimeError";
 
     /// <summary>
-    /// How many channels and topic sets one connection may be joined to at once, for each of them is a connection from
-    /// the app to Inngest while nobody else shares it. 32 by default.
+    /// How many subscriptions one connection may be in at once, counting each way it asked to join, for each of them can
+    /// be a connection from the app to Inngest that nobody else shares. 32 by default.
     /// </summary>
     public int MaxSubscriptionsPerConnection { get; set; } = 32;
+
+    /// <summary>
+    /// How many messages may wait to be sent to one connection. A connection that reaches it is too far behind: it loses
+    /// its subscriptions and is told through <see cref="ErrorMethod"/>, so that a client that reads slowly holds up
+    /// neither the others nor the subscription to Inngest. At least <see cref="MaxSubscriptionsPerConnection"/>, so that
+    /// it can be told of each. 512 by default.
+    /// </summary>
+    public int MaxQueuedMessagesPerConnection { get; set; } = 512;
 }

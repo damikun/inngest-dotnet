@@ -10,8 +10,19 @@ namespace Inngest;
 /// </summary>
 public sealed class RealtimeSubscribeRequest
 {
-    internal RealtimeSubscribeRequest(HubCallerContext caller, RealtimeSubscription requested, IServiceProvider services, CancellationToken cancellationToken)
+    /// <summary>
+    /// Makes a request, which the bridge does for each client that asks to join, and a test can do to call
+    /// <see cref="InngestSignalROptions.Authorize"/> directly.
+    /// </summary>
+    /// <param name="caller">The client's connection.</param>
+    /// <param name="requested">What the client asked for.</param>
+    /// <param name="services">The services the callback resolves what it needs from.</param>
+    /// <param name="cancellationToken">Cancelled when the client disconnects.</param>
+    public RealtimeSubscribeRequest(HubCallerContext caller, RealtimeSubscription requested, IServiceProvider services, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(requested);
+        ArgumentNullException.ThrowIfNull(services);
         Caller = caller;
         Requested = requested;
         Services = services;

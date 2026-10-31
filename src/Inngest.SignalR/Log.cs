@@ -15,9 +15,9 @@ internal static partial class Log
     [LoggerMessage(EventId = 612, Level = LogLevel.Warning, Message = "Forwarding realtime channel {Channel} to SignalR clients stopped: {Reason}")]
     public static partial void FeedFailed(ILogger logger, string channel, string reason);
 
-    [LoggerMessage(EventId = 613, Level = LogLevel.Warning, Message = "SignalR connection {ConnectionId} is disconnected: it fell more than {Capacity} realtime messages behind.")]
+    [LoggerMessage(EventId = 613, Level = LogLevel.Warning, Message = "SignalR connection {ConnectionId} lost its subscriptions: it fell more than {Capacity} realtime messages behind.")]
     public static partial void ListenerFellBehind(ILogger logger, string connectionId, int capacity);
 
-    [LoggerMessage(EventId = 614, Level = LogLevel.Warning, Message = "SignalR connection {ConnectionId} is disconnected: sending it a realtime message failed: {Reason}")]
+    [LoggerMessage(EventId = 614, Level = LogLevel.Warning, Message = "SignalR connection {ConnectionId} lost its subscriptions: sending it a realtime message failed: {Reason}")]
     public static partial void ListenerSendFailed(ILogger logger, string connectionId, string reason);
 }

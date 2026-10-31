@@ -382,7 +382,7 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
     }
 
     [Fact]
-    public async Task A_client_that_falls_behind_is_disconnected_and_holds_up_neither_the_others_nor_the_reader()
+    public async Task A_client_that_falls_behind_loses_its_subscriptions_and_is_told_and_holds_up_neither_the_others_nor_the_reader()
     {
         var app = _rig.AddInstance();
         var feed = new SseFeed();
@@ -390,12 +390,16 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         var slow = new FakeCaller("slow");
         var quick = new FakeCaller("quick");
         _rig.Hubs.Hold("slow");
-        await app.Bridge.SubscribeAsync(slow, Order, ["status"], Cancel);
-        await app.Bridge.SubscribeAsync(quick, Order, ["status"], Cancel);
+        await app.Bridge.SubscribeAsync(slow, Order, ["status", "tokens"], Cancel);
+        await app.Bridge.SubscribeAsync(quick, Order, ["status", "tokens"], Cancel);
         string[] expected = [.. Enumerable.Range(0, 700).Select(n => $$"""{"n":{{n}}}""")];
 
+        // The first message is under way to the slow client, which holds it up, before the rest come.
+        await feed.SendAsync(expected[0]);
+        await Wait.UntilAsync(() => _rig.Hubs.IsHeld("slow") && _rig.Hubs.Messages("quick").Count == 1);
+
         // A batch at a time, so that the quick client is never more than a batch behind, whatever the machine is doing.
-        for (var sent = 0; sent < expected.Length; sent += 50)
+        for (var sent = 1; sent < expected.Length; sent += 50)
         {
             var end = Math.Min(sent + 50, expected.Length);
             foreach (var message in expected[sent..end])
@@ -407,11 +411,56 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         }
 
         _rig.Hubs.Messages("quick").ShouldBe(expected);
-        await Wait.UntilAsync(() => slow.Aborted);
-        _rig.Hubs.Messages("slow").ShouldBeEmpty();
         quick.Aborted.ShouldBeFalse();
-        app.Bridge.ListenerCount.ShouldBe(1);
         app.Subscriptions[0].IsCancellationRequested.ShouldBeFalse();
+
+        // The slow client's connection stays. When its sends go through, it gets the one that was under way, then hears
+        // what it lost, as it asked for it, and nothing of what was queued.
+        _rig.Hubs.Release("slow");
+        await Wait.UntilAsync(() => _rig.Hubs.To("slow").Any(delivery => delivery.Method == "RealtimeError"));
+        var lost = _rig.Hubs.To("slow").Single(delivery => delivery.Method == "RealtimeError").Lost;
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status", "tokens"]);
+        lost.Reason.ShouldBe("behind");
+        _rig.Hubs.Messages("slow").ShouldBe([expected[0]]);
+        slow.Aborted.ShouldBeFalse();
+        app.Bridge.ListenerCount.ShouldBe(2);
+
+        // It joins again on the same connection and receives what comes next.
+        await app.Bridge.SubscribeAsync(slow, Order, ["status", "tokens"], Cancel);
+        await feed.SendAsync("""{"n":"next"}""");
+        await Wait.UntilAsync(() => _rig.Hubs.Messages("slow").Count == 2);
+        _rig.Hubs.Messages("slow")[1].ShouldBe("""{"n":"next"}""");
+    }
+
+    [Fact]
+    public async Task The_number_of_messages_that_may_wait_for_a_connection_can_be_chosen()
+    {
+        var app = _rig.AddInstance(configure: options =>
+        {
+            options.MaxQueuedMessagesPerConnection = 8;
+            options.MaxSubscriptionsPerConnection = 4;
+        });
+        var feed = new SseFeed();
+        app.Api.Answer(feed);
+        var slow = new FakeCaller("slow");
+        var quick = new FakeCaller("quick");
+        _rig.Hubs.Hold("slow");
+        await app.Bridge.SubscribeAsync(slow, Order, ["status"], Cancel);
+        await app.Bridge.SubscribeAsync(quick, Order, ["status"], Cancel);
+
+        // One is under way and eight wait: the tenth is one too many.
+        await feed.SendAsync("""{"n":0}""");
+        await Wait.UntilAsync(() => _rig.Hubs.IsHeld("slow"));
+        for (var n = 1; n < 10; n++)
+        {
+            await feed.SendAsync($$"""{"n":{{n}}}""");
+            await Wait.UntilAsync(() => _rig.Hubs.Messages("quick").Count == n + 1);
+        }
+
+        _rig.Hubs.Release("slow");
+        await Wait.UntilAsync(() => _rig.Hubs.To("slow").Any(delivery => delivery.Method == "RealtimeError"));
+        _rig.Hubs.To("slow").Single(delivery => delivery.Method == "RealtimeError").Lost.Reason.ShouldBe("behind");
     }
 
     [Fact]
@@ -440,24 +489,49 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
     }
 
     [Fact]
-    public async Task A_client_whose_send_fails_is_disconnected_and_the_others_are_not()
+    public async Task A_client_whose_send_fails_loses_its_subscriptions_and_is_told_and_the_others_are_not()
     {
         var app = _rig.AddInstance();
         var feed = new SseFeed();
         app.Api.Answer(feed);
         var bad = new FakeCaller("bad");
         var good = new FakeCaller("good");
-        _rig.Hubs.FailSendsTo("bad", new IOException("The connection is gone."));
+        _rig.Hubs.FailSendsTo("bad", new IOException("The connection is gone."), times: 1);
         await app.Bridge.SubscribeAsync(bad, Order, ["status"], Cancel);
         await app.Bridge.SubscribeAsync(good, Order, ["status"], Cancel);
 
         await feed.SendAsync("""{"n":1}""");
         await feed.SendAsync("""{"n":2}""");
 
-        await Wait.UntilAsync(() => bad.Aborted);
+        await Wait.UntilAsync(() => _rig.Hubs.To("bad").Any(delivery => delivery.Method == "RealtimeError"));
+        var lost = _rig.Hubs.To("bad").Single(delivery => delivery.Method == "RealtimeError").Lost;
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status"]);
+        lost.Reason.ShouldBe("send-failed");
         await Wait.UntilAsync(() => _rig.Hubs.Messages("good").Count == 2);
+        _rig.Hubs.Messages("bad").ShouldNotContain("""{"n":1}""");
+        bad.Aborted.ShouldBeFalse();
         good.Aborted.ShouldBeFalse();
-        app.Bridge.ListenerCount.ShouldBe(1);
+        app.Bridge.ListenerCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_client_that_cannot_be_told_of_its_loss_is_left_alone()
+    {
+        var app = _rig.AddInstance();
+        var feed = new SseFeed();
+        app.Api.Answer(feed);
+        var bad = new FakeCaller("bad");
+        _rig.Hubs.FailSendsTo("bad", new IOException("The connection is gone."));
+        await app.Bridge.SubscribeAsync(bad, Order, ["status"], Cancel);
+
+        await feed.SendAsync("""{"n":1}""");
+
+        // The message and the news of its loss both fail, and that is the end of it: no loop, no abort.
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 1 && app.Subscriptions[0].IsCancellationRequested);
+        _rig.Hubs.To("bad").ShouldBeEmpty();
+        bad.Aborted.ShouldBeFalse();
+        app.Bridge.FeedCount.ShouldBe(0);
     }
 
     [Fact]
@@ -470,8 +544,10 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         await app.Bridge.SubscribeAsync(caller, Order, ["status"], Cancel);
 
         await Wait.UntilAsync(() => _rig.Hubs.To("c1").Any(delivery => delivery.Method == "RealtimeError"));
-        var error = _rig.Hubs.To("c1").Single(delivery => delivery.Method == "RealtimeError");
-        error.Args.ShouldBe([Order, "The subscription to Inngest ended."]);
+        var lost = _rig.Hubs.To("c1").Single(delivery => delivery.Method == "RealtimeError").Lost;
+        lost.Channel.ShouldBe(Order);
+        lost.Topics.ShouldBe(["status"]);
+        lost.Reason.ShouldBe("inngest-ended");
         _rig.Hubs.Messages("c1").ShouldBeEmpty();
         app.Bridge.FeedCount.ShouldBe(0);
         app.Api.TokensMinted.ShouldBe(1);
@@ -484,6 +560,89 @@ public sealed class InngestRealtimeBridgeTests : IDisposable
         await feed.SendAsync("""{"n":1}""");
         await Wait.UntilAsync(() => _rig.Hubs.Messages("c1").Count == 1);
         app.Bridge.FeedCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_lost_subscription_is_reported_as_the_client_asked_for_it_not_as_it_was_granted()
+    {
+        var app = _rig.AddInstance(request => ValueTask.FromResult<RealtimeSubscription?>(new($"user:{request.Caller.ConnectionId}", ["notifications"])));
+        await app.Bridge.SubscribeAsync(new FakeCaller("c1"), "me", ["y", "x"], Cancel);
+
+        app.Api.Fail(new InngestException("Failed to subscribe to realtime messages: 401 Unauthorized", 401));
+
+        await Wait.UntilAsync(() => _rig.Hubs.To("c1").Any(delivery => delivery.Method == "RealtimeError"));
+        var lost = _rig.Hubs.To("c1").Single(delivery => delivery.Method == "RealtimeError").Lost;
+        lost.Channel.ShouldBe("me");
+        lost.Topics.ShouldBe(["y", "x"]);
+        lost.Reason.ShouldBe("inngest-ended");
+    }
+
+    [Fact]
+    public async Task Each_way_a_client_asked_to_join_a_subscription_is_a_subscription_it_is_told_of()
+    {
+        var app = _rig.AddInstance(request => ValueTask.FromResult<RealtimeSubscription?>(new("user:1", ["n"])));
+        var caller = new FakeCaller("c1");
+        await app.Bridge.SubscribeAsync(caller, "me", ["y", "x"], Cancel);
+        await app.Bridge.SubscribeAsync(caller, "mine", ["z"], Cancel);
+        app.Bridge.FeedCount.ShouldBe(1);
+
+        // Both are in one subscription to Inngest, which fails.
+        app.Api.Fail(new InngestException("Failed to subscribe to realtime messages: 401 Unauthorized", 401));
+
+        await Wait.UntilAsync(() => _rig.Hubs.To("c1").Count(delivery => delivery.Method == "RealtimeError") == 2);
+        var lost = _rig.Hubs.To("c1").Where(delivery => delivery.Method == "RealtimeError").Select(delivery => delivery.Lost).OrderBy(item => item.Channel).ToArray();
+        lost[0].Channel.ShouldBe("me");
+        lost[0].Topics.ShouldBe(["y", "x"]);
+        lost[1].Channel.ShouldBe("mine");
+        lost[1].Topics.ShouldBe(["z"]);
+        lost.ShouldAllBe(item => item.Reason == "inngest-ended");
+        app.Bridge.FeedCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Subscriptions_that_overlap_deliver_a_message_they_share_once_each()
+    {
+        var app = _rig.AddInstance();
+        var narrow = new SseFeed();
+        var wide = new SseFeed();
+        app.Api.Answer(narrow);
+        app.Api.Answer(wide);
+        var caller = new FakeCaller("c1");
+        await app.Bridge.SubscribeAsync(caller, Order, ["status"], Cancel);
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 1);
+        await app.Bridge.SubscribeAsync(caller, Order, ["status", "tokens"], Cancel);
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 2);
+
+        // Inngest sends the status to each of the two subscriptions.
+        await narrow.SendAsync("""{"topic":"status"}""");
+        await wide.SendAsync("""{"topic":"status"}""");
+
+        await Wait.UntilAsync(() => _rig.Hubs.Messages("c1").Count == 2);
+        _rig.Hubs.Messages("c1").ShouldBe(["""{"topic":"status"}""", """{"topic":"status"}"""]);
+        app.Bridge.FeedCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_request_the_callback_now_grants_something_else_moves_to_it()
+    {
+        var channel = "order:a";
+        var app = _rig.AddInstance(_ => ValueTask.FromResult<RealtimeSubscription?>(new(channel, ["status"])));
+        app.Api.Answer(new SseFeed());
+        app.Api.Answer(new SseFeed());
+        var caller = new FakeCaller("c1");
+        await app.Bridge.SubscribeAsync(caller, Order, ["status"], Cancel);
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 1);
+
+        channel = "order:b";
+        await app.Bridge.SubscribeAsync(caller, Order, ["status"], Cancel);
+
+        await Wait.UntilAsync(() => app.Subscriptions.Count == 2);
+        await Wait.UntilAsync(() => app.Subscriptions[0].IsCancellationRequested);
+        app.Subscriptions[1].IsCancellationRequested.ShouldBeFalse();
+        app.Bridge.FeedCount.ShouldBe(1);
+        app.Bridge.Unsubscribe(caller, Order, ["status"]);
+        await Wait.UntilAsync(() => app.Subscriptions[1].IsCancellationRequested);
+        app.Bridge.FeedCount.ShouldBe(0);
     }
 
     [Fact]

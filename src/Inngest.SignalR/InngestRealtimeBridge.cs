@@ -2,7 +2,6 @@
 
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
 using Inngest.Realtime;
 using Inngest.SignalR;
 using Microsoft.AspNetCore.SignalR;
@@ -22,19 +21,21 @@ namespace Inngest;
 /// </summary>
 /// <remarks>
 /// Every connection has a queue and a loop of its own. A client that reads too slowly lags only itself, and one that
-/// falls too far behind is disconnected. Messages are sent to the connections that joined through this instance, by
-/// connection id and never to a group, so an app with several instances on a backplane such as Redis or Azure SignalR
-/// Service delivers each message once: every instance subscribes to Inngest for its own clients. A client that
-/// reconnects has a new connection id and joins again. <c>AddInngestSignalR</c> registers the type, and
-/// <see cref="InngestRealtimeHub"/> is a hub that calls it.
+/// falls too far behind loses its subscriptions: what is queued for it is dropped, and it is told through
+/// <see cref="InngestSignalROptions.ErrorMethod"/> what it lost, to join again. Its connection stays open. Messages are
+/// sent to the connections that joined through this instance, by connection id and never to a group, so an app with
+/// several instances on a backplane such as Redis or Azure SignalR Service delivers each message once: every instance
+/// subscribes to Inngest for its own clients. A client that reconnects has a new connection id and joins again.
+/// <c>AddInngestSignalR</c> registers the type, and <see cref="InngestRealtimeHub"/> is a hub that calls it.
 /// </remarks>
 /// <typeparam name="THub">The hub whose clients receive the messages.</typeparam>
 public sealed class InngestRealtimeBridge<THub> : IDisposable
     where THub : Hub
 {
-    // Inngest keeps nothing for a client that is this far behind, so it is better to end its connection, which its
-    // client answers by reconnecting and joining again, than to hold the messages back for long.
-    private const int QueueCapacity = 512;
+    // Why a client lost a subscription, as ErrorMethod tells it.
+    private const string BehindReason = "behind";
+    private const string SendFailedReason = "send-failed";
+    private const string InngestEndedReason = "inngest-ended";
 
     private readonly RealtimeSubscriber _subscriber;
     private readonly IHubContext<THub> _hub;
@@ -90,8 +91,9 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
     /// <summary>
     /// Joins the calling client to these topics of the channel if <see cref="InngestSignalROptions.Authorize"/> lets it
     /// in, and returns the subscription it joined, which is what the callback returned. Joining what the client is in
-    /// already changes nothing. The subscription to Inngest opens with the first client that joins it; messages
-    /// published before it is open are not received, as Inngest keeps none.
+    /// already changes nothing. The subscription to Inngest opens with the first client that joins it, and not before
+    /// this returns: messages published before it is open are not received, as Inngest keeps none, and nothing tells
+    /// the client when it is open.
     /// </summary>
     /// <param name="caller">The caller of the hub method, such as the hub's <c>Context</c>.</param>
     /// <param name="channel">The channel the client asks for.</param>
@@ -149,17 +151,36 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             return;
         }
 
-        var key = KeyOf(channel, Normalize(topics));
+        var key = RealtimePayload.SubscriptionKey(channel, RealtimePayload.DistinctTopics(topics));
         List<Feed>? orphaned = null;
         lock (_gate)
         {
-            if (!_listeners.TryGetValue(caller.ConnectionId, out var listener) || !listener.Feeds.TryGetValue(key, out var feed))
+            if (!_listeners.TryGetValue(caller.ConnectionId, out var listener))
             {
                 return;
             }
 
-            Unindex(listener, feed);
-            RemoveListener(feed, listener, ref orphaned);
+            // What was asked for under this key, and what was granted under it.
+            List<string>? leaving = null;
+            foreach (var (requestKey, request) in listener.Requests)
+            {
+                if (requestKey == key || request.Feed.Key == key)
+                {
+                    (leaving ??= []).Add(requestKey);
+                }
+            }
+
+            if (leaving is null)
+            {
+                return;
+            }
+
+            foreach (var requestKey in leaving)
+            {
+                var feed = listener.Requests[requestKey].Feed;
+                listener.Requests.Remove(requestKey);
+                LeaveIfUnused(listener, feed, ref orphaned);
+            }
         }
 
         Close(orphaned);
@@ -178,29 +199,15 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
         StopAll();
     }
 
-    // Distinct and sorted, so that the same topics in any order are one subscription.
-    private static string[] Normalize(IEnumerable<string> topics) => [.. topics.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
-
-    // Lengths come first, so that names which contain a separator cannot run together into the key of another
-    // subscription and let a client in on it.
-    private static string KeyOf(string channel, string[] topics)
-    {
-        var key = new StringBuilder();
-        key.Append(channel.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(channel);
-        foreach (var topic in topics)
-        {
-            key.Append(';').Append(topic.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(topic);
-        }
-
-        return key.ToString();
-    }
-
     // The loops outlive the hub call that starts them, so they do not belong to its activity.
     private static void RunDetached(Func<Task> work) => _ = Task.Run(() =>
     {
         Activity.Current = null;
         return work();
     });
+
+    private static string KeyOf(RealtimeSubscription subscription) =>
+        RealtimePayload.SubscriptionKey(subscription.Channel, RealtimePayload.DistinctTopics(subscription.Topics));
 
     private async ValueTask<RealtimeSubscription> AuthorizeAsync(HubCallerContext caller, RealtimeSubscription requested, CancellationToken cancellationToken)
     {
@@ -227,9 +234,10 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
 
     private void Join(HubCallerContext caller, RealtimeSubscription requested, RealtimeSubscription granted)
     {
-        var topics = Normalize(granted.Topics);
-        var key = KeyOf(granted.Channel, topics);
-        var requestedKey = KeyOf(requested.Channel, Normalize(requested.Topics));
+        var topics = RealtimePayload.DistinctTopics(granted.Topics);
+        var key = RealtimePayload.SubscriptionKey(granted.Channel, topics);
+        var requestKey = KeyOf(requested);
+        List<Feed>? orphaned = null;
         Listener listener;
         Feed feed;
         var newListener = false;
@@ -247,19 +255,24 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             }
             else
             {
-                listener = new Listener(caller.ConnectionId, caller.Abort, QueueCapacity);
+                listener = new Listener(caller.ConnectionId, _options.MaxQueuedMessagesPerConnection);
                 _listeners.Add(caller.ConnectionId, listener);
                 newListener = true;
             }
 
-            if (listener.Feeds.TryGetValue(key, out var joined))
+            if (listener.Requests.TryGetValue(requestKey, out var current))
             {
-                // In it already: only the way the client asked for it can be new.
-                listener.Feeds.TryAdd(requestedKey, joined);
-                return;
-            }
+                if (current.Feed.Key == key)
+                {
+                    // In it already.
+                    return;
+                }
 
-            if (listener.FeedCount >= _options.MaxSubscriptionsPerConnection)
+                // The callback grants something else than it did, so the request moves to that.
+                listener.Requests.Remove(requestKey);
+                LeaveIfUnused(listener, current.Feed, ref orphaned);
+            }
+            else if (listener.Requests.Count >= _options.MaxSubscriptionsPerConnection)
             {
                 throw new HubException(string.Create(CultureInfo.InvariantCulture, $"A connection may be joined to at most {_options.MaxSubscriptionsPerConnection} subscriptions."));
             }
@@ -275,12 +288,15 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
                 newFeed = true;
             }
 
-            Volatile.Write(ref feed.Listeners, [.. feed.Listeners, listener]);
-            listener.Feeds[key] = feed;
-            listener.Feeds.TryAdd(requestedKey, feed);
-            listener.FeedCount++;
+            if (Array.IndexOf(feed.Listeners, listener) < 0)
+            {
+                Volatile.Write(ref feed.Listeners, [.. feed.Listeners, listener]);
+            }
+
+            listener.Requests[requestKey] = new Request(feed, requested.Channel, [.. requested.Topics]);
         }
 
+        Close(orphaned);
         if (newListener)
         {
             // However the connection ends, it leaves its feeds. A token that is cancelled already calls back at once.
@@ -295,29 +311,18 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
         }
     }
 
-    // Forgets the feed in the listener's names for it. Called under the lock.
-    private static void Unindex(Listener listener, Feed feed)
+    // Takes the listener out of the feed unless another of its requests is in it. Called under the lock.
+    private void LeaveIfUnused(Listener listener, Feed feed, ref List<Feed>? orphaned)
     {
-        List<string>? names = null;
-        foreach (var (name, joined) in listener.Feeds)
+        foreach (var request in listener.Requests.Values)
         {
-            if (joined == feed)
+            if (request.Feed == feed)
             {
-                (names ??= []).Add(name);
+                return;
             }
         }
 
-        if (names is null)
-        {
-            return;
-        }
-
-        foreach (var name in names)
-        {
-            listener.Feeds.Remove(name);
-        }
-
-        listener.FeedCount--;
+        RemoveListener(feed, listener, ref orphaned);
     }
 
     // Takes the listener out of the feed. One that nobody listens to any more is forgotten and, once the lock is
@@ -358,7 +363,7 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
         }
     }
 
-    // The connection has gone, or must go. Returns whether this call ended it.
+    // The connection has gone. Returns whether this call ended it.
     private bool End(Listener listener)
     {
         List<Feed>? orphaned = null;
@@ -375,18 +380,64 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
                 _listeners.Remove(listener.ConnectionId);
             }
 
-            foreach (var feed in listener.Feeds.Values)
+            foreach (var request in listener.Requests.Values)
             {
-                RemoveListener(feed, listener, ref orphaned);
+                RemoveListener(request.Feed, listener, ref orphaned);
             }
 
-            listener.Feeds.Clear();
-            listener.FeedCount = 0;
+            listener.Requests.Clear();
         }
 
         Close(orphaned);
         listener.Queue.Writer.TryComplete();
         listener.Stop.Cancel();
+        return true;
+    }
+
+    // The connection cannot keep up, or cannot be sent to. A message it misses is a gap it cannot know of, so it starts
+    // over: it is taken out of all its subscriptions, what is queued for it is dropped, and it is told which
+    // subscriptions it lost, as it asked for them, to join them again. The connection stays open, for the app may use
+    // it for more than this, and ending it would tell the client not to reconnect. Returns whether it lost any.
+    private bool Lose(Listener listener, string reason)
+    {
+        List<Feed>? orphaned = null;
+        lock (_gate)
+        {
+            if (listener.Ended || listener.Requests.Count == 0)
+            {
+                return false;
+            }
+
+            var lost = new Request[listener.Requests.Count];
+            listener.Requests.Values.CopyTo(lost, 0);
+            listener.Requests.Clear();
+            foreach (var request in lost)
+            {
+                RemoveListener(request.Feed, listener, ref orphaned);
+            }
+
+            // The messages go; the news of earlier losses stays.
+            List<Outgoing>? news = null;
+            while (listener.Queue.Reader.TryRead(out var queued))
+            {
+                if (queued.Channel is not null)
+                {
+                    (news ??= []).Add(queued);
+                }
+            }
+
+            foreach (var item in news ?? [])
+            {
+                listener.Queue.Writer.TryWrite(item);
+            }
+
+            foreach (var request in lost)
+            {
+                listener.Queue.Writer.TryWrite(new Outgoing(reason, request.Channel, request.Topics));
+            }
+        }
+
+        Close(orphaned);
         return true;
     }
 
@@ -400,7 +451,7 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             {
                 foreach (var listener in Volatile.Read(ref feed.Listeners))
                 {
-                    Offer(listener, new Outgoing(null, message));
+                    Offer(listener, new Outgoing(message));
                 }
             }
         }
@@ -419,26 +470,33 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
     private void Fail(Feed feed, Exception exception)
     {
         Log.FeedFailed(_logger, feed.Channel, exception.Message);
-        Listener[] affected;
+        List<(Listener Listener, Request Request)> lost = [];
         lock (_gate)
         {
             Forget(feed);
-            affected = feed.Listeners;
+            var affected = feed.Listeners;
             Volatile.Write(ref feed.Listeners, []);
             foreach (var listener in affected)
             {
-                Unindex(listener, feed);
+                foreach (var (requestKey, request) in listener.Requests.ToArray())
+                {
+                    if (request.Feed == feed)
+                    {
+                        listener.Requests.Remove(requestKey);
+                        lost.Add((listener, request));
+                    }
+                }
             }
         }
 
-        foreach (var listener in affected)
+        foreach (var (listener, request) in lost)
         {
-            Offer(listener, new Outgoing(feed.Channel, "The subscription to Inngest ended."));
+            Offer(listener, new Outgoing(InngestEndedReason, request.Channel, request.Topics));
         }
     }
 
-    // Never waits: a connection whose queue is full is too far behind and is disconnected, so that it does not hold up
-    // the pump that feeds all the others.
+    // Never waits: a connection whose queue is full is too far behind and starts over, so that it does not hold up the
+    // pump that feeds all the others.
     private void Offer(Listener listener, Outgoing item)
     {
         if (listener.Queue.Writer.TryWrite(item) || listener.Ended)
@@ -446,10 +504,9 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
             return;
         }
 
-        if (End(listener))
+        if (Lose(listener, BehindReason))
         {
-            Log.ListenerFellBehind(_logger, listener.ConnectionId, QueueCapacity);
-            listener.Abort();
+            Log.ListenerFellBehind(_logger, listener.ConnectionId, _options.MaxQueuedMessagesPerConnection);
         }
     }
 
@@ -462,22 +519,25 @@ public sealed class InngestRealtimeBridge<THub> : IDisposable
         {
             await foreach (var item in listener.Queue.Reader.ReadAllAsync(stop).ConfigureAwait(false))
             {
-                await (item.Channel is null
-                    ? client.SendAsync(_options.MessageMethod, item.Text, stop)
-                    : client.SendAsync(_options.ErrorMethod, item.Channel, item.Text, stop)).ConfigureAwait(false);
+                try
+                {
+                    await (item.Channel is null
+                        ? client.SendAsync(_options.MessageMethod, item.Text, stop)
+                        : client.SendAsync(_options.ErrorMethod, item.Channel, item.Topics, item.Text, stop)).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!stop.IsCancellationRequested)
+                {
+                    // The news of a loss can fail in the same way, and then there is nothing more to do for the client.
+                    if (item.Channel is null && Lose(listener, SendFailedReason))
+                    {
+                        Log.ListenerSendFailed(_logger, listener.ConnectionId, exception.Message);
+                    }
+                }
             }
         }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        catch (Exception) when (stop.IsCancellationRequested)
         {
-        }
-        catch (Exception exception)
-        {
-            // A message that did not go out is a gap the client cannot know of, so it had better reconnect.
-            if (End(listener))
-            {
-                Log.ListenerSendFailed(_logger, listener.ConnectionId, exception.Message);
-                listener.Abort();
-            }
+            // The connection ended, and what ends the loop is the cancellation, whatever form it takes.
         }
     }
 
