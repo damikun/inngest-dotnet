@@ -8,6 +8,16 @@ internal static class DotnetCli
 {
     public static readonly TimeSpan Generous = TimeSpan.FromMinutes(8);
 
+    private static readonly string[] SdkVariables =
+    [
+        "MSBuildSDKsPath",
+        "MSBUILD_EXE_PATH",
+        "MSBuildExtensionsPath",
+        "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR",
+        "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER",
+        "DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR",
+    ];
+
     public static async Task<CommandResult> RunAsync(
         string workingDirectory, IEnumerable<string> arguments, IReadOnlyDictionary<string, string?>? environment = null, TimeSpan? timeout = null)
     {
@@ -48,6 +58,13 @@ internal static class DotnetCli
         startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
         startInfo.Environment["MSBUILDTERMINALLOGGER"] = "off";
         foreach (var name in startInfo.Environment.Keys.Where(key => key.StartsWith("INNGEST_", StringComparison.Ordinal) && key != "INNGEST_BUILD_SLOT").ToList())
+        {
+            startInfo.Environment.Remove(name);
+        }
+
+        // The dotnet command that runs the tests can tell the commands it starts which SDK to use. A project must be free
+        // to pick its own, with a global.json, as it is for the person who made it.
+        foreach (var name in SdkVariables)
         {
             startInfo.Environment.Remove(name);
         }

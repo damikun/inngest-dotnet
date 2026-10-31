@@ -28,6 +28,10 @@ public sealed class TemplateFixture : IAsyncLifetime
     // and everything else from nuget.org.
     public string Workspace => Path.Combine(_root, "work");
 
+    // Whether the machine has a .NET 8 SDK. The commands run in a folder outside the repository, where the newest SDK
+    // is used, so a project for net8.0 is built with the SDK it is meant for only if a global.json asks for it.
+    public bool HasNet8Sdk { get; private set; }
+
     public async ValueTask InitializeAsync()
     {
         Directory.CreateDirectory(Feed);
@@ -50,6 +54,9 @@ public sealed class TemplateFixture : IAsyncLifetime
         var install = await DotnetCli.RunAsync(
             Workspace, ["new", "install", Path.Combine(Feed, $"Inngest.Templates.{Version}.nupkg"), "--debug:custom-hive", Hive]);
         install.ExitCode.ShouldBe(0, install.Output);
+
+        var sdks = await DotnetCli.RunAsync(Workspace, ["--list-sdks"]);
+        HasNet8Sdk = sdks.ExitCode == 0 && sdks.Output.Split('\n').Any(line => line.StartsWith("8.0.", StringComparison.Ordinal));
     }
 
     public async ValueTask DisposeAsync()

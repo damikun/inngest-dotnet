@@ -92,7 +92,7 @@ public sealed partial class TemplateTests(TemplateFixture fixture) : IClassFixtu
     }
 
     [Fact]
-    public async Task The_worker_template_makes_a_worker_for_net8_that_builds()
+    public async Task The_worker_template_makes_a_worker_for_net8_that_builds_with_the_net8_sdk()
     {
         var created = await fixture.NewAsync("inngest-worker", "Billing.Worker", "-f", "net8.0", "--no-restore");
         created.ExitCode.ShouldBe(0, created.Output);
@@ -106,7 +106,18 @@ public sealed partial class TemplateTests(TemplateFixture fixture) : IClassFixtu
         File.ReadAllText(Path.Combine(project, "appsettings.json")).ShouldContain("\"AppId\": \"billing-worker\"");
         File.ReadAllText(Path.Combine(project, "Program.cs")).ShouldContain("AddConnect()");
 
-        var build = await DotnetCli.RunAsync(project, ["build", "-c", "Release", "-nologo", "-warnaserror", "-p:NuGetAudit=false"]);
+        // The commands run outside the repository, where the newest SDK is used. A global.json makes this one the .NET 8
+        // SDK, which is what someone who stays on it builds the project with.
+        Assert.SkipUnless(fixture.HasNet8Sdk, "No .NET 8 SDK is installed, so the net8.0 worker is not built with one. CI installs it.");
+        File.WriteAllText(Path.Combine(project, "global.json"), """{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }""");
+        var sdk = await DotnetCli.RunAsync(project, ["--version"]);
+        sdk.ExitCode.ShouldBe(0, sdk.Output);
+        sdk.Output.Trim().ShouldStartWith("8.0.", Case.Sensitive, "global.json selects the .NET 8 SDK");
+
+        // CheckEolTargetFramework is off for this build alone: the SDK lists net8.0 as out of support once its end of life
+        // has passed, and warnings are errors here. The template leaves that warning to the people who use it.
+        var build = await DotnetCli.RunAsync(
+            project, ["build", "-c", "Release", "-nologo", "-warnaserror", "-p:NuGetAudit=false", "-p:CheckEolTargetFramework=false"]);
         build.ExitCode.ShouldBe(0, build.Output);
         File.Exists(Path.Combine(project, "bin", "Release", "net8.0", "Billing.Worker.dll")).ShouldBeTrue();
     }
