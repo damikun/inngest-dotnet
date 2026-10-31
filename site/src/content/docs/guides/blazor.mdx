@@ -30,7 +30,9 @@ runs in the browser. The version is a preview, so add `--prerelease`:
 dotnet add package Inngest.Blazor --prerelease
 ```
 
-Add `@using Inngest` to `_Imports.razor`, as the types of the SDK are in that namespace.
+The types of the SDK are in the `Inngest` namespace. Add `@using Inngest` to the components that use the view, as the
+samples do, and not to `_Imports.razor`, which would bring every name of the SDK, such as `Priority` and `Throttle`,
+into every file.
 
 ## Show a topic
 
@@ -41,26 +43,62 @@ same topic, and the type of its data gives `live.Latest.Data` the same type:
 public sealed record OrderStatus(string Text, int Percent);
 ```
 
+```csharp
+using System.Security.Claims;
+
+public interface IOrders
+{
+    Task<bool> IsOwnedByAsync(string orderId, ClaimsPrincipal user);
+}
+```
+
 ```razor
-<RealtimeView Topic="@status" Context="live">
-    @if (live.Latest?.Data is { } order)
-    {
-        <progress value="@order.Percent" max="100"></progress>
-        <p>@order.Text</p>
-    }
-    else
-    {
-        <p>Waiting for the first update.</p>
-    }
-</RealtimeView>
+@page "/orders/{OrderId}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Inngest
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IOrders Orders
+
+@if (allowed)
+{
+    <RealtimeView Topic="@status" Context="live">
+        @if (live.Latest?.Data is { } order)
+        {
+            <progress value="@order.Percent" max="100"></progress>
+            <p>@order.Text</p>
+        }
+        else
+        {
+            <p>Waiting for the first update.</p>
+        }
+    </RealtimeView>
+}
+else
+{
+    <p>This order is not yours.</p>
+}
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationState { get; set; } = default!;
+
     [Parameter]
     public string OrderId { get; set; } = "";
 
+    private bool allowed;
+
     private RealtimeTopic<OrderStatus> status => new($"order:{OrderId}", "status");
+
+    protected override async Task OnParametersSetAsync() =>
+        allowed = await Orders.IsOwnedByAsync(OrderId, (await AuthenticationState).User);
 }
 ```
+
+`OrderId` comes from the route, so the page checks that the signed-in user owns the order before it renders the view:
+on the server the view reads any channel, as [Blazor Server](#blazor-server) explains. The samples below leave that
+check out and show only the view, which belongs in a page that makes it.
 
 `live` is the `RealtimeState<OrderStatus>` of the view, and the content is rendered again whenever it changes:
 
@@ -96,12 +134,20 @@ A view holds one subscription, and a channel can carry several topics. Give the 
 data as JSON, because the topics may carry different types:
 
 ```razor
+@using System.Text.Json
+@using Inngest
+
 <RealtimeView TData="JsonElement" Channel="@($"order:{OrderId}")" Topics="@(new[] { "status", "audit" })" Context="live">
     @foreach (var (topic, message) in live.LatestByTopic)
     {
         <p>@topic: @message.Data</p>
     }
 </RealtimeView>
+
+@code {
+    [Parameter]
+    public string OrderId { get; set; } = "";
+}
 ```
 
 The topics are compared by value, so a new array with the same topics on every render of the parent does not
@@ -115,6 +161,8 @@ It arrives as a `StreamStart`, `StreamChunk` messages with the text, and a `Stre
 chunks up for you, and it does not forget the early ones when `Messages` has rolled over:
 
 ```razor
+@using Inngest
+
 <RealtimeView Topic="@reply" Context="live">
     <p>@live.TextByTopic.GetValueOrDefault("reply")</p>
 </RealtimeView>
@@ -146,9 +194,16 @@ itself through the renderer's dispatcher, and it unsubscribes when the component
 ends does for all of its components. Disposing waits up to five seconds for the subscription to stop. A circuit whose
 client has disconnected is kept by Blazor for a few minutes, and keeps its subscriptions meanwhile.
 
-Each view holds a subscription of its own to Inngest, a token request and a connection, for as long as the circuit
-shows it. To watch several topics of a channel, use one view with a `Channel` and its `Topics`, as
-[below](#several-topics), rather than a view for each.
+The source reads any channel with the app's signing key, whoever the user is. A page that takes the channel from a
+route value or a parameter, as the samples do, lets every user who can open it watch someone else's order unless
+it checks. Check in the page, before the view renders, as the first sample does with the `AuthenticationState`, or in
+a service the page asks. The endpoint of the [WebAssembly](#webassembly) side has its own callback for this.
+
+Each view on the server holds its own token and its own connection to Inngest, for as long as the circuit shows it.
+The `MapInngestRealtime` relay and the SignalR bridge of `Inngest.SignalR` share one subscription for the same channel
+and topics, however many pages watch it. So a page with many views, or many users on one channel, costs a connection
+each here. To watch several topics of a channel use one view with a `Channel` and its `Topics`, as
+[below](#several-topics), and not a view for each.
 
 ## WebAssembly
 
@@ -198,8 +253,11 @@ The source reads the endpoint with an `HttpClient` and streams the response, as 
 - A browser's `fetch` holds a whole response back unless it is asked to stream it. The source sets that option on
   every request, as .NET 8 needs and .NET 10 does by default.
 
-Typed topics are read with the serializer options of the app. A trimmed WebAssembly app has no reflection to fall back
-on, so give them a source-generated context:
+Typed topics are read with `RealtimeRelayOptions.SerializerOptions`. Blazor WebAssembly keeps reflection-based
+serialization on and trims only partly, so they are read without anything more. An app that trims fully (`TrimMode`
+full), or runs without reflection-based serialization, needs a source-generated context for the data types. Without
+one the view fails, with a `NotSupportedException` about the type when the first message arrives, or when it
+subscribes if reflection is off. Give the options the context:
 
 {/* check: file */}
 ```csharp
@@ -247,16 +305,34 @@ passed to an interactive component from a static page:
 ```razor
 @page "/orders/{OrderId}"
 @rendermode InteractiveAuto
+@attribute [Authorize]
+@using Inngest
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IOrders Orders
 
-<RealtimeView Topic="@status" Context="live">
-    <p>@live.Latest?.Data?.Text</p>
-</RealtimeView>
+@if (allowed)
+{
+    <RealtimeView Topic="@status" Context="live">
+        <p>@live.Latest?.Data?.Text</p>
+    </RealtimeView>
+}
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationState { get; set; } = default!;
+
     [Parameter]
     public string OrderId { get; set; } = "";
 
+    private bool allowed;
+
     private RealtimeTopic<OrderStatus> status => new($"order:{OrderId}", "status");
+
+    // The server source reads any channel, so the page checks. In WebAssembly the endpoint's callback checks too, and
+    // IOrders is then an implementation that asks the server.
+    protected override async Task OnParametersSetAsync() =>
+        allowed = await Orders.IsOwnedByAsync(OrderId, (await AuthenticationState).User);
 }
 ```
 
@@ -276,15 +352,18 @@ missing service in `Error`, not as a page that does not render.
 ## Errors
 
 A subscription that is refused, such as one with a wrong signing key or a 403 from the relay, does not end the
-circuit or the page. The view logs a warning, `Connection` becomes `Failed` and `Error` holds the exception, an
-`InngestException` on the server and an `HttpRequestException` with a `StatusCode` for the relay. Show it, and let the user try
+circuit or the page. The view logs a warning with the exception, `Connection` becomes `Failed`, and `Error` holds the
+exception: an `InngestException` on the server, and an `HttpRequestException` with a `StatusCode` for the relay. Its
+message is for the log, as it repeats what Inngest or the relay answered, so show the user a plain one and let them try
 again with `Restart`:
 
 ```razor
+@using Inngest
+
 <RealtimeView @ref="view" Topic="@status" Context="live">
     @if (live.Connection == RealtimeConnectionState.Failed)
     {
-        <p>Live updates stopped: @live.Error?.Message</p>
+        <p>Live updates stopped.</p>
         <button @onclick="() => view?.Restart()">Try again</button>
     }
     else if (live.Connection == RealtimeConnectionState.Reconnecting)
@@ -307,9 +386,10 @@ With `ThrowOnError`, the failure goes to the nearest `ErrorBoundary` instead, wh
 one it ends the circuit, as any unhandled exception in a component does. An exception from `OnMessage` fails the
 subscription the same way.
 
-`Connecting` reads until the first message arrives or the source says the connection is open. Only the relay source
-knows when a connection opens and when it is lost, so only a view in WebAssembly shows `Reconnecting`; on the server,
-the reconnections of the SDK to Inngest are not reported.
+`Connecting` reads while the subscription opens, and `Open` as soon as the connection is open, whether or not anything
+is published. Both sources say when a connection opens, is lost and opens again, so a view shows `Reconnecting` on the
+server and in WebAssembly. A source that cannot say, such as one over an implementation of `IInngestRealtime` that is
+not the SDK's own, leaves `Open` to the first message.
 
 ## Memory and threads
 
@@ -334,9 +414,10 @@ await foreach (var message in source.SubscribeAsync(status, cancellationToken))
 ```
 
 It has the two `SubscribeAsync` overloads of `IInngestRealtime`, for a typed topic and for several topics of a channel
-with the data as `JsonElement`, and reconnects the same way. Its optional last parameter, `onConnectionChanged`, is
-how a source reports `Connecting`, `Open` and `Reconnecting`. In a test, register your own `IRealtimeSource` in the
-service collection of the test context and render the component with bUnit.
+with the data as `JsonElement`, and reconnects the same way. Two more overloads take an `onConnectionChanged`
+callback before the token, which a source tells `Connecting`, `Open` and `Reconnecting`; an implementation of the
+interface writes those two and gets the others. In a test, register your own `IRealtimeSource` in the service
+collection of the test context and render the component with bUnit.
 
 ## What it does not do
 

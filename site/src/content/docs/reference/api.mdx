@@ -31,7 +31,7 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IApplicationBuilder.UseInngestDurableEndpoints()` | Runs the endpoints marked as durable as Inngest runs. Add it after routing. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/). |
 | `IEndpointConventionBuilder.WithDurableEndpoint(DurableEndpointOptions? options = null)` | Marks an endpoint as durable, so that its handler can take `IStepTools` and run steps. Also `WithDurableEndpoint(string id)`. Package `Inngest.AspNetCore`, namespace `Microsoft.AspNetCore.Builder`. |
 | `IServiceCollection.AddInngestRealtimeServerSource()` | Makes Blazor components read realtime messages from Inngest through `IInngestRealtime`, on the server. Package `Inngest.Blazor`. In `Microsoft.Extensions.DependencyInjection`. See [Realtime in Blazor](/inngest-dotnet/guides/blazor/). |
-| `IServiceCollection.AddInngestRealtimeRelaySource(Action<RealtimeRelayOptions>)` | Makes Blazor components read the app's `MapInngestRealtime` endpoint over an `HttpClient`, in WebAssembly. Returns the `IHttpClientBuilder` of that client. Package `Inngest.Blazor`. |
+| `IServiceCollection.AddInngestRealtimeRelaySource(Action<RealtimeRelayOptions>)` | Makes Blazor components read the app's `MapInngestRealtime` endpoint over an `HttpClient`, in WebAssembly. Returns the `IHttpClientBuilder` of that client. Package `Inngest.Blazor`. The source registered last, of the two, is the one components get. |
 | `IHttpClientBuilder.AddInngestStepFetch()` | Turns the requests an `HttpClient` sends from a running function into fetch steps, which Inngest makes. Requests from step handlers and from outside functions go out as usual. Add it last. In `Microsoft.Extensions.DependencyInjection`. |
 | `IInngestBuilder.Services` | The service collection the SDK is registered in. |
 
@@ -551,8 +551,11 @@ the newest stream of each topic. **`RealtimeConnectionState`** is `Idle`, `Conne
 
 | Method | Returns |
 |---|---|
-| `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken, Action<RealtimeConnectionState>? onConnectionChanged)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on |
-| `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken, Action<RealtimeConnectionState>? onConnectionChanged)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |
+| `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on |
+| `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |
+| The same two with an `Action<RealtimeConnectionState>? onConnectionChanged` before the token | The same, and a source that can tell calls the callback with `Connecting`, `Open` and `Reconnecting`. An implementation writes these two. |
+
+Each side registers its own source. An app that registers both gets the one registered last.
 
 **`RealtimeRelayOptions`**: `Url`, which maps a channel and its topics to the address of the endpoint, and
 `SerializerOptions`, which read the data of typed topics.
