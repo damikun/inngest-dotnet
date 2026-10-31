@@ -40,15 +40,19 @@ internal sealed partial class OutboxProcessor<TContext>
         if (claim.Rows.Count > 1 && IsRefusal(failure))
         {
             Log.Isolating(logger, claim.Rows.Count, _context, Describe(failure));
+            var first = true;
             foreach (var row in claim.Rows)
             {
-                // A request may take until the send timeout, so one that the lease no longer covers is not started. The
-                // rest of the events are given back and the next pass takes them.
-                if (time.GetUtcNow().UtcDateTime + settings.SendTimeout >= claim.LeaseExpiresAt)
+                // A request may take until the send timeout, so one that the lease no longer covers is not started. The rest
+                // of the events are given back and the next pass takes them. The first request is sent whatever the lease
+                // says, so that every pass decides at least one event: if a slow, refused request has used up the lease,
+                // giving everything back would make the next pass the same as this one, for ever.
+                if (!first && time.GetUtcNow().UtcDateTime + settings.SendTimeout >= claim.LeaseExpiresAt)
                 {
                     break;
                 }
 
+                first = false;
                 var single = await TrySendAsync([row], settings, cancellationToken).ConfigureAwait(false);
                 if (single is null)
                 {
@@ -191,15 +195,24 @@ internal sealed partial class OutboxProcessor<TContext>
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            // An error is logged for each event Inngest refuses, because it will not go through until someone looks at it.
-            if (ids.Count == 1 && IsRefusal(group.First().Failure))
+            // An error is logged for each event Inngest refuses, with its id and name, because it will not go through until
+            // someone looks at it. The other failures are one warning for the group.
+            var failed = 0;
+            foreach (var (row, failure) in group)
             {
-                var row = group.First().Row;
-                Log.Refused(logger, row.Id, row.Name, _context, reason, retryAt);
+                if (IsRefusal(failure))
+                {
+                    Log.Refused(logger, row.Id, row.Name, _context, reason, retryAt);
+                }
+                else
+                {
+                    failed++;
+                }
             }
-            else
+
+            if (failed > 0)
             {
-                Log.SendFailed(logger, ids.Count, _context, reason, retryAt);
+                Log.SendFailed(logger, failed, _context, reason, retryAt);
             }
         }
 

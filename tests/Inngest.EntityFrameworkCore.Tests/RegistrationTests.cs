@@ -39,11 +39,34 @@ public sealed class RegistrationTests
         message.ShouldContain("ShopContext");
         message.ShouldContain("PollInterval");
         message.ShouldContain("BatchSize");
-        message.ShouldContain("LeaseDuration must be longer than SendTimeout");
+        message.ShouldContain("LeaseDuration must be at least twice SendTimeout");
         message.ShouldContain("MaxRetryDelay must not be shorter than RetryDelay");
         message.ShouldContain("Retention");
         message.ShouldContain("CleanupInterval");
         message.ShouldContain("CleanupBatchSize");
+    }
+
+    [Fact]
+    public void A_lease_that_barely_covers_one_request_is_refused_because_a_refused_request_could_not_be_followed_by_another()
+    {
+        // The dispatcher would claim events, find the lease too short for the single requests that follow a refusal, and give them back
+        // for the next pass to claim again.
+        using var provider = BuildServices(options =>
+        {
+            options.SendTimeout = TimeSpan.FromSeconds(2);
+            options.LeaseDuration = TimeSpan.FromSeconds(2.2);
+        });
+
+        var failure = Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<IStartupValidator>().Validate());
+
+        failure.Failures.ShouldHaveSingleItem().ShouldContain("LeaseDuration must be at least twice SendTimeout");
+
+        using var enough = BuildServices(options =>
+        {
+            options.SendTimeout = TimeSpan.FromSeconds(2);
+            options.LeaseDuration = TimeSpan.FromSeconds(4);
+        });
+        Should.NotThrow(() => enough.GetRequiredService<IStartupValidator>().Validate());
     }
 
     [Fact]
@@ -59,6 +82,9 @@ public sealed class RegistrationTests
         entity.FindProperty(nameof(InngestOutboxMessage.Id))!.GetMaxLength().ShouldBe(255);
         entity.FindProperty(nameof(InngestOutboxMessage.Id))!.ValueGenerated.ShouldBe(Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never);
         entity.FindProperty(nameof(InngestOutboxMessage.Data))!.IsNullable.ShouldBeFalse();
+        entity.FindProperty(nameof(InngestOutboxMessage.CreatedAt))!.IsNullable.ShouldBeFalse();
+        entity.FindProperty(nameof(InngestOutboxMessage.Version))!.GetMaxLength().ShouldBe(255);
+        entity.FindProperty(nameof(InngestOutboxMessage.Name))!.GetMaxLength().ShouldBe(255);
         entity.FindProperty(nameof(InngestOutboxMessage.User))!.IsNullable.ShouldBeTrue();
         entity.GetIndexes().Single().Properties.Select(property => property.Name).ShouldBe(["SentAt", "NextAttemptAt"]);
     }

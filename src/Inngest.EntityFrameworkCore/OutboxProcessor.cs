@@ -93,9 +93,11 @@ internal sealed partial class OutboxProcessor<TContext>(
             return null;
         }
 
+        // The token has no index, and the table holds a day of sent rows, so the read is bound to the rows chosen above, which
+        // are found by key. Whatever it returns is a subset of them: the rows other dispatchers took have another token.
         var rows = await messages
             .AsNoTracking()
-            .Where(message => message.LeaseToken == token)
+            .Where(message => candidates.Contains(message.Id) && message.LeaseToken == token)
             .OrderBy(message => message.NextAttemptAt)
             .ThenBy(message => message.Id)
             .ToListAsync(cancellationToken)

@@ -26,8 +26,10 @@ public sealed class InngestOutboxOptions
 
     /// <summary>
     /// How long a dispatcher owns the events it claimed. When it dies before it marked them, they are sent again by
-    /// another dispatcher after this time, which Inngest drops by id. Keep it well above <see cref="SendTimeout"/>.
-    /// Defaults to 1 minute.
+    /// another dispatcher after this time, under the same ids, which Inngest is documented to drop. At least twice
+    /// <see cref="SendTimeout"/>. Instances compare their clocks with the expiry another one wrote, so clocks that differ
+    /// by more than this minus <see cref="SendTimeout"/> let one take events that another is still sending. Defaults to
+    /// 1 minute.
     /// </summary>
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(1);
 

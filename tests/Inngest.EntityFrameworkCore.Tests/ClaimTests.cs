@@ -54,6 +54,25 @@ public sealed class ClaimTests
     }
 
     [Fact]
+    public async Task The_claimed_rows_are_read_back_by_key_and_not_by_the_token_alone()
+    {
+        using var database = SqliteDatabase.Single();
+        var commands = new CommandLog();
+        await using var host = new OutboxHost(database, contextOptions: options => options.AddInterceptors(commands));
+        await host.PlaceOrderAsync("A-1");
+        await host.PlaceOrderAsync("A-2");
+
+        await host.Processor.DispatchAsync(CancellationToken.None);
+
+        // The token has no index and the table holds a day of sent events, so a read by the token alone scans all of them.
+        // The query that reads the claim is the select without a LIMIT, which is the one that chooses the rows.
+        var readBack = commands.Commands.Where(command => command.StartsWith("SELECT", StringComparison.Ordinal) && !command.Contains("LIMIT", StringComparison.Ordinal)).ToList();
+        var query = readBack.ShouldHaveSingleItem();
+        query.ShouldContain("\"LeaseToken\" = @");
+        query.ShouldContain("\"Id\" IN");
+    }
+
+    [Fact]
     public async Task Rows_that_another_dispatcher_holds_are_left_alone_until_its_lease_ends()
     {
         using var database = SqliteDatabase.Single();

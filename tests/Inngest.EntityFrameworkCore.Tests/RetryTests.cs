@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -78,7 +79,7 @@ public sealed class RetryTests
     }
 
     [Fact]
-    public async Task An_event_that_Inngest_refuses_does_not_hold_back_the_others_in_its_request()
+    public async Task Events_that_Inngest_refuses_do_not_hold_back_the_others_in_their_request_and_each_is_logged_with_its_id()
     {
         using var database = SqliteDatabase.Single();
         var client = new RecordingInngestClient
@@ -89,31 +90,35 @@ public sealed class RetryTests
         };
         await using var host = new OutboxHost(database, client: client);
 
-        string refusedId;
+        var refusedIds = new List<string>();
         await using (var context = host.CreateContext())
         {
             context.AddInngestEvent(new OrderPlaced("A-1", 10));
-            refusedId = context.AddInngestEvent(new OrderShipped("A-1")).Id;
+            refusedIds.Add(context.AddInngestEvent(new OrderShipped("A-1")).Id);
             context.AddInngestEvent(new OrderPlaced("A-2", 10));
+            refusedIds.Add(context.AddInngestEvent(new OrderShipped("A-2")).Id);
             await context.SaveChangesAsync();
         }
 
-        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(3);
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(4);
 
-        // The request with all three was turned down, so each event got one of its own, and only one of them failed.
+        // The request with all four was turned down, so each event got one of its own, and two of them failed.
         client.Requests.Select(request => request.Count).ShouldBe([1, 1]);
         client.Events.ShouldAllBe(@event => @event.Name == OrderPlaced.EventName);
 
         var rows = await host.RowsAsync();
         rows.Count(row => row.SentAt != null).ShouldBe(2);
-        var refused = rows.Single(row => row.SentAt == null);
-        refused.Id.ShouldBe(refusedId);
-        refused.Attempts.ShouldBe(1);
-        refused.LastError.ShouldNotBeNull().ShouldContain("413");
-        refused.NextAttemptAt.ShouldBe(OutboxHost.Start.UtcDateTime.AddSeconds(5));
+        var refused = rows.Where(row => row.SentAt == null).ToList();
+        refused.Select(row => row.Id).ShouldBe(refusedIds, ignoreOrder: true);
+        refused.ShouldAllBe(row => row.Attempts == 1 && row.LastError!.Contains("413", StringComparison.Ordinal) && row.NextAttemptAt == OutboxHost.Start.UtcDateTime.AddSeconds(5));
 
-        // It is not dropped quietly: someone has to fix it, and the log says which event it is.
-        host.Logs.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Error && record.Message.Contains(refusedId, StringComparison.Ordinal));
+        // They are not dropped quietly: someone has to fix them, and the log names each, though both failed in the same way.
+        var errors = host.Logs.GetSnapshot().Where(record => record.Level == LogLevel.Error).ToList();
+        errors.Count.ShouldBe(2);
+        foreach (var id in refusedIds)
+        {
+            errors.ShouldContain(record => record.Message.Contains(id, StringComparison.Ordinal) && record.Message.Contains(OrderShipped.EventName, StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -125,7 +130,7 @@ public sealed class RetryTests
             database,
             options =>
             {
-                options.LeaseDuration = TimeSpan.FromSeconds(30);
+                options.LeaseDuration = TimeSpan.FromSeconds(40);
                 options.SendTimeout = TimeSpan.FromSeconds(20);
             },
             client);
@@ -134,7 +139,7 @@ public sealed class RetryTests
             await host.PlaceOrderAsync(number);
         }
 
-        // The request with all three is refused. The first request of its own takes 15 seconds, which leaves 15 of the 30
+        // The request with all three is refused. The first request of its own takes 25 seconds, which leaves 15 of the 40
         // of the lease: less than another request may take, so the dispatcher stops there.
         client.OnSend = (batch, _) =>
         {
@@ -145,7 +150,7 @@ public sealed class RetryTests
 
             if (client.Events.Count == 0)
             {
-                host.Time.Advance(TimeSpan.FromSeconds(15));
+                host.Time.Advance(TimeSpan.FromSeconds(25));
             }
 
             return Task.CompletedTask;
@@ -163,6 +168,62 @@ public sealed class RetryTests
         client.OnSend = (batch, _) => batch.Count > 1 ? throw new InngestException("Inngest API error: 413 Event payload too large", 413) : Task.CompletedTask;
         (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(2);
         (await host.RowsAsync()).ShouldAllBe(row => row.SentAt != null);
+    }
+
+    [Fact]
+    public async Task Every_pass_decides_an_event_even_when_a_refused_request_used_up_most_of_the_lease()
+    {
+        using var database = SqliteDatabase.Single();
+        var client = new RecordingInngestClient();
+
+        // The least the options allow. Without the first request of its own, which is sent whatever the lease says, a pass
+        // like the ones below would give every event back and the next pass would be the same, for ever.
+        await using var host = new OutboxHost(
+            database,
+            options =>
+            {
+                options.SendTimeout = TimeSpan.FromSeconds(2);
+                options.LeaseDuration = TimeSpan.FromSeconds(4);
+            },
+            client);
+        foreach (var number in new[] { "A-1", "A-2", "A-3" })
+        {
+            await host.PlaceOrderAsync(number);
+            host.Time.Advance(TimeSpan.FromMilliseconds(1));
+        }
+
+        // A request with more than one event is refused after 3 seconds. A-2 is an event Inngest refuses on its own as well.
+        client.OnSend = (batch, _) =>
+        {
+            if (batch.Count > 1)
+            {
+                host.Time.Advance(TimeSpan.FromSeconds(3));
+                throw new InngestException("Inngest API error: 413 Event payload too large", 413);
+            }
+
+            return OrderNumber(batch[0]) == "A-2" ? throw new InngestException("Inngest API error: 413 Event payload too large", 413) : Task.CompletedTask;
+        };
+
+        // The first pass has time for one request of its own: A-1 goes out, and the other two go back untouched.
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(3);
+        var rows = (await host.RowsAsync()).ToDictionary(row => OrderNumber(row));
+        rows["A-1"].SentAt.ShouldNotBeNull();
+        rows["A-2"].Attempts.ShouldBe(0);
+        rows["A-3"].Attempts.ShouldBe(0);
+        rows["A-3"].LeaseToken.ShouldBeNull();
+
+        // The second decides A-2, which fails and waits, and gives A-3 back.
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(2);
+        rows = (await host.RowsAsync()).ToDictionary(row => OrderNumber(row));
+        rows["A-2"].Attempts.ShouldBe(1);
+        rows["A-2"].LastError.ShouldNotBeNull();
+        rows["A-3"].SentAt.ShouldBeNull();
+
+        // The third has only A-3 left to send, since A-2 waits.
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(1);
+        rows = (await host.RowsAsync()).ToDictionary(row => OrderNumber(row));
+        rows["A-3"].SentAt.ShouldNotBeNull();
+        (await host.Processor.DispatchAsync(CancellationToken.None)).ShouldBe(0);
     }
 
     [Fact]
@@ -256,4 +317,8 @@ public sealed class RetryTests
         OutboxProcessor<ShopContext>.RetryDelayFor(settings, 10_000).ShouldBe(TimeSpan.FromMinutes(5));
         await Task.CompletedTask;
     }
+
+    private static string OrderNumber(InngestEvent @event) => ((JsonElement)@event.Data!).GetProperty("orderNumber").GetString()!;
+
+    private static string OrderNumber(InngestOutboxMessage row) => JsonDocument.Parse(row.Data).RootElement.GetProperty("orderNumber").GetString()!;
 }

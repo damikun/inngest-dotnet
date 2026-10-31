@@ -28,9 +28,11 @@ internal sealed class OutboxOptionsValidator : IValidateOptions<InngestOutboxOpt
             failures.Add($"{owner}: SendTimeout must be longer than zero.");
         }
 
-        if (options.LeaseDuration <= options.SendTimeout)
+        // One request has to fit in the lease, and so does a second: when Inngest refuses a request after taking its time, the
+        // events are sent one at a time, and with less than this the lease is gone before the first of those requests.
+        if (options.LeaseDuration < options.SendTimeout * 2)
         {
-            failures.Add($"{owner}: LeaseDuration must be longer than SendTimeout, or another dispatcher could take events that are still being sent.");
+            failures.Add($"{owner}: LeaseDuration must be at least twice SendTimeout, so that a request Inngest refuses can be followed by requests for single events before the lease ends.");
         }
 
         if (options.RetryDelay <= TimeSpan.Zero)
