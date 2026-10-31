@@ -7,8 +7,9 @@ sidebar:
 
 AI coding assistants have seen far more of the Inngest TypeScript SDK than of this one, so they tend to write
 inngest-js patterns in C#: methods that do not exist, and code that goes wrong when a run replays. This page lists
-the names that differ and the rules that keep a function correct. Point your assistant at it before it writes code
-with the SDK, or [paste the rules](#add-the-rules-to-your-repository) into your own repository's instructions.
+the names that differ, what only the .NET SDK has, and the rules that keep a function correct. Point your assistant at
+it before it writes code with the SDK, or [paste the rules](#add-the-rules-to-your-repository) into your own
+repository's instructions.
 
 ## Give the assistant the docs
 
@@ -34,7 +35,12 @@ callback given to `createFunction`, and an event's data is a record.
 | inngest-js | inngest-dotnet |
 |---|---|
 | `inngest.createFunction` | A class that derives from `InngestFunction<TEventData>` and overrides `ExecuteAsync`, with `[InngestFunction("id")]` and `[EventTrigger("name")]` on it, registered with `AddFunction<T>()`. Or `AddFunction(FunctionOptions, handler)`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| `{ event }`, `{ cron }` and `if` triggers | `[EventTrigger("name")]` or `[EventTrigger<TEventData>]`, `[CronTrigger("0 6 * * 1-5", Timezone = "UTC")]`, and `If = "..."` on `[EventTrigger]`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| `concurrency`, `throttle`, `rateLimit`, `debounce`, `batchEvents`, `priority`, `singleton`, `cancelOn`, `timeouts` | Attributes on the class: `[Concurrency]`, `[Throttle]`, `[RateLimit]`, `[Debounce]`, `[BatchEvents]`, `[Priority]`, `[Singleton]`, `[CancelOn]` and `[Timeouts]`, or the same options in `FunctionOptions`. See [Flow control](/inngest-dotnet/guides/flow-control/). |
+| `retries`, `idempotency` | `Retries` and `Idempotency` on `[InngestFunction]`, or in `FunctionOptions`. |
+| `onFailure` | `IFailureHandler` on the function's class, with `OnFailureAsync(FunctionContext<FunctionFailure> context, CancellationToken cancellationToken)`, or the `onFailure` argument of `AddFunction`. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/). |
 | `serve` | `AddInngest(...)` on the services, then `app.MapInngest("/api/inngest")`. `AddConnect()` instead for a worker with no endpoint; see [Connect](/inngest-dotnet/guides/connect/). |
+| `checkpointing` | `Checkpointing = new CheckpointingOptions()` in the options of `AddInngest`, or in `FunctionOptions` for one function. It is off by default. |
 | `inngest.endpoint` | `app.UseInngestDurableEndpoints()`, then `[DurableEndpoint("id")]` on a controller action or `WithDurableEndpoint("id")` on a minimal API endpoint. The handler takes the step tools as an `IStepTools step` parameter, and there is no `context`. The API is experimental: suppress the diagnostic `INNGEST001`. See [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/). |
 | `inngest.send` | `IInngestClient.SendAsync(new InngestEvent("name", data))`, or `SendAsync(record)` for a record that implements `IInngestEventData`. See [Sending events](/inngest-dotnet/guides/sending-events/). |
 | `step.run` | `context.Step.RunAsync(id, handler)` |
@@ -49,7 +55,12 @@ callback given to `createFunction`, and an event's data is a record.
 | `step.ai.wrap` | `AIWrapAsync(id, input, handler)` |
 | `step.realtime.publish` | `PublishAsync(id, topic, data)`, with a `RealtimeTopic(channel, name)`. `PublishStreamAsync` streams text. See [Realtime](/inngest-dotnet/guides/realtime/). |
 | `Promise.all` over steps | Start the steps, then `await Task.WhenAll(...)`. See [Parallel steps](/inngest-dotnet/guides/parallel-steps/). |
+| `group.parallel` in race mode | `ParallelAsync(ParallelMode.Race, ...)`. See [Parallel steps](/inngest-dotnet/guides/parallel-steps/). |
+| `subscribe`, `getSubscriptionToken` | `SubscribeAsync` and `GetSubscriptionTokenAsync` of `IInngestRealtime`. See [Realtime](/inngest-dotnet/guides/realtime/). |
 | `NonRetriableError`, `RetryAfterError` | `NonRetriableException`, `RetryAfterException` |
+| `new InngestMiddleware(...)` | A class that derives from `InngestMiddleware`, registered with `AddMiddleware<T>()` on the builder that `AddInngest` returns. See [Middleware](/inngest-dotnet/guides/middleware/). |
+| `@inngest/middleware-encryption`, `@inngest/middleware-sentry` | `AddEncryption(...)` from `Inngest.Encryption`, `AddSentryReporting()` from `Inngest.Sentry`. |
+| `@inngest/test` | `InngestTestHost` and `StepMocks` from `Inngest.Testing`, which run a function on the real execution engine. See [Testing](/inngest-dotnet/guides/testing/). |
 
 By default event data is serialized with camelCase names, so the property `OrderId` is `data.orderId` in the
 expressions of `Match`, `If` and the flow control options. [The API overview](/inngest-dotnet/reference/api/) lists every signature.
@@ -142,6 +153,37 @@ var note = await context.Step.AIWrapAsync("draft-note",
 
 await context.Step.PublishAsync("publish-status",
     new RealtimeTopic($"order:{order.OrderId}", "status"), new { percent = 50 });
+```
+
+## Only in the .NET SDK
+
+These have no counterpart in inngest-js, so an assistant cannot know them from there:
+
+- **Fan-out over a list.** `MapAsync`, `ForEachAsync`, `MapOutcomesAsync` and `MapInChunksAsync` run a step for each
+  item, with ids such as `charge[0]`, a limit on how many run at once, and child runs for lists beyond the 1,000 steps
+  of a run. The list must come out the same on every call: take it from the event or from a step's result. See
+  [Fan-out](/inngest-dotnet/guides/fan-out/).
+- **A scope per step.** `RunScopedAsync<TService>` runs a step in a dependency injection scope of its own, so a
+  `DbContext` carries nothing from one step to the next. See [Scoped steps](/inngest-dotnet/guides/scoped-steps/).
+- **Webhooks.** `app.MapInngestWebhook(path, WebhookProvider.Stripe(secret))` checks a webhook's signature and sends
+  it as an event. See [Webhooks](/inngest-dotnet/guides/webhooks/).
+- **Transactional outbox.** `db.AddInngestEvent(...)` saves an event in the same transaction as the app's data, and a
+  dispatcher sends it after `SaveChangesAsync`. See [Transactional outbox](/inngest-dotnet/guides/outbox/).
+- **User context.** `AddUserContext(...)` carries the signed-in user into the runs their events start, as
+  `ICurrentUser` or a `ClaimsPrincipal`. See [User context](/inngest-dotnet/guides/user-context/).
+- **Registration by a source generator.** `AddInngestFunctions()` registers every function class of a project that
+  turns the generator on. See [Source generator and analyzers](/inngest-dotnet/guides/source-generator/).
+
+{/* check: body OrderPlaced; IBilling billing; IReadOnlyList<Invoice> due */}
+```csharp
+// One step per invoice, charge[0] to charge[n], at most five at a time.
+await context.Step.MapAsync("charge", due,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
+    new FanOutOptions { MaxParallelism = 5 });
+
+// A step with a dependency injection scope of its own, so the DbContext behind IInventory is new for it.
+await context.Step.RunScopedAsync<IInventory>("reserve",
+    (inventory, ct) => inventory.ReserveAsync(context.Event.Data.OrderId, ct));
 ```
 
 ## Replay rules
@@ -464,7 +506,10 @@ This project uses inngest-dotnet, a community Inngest SDK for .NET. Its API is n
 
 - Docs for tools: https://damikun.github.io/inngest-dotnet/llms.txt lists every page as Markdown, each page is also at its address with `.md` in place of the trailing slash, and https://damikun.github.io/inngest-dotnet/llms-full.txt holds all of them. Read https://damikun.github.io/inngest-dotnet/guides/ai-assistants.md before writing code with the SDK. Signatures are in https://damikun.github.io/inngest-dotnet/reference/api.md.
 - A function is a class that derives from `InngestFunction<TEventData>`, with `[InngestFunction("id")]` and `[EventTrigger("event/name")]` on it and `public override async Task<object?> ExecuteAsync(FunctionContext<TEventData> context, CancellationToken cancellationToken)`. Register it with `AddFunction<T>()` after `AddInngest(...)`, and serve it with `app.MapInngest("/api/inngest")`.
-- Steps are methods of `context.Step`: `RunAsync`, `SleepAsync`, `SleepUntilAsync`, `WaitForEventAsync`, `WaitForSignalAsync`, `InvokeAsync`, `SendEventAsync`, `FetchAsync`, `InferAsync`, `AIWrapAsync`, `PublishAsync`. Application code sends events with `IInngestClient.SendAsync`. Run steps in parallel with `Task.WhenAll`.
+- Steps are methods of `context.Step`: `RunAsync`, `SleepAsync`, `SleepUntilAsync`, `WaitForEventAsync`, `WaitForSignalAsync`, `InvokeAsync`, `SendEventAsync`, `FetchAsync`, `InferAsync`, `AIWrapAsync`, `PublishAsync`. Application code sends events with `IInngestClient.SendAsync`. Run steps in parallel with `Task.WhenAll`, or race them with `ParallelAsync(ParallelMode.Race, ...)`.
+- Only in .NET: `RunScopedAsync<TService>` runs a step in a dependency injection scope of its own (use it for a `DbContext`), and `MapAsync` or `ForEachAsync` runs a step for each item of a list, which must be the same on every call. Also `app.MapInngestWebhook(...)` for webhooks, `db.AddInngestEvent(...)` for a transactional outbox and `AddUserContext(...)` for the signed-in user.
+- Options are attributes on the function class: `[CronTrigger("0 6 * * 1-5")]`, `[Concurrency]`, `[Throttle]`, `[RateLimit]`, `[Debounce]`, `[BatchEvents]`, `[Priority]`, `[Singleton]`, `[CancelOn]`, `[Timeouts]`, and `Retries` and `Idempotency` on `[InngestFunction]`. A failure handler is `IFailureHandler.OnFailureAsync` on the same class. Errors that stop or delay retries: `NonRetriableException`, `RetryAfterException`.
+- Tests: `InngestTestHost` and `StepMocks` from `Inngest.Testing` run a function on the real execution engine with mocked steps.
 - A durable endpoint (beta) runs steps in an ASP.NET Core handler: `app.UseInngestDurableEndpoints()`, and `[DurableEndpoint("id")]` on a controller action or `.WithDurableEndpoint("id")` on a minimal API endpoint. The handler takes `IStepTools step` as a parameter and calls `step.RunAsync(...)`, with no `context`. The API is experimental: suppress the diagnostic `INNGEST001`.
 
 Inngest calls the function again after every step, and every call runs it from the top. A step that finished returns its saved result. The call that reaches a new step ends there (with checkpointing, or in a durable endpoint, the call that reaches a step that has to wait). So:
