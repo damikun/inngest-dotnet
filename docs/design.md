@@ -421,20 +421,21 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
   another; it invokes every chunk again instead.
 - **The window.** `FanOutRun` starts one lane per unit in flight, as the workers of `Parallel.ForEachAsync` do: a lane
   starts a unit, waits for it, and takes the next. The engine hands memoized results back in the order the run recorded
-  them, one at a time, and each hand-back lets its lane start the next unit, so a replay starts the units in the order the
-  run first did, whichever order the results arrived in. Under the default mode Inngest calls the function again only when
-  every step of a group has finished, so the window moves on in groups; under race mode after each step, so it slides.
-  The engine tells that the function is idle on its scheduler, so the lanes run there: they await with
+  them, one at a time, and each hand-back lets its lane start the next unit, so a replay starts the units in the order
+  the run first did, whichever order the results arrived in. Under the default mode Inngest calls the function again
+  only when every step of a group has finished, so the window moves on in groups; under race mode after each step, so it
+  slides. The engine tells that the function is idle on its scheduler, so the lanes run there: they await with
   `ConfigureAwait(true)` on purpose, since `false` would move their continuations to the thread pool, and the next unit
   would start while the engine decides what to report. A caller that left the scheduler, after `ConfigureAwait(false)`
   or inside `Task.Run`, has `StepTools.RunOnScheduler` queue the start of the lanes there with its execution context, as
   one piece of work, so that the whole first window is found at once and a fan-out behaves as it does called from the
   scheduler. The alternative, lanes that continue on the thread that completes a step (`ContinueWith` with
   `ExecuteSynchronously`), fixes the awaits but leaves the first window to be registered step by step from the pool
-  thread, which the engine can interleave with hand-backs: in 90,000 replays of off-scheduler calls it gave one window in
-  another order and, once, another first failure, both from `Task.Run`; queuing the start gave none in as many. A fake of the step tools has no
-  scheduler, and the lanes then start where the caller is. The answer is taken where the run is decided, not when the
-  awaiting code resumes.
+  thread, which the engine can interleave with hand-backs: in 60,000 replays of calls off the scheduler it gave one
+  window in another order and, once, another first failure, both from `Task.Run`; queuing the start gave none in as
+  many. A continuation that is not inlined would also run on the pool. A fake of the step tools has no scheduler, and
+  the lanes then start where the caller is. The answer is taken where the run is decided, not when the awaiting code
+  resumes.
 - **Calls.** A list of `n` items in windows of `w` takes one call per window of two or more items that finds its items,
   one call per item, one call for a last window of one item that runs in the call that finds it, and one that returns:
   seven items in windows of three are 10 calls. In race mode it is `2n + 1`. Every call replays the function and carries
