@@ -312,7 +312,7 @@ using System.Text.Json.Serialization;
 public sealed record OrderRef(string OrderId);
 
 [JsonSerializable(typeof(OrderRef))]
-internal sealed partial class AppJsonContext : JsonSerializerContext;
+internal sealed partial class HubJsonContext : JsonSerializerContext;
 ```
 
 {/* check: statements; WebApplicationBuilder builder */}
@@ -320,7 +320,7 @@ internal sealed partial class AppJsonContext : JsonSerializerContext;
 using Microsoft.AspNetCore.SignalR;
 
 builder.Services.Configure<JsonHubProtocolOptions>(options =>
-    options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
+    options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, HubJsonContext.Default));
 ```
 
 See [Native AOT](/inngest-dotnet/guides/native-aot/) for the SDK itself.
