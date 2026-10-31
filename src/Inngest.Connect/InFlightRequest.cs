@@ -5,23 +5,16 @@ using Inngest.Connect.Protocol;
 
 namespace Inngest.Connect;
 
-// An executor request the worker acknowledged and holds a lease for. Every extension can hand out a new lease id,
-// and the next extension must name the latest one.
+// An executor request the worker acknowledged and holds a lease for.
 internal sealed class InFlightRequest
 {
-    private string? _leaseId;
     private int _released;
-
-    // How often the lease was renewed, and how often it had been when the latest extension went out. An answer comes
-    // with no lease id of its own, so this is how a late answer about an older lease is told apart.
-    private int _renewals;
-    private int _renewalsAtExtension;
 
     public InFlightRequest(GatewayExecutorRequestData data, GatewayConnection origin, TimeProvider time)
     {
         Data = data;
         Origin = origin;
-        _leaseId = data.LeaseId;
+        Lease = new RequestLease(data.LeaseId);
 
         // Ticks on the interval the gateway gave the connection the request came in on, from the acknowledgement on.
         LeaseTimer = new PeriodicTimer(origin.ExtendLeaseInterval, time);
@@ -31,35 +24,9 @@ internal sealed class InFlightRequest
 
     public GatewayConnection Origin { get; }
 
+    public RequestLease Lease { get; }
+
     public PeriodicTimer LeaseTimer { get; }
-
-    // Null once the lease is given up or lost.
-    public string? LeaseId => Volatile.Read(ref _leaseId);
-
-    public int Renewals => Volatile.Read(ref _renewals);
-
-    // An answer to the latest extension is about the current lease only if nothing renewed it after the extension
-    // went out, such as Inngest sending the running request again with a new lease.
-    public bool AnswerIsCurrent => Volatile.Read(ref _renewalsAtExtension) == Volatile.Read(ref _renewals);
-
-    public void RenewLease(string leaseId)
-    {
-        var current = Volatile.Read(ref _leaseId);
-        while (current is not null)
-        {
-            var seen = Interlocked.CompareExchange(ref _leaseId, leaseId, current);
-            if (ReferenceEquals(seen, current))
-            {
-                Interlocked.Increment(ref _renewals);
-                return;
-            }
-
-            current = seen;
-        }
-    }
-
-    // Records the renewals seen before the lease id of an extension was read.
-    public void ExtensionSent(int renewals) => Volatile.Write(ref _renewalsAtExtension, renewals);
 
     // Lets go of the lease, which stops the extensions. Returns true for the one call that did it.
     public bool Release()
@@ -69,10 +36,72 @@ internal sealed class InFlightRequest
             return false;
         }
 
-        Volatile.Write(ref _leaseId, null);
+        Lease.Release();
         LeaseTimer.Dispose();
         return true;
     }
+}
+
+// The lease of an executor request. Every extension can hand out a new lease id, and the next extension must name the
+// latest one. Each lease id is a lease of its own, so whoever read one can tell later, by reference, whether it is still
+// the current one. That needs no second field that could change between two reads.
+internal sealed class RequestLease
+{
+    private Lease? _current;
+
+    // The lease the latest extension named, and before the first one the lease the request came with. An answer comes with
+    // no lease id of its own, so it is taken to be about that one.
+    private Lease _extended;
+
+    public RequestLease(string leaseId)
+    {
+        _extended = new Lease(leaseId);
+        _current = _extended;
+    }
+
+    // Null once the lease is given up or lost.
+    public Lease? Current => Volatile.Read(ref _current);
+
+    // Inngest sent the running request again with a new lease.
+    public void Renew(string leaseId)
+    {
+        var renewed = new Lease(leaseId);
+        var current = Volatile.Read(ref _current);
+        while (current is not null)
+        {
+            var seen = Interlocked.CompareExchange(ref _current, renewed, current);
+            if (ReferenceEquals(seen, current))
+            {
+                return;
+            }
+
+            current = seen;
+        }
+    }
+
+    // Records the lease an extension names, before it goes out, so that an answer that comes back at once finds it.
+    public void ExtensionSent(Lease lease) => Volatile.Write(ref _extended, lease);
+
+    // The gateway extended the lease the latest extension named, under a new id. False when that lease was replaced
+    // after the extension went out, such as by Inngest sending the running request again with a new lease.
+    public bool TryExtend(string leaseId) => TryReplace(new Lease(leaseId));
+
+    // The gateway did not extend the lease the latest extension named: it expired or another worker holds it now. False
+    // when that lease was replaced after the extension went out, and the answer is about a lease no longer used.
+    public bool TryLose() => TryReplace(null);
+
+    public void Release() => Volatile.Write(ref _current, null);
+
+    private bool TryReplace(Lease? next)
+    {
+        var extended = Volatile.Read(ref _extended);
+        return ReferenceEquals(Interlocked.CompareExchange(ref _current, next, extended), extended);
+    }
+}
+
+internal sealed class Lease(string id)
+{
+    public string Id { get; } = id;
 }
 
 // Counts the executions that hold a lease. Once shutdown has begun it admits no more, so that the worker knows

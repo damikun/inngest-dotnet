@@ -54,7 +54,7 @@ internal sealed partial class ConnectWorker
     private void AcknowledgeAgain(GatewayConnection connection, InFlightRequest? running, GatewayExecutorRequestData data)
     {
         Log.RequestAlreadyRunning(_logger, data.RequestId);
-        running?.RenewLease(data.LeaseId);
+        running?.Lease.Renew(data.LeaseId);
         Acknowledge(connection, data);
     }
 
@@ -169,9 +169,8 @@ internal sealed partial class ConnectWorker
         var data = request.Data;
         while (await request.LeaseTimer.WaitForNextTickAsync().ConfigureAwait(false))
         {
-            // Read first: a renewal between the two reads makes the answer look stale, which only skips it.
-            var renewals = request.Renewals;
-            if (request.LeaseId is not { } leaseId)
+            // Read once, so that the extension names the lease it records, whatever renews it meanwhile.
+            if (request.Lease.Current is not { } lease)
             {
                 return;
             }
@@ -189,7 +188,7 @@ internal sealed partial class ConnectWorker
                 SystemTraceCtx = data.SystemTraceCtx,
                 UserTraceCtx = data.UserTraceCtx,
                 RunId = data.RunId,
-                LeaseId = leaseId,
+                LeaseId = lease.Id,
             };
 
             if (data.HasStepId)
@@ -197,7 +196,7 @@ internal sealed partial class ConnectWorker
                 extension.StepId = data.StepId;
             }
 
-            request.ExtensionSent(renewals);
+            request.Lease.ExtensionSent(lease);
             if (connection is null || !connection.Send(GatewayMessageType.WorkerRequestExtendLease, extension))
             {
                 Log.CannotExtendLease(_logger, data.RequestId);
@@ -213,23 +212,23 @@ internal sealed partial class ConnectWorker
             return;
         }
 
-        // Inngest sent the request again with a new lease after this extension went out. Whether the answer grants or
-        // refuses the older lease, the newer one is what counts.
-        if (!request.AnswerIsCurrent)
+        // The answer applies only while the lease that extension named is still the current one, in a single step, so that
+        // a renewal cannot slip in between checking and applying it.
+        var extended = ack.HasNewLeaseId && ack.NewLeaseId.Length > 0;
+        if (!(extended ? request.Lease.TryExtend(ack.NewLeaseId) : request.Lease.TryLose()))
         {
+            // Inngest sent the request again with a new lease after this extension went out. Whether the answer grants or
+            // refuses the older lease, the newer one is what counts.
             Log.StaleLeaseAnswer(_logger, ack.RequestId);
             return;
         }
 
-        if (ack.HasNewLeaseId && ack.NewLeaseId.Length > 0)
+        if (!extended)
         {
-            request.RenewLease(ack.NewLeaseId);
-            return;
+            // The execution goes on, but Inngest no longer waits for it.
+            Log.LeaseLost(_logger, ack.RequestId, request.Data.RunId);
+            Release(request);
         }
-
-        // The execution goes on, but Inngest no longer waits for it.
-        Log.LeaseLost(_logger, ack.RequestId, request.Data.RunId);
-        Release(request);
     }
 
     private void Release(InFlightRequest request)

@@ -167,6 +167,26 @@ public sealed class LeaseTests : IAsyncLifetime
         worker.LogsWithId(535).ShouldHaveSingleItem().Message.ShouldContain("req-1");
     }
 
+    [Fact]
+    public async Task A_late_grant_for_an_older_lease_does_not_replace_the_lease_the_request_got_again()
+    {
+        await using var worker = new WorkerHost(_gateway, engine: _engine);
+        var session = await StartRequestAsync(worker, "lease-1");
+        await _engine.NextAsync();
+        worker.Time.Advance(Interval);
+        (await NextExtensionAsync(session, "req-1")).LeaseId.ShouldBe("lease-1");
+
+        // The gateway sends the running request again with a new lease, then grants the extension of lease-1.
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1", leaseId: "lease-9"));
+        await session.NextAsync(GatewayMessageType.WorkerRequestAck);
+        await session.SendAsync(GatewayMessageType.WorkerRequestExtendLeaseAck, new WorkerRequestExtendLeaseAckData { RequestId = "req-1", NewLeaseId = "lease-2" });
+        await session.WaitForWorkerAsync();
+        worker.Time.Advance(Interval);
+
+        (await NextExtensionAsync(session, "req-1")).LeaseId.ShouldBe("lease-9");
+        worker.LogsWithId(535).ShouldHaveSingleItem().Message.ShouldContain("req-1");
+    }
+
     // The probes of WaitForWorkerAsync are requests too: when the clock moves while one still runs, it extends its own
     // lease. Tests that move the clock after a probe therefore look at the extensions of their own request only.
     private static async Task<WorkerRequestExtendLeaseData> NextExtensionAsync(GatewaySession session, string requestId)
