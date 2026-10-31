@@ -6,9 +6,10 @@ import type { Api, Handler, JsxElement, MdNode } from './convert';
 
 // What each component of the docs is, written as Markdown. The components of Starlight become what they say in
 // words: tabs are sections one after the other and asides are blockquotes. The figures of the site become their
-// captions, which say in words what the drawing shows. The interactive tools have no text of their own, so each
-// becomes a line that says where to use it; the page around them says what they do. A component that is not here stops the build, so that a page
-// never loses one without anyone noticing.
+// captions, which say in words what the drawing shows, and the replay visualizer becomes the run it shows. The other
+// interactive tools have no text of their own, so each becomes a line that says where to use it; the page around them
+// says what they do. A component that is not here stops the build, so that a page never loses one without anyone
+// noticing.
 
 const text = (value: string): MdNode => ({ type: 'text', value });
 const paragraph = (...children: MdNode[]): MdNode => ({ type: 'paragraph', children });
