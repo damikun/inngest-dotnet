@@ -149,20 +149,24 @@ reports one, with the same id rules, retries and results. What differs is the sc
 
 - **It lives as long as the handler.** The SDK creates it when the handler starts and disposes it when the handler
   ends, whether the handler returned or threw, asynchronously for services that are `IAsyncDisposable`. That is before
-  the result is saved.
-- **Every execution gets a new one.** Each attempt of a step, each step of a checkpointed call and each of the steps
-  that [run in parallel](/inngest-dotnet/guides/parallel-steps/) has a scope of its own, so two steps never use one
-  `DbContext` at the same time, which Entity Framework does not support. A step whose result Inngest already has, a
-  step that is only planned and a step a test mocks create none.
-- **It is next to the call's scope, not inside it.** `IServiceScopeFactory` makes a scope that is a sibling of the
-  call's, as it does everywhere in .NET. Scoped services in it are new instances and singletons are shared, but
-  nothing code stored in the call's scope is there, such as a tenant that middleware set on a scoped service. Set it
-  from the step: `services.GetRequiredService<ITenantAccessor>().Set(tenantId)`.
+  the result is saved. Pass the handler's `CancellationToken` to every call it makes: a handler that ignores it keeps
+  its scope open until it returns, which can be after the call has ended.
+- **Every execution gets a new one.** Each attempt of a step, each step of a checkpointed call and each step that
+  [runs in parallel](/inngest-dotnet/guides/parallel-steps/) has a scope of its own. Steps in parallel already run in
+  calls of their own, so what the scope keeps apart is a step from the function's own code, which uses the call's
+  scope, and from the other steps that one call runs one after another. A step whose result Inngest already has, a step
+  that is only planned and a step a test mocks create none.
+- **It is a scope of its own, not the call's.** With Microsoft's container, `IServiceScopeFactory` makes a scope next
+  to the call's, not inside it; a container that nests scopes may differ. Either way, scoped services in it are new
+  instances and singletons are shared, but nothing that code stored in the call's scope is there, such as a tenant that
+  middleware set on a scoped service. Set it from the step: `services.GetRequiredService<ITenantAccessor>().Set(tenantId)`.
 - **Middleware keeps seeing the call's scope.** `FunctionContext.Services` is the same for every hook.
   `WrapStepHandlerAsync` wraps the scope: it is created inside `next()` and gone when `next()` returns, and the step's
   `StepInfo.Type` is `Run`. See [Middleware](/inngest-dotnet/guides/middleware/#registration-and-lifetime).
-- **A service that fails to dispose does not fail the step.** The work is done by then, and a retry would do it again.
-  The SDK logs the exception at the error level instead, and a handler that threw keeps its own exception.
+- **Disposal is for releasing, not for work.** An exception thrown while the scope is disposed is only logged, at the
+  error level. The step's outcome stands and nothing retries it, and a handler that threw keeps its own exception. So
+  never commit, flush or save in the `Dispose` or `DisposeAsync` of a scoped service: a failure there is lost while the
+  step is recorded as a success. Do that in the handler, with a call that can fail the step.
 - **Steps cannot be nested.** Calling a step tool inside the handler throws, as it does in `RunAsync`.
 
 ## Results are plain data
