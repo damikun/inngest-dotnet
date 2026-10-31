@@ -10,7 +10,7 @@ namespace Inngest.Templates.Tests;
 public sealed class TemplateFixture : IAsyncLifetime
 {
     // Every package the templates reference, with the projects they bring in.
-    private static readonly string[] Projects = ["Inngest", "Inngest.AspNetCore", "Inngest.Connect", "Inngest.Templates"];
+    private static readonly string[] Projects = ["Inngest", "Inngest.AspNetCore", "Inngest.Connect", "Inngest.Templates", "Inngest.Webhooks"];
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "inngest-template-tests-" + Guid.NewGuid().ToString("N"));
 

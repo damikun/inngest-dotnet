@@ -1,8 +1,9 @@
 namespace Inngest.SourceGeneration.Tests.Packaging;
 
-// Inngest and Inngest.AspNetCore, packed from the source of the repository into a folder of their own. The pack builds into a
-// folder of its own as well, so that it never touches the outputs of the build that the tests run beside, and it has a
-// version no release has, so that nothing in the NuGet cache of the machine stands in for it.
+// Inngest and Inngest.AspNetCore, with the Inngest.Webhooks that Inngest.AspNetCore depends on, packed from the source
+// of the repository into a folder of their own. The pack builds into a folder of its own as well, so that it never
+// touches the outputs of the build that the tests run beside, and it has a version no release has, so that nothing in
+// the NuGet cache of the machine stands in for it.
 public sealed class PackageFeed : IAsyncLifetime
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "inngest-packages-" + Guid.NewGuid().ToString("N"));
@@ -18,7 +19,7 @@ public sealed class PackageFeed : IAsyncLifetime
         Directory.CreateDirectory(Folder);
         Directory.CreateDirectory(ConsumersFolder);
 
-        foreach (var project in new[] { "Inngest", "Inngest.AspNetCore" })
+        foreach (var project in new[] { "Inngest", "Inngest.AspNetCore", "Inngest.Webhooks" })
         {
             var (exitCode, output) = await DotnetCli.RunAsync(
                 DotnetCli.RepositoryRoot,
@@ -42,7 +43,7 @@ public sealed class PackageFeed : IAsyncLifetime
         var packages = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
             ? custom
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        foreach (var id in new[] { "inngest", "inngest.aspnetcore" })
+        foreach (var id in new[] { "inngest", "inngest.aspnetcore", "inngest.webhooks" })
         {
             TryDelete(Path.Combine(packages, id, Version));
         }
