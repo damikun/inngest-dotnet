@@ -112,9 +112,9 @@ public sealed class FanOutChunkTests
         await using var host = new InngestTestHost(Services(new Charger()));
         var declined = new FunctionError { Name = "NonRetriableException", Message = "Card declined for inv-4" };
         var mocks = new StepMocks()
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[0-2]", [.. Enumerable.Range(0, 3).Select(i => new FanOutOutcome<Receipt>(i, new Receipt($"inv-{i}", "r"), null))])
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(4, default, declined)])
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[6-6]", [new(6, new Receipt("inv-6", "r"), null)]);
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[0-2]", [.. Enumerable.Range(0, 3).Select(i => new FanOutOutcome<Receipt>(i, new Receipt($"inv-{i}", "r"), null))])
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(4, default, declined)])
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[6-6]", [new(6, new Receipt("inv-6", "r"), null)]);
 
         var run = await host.RunAsync("fn", Event(), mocks, Cancel);
 
@@ -145,8 +145,8 @@ public sealed class FanOutChunkTests
         await using var host = new InngestTestHost(Services(new Charger(), collect: true));
         var declined = new FunctionError { Name = "NonRetriableException", Message = "Card declined for inv-1" };
         var mocks = new StepMocks()
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[0-2]", [new(0, new Receipt("inv-0", "r"), null), new(1, default, declined), new(2, new Receipt("inv-2", "r"), null)])
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[3-5]", [.. Enumerable.Range(3, 3).Select(i => new FanOutOutcome<Receipt>(i, new Receipt($"inv-{i}", "r"), null))])
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[0-2]", [new(0, new Receipt("inv-0", "r"), null), new(1, default, declined), new(2, new Receipt("inv-2", "r"), null)])
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[3-5]", [.. Enumerable.Range(3, 3).Select(i => new FanOutOutcome<Receipt>(i, new Receipt($"inv-{i}", "r"), null))])
             .InvokeThrows("charge[6-6]", new InvalidOperationException("the chunk's run failed"));
 
         var run = await host.RunAsync("fn", Event(), mocks, Cancel);
@@ -164,7 +164,7 @@ public sealed class FanOutChunkTests
     {
         await using var host = new InngestTestHost(Services(new Charger(), retries: 0));
         var mocks = (await ChunkMocksAsync(host, failFast: true))
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(4, new Receipt("inv-4", "r"), null)]);
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(4, new Receipt("inv-4", "r"), null)]);
 
         var run = await host.RunAsync("fn", Event(), mocks, Cancel);
 
@@ -177,7 +177,7 @@ public sealed class FanOutChunkTests
     {
         await using var host = new InngestTestHost(Services(new Charger(), retries: 0));
         var mocks = (await ChunkMocksAsync(host, failFast: true))
-            .Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(3, new Receipt("inv-3", "r"), null), new(9, new Receipt("inv-9", "r"), null)]);
+            .Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>("charge[3-5]", [new(3, new Receipt("inv-3", "r"), null), new(3, new Receipt("inv-3", "r"), null), new(9, new Receipt("inv-9", "r"), null)]);
 
         var run = await host.RunAsync("fn", Event(), mocks, Cancel);
 
@@ -213,6 +213,22 @@ public sealed class FanOutChunkTests
         run.GetOutput<FanOutOutcome<Receipt>[]>()!.Select(outcome => outcome.Index).ShouldBe([0, 1]);
     }
 
+    [Fact]
+    public async Task A_chunk_function_with_no_window_fails_its_run_for_good_at_the_first_attempt()
+    {
+        var charger = new Charger();
+        var services = new ServiceCollection();
+        services.AddSingleton(charger);
+        services.AddInngest(options => options.AppId = AppId).AddFunction<NoWindowChunk>(new FunctionOptions { Id = "no-window", Triggers = [] });
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync<NoWindowChunk>(Chunk(0, true, Invoices[..2]), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Failed);
+        run.Error.ShouldBeOfType<NonRetriableException>().Message.ShouldContain("MaxParallelism must be at least 1");
+        charger.Attempts.ShouldBe(1);
+    }
+
     // The outputs of the chunk function for every chunk of three, as the parent's invoke steps would get them.
     private static async Task<StepMocks> ChunkMocksAsync(InngestTestHost host, bool failFast)
     {
@@ -221,9 +237,9 @@ public sealed class FanOutChunkTests
         {
             var items = Invoices[offset..Math.Min(offset + 3, Invoices.Length)];
             var chunk = await host.RunAsync<ChargeInvoices>(Chunk(offset, failFast, items), Cancel);
-            mocks = mocks.Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<Receipt>>>(
+            mocks = mocks.Invoke<ChargeInvoices, FanOutOutcome<Receipt>[]>(
                 $"charge[{offset}-{offset + items.Length - 1}]",
-                chunk.GetOutput<IReadOnlyList<FanOutOutcome<Receipt>>>()!);
+                chunk.GetOutput<FanOutOutcome<Receipt>[]>()!);
         }
 
         return mocks;

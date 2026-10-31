@@ -34,24 +34,25 @@ public sealed class FanOutArgumentTests
     }
 
     [Fact]
-    public async Task A_run_has_at_most_as_many_steps_as_Inngest_allows_so_a_longer_list_is_refused_with_the_way_out()
+    public async Task Inngest_fails_a_run_once_1000_steps_have_completed_so_a_list_of_1000_items_is_refused_with_the_way_out()
     {
         var step = new InlineSteps();
 
-        var exception = Should.Throw<ArgumentException>(() => step.MapAsync("id", new int[1001], Identity));
+        var exception = Should.Throw<NonRetriableException>(() => step.MapAsync("id", new int[1000], Identity));
+        var outcomes = Should.Throw<NonRetriableException>(() => step.MapOutcomesAsync("id", new int[1001], Identity));
 
-        exception.ParamName.ShouldBe("items");
-        exception.Message.ShouldContain("1001 items");
-        exception.Message.ShouldContain("1000 steps");
+        exception.Message.ShouldContain("1000 items");
+        exception.Message.ShouldContain("once 1000 of its steps have completed");
+        exception.Message.ShouldContain("every step of the run counts");
         exception.Message.ShouldContain("MapInChunksAsync");
-        (await step.MapAsync("id", new int[1000], Identity)).Count.ShouldBe(1000);
+        outcomes.Message.ShouldContain("1001 items");
+        (await step.MapAsync("id", new int[999], Identity)).Length.ShouldBe(999);
     }
 
     [Theory]
     [InlineData(0)]
     [InlineData(-5)]
-    [InlineData(1001)]
-    public void A_chunk_size_the_chunks_run_cannot_have_is_refused(int chunkSize)
+    public void A_chunk_size_below_one_is_refused_as_an_argument(int chunkSize)
     {
         IStepTools step = new InlineSteps();
 
@@ -59,24 +60,36 @@ public sealed class FanOutArgumentTests
             () => step.MapInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", [new Invoice("a", 1m)], chunkSize));
 
         exception.ParamName.ShouldBe("chunkSize");
-        exception.Message.ShouldContain("1000");
+    }
+
+    [Theory]
+    [InlineData(1000)]
+    [InlineData(1001)]
+    public void A_chunk_size_that_makes_the_run_of_a_chunk_overflow_is_refused_without_retries(int chunkSize)
+    {
+        IStepTools step = new InlineSteps();
+
+        var exception = Should.Throw<NonRetriableException>(
+            () => step.MapOutcomesInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", [new Invoice("a", 1m)], chunkSize));
+
+        exception.Message.ShouldContain("chunkSize must be less than 1000");
     }
 
     [Fact]
-    public async Task More_chunks_than_steps_a_run_may_have_are_refused()
+    public async Task A_list_that_makes_1000_chunks_is_refused_without_retries()
     {
         var step = new InlineSteps();
-        var invoices = new Invoice[1001];
+        var invoices = new Invoice[1000];
 
-        var exception = Should.Throw<ArgumentException>(() => step.MapInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices, 1));
-        var exceptionForOutcomes = Should.Throw<ArgumentException>(() => step.MapOutcomesInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices, 1));
+        var exception = Should.Throw<NonRetriableException>(() => step.MapInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices, 1));
+        var exceptionForOutcomes = Should.Throw<NonRetriableException>(() => step.MapOutcomesInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices, 1));
 
-        exception.ParamName.ShouldBe("items");
-        exception.Message.ShouldContain("1001 chunks");
-        exceptionForOutcomes.Message.ShouldContain("1001 chunks");
+        exception.Message.ShouldContain("1000 chunks");
+        exception.Message.ShouldContain("every step of the run counts");
+        exceptionForOutcomes.Message.ShouldContain("1000 chunks");
 
-        // 1000 chunks are allowed; the fake then fails on the first invoke because it cannot invoke by class.
-        await Should.ThrowAsync<NotSupportedException>(() => step.MapInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices[..1000], 1));
+        // 999 chunks are allowed; the fake then fails on the first invoke because it cannot invoke by class.
+        await Should.ThrowAsync<NotSupportedException>(() => step.MapInChunksAsync<ChargeInvoices, Invoice, Receipt>("id", invoices[..999], 1));
     }
 
     [Fact]

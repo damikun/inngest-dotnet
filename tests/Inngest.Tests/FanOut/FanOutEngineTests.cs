@@ -95,6 +95,16 @@ public sealed class FanOutEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_list_over_the_limit_of_a_run_fails_the_run_without_retries()
+    {
+        var result = await _host.CallAsync(Upper(new string[1000]), Call.New());
+
+        result.StatusCode.ShouldBe(400);
+        result.NoRetry.ShouldBe(true);
+        result.Json.GetProperty("message").GetString()!.ShouldContain("MapInChunksAsync");
+    }
+
+    [Fact]
     public async Task A_list_without_items_runs_no_step()
     {
         var result = await _host.CallAsync(Upper([]), Call.New());

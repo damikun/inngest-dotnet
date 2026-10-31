@@ -11,7 +11,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(5);
 
-        var run = FanOutRun<int>.RunAsync(5, 2, failFast: true, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(5, 2, failFast: true, units.Start, TestContext.Current.CancellationToken);
 
         units.Started.ShouldBe([0, 1]);
         units.Complete(1, 10);
@@ -35,7 +35,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(4);
 
-        var run = FanOutRun<int>.RunAsync(4, 4, failFast: true, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(4, 4, failFast: true, units.Start, TestContext.Current.CancellationToken);
 
         units.Started.ShouldBe([0, 1, 2, 3]);
         foreach (var index in new[] { 3, 1, 0, 2 })
@@ -51,7 +51,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(2);
 
-        var run = FanOutRun<int>.RunAsync(2, 2, failFast: false, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(2, 2, failFast: false, units.Start, TestContext.Current.CancellationToken);
         units.Complete(0, 1);
         units.Complete(1, 2);
 
@@ -62,7 +62,7 @@ public sealed class FanOutRunTests
     [Fact]
     public async Task A_run_without_units_completes_at_once()
     {
-        var run = await FanOutRun<int>.RunAsync(0, 0, failFast: true, _ => throw new InvalidOperationException(), TestContext.Current.CancellationToken);
+        var run = await Run(0, 0, failFast: true, _ => throw new InvalidOperationException(), TestContext.Current.CancellationToken);
 
         run.Values.ShouldBeEmpty();
         run.First.ShouldBeNull();
@@ -73,7 +73,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(6);
 
-        var run = FanOutRun<int>.RunAsync(6, 3, failFast: true, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(6, 3, failFast: true, units.Start, TestContext.Current.CancellationToken);
         units.Complete(0, 100);
         units.Started.ShouldBe([0, 1, 2, 3]);
         var failure = Failure("item[1]", "boom");
@@ -95,7 +95,7 @@ public sealed class FanOutRunTests
         var first = Failure("item[3]", "first");
         var second = Failure("item[1]", "second");
 
-        var run = FanOutRun<int>.RunAsync(4, 2, failFast: false, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(4, 2, failFast: false, units.Start, TestContext.Current.CancellationToken);
         units.Fail(1, first);
         units.Complete(0, 7);
         units.Fail(3, second);
@@ -116,7 +116,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(4);
 
-        var run = FanOutRun<int>.RunAsync(4, 2, failFast, units.Start, TestContext.Current.CancellationToken);
+        var run = Run(4, 2, failFast, units.Start, TestContext.Current.CancellationToken);
         units.Fail(0, new FormatException("unreadable"));
 
         (await Should.ThrowAsync<FormatException>(run)).Message.ShouldBe("unreadable");
@@ -126,7 +126,7 @@ public sealed class FanOutRunTests
     [Fact]
     public async Task A_start_that_throws_ends_the_run_with_that_exception()
     {
-        var run = FanOutRun<int>.RunAsync(3, 3, failFast: false, index => index == 1 ? throw new ArgumentException("no id") : Task.FromResult(index), TestContext.Current.CancellationToken);
+        var run = Run(3, 3, failFast: false, index => index == 1 ? throw new ArgumentException("no id") : Task.FromResult(index), TestContext.Current.CancellationToken);
 
         (await Should.ThrowAsync<ArgumentException>(run)).Message.ShouldBe("no id");
     }
@@ -137,7 +137,7 @@ public sealed class FanOutRunTests
         using var source = new CancellationTokenSource();
         var units = new Units(5);
 
-        var run = FanOutRun<int>.RunAsync(5, 2, failFast: false, units.Start, source.Token);
+        var run = Run(5, 2, failFast: false, units.Start, source.Token);
         units.Complete(0, 0);
         units.Started.ShouldBe([0, 1, 2]);
         await source.CancelAsync();
@@ -152,7 +152,7 @@ public sealed class FanOutRunTests
     {
         var units = new Units(3);
 
-        var run = FanOutRun<int>.RunAsync(3, 3, failFast: true, units.Start, new CancellationToken(canceled: true));
+        var run = Run(3, 3, failFast: true, units.Start, new CancellationToken(canceled: true));
 
         await Should.ThrowAsync<OperationCanceledException>(run);
         units.Started.ShouldBeEmpty();
@@ -164,13 +164,17 @@ public sealed class FanOutRunTests
         using var source = new CancellationTokenSource();
         var units = new Units(2);
 
-        var run = FanOutRun<int>.RunAsync(2, 2, failFast: true, units.Start, source.Token);
+        var run = Run(2, 2, failFast: true, units.Start, source.Token);
         await source.CancelAsync();
         units.Complete(0, 5);
         units.Complete(1, 6);
 
         (await run).Values.ShouldBe([5, 6]);
     }
+
+    // A fake of the step tools has no scheduler, so the lanes start where the test is and continue where it completes a unit.
+    private static Task<FanOutRun<int>> Run(int count, int width, bool failFast, Func<int, Task<int>> start, CancellationToken cancellationToken) =>
+        FanOutRun<int>.RunAsync(new InlineSteps(), count, width, failFast, start, cancellationToken);
 
     private static StepFailedException Failure(string stepId, string message) =>
         new(stepId, new FunctionError { Name = "Error", Message = message });

@@ -16,22 +16,26 @@ namespace Inngest;
 /// </remarks>
 public static class FanOutExtensions
 {
-    // Inngest allows this many steps in a run, those of parallel groups included:
+    // Inngest documents 1,000 steps in a run, those of parallel groups included:
     // https://www.inngest.com/docs/durable-execution/limits
-    private const int StepsPerRun = 1_000;
+    // It fails a run at its next call once that many steps have completed, so a run holds one less, with every step of
+    // it counted. On the dev server a list of 999 items completes and one of 1,000 fails after all its steps ran.
+    private const int StepLimit = 1_000;
 
     /// <summary>
-    /// Runs the handler for each item as a step with the id "id[index]" and returns the results in the order of the
-    /// items. Up to <see cref="FanOutOptions.MaxParallelism"/> items run at the same time.
+    /// Runs the handler for each item as a step with the id "id[index]" and returns the results, as an array like
+    /// Task.WhenAll does, in the order of the items. Up to <see cref="FanOutOptions.MaxParallelism"/> items run at the
+    /// same time.
     /// </summary>
     /// <remarks>
     /// When an item's step fails for good, no more items start and the call throws that item's StepFailedException
     /// without waiting for the items in flight, which the SDK cannot recall. If several failed, it throws the one
     /// Inngest recorded first. When the token is canceled while items are left, the next one does not start and the
-    /// call throws OperationCanceledException. A list of more than 1,000 items is refused, since a run has at most
-    /// that many steps; MapInChunksAsync takes longer lists.
+    /// call throws OperationCanceledException. Inngest fails a run once 1,000 of its steps have completed, and every
+    /// step of the run counts, so a list of 1,000 items or more throws NonRetriableException; MapInChunksAsync takes
+    /// longer lists.
     /// </remarks>
-    public static Task<IReadOnlyList<TResult>> MapAsync<TItem, TResult>(
+    public static Task<TResult[]> MapAsync<TItem, TResult>(
         this IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -41,7 +45,7 @@ public static class FanOutExtensions
     {
         var width = CheckInline(step, id, items, handler, options);
         return items.Count == 0
-            ? Task.FromResult<IReadOnlyList<TResult>>([])
+            ? Task.FromResult<TResult[]>([])
             : MapCoreAsync(step, id, items, handler, width, options, cancellationToken);
     }
 
@@ -75,7 +79,7 @@ public static class FanOutExtensions
     /// every item in the order of the items instead of throwing when one fails. An item whose step failed for good has
     /// its error in its outcome, and the other items still run.
     /// </summary>
-    public static Task<IReadOnlyList<FanOutOutcome<TResult>>> MapOutcomesAsync<TItem, TResult>(
+    public static Task<FanOutOutcome<TResult>[]> MapOutcomesAsync<TItem, TResult>(
         this IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -85,23 +89,25 @@ public static class FanOutExtensions
     {
         var width = CheckInline(step, id, items, handler, options);
         return items.Count == 0
-            ? Task.FromResult<IReadOnlyList<FanOutOutcome<TResult>>>([])
+            ? Task.FromResult<FanOutOutcome<TResult>[]>([])
             : MapOutcomesCoreAsync(step, id, items, handler, width, options, cancellationToken);
     }
 
     /// <summary>
     /// Runs a list in chunks of chunkSize items, each chunk in a run of its own of the function TFunction, and returns
-    /// the results in the order of the items. For lists that do not fit in one run, which has at most 1,000 steps.
+    /// the results in the order of the items. For lists that do not fit in one run, which has fewer than 1,000 steps.
     /// </summary>
     /// <remarks>
     /// The parent's run has an invoke step per chunk, with the id "id[first-last]". Up to
     /// <see cref="FanOutOptions.MaxParallelism"/> chunks run at the same time; the function decides how many items of a
     /// chunk do. When an item fails for good, its chunk starts no more items, no more chunks start, and the call throws
     /// a StepFailedException for that item, whose StepId is "id[index]". A chunk whose run fails or times out throws a
-    /// StepFailedException for the chunk's step. A chunk is the data of an event and all the results end up in the
-    /// state of the parent's run, so choose chunkSize with the limits of Inngest in mind.
+    /// StepFailedException for the chunk's step. A failing parent does not cancel the chunks already started. The items
+    /// of the chunks planned together travel in one response of the app, and the results of every chunk end up in the
+    /// state of the parent's run, so choose chunkSize and MaxParallelism with the limits of Inngest in mind. A chunkSize
+    /// or a number of chunks of 1,000 or more throws NonRetriableException, since a run can hold fewer steps than that.
     /// </remarks>
-    public static Task<IReadOnlyList<TResult>> MapInChunksAsync<TFunction, TItem, TResult>(
+    public static Task<TResult[]> MapInChunksAsync<TFunction, TItem, TResult>(
         this IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -112,16 +118,17 @@ public static class FanOutExtensions
     {
         var chunking = CheckChunked(step, id, items, chunkSize, options);
         return chunking.Count == 0
-            ? Task.FromResult<IReadOnlyList<TResult>>([])
+            ? Task.FromResult<TResult[]>([])
             : MapChunksCoreAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, cancellationToken);
     }
 
     /// <summary>
     /// Runs a list in chunks like MapInChunksAsync, and returns the outcome of every item in the order of the items
     /// instead of throwing when one fails. Every item runs. When a chunk's run fails or times out, each of its items
-    /// has the error of the chunk's step in its outcome.
+    /// has the error of the chunk's step in its outcome, although the chunk's run may have processed some of them, so
+    /// retrying the failed items can process an item twice.
     /// </summary>
-    public static Task<IReadOnlyList<FanOutOutcome<TResult>>> MapOutcomesInChunksAsync<TFunction, TItem, TResult>(
+    public static Task<FanOutOutcome<TResult>[]> MapOutcomesInChunksAsync<TFunction, TItem, TResult>(
         this IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -132,7 +139,7 @@ public static class FanOutExtensions
     {
         var chunking = CheckChunked(step, id, items, chunkSize, options);
         return chunking.Count == 0
-            ? Task.FromResult<IReadOnlyList<FanOutOutcome<TResult>>>([])
+            ? Task.FromResult<FanOutOutcome<TResult>[]>([])
             : MapOutcomesChunksCoreAsync<TFunction, TItem, TResult>(step, id, items, chunkSize, chunking, options, cancellationToken);
     }
 
@@ -158,11 +165,11 @@ public static class FanOutExtensions
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(handler);
-        if (items.Count > StepsPerRun)
+        if (items.Count >= StepLimit)
         {
-            throw new ArgumentException(
-                $"The fan-out \"{id}\" has {items.Count} items and runs a step for each, but Inngest allows {StepsPerRun} steps in a run. Run the list in chunks with MapInChunksAsync.",
-                nameof(items));
+            // The list does not change between calls, so a retry would fail the same way.
+            throw new NonRetriableException(
+                $"The fan-out \"{id}\" has {items.Count} items and runs a step for each, but Inngest fails a run once {StepLimit} of its steps have completed, and every step of the run counts. Run the list in chunks with MapInChunksAsync.");
         }
 
         return WidthOf(options?.MaxParallelism, items.Count, nameof(options));
@@ -174,27 +181,29 @@ public static class FanOutExtensions
         ArgumentNullException.ThrowIfNull(step);
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentNullException.ThrowIfNull(items);
-        if (chunkSize < 1 || chunkSize > StepsPerRun)
+        if (chunkSize < 1)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(chunkSize),
-                chunkSize,
-                $"A chunk runs a step per item in a run of its own, so chunkSize must be between 1 and {StepsPerRun}, the steps Inngest allows in a run.");
+            throw new ArgumentOutOfRangeException(nameof(chunkSize), chunkSize, "chunkSize must be at least 1.");
+        }
+
+        if (chunkSize >= StepLimit)
+        {
+            throw new NonRetriableException(
+                $"A chunk runs a step per item in a run of its own, and Inngest fails a run once {StepLimit} of its steps have completed, so chunkSize must be less than {StepLimit}, but it is {chunkSize}.");
         }
 
         var count = items.Count;
         var chunks = (count / chunkSize) + (count % chunkSize == 0 ? 0 : 1);
-        if (chunks > StepsPerRun)
+        if (chunks >= StepLimit)
         {
-            throw new ArgumentException(
-                $"The fan-out \"{id}\" has {chunks} chunks of {chunkSize} items and runs an invoke step for each, but Inngest allows {StepsPerRun} steps in a run. Use a larger chunkSize, or split the list between runs.",
-                nameof(items));
+            throw new NonRetriableException(
+                $"The fan-out \"{id}\" has {chunks} chunks of {chunkSize} items and runs an invoke step for each, but Inngest fails a run once {StepLimit} of its steps have completed, and every step of the run counts. Use a larger chunkSize, or split the list between runs.");
         }
 
         return new Chunking(chunks, WidthOf(options?.MaxParallelism, chunks, nameof(options)));
     }
 
-    private static async Task<IReadOnlyList<TResult>> MapCoreAsync<TItem, TResult>(
+    private static async Task<TResult[]> MapCoreAsync<TItem, TResult>(
         IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -204,6 +213,7 @@ public static class FanOutExtensions
         CancellationToken cancellationToken)
     {
         var run = await FanOutRun<TResult>.RunAsync(
+            step,
             items.Count,
             width,
             failFast: true,
@@ -213,7 +223,7 @@ public static class FanOutExtensions
         return run.Values;
     }
 
-    private static async Task<IReadOnlyList<FanOutOutcome<TResult>>> MapOutcomesCoreAsync<TItem, TResult>(
+    private static async Task<FanOutOutcome<TResult>[]> MapOutcomesCoreAsync<TItem, TResult>(
         IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -223,6 +233,7 @@ public static class FanOutExtensions
         CancellationToken cancellationToken)
     {
         var run = await FanOutRun<TResult>.RunAsync(
+            step,
             items.Count,
             width,
             failFast: false,
@@ -251,7 +262,7 @@ public static class FanOutExtensions
             new StepOptions(FanOutIds.Item(id, index)) { ParallelMode = options?.ParallelMode },
             cancellationToken => handler(item, cancellationToken));
 
-    private static async Task<IReadOnlyList<TResult>> MapChunksCoreAsync<TFunction, TItem, TResult>(
+    private static async Task<TResult[]> MapChunksCoreAsync<TFunction, TItem, TResult>(
         IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -271,7 +282,7 @@ public static class FanOutExtensions
         return results;
     }
 
-    private static async Task<IReadOnlyList<FanOutOutcome<TResult>>> MapOutcomesChunksCoreAsync<TFunction, TItem, TResult>(
+    private static async Task<FanOutOutcome<TResult>[]> MapOutcomesChunksCoreAsync<TFunction, TItem, TResult>(
         IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -294,7 +305,8 @@ public static class FanOutExtensions
         where TFunction : FanOutFunction<TItem, TResult>
     {
         var count = items.Count;
-        var run = await FanOutRun<IReadOnlyList<FanOutOutcome<TResult>>>.RunAsync(
+        var run = await FanOutRun<FanOutOutcome<TResult>[]>.RunAsync(
+            step,
             chunking.Count,
             chunking.Width,
             failFast,
@@ -323,10 +335,10 @@ public static class FanOutExtensions
             }
 
             var returned = run.Values[chunk];
-            if (returned is null || returned.Count != take)
+            if (returned is null || returned.Length != take)
             {
                 throw new InvalidOperationException(
-                    $"The chunk {FanOutIds.Chunk(id, first, first + take - 1)} has {take} items, but {typeof(TFunction).Name} returned {returned?.Count ?? 0} outcomes for it.");
+                    $"The chunk {FanOutIds.Chunk(id, first, first + take - 1)} has {take} items, but {typeof(TFunction).Name} returned {returned?.Length ?? 0} outcomes for it.");
             }
 
             foreach (var outcome in returned)
@@ -345,7 +357,7 @@ public static class FanOutExtensions
         return outcomes;
     }
 
-    private static Task<IReadOnlyList<FanOutOutcome<TResult>>> StartChunk<TFunction, TItem, TResult>(
+    private static Task<FanOutOutcome<TResult>[]> StartChunk<TFunction, TItem, TResult>(
         IStepTools step,
         string id,
         IReadOnlyList<TItem> items,
@@ -363,7 +375,7 @@ public static class FanOutExtensions
             slice[i] = items[first + i];
         }
 
-        var invoked = step.InvokeAsync<TFunction, IReadOnlyList<FanOutOutcome<TResult>>>(
+        var invoked = step.InvokeAsync<TFunction, FanOutOutcome<TResult>[]>(
             new StepOptions(FanOutIds.Chunk(id, first, first + take - 1)) { ParallelMode = options?.ParallelMode },
             new FanOutChunk<TItem>(first, slice, failFast),
             options?.ChunkTimeout);
@@ -372,9 +384,9 @@ public static class FanOutExtensions
 
     // A fail-fast chunk returns the outcomes of the items that ran, with the failure that stopped it. The step that
     // failed ran in the chunk's run, so the exception names the item as a step of this run would.
-    private static async Task<IReadOnlyList<FanOutOutcome<TResult>>> ThrowOnFailedItemAsync<TResult>(
+    private static async Task<FanOutOutcome<TResult>[]> ThrowOnFailedItemAsync<TResult>(
         string id,
-        Task<IReadOnlyList<FanOutOutcome<TResult>>> invoked)
+        Task<FanOutOutcome<TResult>[]> invoked)
     {
         var outcomes = await invoked.ConfigureAwait(true)
             ?? throw new InvalidOperationException($"The run of a chunk of \"{id}\" returned no outcomes.");

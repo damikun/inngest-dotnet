@@ -46,6 +46,34 @@ internal sealed partial class Invocation
         }
     }
 
+    // Runs the action on the invocation's scheduler, with the execution context of the caller: at once when the caller is on
+    // the scheduler already, otherwise queued there, as the steps of code that left the scheduler are. For code that finds
+    // steps and goes on as their results are handed back, such as the lanes of a fan-out, since the engine can only see
+    // code that runs on its scheduler.
+    public void RunOnScheduler(Action action)
+    {
+        if (_scheduler.IsCurrent)
+        {
+            action();
+            return;
+        }
+
+        _scheduler.Post(
+            static state =>
+            {
+                var (action, context) = ((Action, ExecutionContext?))state!;
+                if (context is null)
+                {
+                    action();
+                }
+                else
+                {
+                    ExecutionContext.Run(context, static action => ((Action)action!)(), action);
+                }
+            },
+            (action, ExecutionContext.Capture()));
+    }
+
     private void Add(FoundStep step)
     {
         if (_finished)

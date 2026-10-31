@@ -41,9 +41,9 @@ public sealed class FanOutSerializationTests
             new(1, default, new FunctionError { Name = "PaymentError", Message = "declined", Cause = new FunctionError { Name = "HttpRequestException", Message = "reset" } }),
         ];
 
-        var read = JsonSerializer.Deserialize<IReadOnlyList<FanOutOutcome<Receipt>>>(JsonSerializer.Serialize(outcomes, Reflection), Reflection)!;
+        var read = JsonSerializer.Deserialize<FanOutOutcome<Receipt>[]>(JsonSerializer.Serialize(outcomes, Reflection), Reflection)!;
 
-        read.Count.ShouldBe(2);
+        read.Length.ShouldBe(2);
         read[0].ShouldBe(outcomes[0]);
         read[1].Index.ShouldBe(1);
         read[1].Value.ShouldBeNull();
@@ -79,15 +79,15 @@ public sealed class FanOutSerializationTests
         FanOutOutcome<Receipt>[] outcomes = [new(0, new Receipt("inv-0", "r-0"), null), new(1, default, new FunctionError { Name = "E", Message = "m" })];
 
         var chunkJson = JsonSerializer.Serialize(chunk, SourceGenerated);
-        var outcomesJson = JsonSerializer.Serialize<IReadOnlyList<FanOutOutcome<Receipt>>>(outcomes, SourceGenerated);
+        var outcomesJson = JsonSerializer.Serialize<FanOutOutcome<Receipt>[]>(outcomes, SourceGenerated);
 
         chunkJson.ShouldBe(JsonSerializer.Serialize(chunk, Reflection));
         outcomesJson.ShouldBe(JsonSerializer.Serialize(outcomes, Reflection));
         JsonSerializer.Deserialize<FanOutChunk<Invoice>>(chunkJson, SourceGenerated)!.Items.ShouldBe(chunk.Items);
-        JsonSerializer.Deserialize<IReadOnlyList<FanOutOutcome<Receipt>>>(outcomesJson, SourceGenerated)![1].Error!.Message.ShouldBe("m");
+        JsonSerializer.Deserialize<FanOutOutcome<Receipt>[]>(outcomesJson, SourceGenerated)![1].Error!.Message.ShouldBe("m");
     }
 }
 
 [JsonSerializable(typeof(FanOutChunk<Invoice>))]
-[JsonSerializable(typeof(IReadOnlyList<FanOutOutcome<Receipt>>))]
+[JsonSerializable(typeof(FanOutOutcome<Receipt>[]))]
 internal sealed partial class FanOutJsonContext : JsonSerializerContext;

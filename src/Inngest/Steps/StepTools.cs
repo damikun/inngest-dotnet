@@ -88,6 +88,9 @@ internal sealed class StepTools(Invocation invocation) : IStepTools
         where TFunction : InngestFunction, IReturns<TResult> =>
         Invoke<TResult>(IdOf(stepOptions), stepOptions, InvokeOptionsFor<TFunction>(data, timeout));
 
+    // Runs the action on the invocation's scheduler. See Invocation.RunOnScheduler.
+    public void RunOnScheduler(Action action) => invocation.RunOnScheduler(action);
+
     private Task<T> Run<T>(string id, StepOptions? stepOptions, Func<CancellationToken, Task<T>> handler)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);

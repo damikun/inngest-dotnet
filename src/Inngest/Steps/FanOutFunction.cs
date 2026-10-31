@@ -12,7 +12,7 @@ namespace Inngest;
 /// an id and no trigger, since only the fan-out starts it. The function's options apply to the chunk's run: its
 /// retries to each item's step, its concurrency limits to all the steps of all the chunks.
 /// </summary>
-public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChunk<TItem>, IReadOnlyList<FanOutOutcome<TResult>>>
+public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChunk<TItem>, FanOutOutcome<TResult>[]>
 {
     /// <summary>
     /// How many items of a chunk run at the same time. Null, the default, runs them all at once. The chunk size and the
@@ -30,7 +30,7 @@ public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChu
     /// Runs the items of the chunk in the event data, with up to <see cref="MaxParallelism"/> at a time, and returns the
     /// outcome of each. The fan-out calls this through Inngest; app code has no reason to.
     /// </summary>
-    public sealed override async Task<IReadOnlyList<FanOutOutcome<TResult>>> ExecuteAsync(
+    public sealed override async Task<FanOutOutcome<TResult>[]> ExecuteAsync(
         FunctionContext<FanOutChunk<TItem>> context,
         CancellationToken cancellationToken)
     {
@@ -42,10 +42,18 @@ public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChu
                 $"{GetType().Name} runs a chunk of a list. Start it with MapInChunksAsync or MapOutcomesInChunksAsync, which send the chunk as the event data.");
         }
 
+        // Registration cannot check it, because it needs an instance, and a retry would read the same value.
+        var maxParallelism = MaxParallelism;
+        if (maxParallelism < 1)
+        {
+            throw new NonRetriableException($"{GetType().Name}.MaxParallelism must be at least 1, but is {maxParallelism}.");
+        }
+
         var step = context.Step;
         var run = await FanOutRun<TResult>.RunAsync(
+            step,
             items.Count,
-            FanOutExtensions.WidthOf(MaxParallelism, items.Count, nameof(MaxParallelism)),
+            FanOutExtensions.WidthOf(maxParallelism, items.Count, nameof(MaxParallelism)),
             chunk.FailFast,
             index => step.RunAsync(
                 FanOutIds.Item("item", chunk.Offset + index),
@@ -66,6 +74,6 @@ public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChu
             }
         }
 
-        return outcomes;
+        return outcomes.ToArray();
     }
 }
