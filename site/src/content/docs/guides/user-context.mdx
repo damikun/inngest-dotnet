@@ -214,14 +214,16 @@ id is a ULID, and its first part is the creation time; Inngest makes it, so the 
 - A run created before the expiry keeps its user for as long as it lives. It can sleep, wait and retry for as long as
   Inngest lets a run last, and every call sees the same user.
 - A run created after the expiry has no user. This is what bounds a payload that leaked from an event and is sent again.
-- An event with a timestamp in the future starts a run that Inngest created when it received the event, so the run is
-  judged by that time, not by the time it starts. Time that passes before the run exists does count, such as a debounce
-  period or the timeout of a batch.
+- A run that Inngest created in time and then holds back, behind other runs in a queue say, keeps its user. An event
+  that asks to start later does not. Inngest creates its run when it receives the event but starts it at the event's
+  timestamp, which whoever sends the event chooses, so the run is judged by the later of the two times. An event
+  scheduled further ahead than the lifetime carries no user. Time that passes before the run exists counts too, such as
+  a debounce period.
 - A run id that is not a ULID, such as the made-up ids of a unit test, is judged by the clock at each call.
 - The events and invocations a run sends carry the same expiry, not a new one. A chain of runs therefore cannot go on
   for longer than the lifetime of the first send: a run created after it has no user.
 
-Choose a lifetime that covers the longest time between sending an event and the creation of the run it starts, and for a
+Choose a lifetime that covers the longest time between sending an event and the time it asks its run to start, and for a
 chain of runs, between the first send and the last event of the chain. A longer lifetime lets a leaked payload start
 runs for longer.
 

@@ -247,6 +247,59 @@ public sealed class RestoreTests
     }
 
     [Fact]
+    public async Task An_event_that_asks_to_start_after_the_expiry_gets_nobody_though_its_run_was_created_in_time()
+    {
+        // Whoever holds the event key can send a copied payload with a timestamp years ahead, and Inngest creates the run
+        // right away. The run would start long after the payload expired.
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
+        var created = app.Time.GetUtcNow();
+        var user = app.Seal(UserContextApp.Ada());
+
+        var result = await app.CallAsync(UserContextApp.Observe(), Call.New().Event(UserContextApp.EventJson(user, timestamp: created.AddYears(3))), created);
+
+        UserContextApp.SeenIn(result).IsAuthenticated.ShouldBeFalse();
+        app.Logs.GetSnapshot().Where(record => record.Level >= LogLevel.Warning).ShouldHaveSingleItem().Message.ShouldContain("it has expired");
+    }
+
+    [Fact]
+    public async Task An_event_that_asks_to_start_within_the_lifetime_keeps_its_user()
+    {
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
+        var created = app.Time.GetUtcNow();
+        var user = app.Seal(UserContextApp.Ada());
+
+        var result = await app.CallAsync(UserContextApp.Observe(), Call.New().Event(UserContextApp.EventJson(user, timestamp: created.AddMinutes(30))), created);
+
+        UserContextApp.SeenIn(result).IsAuthenticated.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_timestamp_in_the_past_does_not_make_a_late_run_younger()
+    {
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
+        var user = app.Seal(UserContextApp.Ada());
+        var created = app.Time.GetUtcNow().AddHours(2);
+
+        var result = await app.CallAsync(UserContextApp.Observe(), Call.New().Event(UserContextApp.EventJson(user, timestamp: created.AddDays(-5))), created);
+
+        UserContextApp.SeenIn(result).IsAuthenticated.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_run_delayed_by_a_queue_after_it_was_created_in_time_keeps_its_user()
+    {
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
+        var created = app.Time.GetUtcNow();
+        var user = Call.New().Event(UserContextApp.EventJson(app.Seal(UserContextApp.Ada()), timestamp: created));
+        app.Time.Advance(TimeSpan.FromDays(3));
+
+        // Its first call comes three days after it was created and after the payload expired.
+        var result = await app.CallAsync(UserContextApp.Observe(), user, created);
+
+        UserContextApp.SeenIn(result).IsAuthenticated.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task A_run_id_that_is_not_a_ulid_is_judged_by_the_clock_of_the_call()
     {
         await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
@@ -506,6 +559,29 @@ public sealed class RestoreTests
         var tooLate = app.Time.GetUtcNow().AddDays(8);
 
         await app.CallAsync(app.Function("fn-failure"), Call.New().Event(FailedEvent("test-app-fn", RunId(tooLate), original)), app.Time.GetUtcNow());
+
+        seen.ShouldNotBeNull().IsAuthenticated.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_failure_handler_judges_the_user_by_the_timestamp_of_the_event_of_the_run_that_failed_too()
+    {
+        UserContextApp.Seen? seen = null;
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1), inngest =>
+        {
+            inngest.AddFunction(
+                new FunctionOptions { Id = "fn", Triggers = [Trigger.Event(UserContextApp.EventName)] },
+                (_, _) => throw new NonRetriableException("boom"),
+                (context, _) =>
+                {
+                    seen = UserContextApp.SeenBy(context);
+                    return Task.CompletedTask;
+                });
+        });
+        var now = app.Time.GetUtcNow();
+        var original = UserContextApp.EventJson(app.Seal(UserContextApp.Ada()), timestamp: now.AddYears(3));
+
+        await app.CallAsync(app.Function("fn-failure"), Call.New().Event(FailedEvent("test-app-fn", RunId(now), original)), now);
 
         seen.ShouldNotBeNull().IsAuthenticated.ShouldBeFalse();
     }

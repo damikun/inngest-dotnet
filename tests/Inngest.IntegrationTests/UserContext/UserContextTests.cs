@@ -109,21 +109,36 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
     }
 
     [Fact(Timeout = 90_000)]
-    public async Task A_run_that_starts_later_than_the_lifetime_allows_still_has_the_user_if_Inngest_created_it_in_time()
+    public async Task An_event_scheduled_within_the_lifetime_starts_a_run_with_the_user()
     {
-        // The event asks to start in 8 seconds, but the user is only valid for 4. Inngest creates the run when it
-        // receives the event, and that is what the expiry is judged by.
-        await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromSeconds(4));
+        await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromMinutes(5));
         var sentAt = DateTimeOffset.UtcNow;
 
-        var eventId = await web.SendAsync(UserContextFunctions.Report, TestId, signedIn: true, delaySeconds: 8);
-        var run = await Api.WaitForRunEndAsync(eventId, Cancellation);
+        var eventId = await web.SendAsync(UserContextFunctions.Report, TestId, signedIn: true, delaySeconds: 3);
+        var run = await Api.WaitForRunEndAsync(eventId, Cancellation, TimeSpan.FromSeconds(60));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(3));
+        run.OutputAs<ReportResult>().Direct.ShouldBe(Ada);
+    }
+
+    [Fact(Timeout = 90_000)]
+    public async Task An_event_scheduled_after_the_user_expires_starts_a_run_without_one()
+    {
+        // Inngest creates the run when it receives the event, in time, and starts it at the event's timestamp, which
+        // lies after the payload expired. The run id alone would let it act as the user.
+        await using var web = await StartWebAppAsync(lifetime: TimeSpan.FromSeconds(5));
+        var sentAt = DateTimeOffset.UtcNow;
+
+        var eventId = await web.SendAsync(UserContextFunctions.Report, TestId, signedIn: true, delaySeconds: 15);
+        var run = await Api.WaitForRunEndAsync(eventId, Cancellation, TimeSpan.FromSeconds(60));
 
         run.Status.ShouldBe(RunStatus.Completed);
         var result = run.OutputAs<ReportResult>();
-        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(8));
-        RunIds.StartOf(result.RunId).ShouldNotBeNull().ShouldBeLessThan(sentAt.AddSeconds(4));
-        result.Direct.ShouldBe(Ada);
+        RunIds.StartOf(result.RunId).ShouldNotBeNull().ShouldBeLessThan(sentAt.AddSeconds(15));
+        DateTimeOffset.UtcNow.ShouldBeGreaterThan(sentAt.AddSeconds(15));
+        result.Direct.ShouldBe("nobody");
+        Fixture.App.Logs.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Warning && record.Message.Contains("it has expired", StringComparison.Ordinal));
     }
 
     private async Task<WebApp> StartWebAppAsync(TimeSpan? lifetime = null) => await WebApp.StartAsync(Api.BaseUrl, lifetime);

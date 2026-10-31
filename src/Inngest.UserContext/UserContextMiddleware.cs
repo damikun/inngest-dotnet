@@ -21,10 +21,15 @@ internal sealed class UserContextMiddleware(
     ILogger<UserContextMiddleware> logger,
     IUserContextSource? source = null) : InngestMiddleware
 {
+    // The first and the last millisecond a DateTimeOffset can hold.
+    private const long MinMilliseconds = -62135596800000;
+    private const long MaxMilliseconds = 253402300799999;
+
     private readonly UserContextOptions _options = options.Value;
 
-    // Runs on every call of the run, replays included. The user is judged by when the run was created, so every call
-    // gives the same answer and a function that checks the user at its top behaves the same on each replay.
+    // Runs on every call of the run, replays included. The user is judged by when the run was created and when its event
+    // asks it to start, both fixed for the run, so every call gives the same answer and a function that checks the user
+    // at its top behaves the same on each replay.
     public override Task<object?> WrapFunctionAsync(FunctionContext context, Func<Task<object?>> next)
     {
         Restore(context);
@@ -49,8 +54,10 @@ internal sealed class UserContextMiddleware(
             return;
         }
 
-        // A run's id says when Inngest created it; anything else is judged by the clock of this call.
-        var read = codec.Read(envelope, user.EventName, RunIds.StartOf(user.RunId) ?? time.GetUtcNow());
+        // A run's id says when Inngest created it. The run may start later than that, at the timestamp of its event, which
+        // whoever sends the event chooses and can put years ahead, so a user is judged by the later of the two. A run
+        // delayed by a queue was created in time and keeps its user.
+        var read = codec.Read(envelope, user.EventName, Later(RunIds.StartOf(user.RunId) ?? time.GetUtcNow(), user.Scheduled));
         RunUsers.Set(context, read.Snapshot);
         if (read.Snapshot is null)
         {
@@ -105,9 +112,22 @@ internal sealed class UserContextMiddleware(
         var name = @event.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String
             ? nameElement.GetString()!
             : string.Empty;
-        found = new EventUser(user, name, runId);
+        found = new EventUser(user, name, runId, ScheduledAt(@event));
         return true;
     }
+
+    // When the event asks its run to start. Inngest keeps the ts of the event as it was sent, so the value is the same on
+    // every call of the run.
+    private static DateTimeOffset? ScheduledAt(JsonElement @event) =>
+        @event.TryGetProperty("ts", out var ts) &&
+        ts.ValueKind == JsonValueKind.Number &&
+        ts.TryGetInt64(out var milliseconds) &&
+        milliseconds is >= MinMilliseconds and <= MaxMilliseconds
+            ? DateTimeOffset.FromUnixTimeMilliseconds(milliseconds)
+            : null;
+
+    private static DateTimeOffset Later(DateTimeOffset created, DateTimeOffset? scheduled) =>
+        scheduled is { } at && at > created ? at : created;
 
     private bool IsBatched(string functionId) =>
         registry.TryGet(Compose(functionId), out var function) && function.Options.BatchEvents is not null;
@@ -180,5 +200,5 @@ internal sealed class UserContextMiddleware(
         return attached ?? events;
     }
 
-    private readonly record struct EventUser(JsonElement Json, string EventName, string RunId);
+    private readonly record struct EventUser(JsonElement Json, string EventName, string RunId, DateTimeOffset? Scheduled);
 }

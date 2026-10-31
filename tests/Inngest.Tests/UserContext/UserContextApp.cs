@@ -86,8 +86,8 @@ internal sealed class UserContextApp : IAsyncDisposable
     public static string Envelope(string protectedText, int version = UserContextCodec.Version) =>
         $$$"""{"{{{UserContextCodec.Key}}}":{"v":{{{version}}},"t":"{{{protectedText}}}"}}""";
 
-    public static string EventJson(string user, string name = EventName) =>
-        $$"""{"data":{"value":1},"id":"01JTEST","name":"{{name}}","ts":1793268000000,"user":{{user}}}""";
+    public static string EventJson(string user, string name = EventName, DateTimeOffset? timestamp = null) =>
+        $$"""{"data":{"value":1},"id":"01JTEST","name":"{{name}}","ts":{{(timestamp ?? Now).ToUnixTimeMilliseconds()}},"user":{{user}}}""";
 
     // An id Inngest could have given a run created at this time.
     public static string RunIdAt(DateTimeOffset time)
