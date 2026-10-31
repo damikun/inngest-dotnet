@@ -18,13 +18,16 @@ public sealed class AppUrlContainerTests
         var builder = new InngestServerBuilder(InngestServer.Image).WithAppUrl($"http://localhost:{port}{ContainerApp.ServePath}");
         await using var server = (selfHosted ? builder.WithSelfHosting() : builder).Build();
         await server.StartAsync(Cancellation);
+        using var api = new DevServerClient(server.GetBaseAddress(), server.EventKey ?? "test", server.SigningKey, _ => Task.FromResult(string.Empty));
 
-        // The server has tried to sync an address that nobody listens on, and tries again every second.
+        // The server has tried to sync an address that nobody listens on, and tries again every second. It knows no
+        // function yet, so an event sent now starts no run, and gives no sign of it.
         await Task.Delay(TimeSpan.FromSeconds(3), Cancellation);
-        await using var app = await ContainerApp.StartAsync(server.Configure, settings: null, Cancellation, port);
-        using var api = new DevServerClient(server.GetBaseAddress(), server.EventKey ?? "test", server.SigningKey, _ => Task.FromResult(app.Describe()));
+        var early = await api.SendEventAsync("containers/hello", new { name = "Early" }, Cancellation);
+        await Should.ThrowAsync<TimeoutException>(() => api.WaitForRunAsync(early, Cancellation, TimeSpan.FromSeconds(2)));
 
-        await api.WaitForFunctionsAsync(ContainerApp.AppId, ContainerApp.Slugs, Cancellation, TimeSpan.FromSeconds(20));
+        await using var app = await ContainerApp.StartAsync(server.Configure, settings: null, Cancellation, port);
+        await ServerApps.WaitForAsync(server, ContainerApp.AppId, Cancellation);
         var eventId = await api.SendEventAsync("containers/steps", new { value = 5 }, Cancellation);
         var run = await api.WaitForRunEndAsync(eventId, Cancellation);
 
@@ -37,6 +40,7 @@ public sealed class AppUrlContainerTests
         syncs.ShouldNotBeEmpty();
         syncs.ShouldAllBe(request => request.Signed == selfHosted);
         syncs[0].BodyText.ShouldContain($"http://host.docker.internal:{port}{ContainerApp.ServePath}");
+        syncs[0].ServerKind.ShouldBe(selfHosted ? "cloud" : "dev");
     }
 
     [Fact(Timeout = 90_000)]

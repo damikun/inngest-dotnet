@@ -16,10 +16,6 @@ public abstract class ContainerFixture : IAsyncLifetime
 
     protected abstract InngestServerBuilder Configure(InngestServerBuilder builder);
 
-    // What the app is told about the server: the options the container sets, or the variables it lists.
-    protected virtual Task<ContainerApp> StartAppAsync(InngestServerContainer inngest, CancellationToken cancellationToken) =>
-        ContainerApp.StartAsync(inngest.Configure, settings: null, cancellationToken);
-
     public async ValueTask InitializeAsync()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -27,7 +23,7 @@ public abstract class ContainerFixture : IAsyncLifetime
         try
         {
             await Server.StartAsync(cancellationToken);
-            App = await StartAppAsync(Server, cancellationToken);
+            App = await ContainerApp.StartAsync(Server.Configure, settings: null, cancellationToken);
             await Server.SyncAsync(App.Url, cancellationToken);
 
             // The dev server takes any event key. The self-hosted server wants its signing key on its REST API.
@@ -87,21 +83,4 @@ public sealed class DevContainerFixture : ContainerFixture
 public sealed class SelfHostedContainerFixture : ContainerFixture
 {
     protected override InngestServerBuilder Configure(InngestServerBuilder builder) => builder.WithSelfHosting();
-}
-
-// The same two servers, with the app configured by the environment variables the container lists instead of options.
-public sealed class DevEnvironmentContainerFixture : ContainerFixture
-{
-    protected override InngestServerBuilder Configure(InngestServerBuilder builder) => builder;
-
-    protected override Task<ContainerApp> StartAppAsync(InngestServerContainer inngest, CancellationToken cancellationToken) =>
-        ContainerApp.StartAsync(configure: null, inngest.GetSdkEnvironment(), cancellationToken);
-}
-
-public sealed class SelfHostedEnvironmentContainerFixture : ContainerFixture
-{
-    protected override InngestServerBuilder Configure(InngestServerBuilder builder) => builder.WithSelfHosting();
-
-    protected override Task<ContainerApp> StartAppAsync(InngestServerContainer inngest, CancellationToken cancellationToken) =>
-        ContainerApp.StartAsync(configure: null, inngest.GetSdkEnvironment(), cancellationToken);
 }

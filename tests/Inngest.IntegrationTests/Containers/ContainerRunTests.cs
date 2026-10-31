@@ -118,15 +118,17 @@ public sealed class DevServerContainerTests(DevContainerFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public void The_sync_request_says_it_comes_from_a_dev_server_like_the_servers_own()
+    {
+        var sync = Fixture.App.Requests.Snapshot().First(request => request.Method == "PUT");
+
+        sync.ServerKind.ShouldBe("dev");
+    }
+
+    [Fact(Timeout = 60_000)]
     public void The_dev_server_neither_signs_its_requests_nor_is_asked_to()
     {
         Fixture.App.Requests.Snapshot().ShouldNotBeEmpty();
         Fixture.App.Requests.Snapshot().ShouldAllBe(request => !request.Signed);
     }
 }
-
-public sealed class DevServerEnvironmentContainerTests(DevEnvironmentContainerFixture fixture)
-    : ContainerRunTests<DevEnvironmentContainerFixture>(fixture), IClassFixture<DevEnvironmentContainerFixture>;
-
-public sealed class SelfHostedEnvironmentContainerTests(SelfHostedEnvironmentContainerFixture fixture)
-    : ContainerRunTests<SelfHostedEnvironmentContainerFixture>(fixture), IClassFixture<SelfHostedEnvironmentContainerFixture>;

@@ -36,6 +36,14 @@ public sealed class SelfHostedContainerTests(SelfHostedContainerFixture fixture)
     }
 
     [Fact(Timeout = 60_000)]
+    public void The_sync_request_says_it_comes_from_a_cloud_kind_server_like_the_servers_own()
+    {
+        var sync = Fixture.App.Requests.Snapshot().First(request => request.Method == "PUT");
+
+        sync.ServerKind.ShouldBe("cloud");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task An_app_with_another_signing_key_refuses_the_sync()
     {
         const string OtherKey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";

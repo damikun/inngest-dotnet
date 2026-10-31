@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using Inngest.IntegrationTests.Connect;
 using Inngest.IntegrationTests.Harness;
 using Inngest.Testing.Containers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.IntegrationTests.Containers;
 
@@ -29,7 +30,14 @@ public sealed class ConnectGatewayContainerTests
             configureOptions: server.Configure);
         using var api = new DevServerClient(server.GetBaseAddress(), server.EventKey ?? "test", server.SigningKey, token => DescribeAsync(server, token));
 
-        await api.WaitForFunctionsAsync(ContainerApp.AppId, ContainerApp.Slugs, Cancellation, TimeSpan.FromSeconds(30));
+        // The worker takes work once it is active, as the guide says, and no wait for the server to list the app follows.
+        var connection = worker.Services.GetRequiredService<IInngestConnection>();
+        var state = connection.State;
+        while (state != InngestConnectionState.Active)
+        {
+            state = await connection.WaitForStateChangedAsync(state, Cancellation);
+        }
+
         var eventId = await api.SendEventAsync("containers/steps", new { value = 20 }, Cancellation);
         var run = await api.WaitForRunEndAsync(eventId, Cancellation);
 

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Inngest.IntegrationTests.Harness;
 using Inngest.Sample.Functions;
 using Inngest.Testing.Containers;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -143,8 +144,114 @@ public abstract class WebApplicationFactoryTests<TFixture>(TFixture fixture)
     }
 }
 
+// Every way to get a client, which does not depend on the server, is checked once here.
 public sealed class DevWebApplicationFactoryTests(DevFactoryFixture fixture)
-    : WebApplicationFactoryTests<DevFactoryFixture>(fixture), IClassFixture<DevFactoryFixture>;
+    : WebApplicationFactoryTests<DevFactoryFixture>(fixture), IClassFixture<DevFactoryFixture>
+{
+    // Kestrel reports the app as [::], and the factory hands http://localhost, port 80, to options nobody gave an address.
+    private async Task ShouldReachTheApp(HttpClient client)
+    {
+        var url = Fixture.App.GetAppUrl();
+
+        client.BaseAddress.ShouldNotBeNull().Host.ShouldBe("localhost");
+        client.BaseAddress.Port.ShouldBe(url.Port);
+        using var response = await client.GetAsync(url.PathAndQuery, Cancellation);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task CreateClient_reaches_the_app()
+    {
+        using var client = Fixture.App.CreateClient();
+
+        await ShouldReachTheApp(client);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task CreateClient_with_options_that_have_no_base_address_reaches_the_app()
+    {
+        var options = new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, MaxAutomaticRedirections = 3 };
+
+        using var client = Fixture.App.CreateClient(options);
+
+        await ShouldReachTheApp(client);
+
+        // The options are the caller's own, so they are left as they were.
+        options.BaseAddress.ShouldBe(new Uri("http://localhost"));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public void CreateClient_keeps_a_base_address_it_was_given()
+    {
+        var elsewhere = new Uri("http://example.test:81/");
+
+        using var client = Fixture.App.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = elsewhere });
+
+        client.BaseAddress.ShouldBe(elsewhere);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task CreateDefaultClient_reaches_the_app()
+    {
+        using var client = Fixture.App.CreateDefaultClient();
+
+        await ShouldReachTheApp(client);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task CreateDefaultClient_with_a_handler_reaches_the_app_through_it()
+    {
+        var handler = new CountingHandler();
+
+        using var client = Fixture.App.CreateDefaultClient(handler);
+
+        await ShouldReachTheApp(client);
+        handler.Calls.ShouldBe(1);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_client_can_be_made_before_the_app_has_been_synced()
+    {
+        // The first thing a test does with a factory may be to create a client, which starts the app on its own.
+        await using var factory = new InngestWebApplicationFactory<OnboardUser>(Fixture.Server);
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var response = await client.GetAsync(factory.GetAppUrl().PathAndQuery, Cancellation);
+
+        client.BaseAddress.ShouldNotBeNull().Host.ShouldBe("localhost");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_factory_made_with_WithWebHostBuilder_keeps_the_inngest_settings_but_runs_in_memory()
+    {
+        using var derived = Fixture.App.WithWebHostBuilder(builder => builder.UseSetting("Logging:LogLevel:Default", "Warning"));
+
+        var options = derived.Services.GetRequiredService<IOptions<InngestOptions>>().Value;
+        using var client = derived.CreateClient();
+        using var response = await client.GetAsync("/api/inngest", Cancellation);
+
+        // Another instance of the app, on the factory's in-memory server, which the Kestrel one does not have.
+        options.BaseUrl.ShouldBe(Fixture.Server.GetBaseAddress());
+        options.IsDev.ShouldBe(true);
+        derived.Services.ShouldNotBeSameAs(Fixture.App.Services);
+        derived.Server.ShouldNotBeNull();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    private sealed class CountingHandler : DelegatingHandler
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+}
 
 public sealed class SelfHostedWebApplicationFactoryTests(SelfHostedFactoryFixture fixture)
     : WebApplicationFactoryTests<SelfHostedFactoryFixture>(fixture), IClassFixture<SelfHostedFactoryFixture>
