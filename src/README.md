@@ -1,10 +1,9 @@
 # inngest-dotnet
 
-Durable functions for .NET. Write background jobs and workflows as plain C# methods. Inngest runs every step once,
-retries only what fails and lets a run wait for days, so you ship reliable workflows without queues, state tables or
-cron glue.
+Write [Inngest](https://www.inngest.com) functions as plain C# classes in your ASP.NET Core app, with realtime updates
+and the .NET ecosystem you already use. Inngest runs them; this SDK connects your .NET app to it.
 
-inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), ported from the Inngest TypeScript SDK,
+inngest-dotnet is a community .NET SDK for Inngest, ported from the Inngest TypeScript SDK,
 [inngest-js](https://github.com/inngest/inngest-js). It targets .NET 8 and .NET 10 and is Native AOT compatible, except
 `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and Aspire app hosts,
 which are never compiled ahead of time.
@@ -146,6 +145,7 @@ send an event with `IInngestClient`, and watch the run at http://localhost:8288.
 - [How it works](https://damikun.github.io/inngest-dotnet/how-it-works/)
 - [Examples](https://damikun.github.io/inngest-dotnet/examples/order-fulfillment/)
 - [Source code and samples](https://github.com/damikun/inngest-dotnet)
+- [Inngest documentation](https://www.inngest.com/docs), for the platform itself
 
 ## License
 

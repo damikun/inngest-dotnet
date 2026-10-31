@@ -1,6 +1,6 @@
-// The landing page's architecture figure as an animated picture, in the site's dark and light colors, for the landing
-// page and the README. It plays one run over HTTP: an event reaches Inngest, Inngest calls the app once per step, a
-// step that fails is retried after a backoff, and the last call returns the output. The Connect lane stays still.
+// The architecture figure of the How it works page as an animated picture, in the site's dark and light colors. It
+// plays one run over HTTP: an event reaches Inngest, Inngest calls the app once per step, a step that fails is retried
+// after a backoff, and the last call returns the output. The Connect lane stays still.
 //
 // It follows scripts/readme-images.ts: text is set as outlines from the site's own fonts, so the pictures carry no
 // fonts and look the same everywhere, and every state is drawn once and faded in and out by CSS animations on one
@@ -28,7 +28,7 @@ const fonts = {
 };
 type Face = keyof typeof fonts;
 
-// The colors of the README's architecture picture, from src/styles/theme.css, plus the failure red.
+// The colors of the architecture picture, from src/styles/theme.css, plus the failure red.
 interface Palette {
   frame: string;
   frameBorder: string;

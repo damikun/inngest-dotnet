@@ -356,7 +356,7 @@ interface BannerColors {
 function banner(c: BannerColors): string {
   const W = 960;
   const H = 248;
-  const p = new Picture(W, H, 'inngest-dotnet: durable functions for .NET');
+  const p = new Picture(W, H, 'inngest-dotnet: Inngest SDK for .NET');
   p.def(
     `<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="480" cy="-60" r="340" gradientTransform="translate(480 -60) scale(1.85 1) translate(-480 60)"><stop offset="0" stop-color="#f65c4f" stop-opacity="0.26"/><stop offset="0.72" stop-color="#f65c4f" stop-opacity="0"/></radialGradient>`,
   );
@@ -369,7 +369,7 @@ function banner(c: BannerColors): string {
   p.add(`<rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="13.5" fill="none" stroke="${c.border}"/>`);
 
   p.line([{ text: 'inngest', face: 'wordmark' }, { text: '-dotnet', face: 'wordmark', fill: c.suffix }], 21, W / 2, 62, c.title, { center: true });
-  p.line([{ text: 'Durable functions for .NET', face: 'display' }], 58, W / 2, 138, c.title, { center: true, tracking: -58 * 0.035 });
+  p.line([{ text: 'Inngest SDK for .NET', face: 'display' }], 58, W / 2, 138, c.title, { center: true, tracking: -58 * 0.035 });
 
   // The facts, each after a coral dot, in two centered rows.
   const rows = [
@@ -397,7 +397,7 @@ function banner(c: BannerColors): string {
 // GitHub's social preview is 1280 by 640. It shows the landing page's social card, widened with the card's own
 // background.
 async function socialPreview(): Promise<Buffer> {
-  const card = renderCardSvg({ title: 'Durable functions for .NET', home: true })
+  const card = renderCardSvg({ title: 'Inngest SDK for .NET', home: true })
     .replace('width="1200" height="630" viewBox="0 0 1200 630"', 'width="1280" height="640" viewBox="-40 -5 1280 640"')
     .replaceAll('<rect width="1200" height="630"', '<rect x="-40" y="-5" width="1280" height="640"')
     .replace('<rect x="0" y="0" width="1200" height="6"', '<rect x="-40" y="-5" width="1280" height="6"');

@@ -2,11 +2,11 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
-  <img alt="inngest-dotnet: durable functions for .NET" src=".github/assets/banner-light.svg">
+  <img alt="inngest-dotnet: Inngest SDK for .NET" src=".github/assets/banner-light.svg">
 </picture>
 
-Write background jobs and workflows as plain C# methods. Inngest runs every step once, retries only what fails and
-lets a run wait for days, so you ship reliable workflows without queues, state tables or cron glue.
+Write [Inngest](https://www.inngest.com) functions as plain C# classes in your ASP.NET Core app, with realtime updates
+and the .NET ecosystem you already use. Inngest runs them; this SDK connects your .NET app to it.
 
 [![CI](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Inngest)](https://www.nuget.org/packages/Inngest)
@@ -14,8 +14,8 @@ lets a run wait for days, so you ship reliable workflows without queues, state t
 
 [Documentation](https://damikun.github.io/inngest-dotnet/) ·
 [Getting started](https://damikun.github.io/inngest-dotnet/guides/getting-started/) ·
-[How it works](https://damikun.github.io/inngest-dotnet/how-it-works/) ·
-[Examples](https://damikun.github.io/inngest-dotnet/examples/order-fulfillment/)
+[Examples](https://damikun.github.io/inngest-dotnet/examples/order-fulfillment/) ·
+[What is Inngest?](https://www.inngest.com/)
 
 </div>
 
@@ -33,6 +33,20 @@ from ASP.NET Core, or from a worker that needs no public endpoint.
 
 Inngest runs each step once and keeps its result. When `send-receipt` fails, Inngest retries that step alone, so the
 card is not charged again, and a sleep holds no thread or worker while it waits.
+
+## Built on Inngest
+
+Inngest is the platform that runs your functions: it receives events, keeps the state of every run, retries what
+fails and shows each run in its dashboard. This SDK is how a .NET app takes part. You write the functions in C#, and
+the SDK serves them to Inngest and sends your events. Inngest's own documentation covers the platform:
+
+- [Concepts](https://www.inngest.com/docs/durable-execution/concepts): events, triggers, runs, steps and waits.
+- [How Inngest functions run](https://www.inngest.com/docs/durable-execution/durable-workflows): how a run saves each
+  step and resumes after a failure or a pause.
+- [The dev server](https://www.inngest.com/docs/local-development): Inngest on your machine, with its UI.
+
+[How it works](https://damikun.github.io/inngest-dotnet/how-it-works/) shows what this SDK answers to each of
+Inngest's calls in a real run.
 
 ## Ordinary C#, durable by default
 
@@ -78,18 +92,6 @@ public sealed class CheckoutFunction(IPayments pay, IMailer mail, IWarehouse war
 - **The sleep holds nothing.** `SleepAsync` ends the call, and Inngest calls the function again in 30 minutes.
   Nothing runs or waits in your app meanwhile, and deploys in between do not matter.
 - **`return` completes the run.** The SDK reports the output and Inngest marks the run completed.
-
-## Why durable execution
-
-Checkout flows, onboarding emails, billing runs and webhook handlers call systems that fail, and some have to wait
-for days. With durable steps, a failure costs one retry of one step, not a second charge.
-
-- **A retry repeats only what failed.** Inngest saves each step's result. When an API returns a `500` or the process
-  crashes, the retry runs the step that failed, not the charge and the email before it.
-- **Runs can wait for days.** A run can sleep until a date or wait for an event, such as a payment or a reply,
-  without a worker, a timer or a table of your own. The app can deploy, restart or scale down in the meantime.
-- **No queue plumbing.** Concurrency limits, throttling, rate limits, debounce, batching and cancellation are options
-  on the function. Inngest enforces them and keeps the history of every run.
 
 ## Features
 
@@ -137,28 +139,6 @@ Flow control is a set of attributes on the function, or options in code. Inngest
 [Throttle(10, "1m")]
 [CancelOn("account/deleted", Match = "data.accountId")]
 ```
-
-## How it works
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="site/src/assets/architecture-dark.svg">
-  <img alt="One run, animated. An event reaches Inngest, which calls your ASP.NET Core app at /api/inngest once per step. The charge step answers 206 with its result. Send-receipt fails, and Inngest retries it after a backoff. The last call answers 200 with the output. Inngest can also reach a Connect worker over a WebSocket the worker opened." src="site/src/assets/architecture-light.svg">
-</picture>
-
-Inngest stores the run and calls your app for each step. Your app keeps no state between calls. The SDK replays the
-function and tells Inngest what to do next.
-
-1. **An event starts a run.** Your code, a webhook or a schedule sends an event such as `shop/order.paid`, and
-   Inngest starts a run of every function it triggers.
-2. **Each call replays the function.** Inngest calls `/api/inngest` with the results of the steps that already
-   finished. The SDK hands them back at once, so the function picks up where it stopped.
-3. **The answer says what is next.** The SDK answers `206` with the step it ran or reached, such as a sleep, or `200`
-   with the output once the function returns.
-
-With Connect, the same functions run in a worker that opens a WebSocket to Inngest. Executions arrive over the
-socket and results go back over it, so the worker needs no public endpoint and can run behind a firewall.
-
-[Step through a real run, call by call](https://damikun.github.io/inngest-dotnet/how-it-works/)
 
 ## Packages
 
