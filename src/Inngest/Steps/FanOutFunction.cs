@@ -8,9 +8,10 @@ namespace Inngest;
 /// <summary>
 /// The function that runs one chunk of a list for MapInChunksAsync and MapOutcomesInChunksAsync: it calls
 /// <see cref="ProcessAsync"/> for each item of the chunk, as a step of its own with the id "item[index]", and returns the
-/// outcome of each item. Derive from it, implement ProcessAsync, and register the class like any function class, with
-/// an id and no trigger, since only the fan-out starts it. The function's options apply to the chunk's run: its
-/// retries to each item's step, its concurrency limits to all the steps of all the chunks.
+/// outcome of each item, as an array, which is the type to list in a source-generated JsonSerializerContext. Derive from
+/// it, implement ProcessAsync, and register the class like any function class, with an id and no trigger, since only
+/// the fan-out starts it. The function's options apply to the chunk's run: its retries to each item's step, its
+/// concurrency limits to all the steps of all the chunks.
 /// </summary>
 public abstract class FanOutFunction<TItem, TResult> : InngestFunction<FanOutChunk<TItem>, FanOutOutcome<TResult>[]>
 {

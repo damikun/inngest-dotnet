@@ -418,14 +418,23 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
   that suffix never does, and the index is the run of digits after the last `[`, so two items or an item and a chunk
   never share an id. What can still repeat is an id the code passes twice, and the engine numbers that as ever. A chunk
   has both of its ends in its id so that a run replayed with another chunk size does not hand one chunk the result of
-  another.
+  another; it invokes every chunk again instead.
 - **The window.** `FanOutRun` starts one lane per unit in flight, as the workers of `Parallel.ForEachAsync` do: a lane
   starts a unit, waits for it, and takes the next. The engine hands memoized results back in the order the run recorded
   them, one at a time, and each hand-back lets its lane start the next unit, so a replay starts the units in the order the
   run first did, whichever order the results arrived in. Under the default mode Inngest calls the function again only when
   every step of a group has finished, so the window moves on in groups; under race mode after each step, so it slides.
-  The lanes await with `ConfigureAwait(true)` on purpose: `false` would move their continuations to the thread pool,
-  away from the invocation's scheduler, and the next unit would start while the engine decides what to report.
+  The engine tells that the function is idle on its scheduler, so the lanes run there: they await with
+  `ConfigureAwait(true)` on purpose, since `false` would move their continuations to the thread pool, and the next unit
+  would start while the engine decides what to report. A caller that left the scheduler, after `ConfigureAwait(false)`
+  or inside `Task.Run`, has `StepTools.RunOnScheduler` queue the start of the lanes there with its execution context, as
+  one piece of work, so that the whole first window is found at once and a fan-out behaves as it does called from the
+  scheduler. The alternative, lanes that continue on the thread that completes a step (`ContinueWith` with
+  `ExecuteSynchronously`), fixes the awaits but leaves the first window to be registered step by step from the pool
+  thread, which the engine can interleave with hand-backs: in 90,000 replays of off-scheduler calls it gave one window in
+  another order and, once, another first failure, both from `Task.Run`; queuing the start gave none in as many. A fake of the step tools has no
+  scheduler, and the lanes then start where the caller is. The answer is taken where the run is decided, not when the
+  awaiting code resumes.
 - **Calls.** A list of `n` items in windows of `w` takes one call per window of two or more items that finds its items,
   one call per item, one call for a last window of one item that runs in the call that finds it, and one that returns:
   seven items in windows of three are 10 calls. In race mode it is `2n + 1`. Every call replays the function and carries
@@ -435,10 +444,13 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
   because hand-backs follow the record. A step that failed for good is the only thing that counts as an item's failure;
   anything else a unit throws ends the run with that exception.
 - **Chunks.** The function of a chunk is a class, because the code of an item cannot travel to another run. The parent
-  invokes it by class with a `FanOutChunk<TItem>` as the event data and reads `IReadOnlyList<FanOutOutcome<TResult>>`
-  back; the function never fails because of an item, it reports it, so the parent can name the item that failed.
-  Sizes are the limits of Inngest: 1,000 steps in a run, the size of an event, 4 MiB for a step's output and 32 MiB for
-  a run's state.
+  invokes it by class with a `FanOutChunk<TItem>` as the event data and reads `FanOutOutcome<TResult>[]` back; the
+  function never fails because of an item, it reports it, so the parent can name the item that failed. The outcomes are
+  an array because the engine writes a function's output by its runtime type, so a source-generated context has to list
+  the type that is written. Sizes follow the limits of Inngest, 32 MiB for a run's state among them, and what the dev
+  server enforces: a run fails once 1,000 steps have completed, so the guards refuse 1,000 items, chunks or chunk size
+  and more, without retries, and an SDK response is capped at 8 MiB, which carries all the chunks planned in one call and
+  the outcomes a chunk's run ends with. See the guide for what was tried.
 
 ### Serialization
 

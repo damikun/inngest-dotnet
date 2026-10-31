@@ -196,27 +196,28 @@ have finished, or `Race`, where it calls the function again each time one of the
 ## Fan-out
 
 `FanOutExtensions` adds methods to `IStepTools` that run a step for each item of an `IReadOnlyList<TItem>`, with the id
-`id[index]`, and return the results in the order of the items. They need nothing from the engine, so they also work on a
-fake of `IStepTools`. Each takes `FanOutOptions? options = null` and `CancellationToken cancellationToken = default`
+`id[index]`, and return the results, as arrays like `Task.WhenAll`, in the order of the items. They need nothing from the
+engine's public surface, so they also work on a fake of `IStepTools`. Each takes `FanOutOptions? options = null` and `CancellationToken cancellationToken = default`
 after the arguments listed here. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/).
 
 | Method | Returns |
 |---|---|
-| `MapAsync<TItem, TResult>(string id, IReadOnlyList<TItem> items, Func<TItem, CancellationToken, Task<TResult>> handler)` | `Task<IReadOnlyList<TResult>>`; the first item that fails for good stops the list, and its `StepFailedException` is thrown |
+| `MapAsync<TItem, TResult>(string id, IReadOnlyList<TItem> items, Func<TItem, CancellationToken, Task<TResult>> handler)` | `Task<TResult[]>`; the first item that fails for good stops the list, and its `StepFailedException` is thrown |
 | `ForEachAsync<TItem>(string id, IReadOnlyList<TItem> items, Func<TItem, CancellationToken, Task> handler)` | `Task`; the same for a handler without a result |
-| `MapOutcomesAsync<TItem, TResult>(string id, IReadOnlyList<TItem> items, Func<TItem, CancellationToken, Task<TResult>> handler)` | `Task<IReadOnlyList<FanOutOutcome<TResult>>>`; every item runs, and each has an outcome |
-| `MapInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<IReadOnlyList<TResult>>`; each chunk of `chunkSize` items runs in a run of the `FanOutFunction<TItem, TResult>` class `TFunction`, with the id `id[first-last]` |
-| `MapOutcomesInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<IReadOnlyList<FanOutOutcome<TResult>>>` |
+| `MapOutcomesAsync<TItem, TResult>(string id, IReadOnlyList<TItem> items, Func<TItem, CancellationToken, Task<TResult>> handler)` | `Task<FanOutOutcome<TResult>[]>`; every item runs, and each has an outcome |
+| `MapInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<TResult[]>`; each chunk of `chunkSize` items runs in a run of the `FanOutFunction<TItem, TResult>` class `TFunction`, with the id `id[first-last]` |
+| `MapOutcomesInChunksAsync<TFunction, TItem, TResult>(string id, IReadOnlyList<TItem> items, int chunkSize)` | `Task<FanOutOutcome<TResult>[]>` |
 
-A run has at most 1,000 steps, so the methods without chunks refuse a list of more than 1,000 items, and the chunked
-methods refuse a `chunkSize` above 1,000 and a list that makes more than 1,000 chunks.
+Inngest fails a run once 1,000 of its steps have completed, and every step of the run counts. So the methods without
+chunks refuse a list of 1,000 items or more, and the chunked methods a `chunkSize` of 1,000 or more and a list that makes
+1,000 chunks or more, with a `NonRetriableException`, which is not retried. Fewer fit when the function has other steps.
 
 | Type | Members |
 |---|---|
 | `FanOutOptions`, a record | `MaxParallelism`: how many items, or chunks, run at once, all of them by default. `ParallelMode`: `Wait`, `Race`, or null for the mode of the enclosing `ParallelAsync`. `ChunkTimeout`: how long a chunk's run may take. |
 | `FanOutOutcome<TResult>`, a record struct | `Index`, `Value`, `Error` (a `FunctionError?`) and `Succeeded` |
 | `FanOutFunction<TItem, TResult>`, an abstract class | The function of a chunk. Implement `ProcessAsync(TItem item, CancellationToken cancellationToken)`; override `MaxParallelism`, the number of items of a chunk that run at once. Register it with `AddFunction<T>()`, with no trigger. |
-| `FanOutChunk<TItem>`, a record | `(int Offset, IReadOnlyList<TItem> Items, bool FailFast)`: the event data of a chunk's run. A source-generated `JsonSerializerContext` needs it, and `IReadOnlyList<FanOutOutcome<TResult>>`, the output of the run. |
+| `FanOutChunk<TItem>`, a record | `(int Offset, IReadOnlyList<TItem> Items, bool FailFast)`: the event data of a chunk's run. A source-generated `JsonSerializerContext` needs it, and `FanOutOutcome<TResult>[]`, the output of the run. |
 
 ## Events
 

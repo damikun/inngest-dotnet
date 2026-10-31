@@ -101,8 +101,8 @@ for the losing step to finish, unless they run in race mode too.
 - **Scoped services.** Each step started together runs in a call of its own, with a dependency injection scope of its
   own, so parallel steps do not share a `DbContext` that the function injects. Within one call the function's code and
   its steps do share it; [Scoped steps](/inngest-dotnet/guides/scoped-steps/) gives a step a scope of its own.
-- **Inngest's limits.** A run can have up to 1,000 steps by default, parallel ones included. See the
-  [limits](https://www.inngest.com/docs/durable-execution/limits) page.
+- **Inngest's limits.** A run has 1,000 steps by default, parallel ones included, and fails once that many have
+  completed. See the [limits](https://www.inngest.com/docs/durable-execution/limits) page.
 
 The Inngest docs describe [parallel steps](https://www.inngest.com/docs/durable-execution/primitives/group-parallel)
 for the TypeScript SDK, which uses `Promise.all` where .NET uses `Task.WhenAll`.

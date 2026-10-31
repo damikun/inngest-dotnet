@@ -71,7 +71,8 @@ List every type that the SDK serializes or deserializes for your code:
 - the `TData` of `WaitForEventAsync<TData>`, and the `TResult` and `data` of `InvokeAsync`;
 - the runtime types of `Data` and `User` in the events you send;
 - for each function that runs the chunks of a [fan-out](/inngest-dotnet/guides/fan-out/#choosing-the-sizes),
-  `FanOutChunk<TItem>` and `IReadOnlyList<FanOutOutcome<TResult>>`.
+  `FanOutChunk<TItem>` and `FanOutOutcome<TResult>[]`. The methods return arrays, and the engine writes a function's
+  output by its runtime type, so a function that returns what `MapAsync` gave lists `TResult[]`.
 
 The SDK covers its own public types, such as `FunctionFailure`, `SendEventsResult`, `JsonElement` and `object`, so a
 step without a result or an untyped event needs nothing extra.

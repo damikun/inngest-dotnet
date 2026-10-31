@@ -7,16 +7,16 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`MapAsync` runs a step for each item of a list and returns the results in the order of the items. It is
-`Task.WhenAll` over a list, with an id for every step, a limit on how many steps run at the same time, and a choice
-of what a failure does.
+`MapAsync` runs a step for each item of a list and returns the results, as an array like `Task.WhenAll`, in the order of
+the items. It is `Task.WhenAll` over a list, with an id for every step, a limit on how many steps run at the same
+time, and a choice of what a failure does.
 
 {/* check: body JsonElement; IBilling billing; string customerId */}
 ```csharp
 var invoices = await context.Step.RunAsync("load-invoices",
     ct => billing.GetOpenInvoicesAsync(customerId, ct));
 
-IReadOnlyList<string> paymentIds = await context.Step.MapAsync("charge", invoices,
+string[] paymentIds = await context.Step.MapAsync("charge", invoices,
     (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
     new FanOutOptions { MaxParallelism = 5 });
 ```
@@ -154,19 +154,27 @@ and changes nothing, since the call ends then anyway.
 
 ## Lists too long for one run
 
-A run has at most 1,000 steps, those of parallel groups included, so `MapAsync` refuses a longer list. Such a list goes
-to child runs in chunks: the parent invokes one function per chunk, and each of those runs has a step for every item of
-its chunk. The limits that decide the sizes, from Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits):
+Inngest fails a run once 1,000 of its steps have completed, so a run holds at most 999, and every step of the run counts:
+the items of a fan-out, the other steps of the function and, in the parent of chunks, the invoke steps. On the dev
+server a fan-out of 999 items completes, and one of 1,000 fails with "exceeded the step limit of 1000 steps" after all
+its steps ran. `MapAsync` therefore refuses 1,000 items or more with a `NonRetriableException`, since a retry would meet
+the same list, and fewer fit when the function has other steps. A longer list goes to child runs in chunks: the parent
+invokes one function per chunk, and each of those runs has a step for every item of its chunk.
 
-| Limit | Value | What it bounds |
-|---|---|---|
-| Steps in a run | 1,000 | The chunk size, and the number of chunks of the parent |
-| Size of an event | 256 KiB on Free, 3 MiB on Pro and Business | The items of a chunk, since the chunk is the data of the event that starts its run |
-| Output of a step | 4 MiB | The outcomes of a chunk, which the parent's invoke step returns |
-| State of a run | 32 MiB for event, steps and output together | The outcomes of every chunk, which all land in the parent's state |
+The limits that decide the sizes are below. This SDK checks only the number of steps; the rest is for choosing sizes.
+The last column says what was tried against the dev server (`inngest/inngest:v1.49.0`) while this page was written.
+Nothing was tried on Inngest Cloud.
 
-Inngest's documentation gives no separate limit for the payload of an invoke; it is the data of the
-`inngest/function.invoked` event, so the limit of events applies.
+| Limit | Value | What it bounds | Tried on the dev server |
+|---|---|---|---|
+| Steps in a run | 1,000, [documented](https://www.inngest.com/docs/durable-execution/limits) | The items of a fan-out, the size of a chunk, the number of chunks | 999 steps complete, 1,000 fail |
+| Result of a step | 4 MiB, documented | The result of one item | Not tried |
+| Response of the app | 8 MiB (`output_too_large`), not documented | The items of all the chunks planned in one call, and the outcomes a chunk's run ends with | Items of 3.5 MB accepted, of 10 MB refused; outcomes of 7.8 MB accepted, of 11.7 MB refused after the items ran |
+| Size of an event | 256 KiB on Free, 3 MiB on Pro and Business, documented | A bound for the items of one chunk, which are the data of the event that starts its run | Chunks of 300 KiB, 1 MiB and 3.5 MB accepted |
+| State of a run | 32 MiB, documented | The outcomes of all the chunks, which land in the parent's state | Not tried |
+
+Inngest documents no separate limit for the payload of an invoke. The dev server did not apply the limit of events to
+it, and what Inngest Cloud does is not verified here, so use the event size of your plan as a conservative bound.
 
 ### The function of a chunk
 
@@ -223,7 +231,7 @@ The parent names the class and the types, and says how many items go to a chunk:
 
 {/* check: body JsonElement; IReadOnlyList<Invoice> invoices */}
 ```csharp
-IReadOnlyList<string> paymentIds = await context.Step.MapInChunksAsync<ChargeInvoices, Invoice, string>(
+string[] paymentIds = await context.Step.MapInChunksAsync<ChargeInvoices, Invoice, string>(
     "charge", invoices, chunkSize: 100, new FanOutOptions { MaxParallelism = 4 });
 ```
 
@@ -239,33 +247,41 @@ Failures work as in `MapAsync`, with the difference that the failing step ran in
   `StepFailedException` whose `StepId` is `charge[137]`, the position of the item, and whose `Error` is the item's error;
 - a chunk whose run fails or times out throws a `StepFailedException` with the id of the chunk's step;
 - `MapOutcomesInChunksAsync` runs every item and returns an outcome for each. When a chunk's run fails or times out, each
-  of its items gets the error of the chunk's step.
+  of its items gets the error of the chunk's step, although that run may have processed some or all of them. The parent
+  cannot tell, so retrying the items it reports as failed can process an item twice; make `ProcessAsync` safe to repeat.
+
+Two more things to know. A parent that fails does not cancel the chunk runs it has started; they run to the end and
+their results are dropped. And a `chunkSize` changed between two calls of a run never mixes results, because the ids
+carry both ends, but no chunk then has the id it had, so every chunk is invoked again and its items run again. Keep the
+chunk size the same for runs that are in flight.
 
 ### Choosing the sizes
 
-A run holds up to 1,000 chunks of up to 1,000 items. What decides the sizes in practice is what has to fit:
+What decides the sizes in practice is what has to fit:
 
-- **The items of a chunk fit in an event.** `chunkSize` times the size of an item as JSON must stay under the event limit
-  of your plan, with a little room for the rest of the data. A hundred items of about a kilobyte are about 100 KB.
-- **The outcomes of a chunk fit in a step.** An outcome is the result as JSON in `{"index":…,"value":…}`, which adds
-  about 25 bytes to it, and a chunk's outcomes must stay under 4 MiB.
+- **The items of the chunks planned together fit in one response.** The call that plans chunks answers with all of them,
+  so `chunkSize` times the size of an item as JSON, times the chunks in flight (`MaxParallelism`, or all of them), should
+  stay well under 8 MiB. One chunk should also stay under the event size of your plan.
+- **The outcomes of a chunk fit in the response that ends its run.** An outcome is the result as JSON in
+  `{"index":…,"value":…}`, which adds about 25 bytes to it. Each result is a step result, at most 4 MiB.
 - **All the outcomes fit in the parent's state.** They add up over the chunks, with the event and the other steps, to
   32 MiB at most. Keep the result of an item small, a few numbers or an id. For work with no result, return a `bool`.
-- **The items themselves are small.** A list that is too big for an event is a list of ids or ranges, such as page
+- **The items themselves are small.** A list that is too big for a response is a list of ids or ranges, such as page
   numbers, and `ProcessAsync` loads what it needs.
 
-The call refuses a `chunkSize` above 1,000, and a list that makes more than 1,000 chunks. A list beyond that is split
-between several runs, for example by an event per part.
+The call refuses a `chunkSize` of 1,000 or more, and a list that makes 1,000 chunks or more, with a
+`NonRetriableException`. A list beyond that is split between several runs, for example by an event per part.
 
 Under Native AOT or trimming, add the chunk and its outcomes to your `JsonSerializerContext`, for each function of a
-chunk. See [Native AOT](/inngest-dotnet/guides/native-aot/):
+chunk. The engine writes the output of a function by its runtime type, which is why the outcomes are an array and the
+context lists the array. See [Native AOT](/inngest-dotnet/guides/native-aot/):
 
 ```csharp
 using System.Text.Json.Serialization;
 using Inngest;
 
 [JsonSerializable(typeof(FanOutChunk<Invoice>))]
-[JsonSerializable(typeof(IReadOnlyList<FanOutOutcome<string>>))]
+[JsonSerializable(typeof(FanOutOutcome<string>[]))]
 internal sealed partial class FanOutJson : JsonSerializerContext;
 ```
 
@@ -302,8 +318,8 @@ using Inngest.Testing;
 var chunk = await host.RunAsync<ChargeInvoices>(
     new InngestEvent("inngest/function.invoked", new FanOutChunk<Invoice>(0, firstChunk, FailFast: true)));
 
-var mocks = new StepMocks().Invoke<ChargeInvoices, IReadOnlyList<FanOutOutcome<string>>>(
-    "charge[0-99]", chunk.GetOutput<IReadOnlyList<FanOutOutcome<string>>>()!);
+var mocks = new StepMocks().Invoke<ChargeInvoices, FanOutOutcome<string>[]>(
+    "charge[0-99]", chunk.GetOutput<FanOutOutcome<string>[]>()!);
 ```
 
 A fake of `IStepTools` that runs handlers on the spot, as in
