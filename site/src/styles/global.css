@@ -436,10 +436,6 @@ html.js .idn-nojs-only {
   margin-top: 0;
 }
 
-.sl-markdown-content .idn-card h3 {
-  font-size: var(--sl-text-xl);
-}
-
 /* The capabilities: cards in two columns at most, so that their code has room to read, in groups under headings. A
    card holds a title, one sentence, a short snippet and a link to its guide. The link stays at the foot of the card, so
    the cards of a row end on one line. */

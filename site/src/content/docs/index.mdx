@@ -26,37 +26,6 @@ import Architecture from '../../components/landing/Architecture.astro';
 import Proof from '../../components/landing/Proof.astro';
 import Section from '../../components/landing/Section.astro';
 
-<Section id="why" eyebrow="Why durable execution" title="Background work that does not fall over" lead="Checkout flows, onboarding emails, billing runs and webhook handlers call systems that fail, and some have to wait for days. With durable steps, a failure costs one retry of one step, not a second charge.">
-
-<div class="idn-grid idn-grid-3">
-<div class="idn-card">
-
-### A retry repeats only what failed
-
-A function is split into steps. Inngest saves each step's result, so when an API returns a `500` or the process
-crashes, the retry runs the step that failed, not the charge and the email before it.
-
-</div>
-<div class="idn-card">
-
-### Runs can wait for days
-
-A run can sleep until a date or wait for an event, such as a payment or a reply, without a worker, a timer or a
-table of your own. The app can deploy, restart or scale down in the meantime.
-
-</div>
-<div class="idn-card">
-
-### No queue plumbing
-
-Concurrency limits, throttling, rate limits, debounce, batching and cancellation are options on the function.
-Inngest enforces them and keeps the history of every run.
-
-</div>
-</div>
-
-</Section>
-
 <Section id="how-it-works" eyebrow="How it works" title="Inngest calls your app for every step" lead="Inngest stores the run and calls your ASP.NET Core app for each step. Steps you start together with Task.WhenAll run in parallel, each in its own call. Your app keeps no state between calls; the SDK replays the function and tells Inngest what to do next.">
 
 <Architecture />
