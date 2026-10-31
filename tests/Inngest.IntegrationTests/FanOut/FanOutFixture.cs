@@ -10,6 +10,7 @@ public sealed class FanOutFixture : EvaluationFixture
     protected override void AddEvaluationFunctions(IInngestBuilder inngest)
     {
         inngest.Services.AddSingleton<InFlight>();
+        inngest.Services.AddSingleton<Rendezvous>();
         FanOutFunctions.Add(inngest);
     }
 }

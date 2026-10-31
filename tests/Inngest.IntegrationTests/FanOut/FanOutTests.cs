@@ -15,11 +15,10 @@ public sealed class FanOutTests(EvaluationEnvironment environment) : EvaluationS
         run.Status.ShouldBe(RunStatus.Completed);
         run.OutputAs<int[]>().ShouldBe([0, 1, 4, 9, 16, 25, 36]);
 
-        // Every handler ran once, never more than three at the same time, and the window did fill up.
+        // Every handler ran once, three together in a window and never more than three: the handlers of a window wait for
+        // each other, so the run completes only if the window filled up.
         Observed.Values<int>("item").Order().ShouldBe([0, 1, 2, 3, 4, 5, 6]);
-        var running = Observed.Values<int>("running");
-        running.Max().ShouldBeLessThanOrEqualTo(3);
-        running.Max().ShouldBeGreaterThanOrEqualTo(2);
+        Observed.Values<int>("running").Max().ShouldBe(3);
 
         // The server knows the steps by the ids of the items.
         var trace = await Api.GetRunTraceAsync(run.RunId, Cancellation);
@@ -104,6 +103,23 @@ public sealed class FanOutTests(EvaluationEnvironment environment) : EvaluationS
         await Task.Delay(TimeSpan.FromSeconds(1), Cancellation);
         Observed.Values<int>("start").Order().ShouldBe([0, 1]);
         (await Api.GetRunAsync(run.RunId, Cancellation)).Status.ShouldBe(RunStatus.Failed);
+    }
+
+    [Fact(Timeout = 150_000)]
+    public async Task A_list_of_999_items_completes_and_one_of_1000_is_refused_before_a_step_runs_and_without_a_retry()
+    {
+        // Inngest fails a run once 1,000 of its steps have completed, so 1,000 items would run all their steps and then fail.
+        var refused = await RunToEndAsync(FanOutFunctions.Limit, new ValueEvent(TestId, 1000));
+
+        refused.Status.ShouldBe(RunStatus.Failed);
+        refused.Error.Message!.ShouldContain("MapInChunksAsync");
+        Observed.Names.ShouldBe(["call"]);
+
+        var completed = await RunToEndAsync(FanOutFunctions.Limit, new ValueEvent(TestId, 999), TimeSpan.FromSeconds(100));
+
+        completed.Status.ShouldBe(RunStatus.Completed);
+        completed.OutputAs<int>().ShouldBe(999);
+        Observed.Values<int>("item").Count.ShouldBe(999);
     }
 
     [Fact(Timeout = 90_000)]

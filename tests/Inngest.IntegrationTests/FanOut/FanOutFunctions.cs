@@ -24,6 +24,39 @@ internal sealed class InFlight
     public void Leave(string testId) => _counts.AddOrUpdate(testId, 0, static (_, count) => count - 1);
 }
 
+// Holds the handlers of a test at a point until as many as it expects have arrived there, so that a test that needs the
+// items of a window to overlap does not rely on how long a handler takes.
+internal sealed class Rendezvous
+{
+    private readonly ConcurrentDictionary<string, Point> _points = new(StringComparer.Ordinal);
+
+    // Returns once `expected` handlers have arrived at the point, and throws when that takes longer than the timeout.
+    public async Task ArriveAsync(string testId, string name, int expected, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var point = _points.GetOrAdd($"{testId}/{name}", static _ => new Point());
+        if (Interlocked.Increment(ref point.Arrived) >= expected)
+        {
+            point.Reached.TrySetResult();
+        }
+
+        try
+        {
+            await point.Reached.Task.WaitAsync(timeout, cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            throw new InvalidOperationException($"{expected} handlers did not arrive at {name} of test {testId} within {timeout}.");
+        }
+    }
+
+    private sealed class Point
+    {
+        public readonly TaskCompletionSource Reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Arrived;
+    }
+}
+
 // The function of a chunk: two items at a time, each a step of the chunk's run.
 internal sealed class SquareChunk(Probe probe) : FanOutFunction<ChunkItem, ChunkResult>
 {
@@ -46,35 +79,37 @@ internal static class FanOutFunctions
     public const string Race = "fanout/race";
     public const string Waves = "fanout/waves";
     public const string RaceFailure = "fanout/race-failure";
+    public const string Limit = "fanout/limit";
     public const string Chunks = "fanout/chunks";
     public const string ChunkOutcomes = "fanout/chunk-outcomes";
 
     public const string SlowGate = "slow";
 
-    // How long an item stays in its handler, so that the items of a window overlap.
-    private static readonly TimeSpan Busy = TimeSpan.FromMilliseconds(700);
-
     private static readonly TimeSpan GateTimeout = TimeSpan.FromSeconds(30);
 
     public static void Add(IInngestBuilder inngest)
     {
-        // Seven items, three at a time: the windows are 0 1 2, 3 4 5 and 6.
+        // Seven items, three at a time: the windows are 0 1 2, 3 4 5 and 6. The items of a window wait for each other, so
+        // that they are in flight together whatever the machine is doing.
         inngest.AddFunction<ValueEvent>(
             new FunctionOptions { Id = "fanout-window", Triggers = [Trigger.Event(Window)] },
             static async (context, _) =>
             {
                 var observed = context.Observed();
                 var inFlight = context.Services.GetRequiredService<InFlight>();
+                var rendezvous = context.Services.GetRequiredService<Rendezvous>();
                 var testId = context.Event.Data.TestId;
+                var count = context.Event.Data.Value;
                 return await context.Step.MapAsync(
                     "square",
-                    Enumerable.Range(0, context.Event.Data.Value).ToArray(),
+                    Enumerable.Range(0, count).ToArray(),
                     async (item, cancellationToken) =>
                     {
                         observed.Record("running", inFlight.Enter(testId));
                         try
                         {
-                            await Task.Delay(Busy, cancellationToken);
+                            var window = item / 3;
+                            await rendezvous.ArriveAsync(testId, $"window-{window}", Math.Min(3, count - (window * 3)), GateTimeout, cancellationToken);
                             observed.Record("item", item);
                             return item * item;
                         }
@@ -127,6 +162,25 @@ internal static class FanOutFunctions
         inngest.AddFunction<RunEvent>(
             new FunctionOptions { Id = "fanout-waves", Triggers = [Trigger.Event(Waves)] },
             static (context, _) => GatedAsync(context, null));
+
+        // As many items as the event says, to try the number of steps a run can hold. The function records each call.
+        inngest.AddFunction<ValueEvent>(
+            new FunctionOptions { Id = "fanout-limit", Triggers = [Trigger.Event(Limit)] },
+            static async (context, _) =>
+            {
+                var observed = context.Observed();
+                observed.Record("call");
+                var results = await context.Step.MapAsync(
+                    "item",
+                    Enumerable.Range(0, context.Event.Data.Value).ToArray(),
+                    (item, _) =>
+                    {
+                        observed.Record("item", item);
+                        return Task.FromResult(item);
+                    },
+                    new FanOutOptions { MaxParallelism = 250 });
+                return results.Length;
+            });
 
         // Item 0 is refused for good while item 1 waits at a gate. In race mode Inngest calls the function after item 0
         // failed, and the run fails without waiting for item 1.
