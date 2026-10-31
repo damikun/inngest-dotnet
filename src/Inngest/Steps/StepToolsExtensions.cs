@@ -109,7 +109,11 @@ public static class StepToolsExtensions
         return step.RunScopedAsync(id, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
     }
 
-    /// <summary>Runs a handler without a result in a scope of its own, with the TService resolved from that scope.</summary>
+    /// <summary>
+    /// Runs a handler without a result in a scope of its own, with the TService resolved from that scope. Naming the
+    /// one type argument picks this form, so a value the lambda returns is dropped; name both, TService and the result
+    /// type, to keep it.
+    /// </summary>
     public static Task RunScopedAsync<TService>(this IStepTools step, string id, Func<TService, CancellationToken, Task> handler)
         where TService : notnull
     {
@@ -222,7 +226,11 @@ public static class StepToolsExtensions
         return step.RunScopedAsync(stepOptions, (services, cancellationToken) => handler(services.GetRequiredService<TService>(), cancellationToken));
     }
 
-    /// <summary>Runs a handler without a result in a scope of its own, with the TService resolved from that scope.</summary>
+    /// <summary>
+    /// Runs a handler without a result in a scope of its own, with the TService resolved from that scope. Naming the
+    /// one type argument picks this form, so a value the lambda returns is dropped; name both, TService and the result
+    /// type, to keep it.
+    /// </summary>
     public static Task RunScopedAsync<TService>(this IStepTools step, StepOptions stepOptions, Func<TService, CancellationToken, Task> handler)
         where TService : notnull
     {
