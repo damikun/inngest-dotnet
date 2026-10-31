@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Transactions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
@@ -34,6 +35,7 @@ public sealed class PostgresOutboxTests(PostgresFixture postgres) : IClassFixtur
         types["Id"].ShouldBe("character varying");
         types["Data"].ShouldBe("text");
         types["Timestamp"].ShouldBe("timestamp with time zone");
+        types["CreatedAt"].ShouldBe("timestamp with time zone");
         types["NextAttemptAt"].ShouldBe("timestamp with time zone");
         types["LeaseExpiresAt"].ShouldBe("timestamp with time zone");
         types["SentAt"].ShouldBe("timestamp with time zone");
@@ -61,6 +63,37 @@ public sealed class PostgresOutboxTests(PostgresFixture postgres) : IClassFixtur
 
         (await dispatcher.Processor.DispatchAsync(Cancellation)).ShouldBe(1);
         dispatcher.Client.Events.ShouldHaveSingleItem();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task A_transaction_scope_wakes_the_dispatcher_at_the_save_when_the_events_are_not_visible_yet()
+    {
+        var connectionString = await postgres.CreateDatabaseAsync(Cancellation);
+        await using var saver = new PostgresOutboxHost(connectionString);
+        await using var dispatcher = new PostgresOutboxHost(connectionString);
+        await saver.CreateSchemaAsync(Cancellation);
+
+        using (var scope = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+        {
+            await using var context = saver.CreateContext();
+            context.Orders.Add(new ShopOrder { Number = "A-1" });
+            context.AddInngestEvent(new InngestEvent("shop/order.placed", new { OrderNumber = "A-1" }));
+            await context.SaveChangesAsync(Cancellation);
+
+            // Entity Framework sees no transaction of its own, so it takes the save for the commit and wakes the dispatcher. The
+            // scope has not completed, so the dispatcher finds nothing, and the events leave at the next poll.
+            (await saver.Signal.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, Cancellation)).ShouldBeTrue();
+
+            // The dispatcher is another process, which the ambient transaction does not reach.
+            using (new TransactionScope(TransactionScopeOption.Suppress, TransactionScopeAsyncFlowOption.Enabled))
+            {
+                (await dispatcher.Processor.DispatchAsync(Cancellation)).ShouldBe(0);
+            }
+
+            scope.Complete();
+        }
+
+        (await dispatcher.Processor.DispatchAsync(Cancellation)).ShouldBe(1);
     }
 
     [Fact(Timeout = 120_000)]
