@@ -201,9 +201,10 @@ for (const sitemap of files(dist).filter((file) => /sitemap-\d+\.xml$/.test(file
   }
 }
 
-// The text of a Markdown file outside code, where links and leftovers of MDX show.
+// The text of a Markdown file outside code, where links and leftovers of MDX show. A fence's indentation is spaces and
+// tabs only: with \s, a blank line before a fence would pair it with a later fence and leave code in the text.
 function outsideCode(markdown: string): string {
-  return markdown.replace(/^(\s*)(`{3,}|~{3,}).*\n[\s\S]*?\n\1\2[ \t]*$/gm, '').replace(/(`+)[^`]*?\1/g, '');
+  return markdown.replace(/^([ \t]*)(`{3,}|~{3,}).*\n[\s\S]*?\n\1\2[ \t]*$/gm, '').replace(/(`+)[^`]*?\1/g, '');
 }
 
 // The HTML page that a Markdown copy is next to: guides/steps.md is next to guides/steps/index.html.

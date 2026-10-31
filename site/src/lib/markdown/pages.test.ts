@@ -22,10 +22,11 @@ const pages = files(docs)
   .map((file) => ({ file, id: relative(docs, file).replace(/\.mdx?$/, '').split(sep).join('/') }));
 const links = siteLinks('https://example.com', '/docs', pages.map((page) => page.id));
 
-// The text outside code, where MDX would show: C# generics such as `InvokeAsync<T>` are not JSX.
+// The text outside code, where MDX would show: C# generics such as `InvokeAsync<T>` are not JSX. A fence's indentation
+// is spaces and tabs only, so that a blank line before a fence does not pair it with a later one.
 function prose(markdown: string): string {
   return markdown
-    .replace(/^(\s*)(`{3,}|~{3,}).*\n[\s\S]*?\n\1\2[ \t]*$/gm, '')
+    .replace(/^([ \t]*)(`{3,}|~{3,}).*\n[\s\S]*?\n\1\2[ \t]*$/gm, '')
     .replace(/(`+)[^`]*?\1/g, '');
 }
 
