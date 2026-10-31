@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Inngest.Functions;
+using Inngest.Tests.Client;
 using Inngest.Tests.Execution;
 using Inngest.UserContext;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Inngest.Tests.UserContext;
 
@@ -183,7 +185,7 @@ public sealed class PropagationTests
         var function = TestFunction.Define(async context =>
         {
             var options = new InvokeOptions("child") { Data = new { Order = 7 }, User = new { external_id = "u-42" } };
-            return await context.Step.InvokeAsync<string>("call-child", options.WithUser(context.Services.GetRequiredService<ICurrentUser>()));
+            return await context.Step.InvokeAsync<string>("call-child", options.WithUser(context));
         });
 
         var parent = await app.CallAsync(function, Event(original), runStart: app.Time.GetUtcNow());
@@ -212,7 +214,7 @@ public sealed class PropagationTests
         await using var app = NewApp();
         var function = TestFunction.Define(async context =>
         {
-            var options = new InvokeOptions("child") { Data = new { Order = 7 } }.WithUser(context.Services.GetRequiredService<ICurrentUser>());
+            var options = new InvokeOptions("child") { Data = new { Order = 7 } }.WithUser(context);
             return await context.Step.InvokeAsync<string>("call-child", options);
         });
         var parent = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
@@ -232,7 +234,7 @@ public sealed class PropagationTests
         await using var app = NewApp();
         var function = TestFunction.Define(async context =>
         {
-            var options = new InvokeOptions("child") { AppId = "billing" }.WithUser(context.Services.GetRequiredService<ICurrentUser>());
+            var options = new InvokeOptions("child") { AppId = "billing" }.WithUser(context);
             return await context.Step.InvokeAsync<string>("call-child", options);
         });
 
@@ -261,29 +263,41 @@ public sealed class PropagationTests
     }
 
     [Fact]
-    public async Task Asking_for_the_user_of_a_run_that_has_none_or_for_a_fake_leaves_the_invocation_alone()
+    public async Task Asking_for_the_user_of_a_run_that_has_none_leaves_the_invocation_alone()
     {
         await using var app = NewApp();
         var plain = new InvokeOptions("child") { Data = new { Order = 7 }, User = new { external_id = "u-42" } };
+        InvokeOptions? asked = null;
         var anonymous = TestFunction.Define(context =>
         {
-            context.Services.GetRequiredService<ICurrentUser>().IsAuthenticated.ShouldBeFalse();
-            return Task.FromResult<object?>(plain.WithUser(context.Services.GetRequiredService<ICurrentUser>()));
+            asked = plain.WithUser(context);
+            return Task.FromResult<object?>(null);
         });
 
         await app.CallAsync(anonymous, Event("{}"));
 
-        plain.WithUser(new FakeUser()).ShouldBeSameAs(plain);
-        Should.Throw<ArgumentNullException>(() => plain.WithUser(null!));
-        Should.Throw<ArgumentNullException>(() => ((InvokeOptions)null!).WithUser(new FakeUser()));
+        asked.ShouldBeSameAs(plain);
     }
 
-    private sealed class FakeUser : ICurrentUser
+    [Fact]
+    public async Task Asking_for_the_user_without_the_user_context_set_up_says_so_and_the_arguments_are_checked()
     {
-        public ClaimsPrincipal Principal { get; } = new(new ClaimsIdentity([new Claim("sub", "fake")], "Test"));
+        await using var provider = new ServiceCollection().BuildServiceProvider();
+        var context = new FunctionContext<JsonElement>
+        {
+            FunctionId = "fn",
+            RunId = "run",
+            Attempt = 0,
+            Step = new UnusedStepTools(),
+            Logger = NullLogger.Instance,
+            Services = provider,
+            Event = new InngestEvent<JsonElement> { Name = "x/y", Data = default },
+            Events = [],
+        };
+        var options = new InvokeOptions("child");
 
-        public bool IsAuthenticated => true;
-
-        public DateTimeOffset? IssuedAt => null;
+        Should.Throw<InvalidOperationException>(() => options.WithUser(context)).Message.ShouldContain("AddUserContext");
+        Should.Throw<ArgumentNullException>(() => options.WithUser(null!));
+        Should.Throw<ArgumentNullException>(() => ((InvokeOptions)null!).WithUser(context));
     }
 }

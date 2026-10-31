@@ -598,7 +598,7 @@ Packages `Inngest.UserContext` and `Inngest.UserContext.AspNetCore`. See [User c
 |---|---|
 | `IInngestBuilder.AddUserContext(Action<UserContextOptions>?)` | Adds the middleware that attaches the allowed claims of the current user to the events an app sends and restores them in runs, and registers `ICurrentUser` and a scoped `ClaimsPrincipal`. Needs Data Protection, or an `IUserContextProtector`. Register it before middleware that needs the user. |
 | `IInngestBuilder.AddUserContextFromHttpContext()` | Package `Inngest.UserContext.AspNetCore`. Makes `HttpContext.User` the user of events sent while serving a request. |
-| `InvokeOptions.WithUser(ICurrentUser)` | Extension method. Passes the user of the run to the function being invoked. Invocations do not pass through middleware, so they carry the user only when asked. |
+| `InvokeOptions.WithUser(FunctionContext)` | Extension method. Passes the user of the run to the function being invoked. Invocations do not pass through middleware, so they carry the user only when asked. |
 
 **`ICurrentUser`**: `Principal`, a `ClaimsPrincipal` that is anonymous without a user; `IsAuthenticated`; and `IssuedAt`,
 when the sender took the claims. It is the user of the run whose code is running, in every scope.

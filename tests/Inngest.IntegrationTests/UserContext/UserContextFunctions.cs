@@ -43,7 +43,7 @@ internal static class UserContextFunctions
                 await context.Step.SendEventAsync("notify", [new InngestEvent(Followup, new UserEvent(context.Event.Data.TestId))]);
                 var child = await context.Step.InvokeAsync<string>(
                     "ask",
-                    new InvokeOptions("child") { Data = new UserEvent(context.Event.Data.TestId), Timeout = TimeSpan.FromMinutes(1) }.WithUser(user));
+                    new InvokeOptions("child") { Data = new UserEvent(context.Event.Data.TestId), Timeout = TimeSpan.FromMinutes(1) }.WithUser(context));
                 return new ReportResult(Describe(user), inStep, child, context.RunId);
             });
 

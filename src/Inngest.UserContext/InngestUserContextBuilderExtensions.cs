@@ -48,6 +48,7 @@ public static class InngestUserContextBuilderExtensions
         // The current user looks the run up from the async flow, so it is the same in every scope of the run, the scope
         // of a scoped step included.
         services.TryAddSingleton<ICurrentUser, CurrentUser>();
+        services.TryAddSingleton<InvocationUsers>();
 
         // Resolves to the user as it is when the service is created, which is anonymous before the function starts.
         services.TryAddScoped<ClaimsPrincipal>(static provider => provider.GetRequiredService<ICurrentUser>().Principal);

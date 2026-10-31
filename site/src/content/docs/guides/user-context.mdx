@@ -236,12 +236,12 @@ asked there: the request that called the app belongs to Inngest, not to a user. 
 `EventFilter` picks events. Each event gets a payload made for its own name.
 
 Invocations do not pass through middleware, so the user goes to an invoked function when the code asks for it with
-`WithUser`. The invoked function restores it like any other:
+`WithUser(context)`, with the function's `FunctionContext`. The invoked function restores it like any other:
 
 {/* check: body ReportRequested */}
 ```csharp
 var options = new InvokeOptions("render-report") { Data = context.Event.Data }
-    .WithUser(context.Services.GetRequiredService<ICurrentUser>());
+    .WithUser(context);
 
 var rendered = await context.Step.InvokeAsync<string>("render", options);
 ```
@@ -372,9 +372,10 @@ public sealed class SignedInAs(string userId) : ICurrentUser
 ```
 
 Register it with `services.AddSingleton<ICurrentUser>(new SignedInAs("u-42"))` in the services of the
-[test host](/inngest-dotnet/guides/testing/). With a fake, `WithUser` leaves the invocation as it is. To test the packages
-themselves, register `AddUserContext` with Data Protection in the test services: the host records the events a function
-sends, so `SentEvents` shows the payload they carry.
+[test host](/inngest-dotnet/guides/testing/). `WithUser(context)` takes the user from the run and not from
+`ICurrentUser`, so a fake alone passes none to an invocation, and without `AddUserContext` it throws. To test how the
+user travels, register `AddUserContext` with Data Protection in the test services and give the event a user: the host
+restores it, and records the events a function sends, so `SentEvents` shows the payload they carry.
 
 ## Compared with other libraries
 
