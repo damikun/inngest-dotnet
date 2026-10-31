@@ -161,7 +161,7 @@ public sealed class ScopedStepTests : IDisposable
         result.Op().GetProperty("data").GetString().ShouldBe("saved");
         var record = _host.LogsOf("Inngest.Function.fn").ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Error);
-        record.Id.Id.ShouldBe(150);
+        record.Id.Id.ShouldBe(160);
         record.Message.ShouldBe("Disposing the services of step work of run 01JRUN of function fn failed; the step's outcome stands.");
         record.Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("disposal failed");
     }
@@ -179,7 +179,7 @@ public sealed class ScopedStepTests : IDisposable
 
         result.OpCodes.ShouldBe(["StepError"]);
         result.Op().GetProperty("error").GetProperty("message").GetString().ShouldBe("boom");
-        _host.LogsOf("Inngest.Function.fn").ShouldContain(record => record.Id.Id == 150);
+        _host.LogsOf("Inngest.Function.fn").ShouldContain(record => record.Id.Id == 160);
     }
 
     [Fact]
