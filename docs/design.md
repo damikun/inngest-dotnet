@@ -389,7 +389,9 @@ The .NET engine runs the user's code on a private `SynchronizationContext` for t
 (`InvocationScheduler`), so every continuation of the function is queued there. When that queue is empty and the
 function has not finished, the function is waiting on something: a step that will not complete in this call, or
 real I/O whose continuation will arrive later. That is a precise signal, not a timeout, and it keeps
-`Task.WhenAll` batching and `Task.WhenAny` races working with no special API. One limit: a function that keeps
+`Task.WhenAll` batching working, and `Task.WhenAny` races replaying with the same winner, with no special API. For
+Inngest to call the function again as soon as the first step of a race finishes, the race runs in race mode
+(`ParallelAsync`). One limit: a function that keeps
 queueing work without ever waiting (a tight `Task.Yield` loop) is cut off after 100,000 continuations per round so
 that a call always ends; memoized results may then be handed out before the function idles.
 
@@ -405,8 +407,12 @@ From there the engine follows the TypeScript SDK:
 
 User code that leaves the scheduler (`ConfigureAwait(false)`, `Task.Run`) still works: step calls made from other
 threads are posted back to the scheduler, so engine state is only touched by one logical thread and needs no locks.
-Such code can only make the SDK report fewer steps at once, never wrong ones. Blocking on a step task (`.Result`)
-deadlocks the invocation, as it would on any single-threaded context.
+Such code can make the SDK report fewer steps at once. With an id that parallel branches share, it can also change
+which branch gets which result, since a repeated id is numbered in the order the steps reach the scheduler, as the
+branches' own I/O can do too. The step tools register a step when it is called, a fetch with a body that is not
+buffered included: it holds every decision of the call until the body has been read, so that it is reported with the
+steps found with it. Blocking on a step task (`.Result`) deadlocks the invocation, as it would on any single-threaded
+context.
 
 Two rules keep tasks the function starts from hanging, as they would not on the JavaScript event loop:
 
