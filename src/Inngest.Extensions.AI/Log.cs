@@ -12,7 +12,7 @@ internal static partial class Log
     [LoggerMessage(EventId = 601, Level = LogLevel.Warning, Message = "The text of step {StepId} could not be streamed to topic {Topic} of channel {Channel}, and the model call goes on without: {Reason}")]
     public static partial void StreamNotPublished(ILogger logger, string stepId, string topic, string channel, string reason);
 
-    [LoggerMessage(EventId = 602, Level = LogLevel.Warning, Message = "Step {StepId} of run {RunId} saved the result of a call with another input than this call has. Calls that reach the chat client in no fixed order, such as ones made after a request that finishes at varying times, can be handed each other's results. Name each call, with ChatOptions.WithInngestStepId for a model call, so that its id does not depend on timing.")]
+    [LoggerMessage(EventId = 602, Level = LogLevel.Warning, Message = "Step {StepId} of run {RunId} saved the result of a call with another input than this call has. Calls that reach the chat client in no fixed order, such as ones made after a request that finishes at varying times, can be handed each other's results. Name the calls with ChatOptions.WithInngestStepId, so that their ids do not depend on timing; the tools of a named conversation carry its name.")]
     public static partial void InputDiffers(ILogger logger, string stepId, string runId);
 
     [LoggerMessage(EventId = 603, Level = LogLevel.Warning, Message = "The response of step {StepId} has additional properties that are not JSON, which are left out of what the step saves: {Reason}")]
