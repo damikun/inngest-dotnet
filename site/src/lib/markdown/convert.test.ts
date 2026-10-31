@@ -117,6 +117,16 @@ describe('convert', () => {
     expect(mdx('<FlowTimeline client:visible />')).toBe('An interactive version is on [the web page](https://example.com/docs/guides/steps/).\n');
   });
 
+  it('writes the recorded run of the replay visualizer as the function and a table of its calls', () => {
+    const markdown = mdx('<ReplayVisualizer client:visible />');
+    expect(markdown).toContain('public sealed class FulfillOrder');
+    expect(markdown).toContain('| 1 | no saved results | `206` with a `StepRun` op for `reserve-stock` |');
+    expect(markdown).toMatch(/\| 4 \| the saved results of `reserve-stock`, `charge-card`, `cooling-off` \| `206` with a `StepPlanned` op for `send-receipt` and a `StepPlanned` op for `ship-order` \|/);
+    expect(markdown).toContain('and a request to run `send-receipt` | `206` with a `StepRun` op for `send-receipt` |');
+    expect(markdown).toMatch(/\| 7 \|.*\| `200` with the output `\{"orderId":"ord_1042","paymentId":"pay_31d9"\}` \|/);
+    expect(markdown).toContain('An interactive version is on [the web page]');
+  });
+
   it('writes a figure as its caption', () => {
     expect(mdx('<StepsReplay caption="Every call runs <code>ExecuteAsync</code> from the top." />')).toBe(
       'Figure: Every call runs `ExecuteAsync` from the top.\n',

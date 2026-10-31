@@ -1,6 +1,7 @@
 import { devServerTabs } from '../../data/dev-server';
 import { faq } from '../../data/faq';
 import { calls } from '../../data/hero';
+import replay from '../../data/replay.json';
 import type { Api, Handler, JsxElement, MdNode } from './convert';
 
 // What each component of the docs is, written as Markdown. The components of Starlight become what they say in
@@ -40,6 +41,31 @@ function titled(api: Api, title: string, body: () => MdNode[]): MdNode[] {
   // The next part starts at the same level, whatever headings this one held.
   api.depth = depth;
   return [label, ...content];
+}
+
+// The recorded run that the replay visualizer steps through, as the source of the function and a table of its calls.
+interface ReplayCall {
+  request: { url: string; body: { steps?: Record<string, unknown> } };
+  response: { status: number; body: unknown };
+}
+
+function replayTable(api: Api): MdNode {
+  const names = replay.stepNames as Record<string, string>;
+  const name = (id: string) => `\`${names[id] ?? id}\``;
+  const rows = (replay.calls as ReplayCall[]).map((call, index) => {
+    const saved = Object.keys(call.request.body.steps ?? {}).map(name);
+    const target = new URL(call.request.url, 'http://localhost').searchParams.get('stepId');
+    const sent = [
+      saved.length > 0 ? `the saved results of ${saved.join(', ')}` : 'no saved results',
+      ...(target && target !== 'step' ? [`a request to run ${name(target)}`] : []),
+    ].join(' and ');
+    const { status, body } = call.response;
+    const answered = Array.isArray(body)
+      ? body.map((op: { op: string; displayName: string }) => `a \`${op.op}\` op for \`${op.displayName}\``).join(' and ')
+      : `the output \`${JSON.stringify(body)}\``;
+    return `| ${index + 1} | ${sent} | \`${status}\` with ${answered} |`;
+  });
+  return api.raw(['| Call | Inngest sends | The SDK answers |', '| - | - | - |', ...rows].join('\n'));
 }
 
 const asides: Record<string, string> = { note: 'Note', tip: 'Tip', caution: 'Caution', danger: 'Danger' };
@@ -100,7 +126,11 @@ export const components: Record<string, Handler> = {
     list(true, calls.map((call) => listItem(api.fragment(call.story)))),
   ],
   Architecture: omit,
-  ReplayVisualizer: interactive,
+  ReplayVisualizer: (node, api) => [
+    { type: 'code', lang: 'csharp', value: replay.source },
+    replayTable(api),
+    ...interactive(node, api),
+  ],
 
   // The guides
   DevServer: (node, api) =>
