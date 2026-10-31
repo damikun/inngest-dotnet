@@ -71,19 +71,6 @@ const alt =
       <p class="detail">No public endpoint; runs behind a firewall</p>
     </div>
   </div>
-
-  <figcaption>
-    <span class="http-only">
-      An event reaches Inngest, which starts a run. Inngest calls the app's /api/inngest endpoint; the app runs the next
-      step and answers 206 with its result, which Inngest stores. When the function returns, the app answers 200 and the
-      run is done.
-    </span>
-    <span class="connect-only">
-      With Connect, your worker opens a WebSocket to Inngest and keeps it open. Executions arrive over it, the worker
-      runs the next step and sends the result back over the same socket, and Inngest stores it. The worker needs no
-      public endpoint, so it can run behind a firewall.
-    </span>
-  </figcaption>
 </figure>
 
 
@@ -148,18 +135,6 @@ const alt =
   .store code {
     font-family: var(--__sl-font-mono);
     color: var(--sl-color-gray-1);
-  }
-
-  figcaption {
-    margin-top: 0.75rem;
-    font-size: var(--sl-text-sm);
-    color: var(--sl-color-gray-3);
-  }
-  figcaption > span {
-    display: block;
-  }
-  figcaption > span + span {
-    margin-top: 0.5rem;
   }
 
   /* Only the picture of the current theme shows, and lazy loading skips the hidden one. */
