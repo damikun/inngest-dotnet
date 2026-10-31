@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
+using Inngest.Testing;
 using Inngest.Tests.Execution;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -275,6 +277,51 @@ public sealed class MapInngestWebhookTests
         var sent = _client.Sent.ShouldHaveSingleItem();
         sent.Name.ShouldBe("github/ping");
         sent.Id.ShouldBe("72d3162e-cc78-11e3-81ab-4c9367dc0958");
+    }
+
+    [Fact]
+    public async Task A_GitHub_delivery_without_its_delivery_id_is_answered_with_400_because_its_event_would_never_be_deduplicated()
+    {
+        await using var app = await StartAsync(configure: null, services: null, extra: app =>
+            app.MapInngestWebhook("/webhooks/github", WebhookProvider.GitHub("github secret")));
+        const string GitHubBody = """{"zen":"Keep it logically awesome."}""";
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/webhooks/github")
+        {
+            Content = new StringContent(GitHubBody, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("X-GitHub-Event", "ping");
+        request.Headers.Add("X-Hub-Signature-256", "sha256=" + Signing.Hex(System.Security.Cryptography.HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes("github secret"),
+            Encoding.UTF8.GetBytes(GitHubBody))));
+
+        using var response = await app.GetTestClient().SendAsync(request, Cancellation);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        _client.Sent.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task The_events_an_InngestTestHost_keeps_can_be_read_after_the_request_has_ended()
+    {
+        var inngest = new ServiceCollection();
+        inngest.AddInngest(options => options.AppId = "shop");
+        await using var host = new InngestTestHost(inngest);
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton(host.Services.GetRequiredService<IInngestClient>());
+        await using var app = builder.Build();
+        app.MapInngestWebhook(Path, WebhookProvider.Stripe(Secret));
+        await app.StartAsync(Cancellation);
+        using var request = Signed(Body, Secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        using var response = await app.GetTestClient().SendAsync(request, Cancellation);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var kept = host.SentEvents.ShouldHaveSingleItem();
+        kept.Name.ShouldBe("stripe/payment_intent.succeeded");
+        kept.Id.ShouldBe("evt_1NG8Du2eZvKYlo2CUI8iWOzQ");
+        ((JsonElement)kept.Data!).GetProperty("data").GetProperty("object").GetProperty("note").GetString().ShouldBe("private-note-7731");
     }
 
     [Fact]
