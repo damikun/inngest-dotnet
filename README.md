@@ -283,9 +283,9 @@ The documentation has complete examples:
 
 ## Quality and testing
 
-- **2,275 unit tests** pass on .NET 10 and on .NET 8, including concurrency stress tests with thousands of
-  invocations at once.
-- **224 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **2,832 unit tests** pass on .NET 10, and the 2,696 of them in projects that also target .NET 8 pass on .NET 8,
+  including concurrency stress tests with thousands of invocations at once.
+- **306 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
@@ -344,7 +344,11 @@ dotnet build Inngest.slnx
 dotnet test --project tests/Inngest.Tests/Inngest.Tests.csproj
 ```
 
-The outbox of `Inngest.EntityFrameworkCore` has unit tests of its own, on SQLite:
+Some packages have test projects of their own under [`tests/`](tests): the chat clients
+(`Inngest.Extensions.AI.Tests`), the outbox on SQLite (`Inngest.EntityFrameworkCore.Tests`), the source generator
+(`Inngest.SourceGeneration.Tests`), the templates (`Inngest.Templates.Tests`, which pack the packages and build what the
+templates make) and the Aspire integration (`Inngest.Aspire.Hosting.Tests`, whose `Containers` tests need Docker). They
+run the same way:
 
 ```bash
 dotnet test --project tests/Inngest.EntityFrameworkCore.Tests/Inngest.EntityFrameworkCore.Tests.csproj
