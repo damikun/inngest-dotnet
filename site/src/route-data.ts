@@ -53,7 +53,7 @@ function jsonLd(isHome: boolean, site: URL, page: URL, title: string, descriptio
     '@id': `${site.href}#software`,
     name: SITE_NAME,
     description:
-      'A .NET port of the Inngest TypeScript SDK: durable functions made of steps that retry on their own, sleep, wait for events and run in parallel, served from ASP.NET Core or a Connect worker.',
+      'A .NET port of the Inngest TypeScript SDK: durable functions made of steps that retry on their own, sleep, wait for events and run in parallel, served from ASP.NET Core, Azure Functions, AWS Lambda or a Connect worker.',
     url: site.href,
     codeRepository: REPO_URL,
     programmingLanguage: 'C#',
