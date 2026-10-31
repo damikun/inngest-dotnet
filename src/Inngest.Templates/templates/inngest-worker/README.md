@@ -33,5 +33,8 @@ expose.
 
    The run appears at http://localhost:8288 under Runs, with its step.
 
-Outside the Development environment the worker runs in cloud mode, which needs the keys of an Inngest app:
-`INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`, set as environment variables or in user secrets.
+Outside the Development environment the worker runs in cloud mode, which needs the keys of an Inngest app: set
+`INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` as environment variables, or in another configuration source of the host.
+User secrets, for which the project has an id, are read in the Development environment only. Use them to try Inngest
+Cloud from your machine: `dotnet user-secrets set Inngest:IsDev false`, then the two keys as `Inngest:EventKey` and
+`Inngest:SigningKey`.
