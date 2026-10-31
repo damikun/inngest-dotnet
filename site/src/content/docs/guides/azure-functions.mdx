@@ -272,11 +272,11 @@ affect them. Behind a proxy that re-chunks requests, a call would arrive empty a
 - **Streaming in the built-in model**, for the reason above.
 - **A function key.** Inngest sends none, so the function stays anonymous; the signature check is what protects it in
   cloud mode. In dev mode nothing is verified, so keep dev mode on your machine.
-- **Native AOT.** Microsoft's isolated worker guide covers
+- **Native AOT.** Microsoft's isolated worker guide documents
   [ReadyToRun](https://learn.microsoft.com/en-us/azure/azure-functions/dotnet-isolated-process-guide#readytorun), not
-  Native AOT, and the worker's libraries are not marked as trimming or AOT compatible. `Inngest.AzureFunctions` is, so
-  it adds no warnings to an app that trims, but a Functions app is not published as a Native AOT binary. For a web
-  app that is, see [Native AOT](/inngest-dotnet/guides/native-aot/).
+  Native AOT, and the worker's libraries are not marked as trimming or AOT compatible. The code of
+  `Inngest.AzureFunctions` is trim and AOT safe, so it adds no warnings to an app that trims. For a web app published
+  as a Native AOT binary, see [Native AOT](/inngest-dotnet/guides/native-aot/).
 - **.NET Framework.** The package targets `net8.0` and `net10.0`, like the others.
 
 ## What has been tested
