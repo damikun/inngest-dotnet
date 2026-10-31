@@ -10,4 +10,9 @@ internal sealed record UserSnapshot(
     DateTimeOffset ExpiresAt,
     string? NameClaimType,
     string? RoleClaimType,
-    IReadOnlyList<KeyValuePair<string, string[]>> Claims);
+    IReadOnlyList<KeyValuePair<string, string[]>> Claims)
+{
+    // Whether a run that starts at this time can no longer be given the user. Compared in whole seconds, as the payload
+    // keeps them and as it is judged on arrival.
+    public bool ExpiresBefore(DateTimeOffset start) => start.ToUnixTimeSeconds() > ExpiresAt.ToUnixTimeSeconds();
+}

@@ -1062,7 +1062,8 @@ lets it see its internals. It has no counterpart in the TypeScript SDK.
   package registers one over `IHttpContextAccessor`, which flows with the async context into the scope the client makes
   for middleware. Inside a run (`context`, or `Invocation.AmbientContext` for a client used in a function) it attaches the
   run's own snapshot and never asks the source, because the request that reached the app is Inngest's. Each event gets a
-  text made for its own name, and the snapshot keeps its original `iat` and `exp`, so passing it on never extends it.
+  text made for its own name, and the snapshot keeps its original `iat` and `exp`, so passing it on never extends it. An
+  event or invocation whose run would start after `exp` gets none, and an information line says so.
   Invocations have no middleware payload hook, so `InvokeOptions.WithUser` puts the envelope in `InvokeOptions.User`.
 - **Restore.** `WrapFunctionAsync` reads `FunctionContext.RawEvent`, or for the failure handler of a function
   (`FunctionDefinition.FailureHandlerFor`) the event inside `inngest/function.failed`, and keeps the snapshot in a

@@ -148,6 +148,27 @@ public sealed class SendTests
     }
 
     [Fact]
+    public async Task An_event_scheduled_after_the_user_expires_is_sent_without_it()
+    {
+        await using var app = NewApp(new FixedSource(UserContextApp.Ada()), options => options.Lifetime = TimeSpan.FromHours(1));
+        var now = app.Time.GetUtcNow();
+
+        await app.Client.SendAsync(
+            [
+                Order(name: "shop/soon") with { Timestamp = now.AddMinutes(30) },
+                Order(name: "shop/much-later") with { Timestamp = now.AddYears(3) },
+                Order(name: "shop/now"),
+            ],
+            TestContext.Current.CancellationToken);
+
+        var events = app.SentEvents();
+        events[0].TryGetProperty("user", out _).ShouldBeTrue();
+        events[1].TryGetProperty("user", out _).ShouldBeFalse();
+        events[2].TryGetProperty("user", out _).ShouldBeTrue();
+        app.Logs.GetSnapshot().Where(record => record.Level == LogLevel.Information && record.Message.Contains("shop/much-later", StringComparison.Ordinal)).ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public async Task Claims_over_the_size_bound_leave_the_event_without_a_user_and_a_warning_without_the_claims()
     {
         await using var app = NewApp(new FixedSource(UserContextApp.Ada()), options => options.MaxSize = 64);

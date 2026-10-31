@@ -12,4 +12,10 @@ internal static partial class Log
 
     [LoggerMessage(EventId = 711, Level = LogLevel.Warning, Message = "The claims of the user are larger than UserContextOptions.MaxSize ({MaxSize} bytes), so event {EventName} is sent without a user.")]
     public static partial void UserTooLarge(ILogger logger, string eventName, int maxSize);
+
+    [LoggerMessage(EventId = 712, Level = LogLevel.Information, Message = "The user expires at {ExpiresAt:O}, before event {EventName} can start a run, so it is sent without a user.")]
+    public static partial void UserExpiresBeforeEvent(ILogger logger, string eventName, DateTimeOffset expiresAt);
+
+    [LoggerMessage(EventId = 713, Level = LogLevel.Information, Message = "The user expires at {ExpiresAt:O}, before the invocation of {Function} can start a run, so it is passed on without a user.")]
+    public static partial void UserExpiresBeforeInvocation(ILogger logger, string function, DateTimeOffset expiresAt);
 }

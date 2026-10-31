@@ -166,6 +166,50 @@ public sealed class PropagationTests
         UserContextApp.SeenIn(seen).IsAuthenticated.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_run_that_sleeps_past_the_expiry_sends_its_events_without_a_user_and_nobody_fails_on_it(bool withTheClient)
+    {
+        await using var app = NewApp(options =>
+        {
+            options.Lifetime = TimeSpan.FromHours(1);
+            options.OnInvalid = InvalidUserContextAction.FailRun;
+        });
+        var created = app.Time.GetUtcNow();
+        var user = app.Seal(UserContextApp.Ada());
+        app.Time.Advance(TimeSpan.FromHours(2));
+
+        // The run was created in time and keeps its user, but what it sends now would start runs after the expiry.
+        var sending = await app.CallAsync(withTheClient ? SendsWithTheClient() : SendsFromAStep(), Event(user), created);
+        var sent = app.SentEvents().Single();
+        var consumer = await app.CallAsync(UserContextApp.Observe(), Call.New().Event(UserContextApp.EventJson("{}", "shop/notified", app.Time.GetUtcNow())), app.Time.GetUtcNow());
+
+        sending.StatusCode.ShouldBeOneOf(200, 206);
+        sent.TryGetProperty("user", out _).ShouldBeFalse();
+        consumer.StatusCode.ShouldBe(200);
+        UserContextApp.SeenIn(consumer).IsAuthenticated.ShouldBeFalse();
+        var told = app.Logs.GetSnapshot().Where(record => record.Level == LogLevel.Information && record.Message.Contains("expires at", StringComparison.Ordinal)).ShouldHaveSingleItem();
+        told.Message.ShouldContain("shop/notified");
+        told.Message.ShouldNotContain("u-42");
+    }
+
+    [Fact]
+    public async Task An_invocation_after_the_expiry_is_passed_without_a_user()
+    {
+        await using var app = NewApp(options => options.Lifetime = TimeSpan.FromHours(1));
+        var created = app.Time.GetUtcNow();
+        var user = app.Seal(UserContextApp.Ada());
+        app.Time.Advance(TimeSpan.FromHours(2));
+        var function = TestFunction.Define(async context =>
+            await context.Step.InvokeAsync<string>("call-child", new InvokeOptions("child") { Data = new { Order = 7 } }.WithUser(context)));
+
+        var parent = await app.CallAsync(function, Event(user), created);
+
+        parent.Op().GetProperty("opts").GetProperty("payload").TryGetProperty("user", out _).ShouldBeFalse();
+        app.Logs.GetSnapshot().ShouldContain(record => record.Level == LogLevel.Information && record.Message.Contains("invocation of test-app-child", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task A_payload_taken_from_one_event_cannot_be_put_on_another()
     {

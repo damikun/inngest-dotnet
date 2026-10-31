@@ -233,7 +233,9 @@ runs for longer.
 Events that a run sends carry the run's user, as they carry its [sessions](/inngest-dotnet/guides/sending-events/#sessions).
 This covers `context.Step.SendEventAsync` and an `IInngestClient` used inside the function. The source of the user is never
 asked there: the request that called the app belongs to Inngest, not to a user. `Propagate = false` turns it off, and
-`EventFilter` picks events. Each event gets a payload made for its own name.
+`EventFilter` picks events. Each event gets a payload made for its own name. A user that will have expired by the time
+the event's run starts is not passed on: a run that sleeps past the expiry sends its events and invocations without a
+user, and writes an information line that names the event, not the user.
 
 Invocations do not pass through middleware, so the user goes to an invoked function when the code asks for it with
 `WithUser(context)`, with the function's `FunctionContext`. The invoked function restores it like any other:

@@ -175,15 +175,30 @@ internal sealed class UserContextMiddleware(
         return source is null ? null : codec.Capture(await source.GetUserAsync(cancellationToken).ConfigureAwait(false));
     }
 
-    // Each event gets its own protected text, because the text is tied to the event's name; events of one name share it.
+    // Each event gets its own protected text, because the text is tied to the event's name; events of one name share it. An
+    // event whose run would start after the user expired gets none: a run that sleeps past the expiry would otherwise
+    // send on a payload that is dead on arrival.
     private IReadOnlyList<InngestEvent> Attach(IReadOnlyList<InngestEvent> events, UserSnapshot snapshot)
     {
         InngestEvent[]? attached = null;
         Dictionary<string, string?>? texts = null;
+        var now = time.GetUtcNow();
+        var told = false;
         for (var i = 0; i < events.Count; i++)
         {
             if (events[i] is not { Name: { Length: > 0 } name } @event || _options.EventFilter?.Invoke(@event) == false)
             {
+                continue;
+            }
+
+            if (snapshot.ExpiresBefore(@event.Timestamp is { } scheduled && scheduled > now ? scheduled : now))
+            {
+                if (!told)
+                {
+                    Log.UserExpiresBeforeEvent(logger, name, snapshot.ExpiresAt);
+                    told = true;
+                }
+
                 continue;
             }
 
