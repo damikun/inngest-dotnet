@@ -57,7 +57,7 @@ internal sealed class UserContextMiddleware(
         // A run's id says when Inngest created it. The run may start later than that, at the timestamp of its event, which
         // whoever sends the event chooses and can put years ahead, so a user is judged by the later of the two. A run
         // delayed by a queue was created in time and keeps its user.
-        var read = codec.Read(envelope, user.EventName, Later(RunIds.StartOf(user.RunId) ?? time.GetUtcNow(), user.Scheduled));
+        var read = codec.Read(envelope, user.EventName, Later(RunIds.StartOf(user.RunId) ?? time.GetUtcNow(), user.Scheduled), user.Function);
         RunUsers.Set(context, read.Snapshot);
         if (read.Snapshot is null)
         {
@@ -78,7 +78,8 @@ internal sealed class UserContextMiddleware(
 
         var @event = raw;
         var runId = context.RunId;
-        if (registry.TryGet(Compose(context.FunctionId), out var function))
+        var runningFunction = Compose(context.FunctionId);
+        if (registry.TryGet(runningFunction, out var function))
         {
             if (function.FailureHandlerFor is { } failedId)
             {
@@ -93,6 +94,7 @@ internal sealed class UserContextMiddleware(
                 }
 
                 // The user is judged as the failed run judged it, not by the time its failure was found.
+                runningFunction = Compose(failedId);
                 if (data.TryGetProperty("run_id", out var failedRun) && failedRun.ValueKind == JsonValueKind.String)
                 {
                     runId = failedRun.GetString()!;
@@ -112,7 +114,8 @@ internal sealed class UserContextMiddleware(
         var name = @event.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String
             ? nameElement.GetString()!
             : string.Empty;
-        found = new EventUser(user, name, runId, ScheduledAt(@event));
+        // An invocation is for one function, and the text must say that it is this one.
+        found = new EventUser(user, name, runId, ScheduledAt(@event), name == SystemEvents.FunctionInvoked ? runningFunction : null);
         return true;
     }
 
@@ -149,7 +152,7 @@ internal sealed class UserContextMiddleware(
     private static string Describe(UserReadProblem problem) => problem switch
     {
         UserReadProblem.Expired => "it has expired",
-        UserReadProblem.WrongEvent => "it was made for another event",
+        UserReadProblem.WrongEvent => "it was made for another event or function",
         UserReadProblem.Unsupported => "its format is not known to this version",
         UserReadProblem.Unreadable => "it could not be unprotected: it was changed, or made with a key or purpose this app does not have",
         _ => "it is not valid",
@@ -200,5 +203,5 @@ internal sealed class UserContextMiddleware(
         return attached ?? events;
     }
 
-    private readonly record struct EventUser(JsonElement Json, string EventName, string RunId, DateTimeOffset? Scheduled);
+    private readonly record struct EventUser(JsonElement Json, string EventName, string RunId, DateTimeOffset? Scheduled, string? Function);
 }

@@ -1053,8 +1053,9 @@ lets it see its internals. It has no counterpart in the TypeScript SDK.
 - **Wire.** The event's `user` object, which Inngest documents as user data and stores encrypted at rest, gets one
   reserved key, `_inngest_dotnet_user: {"v":1,"t":"<text>"}`; every other key is the app's. `t` is what
   `IUserContextProtector.Protect` made of this JSON: `{"v":1,"iat":<unix s>,"exp":<unix s>,"ev":"<event name>","nt":..,"rt":..,"c":{"<claim type>":["<value>"]}}`.
-  `ev` ties the text to the event it was made for, `nt` and `rt` are the name and role claim types when they are not
-  the .NET defaults, and `c` holds only the claim types of `UserContextOptions.Claims`, up to `MaxSize` bytes. The expiry
+  `ev` ties the text to the event it was made for, and `fn` for an invocation to the function that is invoked
+  (`<app id>-<function id>`), because `inngest/function.invoked` is one name for every function and Inngest builds it
+  from a body its caller supplies. `nt` and `rt` are the name and role claim types when they are not the .NET defaults, and `c` holds only the claim types of `UserContextOptions.Claims`, up to `MaxSize` bytes. The expiry
   and the event name are inside the protected text, so every protector has them and a custom one only has to detect
   changes and, ideally, encrypt. The default protector is Data Protection with the purposes `Inngest.UserContext` and `v1`.
 - **Capture.** `WrapSendEventAsync` runs for every send. Outside a run it asks the `IUserContextSource`; the ASP.NET Core

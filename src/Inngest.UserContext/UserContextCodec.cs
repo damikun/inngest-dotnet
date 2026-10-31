@@ -16,11 +16,13 @@ namespace Inngest.UserContext;
 // and leaves every other key to the app. The protected text is the protector's output for this JSON, so everything in
 // it is read and checked only after it has been unprotected:
 //
-//   { "v": 1, "iat": <unix s>, "exp": <unix s>, "ev": "<event name>", "nt": "<name claim type>", "rt": "<role claim type>",
-//     "c": { "<claim type>": ["<value>", ...] } }
+//   { "v": 1, "iat": <unix s>, "exp": <unix s>, "ev": "<event name>", "fn": "<function id>", "nt": "<name claim type>",
+//     "rt": "<role claim type>", "c": { "<claim type>": ["<value>", ...] } }
 //
 // "ev" ties the text to the event it was made for, so a payload that leaked from one event cannot be attached to
-// another one to run as the user; "nt" and "rt" are left out when they are the .NET defaults. "v" is outside as well,
+// another one to run as the user. An invocation is an event of one name, inngest/function.invoked, for any function, and
+// Inngest builds it from a body its caller supplies, so its text names the function that is invoked too, in "fn", as
+// "<app id>-<function id>". "nt" and "rt" are left out when they are the .NET defaults. "v" is outside as well,
 // so that a reader can tell a format it does not know from a payload it cannot unprotect. The codec is shared by every
 // call and keeps nothing for one.
 internal sealed class UserContextCodec
@@ -117,8 +119,9 @@ internal sealed class UserContextCodec
             [.. claims.Select(static pair => new KeyValuePair<string, string[]>(pair.Key, [.. pair.Value]))]);
     }
 
-    // The protected text of a snapshot for an event of this name, or null when the claims are larger than MaxSize.
-    public string? Protect(UserSnapshot snapshot, string eventName)
+    // The protected text of a snapshot for an event of this name, or null when the claims are larger than MaxSize. function
+    // is the composite id of the function an invocation is for, and null for any other event.
+    public string? Protect(UserSnapshot snapshot, string eventName, string? function = null)
     {
         var buffer = new ArrayBufferWriter<byte>(256);
         using (var writer = new Utf8JsonWriter(buffer, PlainText))
@@ -128,6 +131,11 @@ internal sealed class UserContextCodec
             writer.WriteNumber("iat"u8, snapshot.IssuedAt.ToUnixTimeSeconds());
             writer.WriteNumber("exp"u8, snapshot.ExpiresAt.ToUnixTimeSeconds());
             writer.WriteString("ev"u8, eventName);
+            if (function is not null)
+            {
+                writer.WriteString("fn"u8, function);
+            }
+
             if (snapshot.NameClaimType is not null)
             {
                 writer.WriteString("nt"u8, snapshot.NameClaimType);
@@ -157,9 +165,10 @@ internal sealed class UserContextCodec
         return buffer.WrittenCount > _maxSize ? null : _protector.Protect(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
-    // Reads the envelope of an event's user. reference is the time to judge the expiry by. Nothing of the claims is
-    // trusted before the protector has vouched for the text.
-    public UserRead Read(JsonElement envelope, string eventName, DateTimeOffset reference)
+    // Reads the envelope of an event's user. reference is the time to judge the expiry by, and function the composite id of
+    // the function that runs when the event is an invocation, and null otherwise. Nothing of the claims is trusted before
+    // the protector has vouched for the text.
+    public UserRead Read(JsonElement envelope, string eventName, DateTimeOffset reference, string? function = null)
     {
         if (envelope.ValueKind != JsonValueKind.Object ||
             !envelope.TryGetProperty("v", out var version) ||
@@ -183,11 +192,11 @@ internal sealed class UserContextCodec
         }
 
         return _protector.TryUnprotect(protectedText, out var plaintext)
-            ? Open(plaintext, eventName, reference)
+            ? Open(plaintext, eventName, function, reference)
             : UserRead.Failed(UserReadProblem.Unreadable);
     }
 
-    private static UserRead Open(string plaintext, string eventName, DateTimeOffset reference)
+    private static UserRead Open(string plaintext, string eventName, string? function, DateTimeOffset reference)
     {
         JsonDocument document;
         try
@@ -213,7 +222,12 @@ internal sealed class UserContextCodec
                 return UserRead.Failed(UserReadProblem.Malformed);
             }
 
-            if (!string.Equals(name.GetString(), eventName, StringComparison.Ordinal))
+            if (!TryReadText(root, "fn", out var madeFor))
+            {
+                return UserRead.Failed(UserReadProblem.Malformed);
+            }
+
+            if (!string.Equals(name.GetString(), eventName, StringComparison.Ordinal) || !string.Equals(madeFor, function, StringComparison.Ordinal))
             {
                 return UserRead.Failed(UserReadProblem.WrongEvent);
             }

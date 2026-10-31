@@ -76,10 +76,10 @@ internal sealed class UserContextApp : IAsyncDisposable
 
     // The user object of an event as the sender in this app would have sent it: the reserved key holding the envelope of
     // the principal's allowed claims, taken now.
-    public string Seal(ClaimsPrincipal principal, string eventName = EventName)
+    public string Seal(ClaimsPrincipal principal, string eventName = EventName, string? function = null)
     {
         var snapshot = Codec.Capture(principal) ?? throw new InvalidOperationException("Nothing to carry.");
-        return Envelope(Codec.Protect(snapshot, eventName)!);
+        return Envelope(Codec.Protect(snapshot, eventName, function)!);
     }
 
     // The user object with the protected text replaced, for tests that need to change what the envelope holds.

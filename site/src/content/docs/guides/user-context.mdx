@@ -181,8 +181,9 @@ The packages add one key to it and leave all other keys to you:
 
 `iat` is when the claims were taken and `exp` when they stop being accepted for new runs. `ev` is the name of the event
 the text was made for: it is accepted on that event only, so a payload that leaked from one event cannot be attached to
-another to run as the user. `nt` and `rt` are the name and role claim types when they are not the .NET defaults, and `c`
-holds the claims. Data Protection signs and encrypts the text, so what Inngest's dashboard, the logs of whatever reads
+another to run as the user. An invocation is an event of one name for any function, and Inngest builds it from a body
+that its caller supplies, so the text of an invocation names the function too, in `fn`, as `<app id>-<function id>`. `nt`
+and `rt` are the name and role claim types when they are not the .NET defaults, and `c` holds the claims. Data Protection signs and encrypts the text, so what Inngest's dashboard, the logs of whatever reads
 events and every other function triggered by the event can see is ciphertext.
 
 Think of each claim you allow as personal data in an event. List what the runs need and nothing else: `Claims` is matched
@@ -312,7 +313,8 @@ Anyone with your event key can send an event with any `user`. What they can do w
 
 - **Make up a user:** nothing. Text that the key ring did not produce does not unprotect, the run has no user, and a warning
   is logged. They cannot choose claims.
-- **Move a payload to another event:** nothing. A payload is bound to the name of its event.
+- **Move a payload to another event:** nothing. A payload is bound to the name of its event, and one made for an
+  invocation to the function that is invoked.
 - **Send a payload they copied again,** for example from the dashboard: the run starts as that user until the payload
   expires. This is the same as sending the original event again, so keep `Lifetime` as short as your delays allow, keep
   the event key secret, and make functions that act for a user idempotent.

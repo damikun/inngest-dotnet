@@ -186,6 +186,21 @@ public sealed class UserContextCodecTests
     }
 
     [Fact]
+    public async Task A_payload_made_for_an_invocation_is_accepted_for_that_function_only()
+    {
+        await using var app = NewApp();
+        var now = app.Time.GetUtcNow();
+        var forChild = EnvelopeOf(app.Seal(UserContextApp.Ada(), SystemEvents.FunctionInvoked, "test-app-child"));
+        var forNobodyInParticular = EnvelopeOf(app.Seal(UserContextApp.Ada(), SystemEvents.FunctionInvoked));
+
+        app.Codec.Read(forChild, SystemEvents.FunctionInvoked, now, "test-app-child").Problem.ShouldBe(UserReadProblem.None);
+        app.Codec.Read(forChild, SystemEvents.FunctionInvoked, now, "test-app-other").Problem.ShouldBe(UserReadProblem.WrongEvent);
+        app.Codec.Read(forChild, SystemEvents.FunctionInvoked, now, "Test-app-child").Problem.ShouldBe(UserReadProblem.WrongEvent);
+        app.Codec.Read(forChild, SystemEvents.FunctionInvoked, now).Problem.ShouldBe(UserReadProblem.WrongEvent);
+        app.Codec.Read(forNobodyInParticular, SystemEvents.FunctionInvoked, now, "test-app-child").Problem.ShouldBe(UserReadProblem.WrongEvent);
+    }
+
+    [Fact]
     public async Task The_event_name_is_compared_exactly()
     {
         await using var app = NewApp();

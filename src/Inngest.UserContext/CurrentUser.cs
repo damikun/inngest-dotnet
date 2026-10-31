@@ -19,7 +19,9 @@ internal sealed class CurrentUser(UserContextCodec codec, InngestSettings settin
     // function's event. Unchanged without a user, or when the claims are larger than the bound.
     public InvokeOptions ForInvocation(InvokeOptions options)
     {
-        if (RunUsers.Current.Snapshot is not { } snapshot || codec.Protect(snapshot, SystemEvents.FunctionInvoked) is not { } protectedText)
+        // The function is addressed as "<app id>-<function id>", the app being this one unless the options name another.
+        var function = $"{(string.IsNullOrEmpty(options.AppId) ? settings.AppId : options.AppId)}-{options.FunctionId}";
+        if (RunUsers.Current.Snapshot is not { } snapshot || codec.Protect(snapshot, SystemEvents.FunctionInvoked, function) is not { } protectedText)
         {
             return options;
         }

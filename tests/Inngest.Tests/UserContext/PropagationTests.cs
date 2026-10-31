@@ -5,6 +5,7 @@ using Inngest.Tests.Execution;
 using Inngest.UserContext;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Inngest.Tests.UserContext;
 
@@ -191,17 +192,61 @@ public sealed class PropagationTests
         var invoked = parent.Op().GetProperty("opts").GetProperty("payload").GetProperty("user");
         invoked.GetProperty("external_id").GetString().ShouldBe("u-42");
         app.PayloadOf(invoked).GetProperty("ev").GetString().ShouldBe(SystemEvents.FunctionInvoked);
+        app.PayloadOf(invoked).GetProperty("fn").GetString().ShouldBe("test-app-child");
         app.PayloadOf(invoked).GetProperty("exp").GetInt64().ShouldBe(app.PayloadOf(JsonDocument.Parse(original).RootElement).GetProperty("exp").GetInt64());
 
         var child = await app.CallAsync(
-            UserContextApp.Observe(),
-            Call.New().Event($$"""{"name":"inngest/function.invoked","id":"01JINVOKED","ts":1793268000000,"data":{"order":7},"user":{{invoked.GetRawText()}}}"""),
+            Child("child"),
+            Call.New().Event(Invoked(invoked.GetRawText())),
             app.Time.GetUtcNow());
 
         var seen = UserContextApp.SeenIn(child);
         seen.IsAuthenticated.ShouldBeTrue();
         seen.Claims.ShouldBe(["sub=u-42", "name=Ada Lovelace", "role=admin", "role=support"]);
     }
+
+    [Fact]
+    public async Task A_payload_made_for_invoking_one_function_is_not_accepted_by_another()
+    {
+        // Inngest builds the invoked event from a body its caller supplies, user included, for any function by its slug.
+        await using var app = NewApp();
+        var function = TestFunction.Define(async context =>
+        {
+            var options = new InvokeOptions("child") { Data = new { Order = 7 } }.WithUser(context.Services.GetRequiredService<ICurrentUser>());
+            return await context.Step.InvokeAsync<string>("call-child", options);
+        });
+        var parent = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+        var invoked = Invoked(parent.Op().GetProperty("opts").GetProperty("payload").GetProperty("user").GetRawText());
+
+        var other = await app.CallAsync(Child("delete-account"), Call.New().Event(invoked), app.Time.GetUtcNow());
+        var intended = await app.CallAsync(Child("child"), Call.New().Event(invoked), app.Time.GetUtcNow());
+
+        UserContextApp.SeenIn(other).IsAuthenticated.ShouldBeFalse();
+        app.Logs.GetSnapshot().Where(record => record.Level >= LogLevel.Warning).ShouldHaveSingleItem().Message.ShouldContain("another event or function");
+        UserContextApp.SeenIn(intended).IsAuthenticated.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task An_invocation_of_a_function_of_another_app_is_made_for_that_apps_function()
+    {
+        await using var app = NewApp();
+        var function = TestFunction.Define(async context =>
+        {
+            var options = new InvokeOptions("child") { AppId = "billing" }.WithUser(context.Services.GetRequiredService<ICurrentUser>());
+            return await context.Step.InvokeAsync<string>("call-child", options);
+        });
+
+        var parent = await app.CallAsync(function, Event(app.Seal(UserContextApp.Ada())), runStart: app.Time.GetUtcNow());
+
+        var invoked = parent.Op().GetProperty("opts").GetProperty("payload").GetProperty("user");
+        app.PayloadOf(invoked).GetProperty("fn").GetString().ShouldBe("billing-child");
+    }
+
+    // The function that runs when an invocation arrives, registered under this id.
+    private static FunctionDefinition Child(string id) => UserContextApp.Observe(options: UserContextApp.Options(id, Trigger.Event("x/never")));
+
+    private static string Invoked(string user) =>
+        $$"""{"name":"inngest/function.invoked","id":"01JINVOKED","ts":1793268000000,"data":{"order":7},"user":{{user}}}""";
 
     [Fact]
     public async Task An_invocation_does_not_carry_the_user_unless_the_code_asks()
