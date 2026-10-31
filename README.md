@@ -287,13 +287,14 @@ The documentation has complete examples:
 
 ## Quality and testing
 
-- **2,832 unit tests** pass on .NET 10, and the 2,696 of them in projects that also target .NET 8 pass on .NET 8,
+- **3,144 unit tests** pass on .NET 10, and the 3,008 of them in projects that also target .NET 8 pass on .NET 8,
   including concurrency stress tests with thousands of invocations at once.
-- **306 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **327 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
-- **Native AOT**: CI publishes the AOT sample with zero warnings and starts the native binary.
+- **Native AOT**: CI publishes the AOT sample and the AWS Lambda sample with zero warnings, and starts the AOT
+  sample's native binary.
 - **Strict builds**: warnings are errors, code style is enforced in the build, and the packages include Source Link
   and symbol packages.
 
