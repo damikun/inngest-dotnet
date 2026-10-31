@@ -117,11 +117,23 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
         Client.PostAsync(new Uri(Fixture.AppUrl, pathAndQuery), new StringContent(body, Encoding.UTF8, "application/json"), Cancellation);
 
     // The output URL waits until the run has ended and then replays the endpoint's response.
+    // The dev server answers the output URL once the run's spans show it ended, with the output of its trace run, which
+    // is stored apart from the spans. Asked at that moment it finds no output yet and answers 200 with no body, so an empty
+    // 200 is asked again. Every endpoint these tests follow answers with a body.
     private static async Task<(HttpStatusCode StatusCode, string Body)> FollowAsync(HttpResponseMessage redirect)
     {
         var location = redirect.Headers.Location.ShouldNotBeNull();
         location.AbsolutePath.ShouldContain("/v1/http/runs/");
-        using var output = await Client.GetAsync(location, Cancellation);
-        return (output.StatusCode, await output.Content.ReadAsStringAsync(Cancellation));
+        for (var attempt = 1; ; attempt++)
+        {
+            using var output = await Client.GetAsync(location, Cancellation);
+            var body = await output.Content.ReadAsStringAsync(Cancellation);
+            if (output.StatusCode != HttpStatusCode.OK || body.Length > 0 || attempt == 50)
+            {
+                return (output.StatusCode, body);
+            }
+
+            await Task.Delay(100, Cancellation);
+        }
     }
 }
