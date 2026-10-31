@@ -119,28 +119,43 @@ var payment = await context.Step.RunScopedAsync("record-payment", async (ShopDbC
 
 The handler can ask for the scope's `IServiceProvider`, or for one service, which the SDK resolves with
 `GetRequiredService`. A handler without a result returns `Task`, and every overload also takes a `StepOptions` in
-place of the id, like the other step tools:
+place of the id, like the other step tools. Prefer the form that names the service, with the type of the first
+parameter written so that the compiler can infer it:
 
 {/* check: body OrderPlaced; string orderId */}
 ```csharp
 using Microsoft.EntityFrameworkCore;
 
-// Resolve what the step needs from the scope.
+// One service: the type of the first parameter is written, and the SDK resolves it from the scope.
+var open = await context.Step.RunScopedAsync("count-open", (ShopDbContext db, CancellationToken ct) =>
+    db.Orders.CountAsync(o => o.Status == "placed", ct));
+
+// Several services: ask for the scope's provider and resolve them from it.
 var total = await context.Step.RunScopedAsync("sum-orders", async (services, ct) =>
 {
     var db = services.GetRequiredService<ShopDbContext>();
     return await db.Orders.SumAsync(o => o.Total, ct);
 });
 
-// One service. Write the type of the first parameter so that the compiler can infer it.
-var open = await context.Step.RunScopedAsync("count-open", (ShopDbContext db, CancellationToken ct) =>
-    db.Orders.CountAsync(o => o.Status == "placed", ct));
-
 // No result.
 await context.Step.RunScopedAsync("archive", async (ShopDbContext db, CancellationToken ct) =>
 {
     await db.Orders.Where(o => o.Status == "shipped").ExecuteDeleteAsync(ct);
 });
+```
+
+Type arguments work too, with one catch. Two, as in `RunScopedAsync<ShopDbContext, int>`, keep the result. One, as in
+`RunScopedAsync<ShopDbContext>`, picks the form without a result, so a value the lambda returns is dropped:
+
+{/* check: body OrderPlaced */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var all = await context.Step.RunScopedAsync<ShopDbContext, int>("count-all", (db, ct) => db.Orders.CountAsync(ct));
+
+// The number of rows deleted is dropped.
+await context.Step.RunScopedAsync<ShopDbContext>("purge", (db, ct) =>
+    db.Orders.Where(o => o.Status == "cancelled").ExecuteDeleteAsync(ct));
 ```
 
 Both forms resolve services with `GetRequiredService<T>()` and use no reflection of their own, so they work in trimmed
