@@ -12,8 +12,6 @@
     <IncludeSymbols>false</IncludeSymbols>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <IsAotCompatible>false</IsAotCompatible>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
     <EnableDefaultItems>false</EnableDefaultItems>
     <!-- NuGet leaves out folders that start with a dot by default, and every template has .template.config. -->
     <NoDefaultExcludes>true</NoDefaultExcludes>

@@ -3,8 +3,6 @@
     <RootNamespace>Inngest.EntityFrameworkCore</RootNamespace>
     <Description>A transactional outbox for the Inngest .NET SDK on Entity Framework Core: events are saved in the same transaction as the app's data and sent to Inngest afterwards, each under an id of its own, which Inngest uses to drop a repeated send.</Description>
     <PackageTags>$(PackageTags);entity-framework-core;ef-core;outbox;transactional-outbox</PackageTags>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
     <!-- Entity Framework Core is not trim or Native AOT compatible: the constructors of DbContext are marked
          RequiresUnreferencedCode and RequiresDynamicCode in EF Core 8 and in 10, and queries are compiled when they first
          run. The code of this package has no trim or AOT warning, and the analyzers stay on to keep it so, but declaring

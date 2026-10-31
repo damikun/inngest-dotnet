@@ -3,8 +3,6 @@
     <RootNamespace>Inngest.Encryption</RootNamespace>
     <Description>End-to-end encryption for the Inngest .NET SDK: encrypts event data, step results and function output before they leave the app, compatible with @inngest/middleware-encryption of the TypeScript SDK.</Description>
     <PackageTags>$(PackageTags);encryption;middleware;security</PackageTags>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
   </PropertyGroup>
   <ItemGroup>
     <!-- XSalsa20, Poly1305 and BLAKE2b, the primitives of libsodium's secretbox that .NET lacks. It is managed code, so

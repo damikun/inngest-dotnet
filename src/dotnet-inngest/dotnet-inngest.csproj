@@ -13,8 +13,6 @@
     <RollForward>Major</RollForward>
     <!-- The shims dotnet tool install makes on Windows, which dotnet-ef lists in full as well. -->
     <PackAsToolShimRuntimeIdentifiers>win-x64;win-x86;win-arm64</PackAsToolShimRuntimeIdentifiers>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
   </PropertyGroup>
   <ItemGroup>
     <!-- The README that src/Directory.Build.props packs describes the SDK. This package has one of its own. The default

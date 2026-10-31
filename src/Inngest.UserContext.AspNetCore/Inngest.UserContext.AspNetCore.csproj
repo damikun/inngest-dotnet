@@ -3,8 +3,6 @@
     <RootNamespace>Inngest.UserContext.AspNetCore</RootNamespace>
     <Description>ASP.NET Core support for Inngest.UserContext: takes the user an event is sent for from HttpContext.User.</Description>
     <PackageTags>$(PackageTags);user;claims;identity;aspnetcore</PackageTags>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

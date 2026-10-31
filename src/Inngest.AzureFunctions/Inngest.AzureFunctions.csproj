@@ -3,8 +3,6 @@
     <RootNamespace>Inngest.AzureFunctions</RootNamespace>
     <Description>Azure Functions hosting for the Inngest .NET SDK: an HTTP-triggered function of the isolated worker serves sync, introspection and invocation.</Description>
     <PackageTags>$(PackageTags);azure;azure-functions;serverless</PackageTags>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
   </PropertyGroup>
   <ItemGroup>
     <!-- Behind the ASP.NET Core integration of the worker, a function runs inside a request of Kestrel, and the call can be

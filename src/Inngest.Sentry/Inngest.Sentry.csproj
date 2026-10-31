@@ -3,9 +3,6 @@
     <RootNamespace>Inngest.Sentry</RootNamespace>
     <Description>Sentry for the Inngest .NET SDK: reports the errors of function runs and steps, tagged with the app, the function, the run and the event.</Description>
     <PackageTags>$(PackageTags);sentry;error-tracking;exceptions</PackageTags>
-    <!-- No release of this package exists yet to compare with. Remove this line once one is on nuget.org and the baseline
-         in src/Directory.Build.props can include it. -->
-    <PackageValidationBaselineVersion></PackageValidationBaselineVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Sentry's build assets are for the app that sets Sentry up, and the app has its own reference to a Sentry package.

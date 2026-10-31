@@ -7,8 +7,6 @@
          next to the in-memory one, which runs the app's hosted services twice and splits the app's state in two, so the
          package does not offer that. -->
     <TargetFrameworks>$(LatestTargetFramework)</TargetFrameworks>
-    <!-- No release includes this package yet. Remove this once the baseline in src/Directory.Build.props names one that does. -->
-    <PackageValidationBaselineVersion />
     <!-- Mvc.Testing finds the app by reflection and is not trim safe. The package is for test projects. -->
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
