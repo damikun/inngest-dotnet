@@ -17,7 +17,7 @@ function again when it is due. [How it works](/inngest-dotnet/how-it-works/) sho
 ## Install
 
 ```bash
-dotnet add package Inngest.AwsLambda --prerelease
+dotnet add package Inngest.AwsLambda
 ```
 
 It brings in `Inngest`, `Amazon.Lambda.APIGatewayEvents` for the event types and `Amazon.Lambda.Core` for the
@@ -123,7 +123,7 @@ executable `bootstrap`, which is what the custom runtime starts:
 ```
 
 ```bash
-dotnet add package Inngest.AwsLambda --prerelease
+dotnet add package Inngest.AwsLambda
 dotnet add package Amazon.Lambda.RuntimeSupport
 dotnet add package Amazon.Lambda.Serialization.SystemTextJson
 dotnet add package Microsoft.Extensions.Logging.Console

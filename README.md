@@ -9,7 +9,7 @@ Write background jobs and workflows as plain C# methods. Inngest runs every step
 lets a run wait for days, so you ship reliable workflows without queues, state tables or cron glue.
 
 [![CI](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damikun/inngest-dotnet/actions/workflows/ci.yml)
-[![NuGet](https://img.shields.io/nuget/vpre/Inngest)](https://www.nuget.org/packages/Inngest)
+[![NuGet](https://img.shields.io/nuget/v/Inngest)](https://www.nuget.org/packages/Inngest)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-f65c4f)](LICENSE)
 
 [Documentation](https://damikun.github.io/inngest-dotnet/) ·
@@ -191,18 +191,18 @@ the template package holds files only.
 
 ## Quick start
 
-1. **Install the SDK.** `Inngest.AspNetCore` brings in `Inngest`. The version is a preview, so add `--prerelease`:
+1. **Install the SDK.** `Inngest.AspNetCore` brings in `Inngest`:
 
    ```bash
-   dotnet add package Inngest.AspNetCore --prerelease
+   dotnet add package Inngest.AspNetCore
    ```
 
-   Or reference it in your project file. `*-*` restores the newest version, previews included; put a version
-   such as `0.1.0-preview.3` there instead to pin it:
+   Or reference it in your project file. `*` restores the newest version; put a version
+   such as `1.0.0` there instead to pin it:
 
    ```xml
    <ItemGroup>
-     <PackageReference Include="Inngest.AspNetCore" Version="*-*" />
+     <PackageReference Include="Inngest.AspNetCore" Version="*" />
    </ItemGroup>
    ```
 

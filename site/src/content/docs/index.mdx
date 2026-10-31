@@ -267,11 +267,10 @@ inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
 
 <Steps>
 
-1. Install the SDK from NuGet. `Inngest.AspNetCore` brings in `Inngest`. The version is a preview, so add
-   `--prerelease`:
+1. Install the SDK from NuGet. `Inngest.AspNetCore` brings in `Inngest`:
 
    ```bash
-   dotnet add package Inngest.AspNetCore --prerelease
+   dotnet add package Inngest.AspNetCore
    ```
 
 2. Write the function, a class with one method. Its attributes give it an id and name the event that starts it.

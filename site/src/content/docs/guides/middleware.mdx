@@ -185,7 +185,7 @@ stores and shows ciphertext for them. It writes the format of
 TypeScript services can read each other's events, step results and output.
 
 ```bash
-dotnet add package Inngest.Encryption --prerelease
+dotnet add package Inngest.Encryption
 ```
 
 {/* check: statements; WebApplicationBuilder builder */}
@@ -369,7 +369,7 @@ Inngest, so Sentry's ASP.NET Core middleware never sees it. This middleware repo
 the run and the event as tags.
 
 ```bash
-dotnet add package Inngest.Sentry --prerelease
+dotnet add package Inngest.Sentry
 ```
 
 Set Sentry up as usual, and add the middleware before the others, so that their work falls inside its scope. It

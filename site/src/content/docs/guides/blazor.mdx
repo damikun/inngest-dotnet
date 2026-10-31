@@ -24,10 +24,10 @@ The component asks for an `IRealtimeSource`, and each side registers its own.
 Install `Inngest.Blazor` in the project that holds your components. In an app that renders on the server and in
 WebAssembly that is the client project, which the server project references. The package brings in `Inngest`, and it
 references `Microsoft.AspNetCore.Components.Web` as a package rather than the ASP.NET Core shared framework, so it
-runs in the browser. The version is a preview, so add `--prerelease`:
+runs in the browser:
 
 ```bash
-dotnet add package Inngest.Blazor --prerelease
+dotnet add package Inngest.Blazor
 ```
 
 The types of the SDK are in the `Inngest` namespace. Add `@using Inngest` to the components that use the view, as the

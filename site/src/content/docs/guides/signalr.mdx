@@ -12,11 +12,10 @@ no Inngest token, and clients that join the same topics share one subscription t
 
 ## Set up
 
-Install `Inngest.SignalR` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`. The version is a preview, so add
-`--prerelease`:
+Install `Inngest.SignalR` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`:
 
 ```bash
-dotnet add package Inngest.SignalR --prerelease
+dotnet add package Inngest.SignalR
 ```
 
 Then add SignalR, the SDK and the bridge, and map the hub. `Authorize` is required, because nobody is let in by

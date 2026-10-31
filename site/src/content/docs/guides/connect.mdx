@@ -20,18 +20,18 @@ The functions are the same. Only the way they are served changes.
 
 ## Set up a worker
 
-Install `Inngest.Connect` from NuGet. It brings in `Inngest`. The version is a preview, so add `--prerelease`:
+Install `Inngest.Connect` from NuGet. It brings in `Inngest`:
 
 ```bash
-dotnet add package Inngest.Connect --prerelease
+dotnet add package Inngest.Connect
 ```
 
-Or reference it in the project file. `*-*` restores the newest version, previews included; put a version such as
-`0.1.0-preview.3` there instead to pin it:
+Or reference it in the project file. `*` restores the newest version; put a version such as
+`1.0.0` there instead to pin it:
 
 ```xml title="Worker.csproj"
 <ItemGroup>
-  <PackageReference Include="Inngest.Connect" Version="*-*" />
+  <PackageReference Include="Inngest.Connect" Version="*" />
 </ItemGroup>
 ```
 

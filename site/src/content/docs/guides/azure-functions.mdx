@@ -21,11 +21,10 @@ limits how long one HTTP call can take, which shapes how you run long steps. See
 Start from a Functions project for the isolated worker, such as the one `func init --worker-runtime dotnet-isolated`
 creates. It needs version 2.0 or later of `Microsoft.Azure.Functions.Worker`, and the
 `Microsoft.Azure.Functions.Worker.Extensions.Http` package for the `HttpTrigger` attribute. Install
-`Inngest.AzureFunctions` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`. The version is a preview, so add
-`--prerelease`:
+`Inngest.AzureFunctions` from NuGet. It brings in `Inngest` and `Inngest.AspNetCore`:
 
 ```bash
-dotnet add package Inngest.AzureFunctions --prerelease
+dotnet add package Inngest.AzureFunctions
 ```
 
 Like `Inngest.AspNetCore`, the package references the ASP.NET Core shared framework, so the runtime that runs the app

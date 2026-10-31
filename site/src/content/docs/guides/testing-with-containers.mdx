@@ -21,7 +21,7 @@ builder takes the image you choose; the module is tested with `inngest/inngest:v
 command line flags that older images may not know.
 
 ```bash
-dotnet add package Inngest.Testing.Containers --prerelease
+dotnet add package Inngest.Testing.Containers
 ```
 
 ## The dev server
@@ -153,7 +153,7 @@ everything the fixture above does: it listens on all interfaces on a free port, 
 after the app's own, and syncs the app.
 
 ```bash
-dotnet add package Inngest.Testing.Containers.AspNetCore --prerelease
+dotnet add package Inngest.Testing.Containers.AspNetCore
 ```
 
 Derive from it where you would derive from `WebApplicationFactory`, and override `ConfigureWebHost` for the fakes of

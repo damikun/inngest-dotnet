@@ -25,8 +25,8 @@ There are two packages:
 | `Inngest.UserContext.AspNetCore` | `AddUserContextFromHttpContext`, which takes the user from `HttpContext.User`. For the app that sends events while it serves requests. |
 
 ```bash
-dotnet add package Inngest.UserContext --prerelease
-dotnet add package Inngest.UserContext.AspNetCore --prerelease
+dotnet add package Inngest.UserContext
+dotnet add package Inngest.UserContext.AspNetCore
 ```
 
 The user is protected with [ASP.NET Core Data Protection](https://learn.microsoft.com/aspnet/core/security/data-protection/introduction),
