@@ -160,99 +160,520 @@ store, not from the payment provider or the mail server.
 
 </Section>
 
-<Section id="capabilities" eyebrow="Capabilities" title="Everything a workflow needs" lead="Steps, sleeps, waits, parallel work, flow control and retries, in the .NET types you already use: TimeSpan for durations, Task.WhenAll for parallel steps, exceptions for errors.">
+<Section id="capabilities" eyebrow="Capabilities" title="Everything the SDK can do" lead="Steps and flow control, realtime and AI, hosting, integrations and testing. Each card shows the main call and links to its guide.">
 
-<div class="idn-grid idn-grid-2">
+<div class="idn-capabilities">
+
+### Write workflows
+
+<div class="idn-grid idn-grid-cards">
 <div class="idn-card">
 
-### Steps that run once
+#### Steps that run once
 
-A step's result is saved; later calls get it back without running the code again.
-[Steps](/inngest-dotnet/guides/steps/)
+A step's result is saved, so a later call gets it back without running the code again.
 
 {/* check: body OrderPlaced; IPaymentGateway payments; OrderPlaced order */}
 ```csharp
-var paymentId = await context.Step.RunAsync("charge",
-    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+var paymentId = await context.Step.RunAsync(
+    "charge", ct => payments.ChargeAsync(
+        order.CustomerId, order.Total, ct));
 ```
+
+[Steps guide](/inngest-dotnet/guides/steps/)
 
 </div>
 <div class="idn-card">
 
-### Sleep and wait for events
+#### Sleep and wait for events
 
-Pause for days, or until a matching event arrives, without holding anything.
-[Sleep and wait](/inngest-dotnet/guides/sleep-and-wait-for-events/)
+Pause for days, or until an event arrives, without holding a thread or a worker.
 
 {/* check: body UserSignedUp */}
 ```csharp
-var activated = await context.Step.WaitForEventAsync<UserActivated>(
-    "wait-for-activation",
-    new WaitForEventOptions("user/activated", TimeSpan.FromDays(3))
-    {
-        Match = "data.userId",
-    });
+var activated = await context.Step
+    .WaitForEventAsync<UserActivated>(
+        "activation", TimeSpan.FromDays(3));
 ```
+
+[Sleep and wait guide](/inngest-dotnet/guides/sleep-and-wait-for-events/)
 
 </div>
 <div class="idn-card">
 
-### Parallel steps
+#### Parallel steps
 
 Start steps together and await them with `Task.WhenAll`; Inngest runs each in its own call.
-[Parallel steps](/inngest-dotnet/guides/parallel-steps/)
 
-{/* check: body UserSignedUp; IProfiles profiles; IOrderHistory history; string userId */}
+{/* check: body UserSignedUp; IProfiles profiles; string[] userIds */}
 ```csharp
-var profile = context.Step.RunAsync("load-profile",
-    ct => profiles.LoadAsync(userId, ct));
-var orders = context.Step.RunAsync("load-orders",
-    ct => history.LoadAsync(userId, ct));
-await Task.WhenAll(profile, orders);
+await Task.WhenAll(userIds.Select(userId =>
+    context.Step.RunAsync($"load-{userId}",
+        ct => profiles.LoadAsync(userId, ct))));
 ```
+
+[Parallel steps guide](/inngest-dotnet/guides/parallel-steps/)
 
 </div>
 <div class="idn-card">
 
-### Flow control
+#### Fan-out over a list
 
-Concurrency, throttling, rate limits, debounce, batching, priority and singletons are attributes on the function.
-[Flow control](/inngest-dotnet/guides/flow-control/)
+Run a step for each item of a list, with a limit on how many run at once and the results back in order.
 
-{/* check: attributes */}
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<Invoice> due */}
 ```csharp
-[Concurrency(1, Key = "event.data.accountId")]
-[Throttle(10, "1m")]
-[CancelOn("account/deleted", Match = "data.accountId")]
+await context.Step.MapAsync("charge", due,
+    (i, ct) => billing.ChargeAsync(i.Id, ct),
+    new FanOutOptions { MaxParallelism = 5 });
 ```
+
+[Fan-out guide](/inngest-dotnet/guides/fan-out/)
 
 </div>
 <div class="idn-card">
 
-### Errors and retries
+#### Invoke other functions
 
-Every step retries on its own. Exceptions stop retries or ask for a delay.
-[Errors and retries](/inngest-dotnet/guides/errors-and-retries/)
+Run another function as a step and get its typed result back, with its own retries and history.
 
 {/* check: body JsonElement */}
 ```csharp
-throw new RetryAfterException("Rate limited.", TimeSpan.FromMinutes(1));
+var score = await context.Step
+    .InvokeAsync<ScoreAccount, AccountScore>(
+        "score-acme", new ScoreRequest("acme"));
 ```
+
+[Invoking functions guide](/inngest-dotnet/guides/invoking-functions/)
 
 </div>
 <div class="idn-card">
 
-### Workers without an endpoint
+#### Scoped steps
+
+Run a step in a dependency injection scope of its own, so a `DbContext` carries no state from one step to the next.
+
+{/* check: body OrderPlaced; string id */}
+```csharp
+await context.Step
+    .RunScopedAsync<IInventory>("reserve",
+        (inv, ct) => inv.ReserveAsync(id, ct));
+```
+
+[Scoped steps guide](/inngest-dotnet/guides/scoped-steps/)
+
+</div>
+<div class="idn-card">
+
+#### Event and cron triggers
+
+Start a function from a typed event, a filtered event or a cron schedule, with its options as attributes or in code.
+
+{/* check: attributes */}
+```csharp
+[EventTrigger<OrderPlaced>(
+    If = "event.data.total >= 500")]
+[CronTrigger("0 6 * * 1-5", Timezone = "UTC")]
+```
+
+[Functions and triggers guide](/inngest-dotnet/guides/functions-and-triggers/)
+
+</div>
+<div class="idn-card">
+
+#### Flow control
+
+Concurrency, throttling, rate limits, debounce, batching, priority and singletons are attributes on the function.
+
+{/* check: attributes */}
+```csharp
+[Throttle(10, "1m")]
+[Concurrency(1, Key = "event.data.accountId")]
+[Debounce("30s", Key = "event.data.accountId")]
+```
+
+[Flow control guide](/inngest-dotnet/guides/flow-control/)
+
+</div>
+<div class="idn-card">
+
+#### Errors and retries
+
+Every step retries on its own. Exceptions stop the retries or ask for a delay.
+
+{/* check: body JsonElement */}
+```csharp
+throw new RetryAfterException(
+    "Rate limited.", TimeSpan.FromMinutes(1));
+```
+
+[Errors and retries guide](/inngest-dotnet/guides/errors-and-retries/)
+
+</div>
+</div>
+
+### Realtime and AI
+
+<div class="idn-grid idn-grid-cards">
+<div class="idn-card">
+
+#### Realtime
+
+Publish updates and streams of text from a run or from any code, and relay them to browsers or receive them in .NET.
+
+{/* check: statements; IInngestRealtime realtime; string orderId */}
+```csharp
+var status = new RealtimeTopic<string>(
+    $"order:{orderId}", "status");
+await realtime.PublishAsync(status, "Charged");
+```
+
+[Realtime guide](/inngest-dotnet/guides/realtime/)
+
+</div>
+<div class="idn-card">
+
+#### AI chat clients
+
+Run the model calls and tool calls of an `IChatClient` as steps, so a retry or a replay never repeats them.
+
+{/* check: statements; ChatClientBuilder builder */}
+```csharp
+using Microsoft.Extensions.AI;
+builder.UseInngestFunctionInvocation()
+    .UseInngestSteps();
+```
+
+[AI chat clients guide](/inngest-dotnet/guides/ai/)
+
+</div>
+<div class="idn-card">
+
+#### Blazor
+
+Show realtime messages in Blazor Server, WebAssembly and interactive Auto with the `RealtimeView` component.
+
+{/* check: statements; IServiceCollection services */}
+```csharp
+services.AddInngest(
+    options => options.AppId = "shop");
+services.AddInngestRealtimeServerSource();
+```
+
+[Blazor guide](/inngest-dotnet/guides/blazor/)
+
+</div>
+<div class="idn-card">
+
+#### SignalR
+
+Forward realtime messages to the clients of a SignalR hub, and decide who may join which channel.
+
+{/* check: statements; IServiceCollection services; WebApplication app; Func<RealtimeSubscribeRequest, ValueTask<RealtimeSubscription?>> authorize */}
+```csharp
+services.AddInngestSignalR(options =>
+    options.Authorize = authorize);
+app.MapInngestRealtimeHub("/hubs/inngest");
+```
+
+[SignalR guide](/inngest-dotnet/guides/signalr/)
+
+</div>
+</div>
+
+### Run it anywhere
+
+<div class="idn-grid idn-grid-cards">
+<div class="idn-card">
+
+#### Workers without an endpoint
 
 With Connect, a worker holds an outbound WebSocket to Inngest and needs no public URL.
-[Connect](/inngest-dotnet/guides/connect/)
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp
-inngest.AddConnect(connect => connect.MaxWorkerConcurrency = 20);
+inngest.AddConnect(connect =>
+    connect.MaxWorkerConcurrency = 20);
 ```
 
+[Connect guide](/inngest-dotnet/guides/connect/)
+
 </div>
+<div class="idn-card">
+
+#### Durable endpoints <span class="idn-tag">Experimental</span>
+
+Run steps in an ASP.NET Core endpoint, answer the caller directly, and hand the run to Inngest when a step has to wait or fails. Inngest calls it beta, so the API may still change.
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapPost("/pay", (IStepTools step) =>
+    step.RunAsync("charge", () => "paid"))
+    .WithDurableEndpoint();
+```
+
+[Durable endpoints guide](/inngest-dotnet/guides/durable-endpoints/)
+
+</div>
+<div class="idn-card">
+
+#### Azure Functions
+
+Serve the endpoint from an HTTP-triggered function of an Azure Functions app in the isolated worker model.
+
+{/* check: statements; HttpRequestData request */}
+```csharp
+using Microsoft.Azure.Functions.Worker.Http;
+// In an HTTP-triggered function
+return await request.ServeInngestAsync();
+```
+
+[Azure Functions guide](/inngest-dotnet/guides/azure-functions/)
+
+</div>
+<div class="idn-card">
+
+#### AWS Lambda
+
+Serve the endpoint from a Lambda function behind API Gateway or a function URL, as a managed function or a Native AOT executable.
+
+{/* check: statements; IServiceProvider sp; Amazon.Lambda.APIGatewayEvents.APIGatewayHttpApiV2ProxyRequest request; Amazon.Lambda.Core.ILambdaContext context */}
+```csharp
+var handler = new InngestLambdaHandler(sp);
+return await handler.HandleAsync(
+    request, context);
+```
+
+[AWS Lambda guide](/inngest-dotnet/guides/aws-lambda/)
+
+</div>
+<div class="idn-card">
+
+#### Native AOT
+
+Publish trimmed or as a Native AOT binary by giving the SDK source-generated JSON metadata for your types.
+
+{/* check: file */}
+```csharp
+using System.Text.Json.Serialization;
+[JsonSerializable(typeof(OrderPlaced))]
+partial class OrderJson : JsonSerializerContext;
+```
+
+[Native AOT guide](/inngest-dotnet/guides/native-aot/)
+
+</div>
+</div>
+
+### Integrations
+
+<div class="idn-grid idn-grid-cards">
+<div class="idn-card">
+
+#### Send events
+
+Send events from application code with `IInngestClient` or from a function as a step, with ids for deduplication and delayed starts.
+
+{/* check: statements; IInngestClient inngest */}
+```csharp
+await inngest.SendAsync(
+    new OrderPlaced("o-1001", "c-7", 49.90m));
+```
+
+[Sending events guide](/inngest-dotnet/guides/sending-events/)
+
+</div>
+<div class="idn-card">
+
+#### Webhooks
+
+Verify the signature of a webhook from Stripe, GitHub, Shopify, Clerk or Resend, and send it as an event whose id is the delivery id.
+
+{/* check: statements; WebApplication app; string secret */}
+```csharp
+app.MapInngestWebhook("/webhooks/stripe",
+    WebhookProvider.Stripe(secret));
+```
+
+[Webhooks guide](/inngest-dotnet/guides/webhooks/)
+
+</div>
+<div class="idn-card">
+
+#### Transactional outbox
+
+Save an event in the same Entity Framework Core transaction as your data, and a hosted dispatcher sends it to Inngest afterwards.
+
+{/* check: statements; DbContext db; OrderPlaced placed; CancellationToken cancellationToken */}
+```csharp
+using Microsoft.EntityFrameworkCore;
+db.AddInngestEvent(placed);
+await db.SaveChangesAsync(cancellationToken);
+```
+
+[Transactional outbox guide](/inngest-dotnet/guides/outbox/)
+
+</div>
+<div class="idn-card">
+
+#### User context
+
+Carry the signed-in user who caused a run into it, as `ICurrentUser` or a `ClaimsPrincipal`, protected with ASP.NET Core Data Protection.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddUserContext(options =>
+    options.Claims = ["sub", "role"]);
+inngest.AddUserContextFromHttpContext();
+```
+
+[User context guide](/inngest-dotnet/guides/user-context/)
+
+</div>
+<div class="idn-card">
+
+#### Middleware
+
+Observe and wrap function runs, steps and event sends, for logging, metrics, tracing and error mapping.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddMiddleware<TimingMiddleware>();
+```
+
+[Middleware guide](/inngest-dotnet/guides/middleware/)
+
+</div>
+<div class="idn-card">
+
+#### Encryption
+
+Encrypt event data, step results and function output, in the format of the TypeScript SDK's encryption middleware.
+
+{/* check: statements; IInngestBuilder inngest; string encryptionKey */}
+```csharp
+inngest.AddEncryption(options =>
+    options.Key = encryptionKey);
+```
+
+[Encryption guide](/inngest-dotnet/guides/middleware/#encryption)
+
+</div>
+<div class="idn-card">
+
+#### Sentry
+
+Report the errors of functions and steps to Sentry, tagged with the app, the function, the run and the event.
+
+{/* check: statements; WebApplicationBuilder builder; IInngestBuilder inngest; string dsn */}
+```csharp
+builder.WebHost.UseSentry(o => o.Dsn = dsn);
+inngest.AddSentryReporting();
+```
+
+[Sentry guide](/inngest-dotnet/guides/middleware/#sentry)
+
+</div>
+<div class="idn-card">
+
+#### OpenTelemetry
+
+Trace every call and step, and measure runs, retries and durations.
+
+{/* check: statements; IInngestBuilder inngest; TracerProviderBuilder tracing */}
+```csharp
+using OpenTelemetry.Trace;
+inngest.AddInstrumentation();
+tracing.AddInngestInstrumentation();
+```
+
+[OpenTelemetry reference](/inngest-dotnet/reference/api/#opentelemetry)
+
+</div>
+</div>
+
+### Test and ship
+
+<div class="idn-grid idn-grid-cards">
+<div class="idn-card">
+
+#### Testing
+
+Run a function in memory on the real execution engine with mocked steps, or against a fake `IStepTools`.
+
+{/* check: statements; InngestTestHost host; InngestEvent e */}
+```csharp
+using Inngest.Testing;
+var mock = new StepMocks().Run("charge", "ok");
+var run = await host.RunAsync("pay", e, mock);
+```
+
+[Testing guide](/inngest-dotnet/guides/testing/)
+
+</div>
+<div class="idn-card">
+
+#### Testing with containers
+
+Start the Inngest dev server or a self-hosted server in Docker from your tests, and run your app against it.
+
+{/* check: statements */}
+```csharp
+using Inngest.Testing.Containers;
+var server = new InngestServerBuilder(
+    "inngest/inngest:v1.49.0").Build();
+```
+
+[Testing with containers guide](/inngest-dotnet/guides/testing-with-containers/)
+
+</div>
+<div class="idn-card">
+
+#### Aspire
+
+Run the Inngest dev server as a container of your AppHost, with its UI linked in the Aspire dashboard.
+
+{/* check: statements; IDistributedApplicationBuilder builder */}
+```csharp
+var inngest = builder.AddInngest("inngest");
+builder.AddProject<Projects.Shop>("shop")
+    .WithReference(inngest).WaitFor(inngest);
+```
+
+[Aspire guide](/inngest-dotnet/guides/aspire/)
+
+</div>
+<div class="idn-card">
+
+#### Source generator and analyzers
+
+Turn on a generator that registers every function class of a project with one call, and find the types a Native AOT app has not listed.
+
+{/* check: statements; IInngestBuilder inngest */}
+```csharp
+inngest.AddInngestFunctions();
+```
+
+[Source generator guide](/inngest-dotnet/guides/source-generator/)
+
+</div>
+<div class="idn-card">
+
+#### Templates and the dotnet inngest tool
+
+Start an app with `dotnet new inngest-web` or `inngest-worker`, and run the Inngest dev server for it from its folder with `dotnet inngest dev`.
+
+```bash
+dotnet new inngest-web -n Shop
+dotnet tool install --global dotnet-inngest
+dotnet inngest dev
+```
+
+[Templates and tool guide](/inngest-dotnet/guides/templates-and-tools/)
+
+</div>
+</div>
+
 </div>
 
 </Section>

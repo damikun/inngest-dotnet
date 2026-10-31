@@ -440,6 +440,106 @@ html.js .idn-nojs-only {
   font-size: var(--sl-text-xl);
 }
 
+/* The capabilities: small cards in as many columns as fit, in groups under headings. A card holds a title, one
+   sentence, a short snippet and a link to its guide. The link stays at the foot of the card, so the cards of a row end
+   on one line. */
+.idn-capabilities > .sl-heading-wrapper {
+  margin-top: 3rem;
+  margin-bottom: 1.25rem;
+}
+
+.idn-capabilities > .sl-heading-wrapper:first-child {
+  margin-top: 0;
+}
+
+.sl-markdown-content .idn-capabilities h3 {
+  font-size: var(--sl-text-2xl);
+  line-height: 1.15;
+}
+
+.idn-grid-cards {
+  gap: 1rem;
+}
+
+@media (min-width: 50rem) {
+  .idn-grid-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Three columns only where the grid has its full width of 80rem, so that a card holds a line of 48 characters. */
+@media (min-width: 86rem) {
+  .idn-grid-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.idn-grid-cards .idn-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1.125rem;
+}
+
+.sl-markdown-content .idn-grid-cards .idn-card > * + * {
+  margin-top: 0.625rem;
+}
+
+/* A card's title needs no link to itself, which a screen reader would announce on every card. */
+.idn-grid-cards .sl-anchor-link {
+  display: none;
+}
+
+.sl-markdown-content .idn-grid-cards .idn-card h4 {
+  font-family: var(--font-heading-face), var(--__sl-font);
+  font-size: var(--sl-text-lg);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.sl-markdown-content .idn-grid-cards .idn-card p {
+  font-size: var(--sl-text-sm);
+  line-height: 1.55;
+  color: var(--sl-color-gray-2);
+}
+
+.idn-grid-cards .expressive-code {
+  --ec-codeFontSize: 0.75rem;
+  --ec-codePadInl: 0.75rem;
+  --ec-codePadBlk: 0.6rem;
+}
+
+/* The link to the guide, with an arrow that a screen reader skips. */
+.sl-markdown-content .idn-grid-cards .idn-card > p:last-child {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  font-weight: 600;
+}
+
+.idn-grid-cards .idn-card > p:last-child a::after {
+  content: '\00a0\2192';
+  content: '\00a0\2192' / '';
+}
+
+/* Marks a feature that is not stable yet. */
+.idn-tag {
+  display: inline-block;
+  margin-inline-start: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--idn-plan) 55%, transparent);
+  border-radius: 999px;
+  background-color: var(--idn-plan-bg);
+  color: var(--idn-plan);
+  font-family: var(--__sl-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .idn-steps-explained {
   margin-top: 1.75rem;
   color: var(--sl-color-gray-2);
