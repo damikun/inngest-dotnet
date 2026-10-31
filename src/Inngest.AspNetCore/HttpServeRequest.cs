@@ -7,8 +7,12 @@ using Microsoft.AspNetCore.Http.Extensions;
 
 namespace Inngest.AspNetCore;
 
-internal sealed class HttpServeRequest(HttpContext context, ReadOnlyMemory<byte> body, string framework) : IServeRequest
+// The framework is what MapInngest and durable endpoints report; a host built on ASP.NET Core, such as Azure Functions with
+// its ASP.NET Core integration, reports its own.
+internal sealed class HttpServeRequest(HttpContext context, ReadOnlyMemory<byte> body, string framework = HttpServeRequest.AspNetCore) : IServeRequest
 {
+    public const string AspNetCore = "aspnetcore";
+
     private Uri? _url;
 
     public string Method => context.Request.Method;
