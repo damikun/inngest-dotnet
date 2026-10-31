@@ -35,6 +35,19 @@ public sealed class BlazorRealtimeTests(EvaluationEnvironment environment) : Eva
     }
 
     [Fact(Timeout = 90_000)]
+    public async Task A_view_on_the_server_reads_Open_as_soon_as_it_is_connected_to_the_dev_server()
+    {
+        await using var context = ServerContext();
+
+        var cut = context.Render<RealtimeView<Progress>>(parameters => parameters
+            .Add(view => view.Topic, FeatureFunctions.Status(TestId))
+            .Add(view => view.ChildContent, ShowStatus));
+
+        // Nothing is published to the topic, so only the connection can have told the view.
+        cut.WaitForAssertion(() => cut.Markup.ShouldStartWith("Open:"), Wait);
+    }
+
+    [Fact(Timeout = 90_000)]
     public async Task A_view_on_the_server_shows_the_text_a_function_streams()
     {
         var tokens = FeatureFunctions.Tokens(TestId);
