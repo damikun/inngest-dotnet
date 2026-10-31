@@ -44,11 +44,16 @@ under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inn
   it sync the app, with the Connect gateway if you want one. `Inngest.Testing.Containers.AspNetCore` runs an ASP.NET Core
   app under `WebApplicationFactory` on a real port for it, on .NET 10. See
   [Testing with containers](/inngest-dotnet/guides/testing-with-containers/).
-
 - **Chat clients as steps.** `Inngest.Extensions.AI` makes the model calls and the tool calls of a Microsoft.Extensions.AI
   `IChatClient` steps of the run, so a replay or a retry of a later step never calls the model or a tool twice. See
   [AI chat clients](/inngest-dotnet/guides/ai/).
-
+- **A transactional outbox.** `Inngest.EntityFrameworkCore` saves events in the same Entity Framework Core transaction as
+  your data, and a hosted dispatcher sends them afterwards, each under the id it got when it was added. See
+  [Transactional outbox](/inngest-dotnet/guides/outbox/).
+- **A source generator and analyzers.** A project that sets `InngestGenerateFunctionRegistration` gets
+  `AddInngestFunctions()`, which registers its function classes without reflection, and an analyzer reports the types a
+  Native AOT app has not listed in its `JsonSerializerContext`, with a code fix that adds them. Both come with the
+  `Inngest` package. See [Source generator and analyzers](/inngest-dotnet/guides/source-generator/).
 - **Templates and a dev server command.** `dotnet new inngest-web` and `dotnet new inngest-worker`, from the
   `Inngest.Templates` package, make a project with a typed event, a function and dev mode in its Development settings.
   `dotnet inngest dev`, from the `dotnet-inngest` tool, downloads the Inngest CLI, checks its SHA-256 and runs the dev

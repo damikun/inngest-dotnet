@@ -5,7 +5,9 @@ retries only what fails and lets a run wait for days, so you ship reliable workf
 cron glue.
 
 inngest-dotnet is a community .NET SDK for [Inngest](https://www.inngest.com), ported from the Inngest TypeScript SDK,
-[inngest-js](https://github.com/inngest/inngest-js). It targets .NET 8 and .NET 10 and is Native AOT compatible.
+[inngest-js](https://github.com/inngest/inngest-js). It targets .NET 8 and .NET 10 and is Native AOT compatible, except
+`Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and Aspire app hosts,
+which are never compiled ahead of time.
 
 ## Packages
 

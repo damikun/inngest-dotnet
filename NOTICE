@@ -6,7 +6,8 @@ https://github.com/inngest/inngest-js, Copyright 2022 Inngest Inc.,
 licensed under the Apache License, Version 2.0.
 
 The original TypeScript sources were translated to C# and substantially
-modified to follow .NET conventions. Every source file under src/ carries
-a header stating that it was ported and modified. The port is not
+modified to follow .NET conventions. Every source file ported from them
+carries a header stating that it was ported and modified; source files
+written for .NET alone carry the license header only. The port is not
 affiliated with or endorsed by Inngest Inc. "Inngest" is a trademark of
 Inngest Inc.
