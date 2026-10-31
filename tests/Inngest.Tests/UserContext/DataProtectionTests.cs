@@ -1,12 +1,17 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Xml.Linq;
 using Inngest.Tests.Client;
+using Inngest.Tests.Execution;
 using Inngest.UserContext;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Inngest.Tests.UserContext;
@@ -215,6 +220,103 @@ public sealed class DataProtectionTests : IDisposable
         app.Protector.TryUnprotect(text + "A", out var changed).ShouldBeFalse();
         changed.ShouldBeNull();
         app.Protector.TryUnprotect(string.Empty, out _).ShouldBeFalse();
+    }
+
+    // An app whose key store is the given repository, which is the same folder the other apps use.
+    private ServiceProvider KeyRingOn(IXmlRepository store)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDataProtection().SetApplicationName("shop");
+        services.Configure<KeyManagementOptions>(options => options.XmlRepository = store);
+        var ring = services.BuildServiceProvider();
+        _rings.Add(ring);
+        return ring;
+    }
+
+    [Fact]
+    public async Task A_key_store_that_cannot_be_read_makes_the_protector_throw_and_not_report_the_text_as_invalid()
+    {
+        await using var sender = AppOn(KeyRing());
+        var user = sender.Seal(UserContextApp.Ada());
+        var text = JsonDocument.Parse(user).RootElement.GetProperty(UserContextCodec.Key).GetProperty("t").GetString()!;
+        await using var worker = AppOn(KeyRingOn(new FlakyStore(new FileSystemXmlRepository(_keys, NullLoggerFactory.Instance)) { Down = true }));
+
+        var failure = Should.Throw<CryptographicException>(() => worker.Protector.TryUnprotect(text, out _));
+
+        failure.InnerException.ShouldBeOfType<IOException>();
+    }
+
+    [Fact]
+    public async Task A_run_whose_key_store_is_down_fails_the_call_so_that_it_is_retried_and_does_not_run_as_nobody()
+    {
+        await using var sender = AppOn(KeyRing());
+        var store = new FlakyStore(new FileSystemXmlRepository(_keys, NullLoggerFactory.Instance)) { Down = true };
+        await using var worker = AppOn(KeyRingOn(store));
+        var call = Call.New().Event(UserContextApp.EventJson(sender.Seal(UserContextApp.Ada())));
+        var ran = 0;
+        var function = UserContextApp.Observe(before: _ => ran++);
+
+        var down = await worker.CallAsync(function, call, worker.Time.GetUtcNow());
+        store.Down = false;
+        var back = await worker.CallAsync(function, call, worker.Time.GetUtcNow());
+
+        down.StatusCode.ShouldBe(500);
+        down.NoRetry.ShouldBe(false);
+        down.Body.ShouldContain("CryptographicException");
+        ran.ShouldBe(1);
+        back.StatusCode.ShouldBe(200);
+        UserContextApp.SeenIn(back).IsAuthenticated.ShouldBeTrue();
+        worker.Logs.GetSnapshot().Where(record => record.Message.Contains("is not used because", StringComparison.Ordinal)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_key_store_that_is_down_fails_the_call_whatever_happens_to_users_that_cannot_be_used()
+    {
+        await using var sender = AppOn(KeyRing());
+        var store = new FlakyStore(new FileSystemXmlRepository(_keys, NullLoggerFactory.Instance)) { Down = true };
+        await using var worker = new UserContextApp(
+            KeyRingOn(store).GetRequiredService<IDataProtectionProvider>(),
+            options =>
+            {
+                options.Claims = ["sub", "name", "role"];
+                options.OnInvalid = InvalidUserContextAction.FailRun;
+            });
+
+        var result = await worker.CallAsync(UserContextApp.Observe(), Call.New().Event(UserContextApp.EventJson(sender.Seal(UserContextApp.Ada()))), worker.Time.GetUtcNow());
+
+        result.StatusCode.ShouldBe(500);
+        result.NoRetry.ShouldBe(false);
+    }
+
+    [Theory]
+    [InlineData("A")]
+    [InlineData("%%%%")]
+    [InlineData("AAAA")]
+    public async Task Text_that_is_not_in_the_format_of_data_protection_is_the_texts_fault_even_when_the_store_is_down(string text)
+    {
+        await using var worker = AppOn(KeyRingOn(new FlakyStore(new FileSystemXmlRepository(_keys, NullLoggerFactory.Instance)) { Down = true }));
+
+        worker.Protector.TryUnprotect(text, out var plaintext).ShouldBeFalse();
+
+        plaintext.ShouldBeNull();
+    }
+
+    // A key store that fails while Down, the way a share or a blob container does when it cannot be reached.
+    private sealed class FlakyStore(IXmlRepository inner) : IXmlRepository
+    {
+        public bool Down { get; set; }
+
+        public IReadOnlyCollection<XElement> GetAllElements() => Down ? throw new IOException("the key store cannot be reached") : inner.GetAllElements();
+
+        public void StoreElement(XElement element, string friendlyName) =>
+            _ = Down ? throw new IOException("the key store cannot be reached") : Store(element, friendlyName);
+
+        private int Store(XElement element, string friendlyName)
+        {
+            inner.StoreElement(element, friendlyName);
+            return 0;
+        }
     }
 
     // Not protection at all, which is the point: only a replacement that the app chose is needed to prove it is used.
