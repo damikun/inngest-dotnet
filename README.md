@@ -299,7 +299,8 @@ data.
 ## Documentation
 
 - **Start:** [Getting started](https://damikun.github.io/inngest-dotnet/guides/getting-started/) ·
-  [How it works](https://damikun.github.io/inngest-dotnet/how-it-works/)
+  [How it works](https://damikun.github.io/inngest-dotnet/how-it-works/) ·
+  [Templates and tool](https://damikun.github.io/inngest-dotnet/guides/templates-and-tools/)
 - **Guides:** [Functions and triggers](https://damikun.github.io/inngest-dotnet/guides/functions-and-triggers/) ·
   [Steps](https://damikun.github.io/inngest-dotnet/guides/steps/) ·
   [Sleep and wait for events](https://damikun.github.io/inngest-dotnet/guides/sleep-and-wait-for-events/) ·
@@ -309,6 +310,7 @@ data.
   [Transactional outbox](https://damikun.github.io/inngest-dotnet/guides/outbox/) ·
   [Realtime](https://damikun.github.io/inngest-dotnet/guides/realtime/) ·
   [Durable endpoints](https://damikun.github.io/inngest-dotnet/guides/durable-endpoints/) ·
+  [AI chat clients](https://damikun.github.io/inngest-dotnet/guides/ai/) ·
   [Flow control](https://damikun.github.io/inngest-dotnet/guides/flow-control/) ·
   [Errors and retries](https://damikun.github.io/inngest-dotnet/guides/errors-and-retries/) ·
   [Middleware](https://damikun.github.io/inngest-dotnet/guides/middleware/) ·
@@ -318,7 +320,8 @@ data.
   [Deploying](https://damikun.github.io/inngest-dotnet/guides/deploying/) ·
   [Native AOT](https://damikun.github.io/inngest-dotnet/guides/native-aot/) ·
   [Source generator and analyzers](https://damikun.github.io/inngest-dotnet/guides/source-generator/) ·
-  [Testing](https://damikun.github.io/inngest-dotnet/guides/testing/)
+  [Testing](https://damikun.github.io/inngest-dotnet/guides/testing/) ·
+  [Testing with containers](https://damikun.github.io/inngest-dotnet/guides/testing-with-containers/)
 - **Try it in the browser:** [Function options builder](https://damikun.github.io/inngest-dotnet/explainers/function-options/) ·
   [Flow control timeline](https://damikun.github.io/inngest-dotnet/explainers/flow-control/)
 - **Reference:** [API overview](https://damikun.github.io/inngest-dotnet/reference/api/) ·
