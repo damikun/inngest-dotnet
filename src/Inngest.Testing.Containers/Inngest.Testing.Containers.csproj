@@ -17,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Inngest.Tests" />
+    <InternalsVisibleTo Include="Inngest.Testing.Containers.AspNetCore" />
   </ItemGroup>
 </Project>
