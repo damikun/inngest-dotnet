@@ -404,8 +404,21 @@ internal sealed partial class Invocation
         return new ExecutionResult(400, body) { NoRetry = true };
     }
 
-    // Step handlers run off the scheduler, so their own awaits do not wait for it.
+    // Step handlers run off the scheduler, so their own awaits do not wait for it, and in the execution context of the
+    // code that called the step rather than the engine's.
     private Task<object?> RunHandler(FoundStep step, StepInfo? info)
+    {
+        if (step.CallerContext is not { } caller)
+        {
+            return StartHandler(step, info);
+        }
+
+        Task<object?> handler = null!;
+        ExecutionContext.Run(caller, _ => handler = StartHandler(step, info), null);
+        return handler;
+    }
+
+    private Task<object?> StartHandler(FoundStep step, StepInfo? info)
     {
         var synchronizationContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(null);

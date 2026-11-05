@@ -31,6 +31,7 @@ internal sealed partial class Invocation
         }
 
         step.Owner = this;
+        step.CallerContext = ExecutionContext.Capture();
         if (_pipeline is not null)
         {
             step.Guard = MiddlewarePipeline.ActiveWraps;

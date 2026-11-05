@@ -414,6 +414,11 @@ buffered included: it holds every decision of the call until the body has been r
 steps found with it. Blocking on a step task (`.Result`) deadlocks the invocation, as it would on any single-threaded
 context.
 
+A step's handler runs in the execution context captured where the step was called, not in the engine's, as a plain
+method call would. An `AsyncLocal` the function set, the current `Activity`, baggage and logging scopes are there in the
+handler, each parallel branch gets its own, and what the handler sets does not flow back to the function. The step
+spans of `Inngest.OpenTelemetry` keep the call's span as their parent, since they name it explicitly.
+
 Two rules keep tasks the function starts from hanging, as they would not on the JavaScript event loop:
 
 - While a step handler or a middleware hook runs, the engine keeps running what is queued on the scheduler, without

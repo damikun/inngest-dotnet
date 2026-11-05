@@ -64,6 +64,10 @@ internal abstract class FoundStep(string id)
     // Middleware whose WrapStepAsync was running where the step was created; the step skips them.
     public ActiveWrap? Guard { get; set; }
 
+    // The execution context of the code that called the step, which its handler runs in, so that what the function set
+    // around the call, such as an AsyncLocal, the current Activity or a logging scope, is there in the handler too.
+    public ExecutionContext? CallerContext { get; set; }
+
     // The WrapStepAsync chain whose result becomes the step's result.
     public Task<object?>? Chain { get; set; }
 
