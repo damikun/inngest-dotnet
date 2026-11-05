@@ -151,6 +151,35 @@ public sealed class PayloadTransformTests
     }
 
     [Fact]
+    public async Task An_event_transform_that_throws_NonRetriableException_fails_the_run_without_retries()
+    {
+        using var host = new EngineHost(services => services.AddSingleton<InngestMiddleware>(new Refusing()));
+        var ran = false;
+
+        var result = await host.CallAsync(TestFunction.Define(_ =>
+        {
+            ran = true;
+            return Task.FromResult<object?>(null);
+        }), Call.New());
+
+        ran.ShouldBeFalse();
+        result.StatusCode.ShouldBe(400);
+        result.NoRetry.ShouldBe(true);
+        result.Json.GetProperty("message").GetString().ShouldBe("The event is not signed.");
+    }
+
+    [Fact]
+    public async Task An_event_transform_that_throws_any_other_exception_is_retried()
+    {
+        using var host = new EngineHost(services => services.AddSingleton<InngestMiddleware>(new Refusing(retriable: true)));
+
+        var result = await host.CallAsync(TestFunction.Define(_ => Task.FromResult<object?>(null)), Call.New());
+
+        result.StatusCode.ShouldBe(500);
+        result.NoRetry.ShouldBe(false);
+    }
+
+    [Fact]
     public async Task A_function_middleware_transforms_only_its_functions_payloads()
     {
         using var host = new EngineHost();
@@ -287,6 +316,12 @@ public sealed class PayloadTransformTests
 
     // Middleware that observes runs and rewrites nothing.
     private sealed class Observing : InngestMiddleware;
+
+    private sealed class Refusing(bool retriable = false) : InngestMiddleware, IPayloadTransform
+    {
+        public bool TransformEvent(JsonElement @event, Utf8JsonWriter writer) =>
+            throw (retriable ? new InvalidOperationException("The key store is down.") : new NonRetriableException("The event is not signed."));
+    }
 
     private sealed class Keeping(List<string> log) : InngestMiddleware, IPayloadTransform
     {

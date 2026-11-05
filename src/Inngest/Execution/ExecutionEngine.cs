@@ -100,9 +100,10 @@ internal sealed class ExecutionEngine : IExecutionEngine
             {
                 invocation = new Invocation(this, request, run, cancellationToken);
             }
-            catch (JsonException exception)
+            catch (Exception exception) when (exception is JsonException or NonRetriableException)
             {
-                // The event does not fit the function's event type. Retrying the same payload cannot help.
+                // The event does not fit the function's event type, or an event transform or the event type's own
+                // validation refused it. Retrying the same payload cannot help.
                 Log.InvocationFailed(Logger, run.RunId, request.Function.Id, exception);
                 return FinalError(exception);
             }
