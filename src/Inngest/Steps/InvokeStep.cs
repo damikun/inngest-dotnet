@@ -11,7 +11,8 @@ using Inngest.Internal;
 namespace Inngest.Steps;
 
 // Inngest sends the payload to the invoked function as an inngest/function.invoked event and memoizes
-// {"data": <its output>}, or {"error": ...} when it fails or the timeout passes.
+// {"data": <its output>}, or {"error": ...} when it fails or the timeout passes. When the invoked run is cancelled,
+// Inngest memoizes the whole inngest/function.finished event instead, which would otherwise be read as the output.
 internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : FoundStep<TResult>(id)
 {
     private static readonly JsonEncodedText FunctionIdProperty = JsonEncodedText.Encode("function_id");
@@ -42,8 +43,58 @@ internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : Fou
         }
     }
 
-    protected override TResult Read(JsonElement value, JsonSerializerOptions options) =>
-        value.Deserialize((JsonTypeInfo<TResult>)options.GetTypeInfo(typeof(TResult)))!;
+    protected override TResult Read(JsonElement value, JsonSerializerOptions options)
+    {
+        if (IsCancelledRun(value, out var functionId))
+        {
+            throw Cancelled(functionId ?? invoke.FunctionId);
+        }
+
+        return value.Deserialize((JsonTypeInfo<TResult>)options.GetTypeInfo(typeof(TResult)))!;
+    }
+
+    // Like a failed attempt that no retry can fix: the call site gets a StepFailedException it can catch.
+    private StepFailedException Cancelled(string functionId) =>
+        new(FinalId, new FunctionError { Name = nameof(NonRetriableException), Message = $"The invoked function \"{functionId}\" was cancelled." });
+
+    // The finished event of a cancelled run carries data._inngest.status "Cancelled"; its data alone counts too.
+    private static bool IsCancelledRun(JsonElement value, out string? functionId)
+    {
+        functionId = null;
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var data = value;
+        if (value.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String && name.ValueEquals("inngest/function.finished"))
+        {
+            if (!value.TryGetProperty("data", out data) || data.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+        }
+        else if (!value.TryGetProperty("function_id", out _))
+        {
+            return false;
+        }
+
+        if (!data.TryGetProperty("_inngest", out var inngest)
+            || inngest.ValueKind != JsonValueKind.Object
+            || !inngest.TryGetProperty("status", out var status)
+            || status.ValueKind != JsonValueKind.String
+            || !status.ValueEquals("Cancelled"))
+        {
+            return false;
+        }
+
+        if (data.TryGetProperty("function_id", out var id) && id.ValueKind == JsonValueKind.String)
+        {
+            functionId = id.GetString();
+        }
+
+        return true;
+    }
 
     private static void WriteValue(Utf8JsonWriter writer, JsonEncodedText property, object? value, JsonSerializerOptions options)
     {

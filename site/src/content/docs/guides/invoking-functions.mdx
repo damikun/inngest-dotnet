@@ -124,10 +124,10 @@ items and gathers the results in order.
 
 ## When the invoked function fails
 
-If the invoked function fails all its attempts, or the timeout passes first, the step fails at once without retries
-of its own, and `InvokeAsync` throws `StepFailedException`. Retrying the step would run the whole invoked function
-again, and in a chain of invocations the retries would multiply. Catch the exception to carry on without that
-result:
+If the invoked function fails all its attempts, is cancelled, or the timeout passes first, the step fails at once
+without retries of its own, and `InvokeAsync` throws `StepFailedException`. Retrying the step would run the whole
+invoked function again, and in a chain of invocations the retries would multiply. Catch the exception to carry on
+without that result:
 
 {/* check: body JsonElement */}
 ```csharp
