@@ -13,4 +13,7 @@ internal static partial class Log
     [LoggerMessage(EventId = 600, Level = LogLevel.Warning,
         Message = "Refused a request to durable endpoint {FunctionId} with 413: its body is larger than the {Limit} bytes its run may store.")]
     public static partial void EndpointBodyTooLarge(ILogger logger, string functionId, int limit);
+
+    [LoggerMessage(EventId = 601, Level = LogLevel.Warning, Message = "The output proxy could not fetch the output of durable endpoint run {RunId} from Inngest.")]
+    public static partial void EndpointOutputFailed(ILogger logger, string runId, Exception exception);
 }

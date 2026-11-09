@@ -5,11 +5,12 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Inngest.Middleware;
 
 namespace Inngest.Encryption;
 
 // Encrypts and decrypts the JSON values of an app for its middleware. Every call shares it, so it keeps nothing for a call.
-internal sealed class PayloadEncryptor
+internal sealed class PayloadEncryptor : IValueDecryptor
 {
     // The text that is encrypted, with characters written as they are rather than as \uXXXX escapes, as JSON.stringify
     // does for the TypeScript package.
@@ -81,6 +82,8 @@ internal sealed class PayloadEncryptor
         WriteDecrypted(writer, Open(strategy, data.GetString()!));
         return true;
     }
+
+    public bool TryDecrypt(JsonElement value, Utf8JsonWriter writer) => DecryptValue(value, writer);
 
     // Encrypts a step's output or the function's output as a whole. Null has nothing to hide, and the TypeScript
     // package leaves it alone too.

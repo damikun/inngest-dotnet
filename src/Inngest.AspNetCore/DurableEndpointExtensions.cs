@@ -4,6 +4,8 @@
 using System.Diagnostics.CodeAnalysis;
 using Inngest;
 using Inngest.AspNetCore;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 
 namespace Microsoft.AspNetCore.Builder;
 
@@ -34,6 +36,30 @@ public static class DurableEndpointExtensions
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
         return builder.WithDurableEndpoint(new DurableEndpointOptions { Id = id });
+    }
+
+    /// <summary>
+    /// Serves the output of durable endpoint runs on the app's own domain, as endpointProxy() does in the TypeScript SDK:
+    /// a GET with the runId and token query parameters waits for the run to end and answers with the endpoint's
+    /// response, which it fetches from Inngest with the run's token. It answers any origin, with CORS headers and an
+    /// OPTIONS preflight, and decrypts the output when the app uses the encryption middleware, which Inngest cannot
+    /// replay. Point DurableEndpointOptions.RedirectUrl at it. Requires services.AddInngest().
+    /// </summary>
+    [Experimental(DurableEndpointDiagnostics.Id)]
+    public static IEndpointConventionBuilder MapInngestDurableEndpointProxy(this IEndpointRouteBuilder endpoints, [StringSyntax("Route")] string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentException.ThrowIfNullOrEmpty(pattern);
+
+        // Resolved here, so that a missing AddInngest fails at startup rather than on the first request.
+        var proxy = DurableEndpointProxy.Create(endpoints.ServiceProvider);
+
+        // The run's token is what lets a caller read the output, as on Inngest's own URL.
+        return endpoints
+            .MapMethods(pattern, [HttpMethods.Get, HttpMethods.Options], proxy.HandleAsync)
+            .WithDisplayName("Inngest durable endpoint output")
+            .ExcludeFromDescription()
+            .AllowAnonymous();
     }
 
     /// <summary>

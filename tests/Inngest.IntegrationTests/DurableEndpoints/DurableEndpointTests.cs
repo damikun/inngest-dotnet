@@ -19,7 +19,7 @@ public sealed class DurableEndpointCollection : ICollectionFixture<DurableEndpoi
 public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : IntegrationTest<DurableEndpointFixture>(fixture)
 {
     // The client sees each redirect itself; the output URL is on the dev server.
-    private static readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(2) };
+    internal static readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(2) };
 
     [Fact(Timeout = 60_000)]
     public async Task A_finished_request_answers_directly_and_its_run_completes_in_Inngest()
@@ -113,6 +113,32 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
         JsonDocument.Parse(output.Body).RootElement.GetProperty("approvedBy").GetString().ShouldBe("ops");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task The_output_proxy_on_the_apps_domain_answers_with_the_endpoints_response()
+    {
+        using var response = await PostAsync($"/pack/{TestId}", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var location = response.Headers.Location.ShouldNotBeNull();
+        location.GetLeftPart(UriPartial.Path).ShouldBe(new Uri(Fixture.AppUrl, "/inngest/output").AbsoluteUri);
+        var output = await ReadOutputAsync(location);
+        output.StatusCode.ShouldBe(HttpStatusCode.Created);
+        output.ContentType.ShouldStartWith("application/json");
+        output.AllowOrigin.ShouldBe("*");
+        var packed = JsonDocument.Parse(output.Body).RootElement;
+        packed.GetProperty("testId").GetString().ShouldBe(TestId);
+        packed.GetProperty("packed").GetInt32().ShouldBe(1);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task The_output_proxy_refuses_a_request_without_a_run()
+    {
+        using var response = await Client.GetAsync(new Uri(Fixture.AppUrl, "/inngest/output?runId=01J0000000000000000000000"), Cancellation);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Cancellation)).ShouldBe("""{"error":"Missing runId or token query parameter"}""");
+    }
+
     private Task<HttpResponseMessage> PostAsync(string pathAndQuery, string body) =>
         Client.PostAsync(new Uri(Fixture.AppUrl, pathAndQuery), new StringContent(body, Encoding.UTF8, "application/json"), Cancellation);
 
@@ -124,13 +150,24 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
     {
         var location = redirect.Headers.Location.ShouldNotBeNull();
         location.AbsolutePath.ShouldContain("/v1/http/runs/");
+        var output = await ReadOutputAsync(location);
+        return (output.StatusCode, output.Body);
+    }
+
+    // The output proxy hands the same answers on, the empty one included.
+    internal static async Task<(HttpStatusCode StatusCode, string Body, string? ContentType, string? AllowOrigin)> ReadOutputAsync(Uri location)
+    {
         for (var attempt = 1; ; attempt++)
         {
             using var output = await Client.GetAsync(location, Cancellation);
             var body = await output.Content.ReadAsStringAsync(Cancellation);
             if (output.StatusCode != HttpStatusCode.OK || body.Length > 0 || attempt == 50)
             {
-                return (output.StatusCode, body);
+                return (
+                    output.StatusCode,
+                    body,
+                    output.Content.Headers.ContentType?.ToString(),
+                    output.Headers.TryGetValues("Access-Control-Allow-Origin", out var origins) ? origins.Single() : null);
             }
 
             await Task.Delay(100, Cancellation);

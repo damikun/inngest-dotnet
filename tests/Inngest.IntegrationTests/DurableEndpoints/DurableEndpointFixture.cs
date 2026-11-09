@@ -62,6 +62,19 @@ public sealed class DurableEndpointFixture : InngestFixture
             return Results.Json(new { body, query = request.QueryString.Value, packed }, statusCode: StatusCodes.Status202Accepted);
         }).WithDurableEndpoint("ship");
 
+        // Sends the client to the app's own output proxy rather than to Inngest.
+        app.MapInngestDurableEndpointProxy("/inngest/output");
+        app.MapPost("/pack/{testId}", async (string testId, IStepTools step) =>
+        {
+            var packed = await step.RunAsync("pack", () => Count(testId, "pack"));
+            await step.SleepAsync("cool-off", TimeSpan.FromSeconds(1));
+            return Results.Json(new { testId, packed }, statusCode: StatusCodes.Status201Created);
+        }).WithDurableEndpoint(new DurableEndpointOptions
+        {
+            Id = "pack",
+            RedirectUrl = run => ProxyUrl(AppUrl, run),
+        });
+
         // The step fails on its first attempt; Inngest retries it and the client gets the result through the redirect.
         app.MapPost("/flaky/{testId}", async (string testId, IStepTools step) =>
         {
@@ -104,6 +117,9 @@ public sealed class DurableEndpointFixture : InngestFixture
             return Results.Ok(new { approvedBy = approval?.Data.GetProperty("by").GetString() });
         }).WithDurableEndpoint("approve");
     }
+
+    public static Uri ProxyUrl(Uri appUrl, DurableEndpointRun run) =>
+        new(appUrl, $"/inngest/output?runId={Uri.EscapeDataString(run.RunId)}&token={Uri.EscapeDataString(run.Token)}");
 
     private int Count(string testId, string name) => _attempts.AddOrUpdate($"{testId}/{name}", 1, static (_, count) => count + 1);
 

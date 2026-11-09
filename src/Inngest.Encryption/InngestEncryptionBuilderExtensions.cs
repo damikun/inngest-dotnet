@@ -3,6 +3,7 @@
 
 using Inngest.Configuration;
 using Inngest.Encryption;
+using Inngest.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -36,6 +37,9 @@ public static class InngestEncryptionBuilderExtensions
         services.TryAddSingleton(static provider => new PayloadEncryptor(
             provider.GetRequiredService<IOptions<EncryptionOptions>>().Value,
             provider.GetRequiredService<InngestSettings>().SerializerOptions));
+
+        // The durable endpoint output proxy reads the output of a run with it, outside any run.
+        services.TryAddSingleton<IValueDecryptor>(static provider => provider.GetRequiredService<PayloadEncryptor>());
         return builder.AddMiddleware<EncryptionMiddleware>();
     }
 }
