@@ -101,6 +101,10 @@ internal sealed class DurableEndpointMetadata(DurableEndpointOptions options) : 
 /// <summary>The diagnostic that marks the durable endpoint API, which follows a feature Inngest still calls beta.</summary>
 public static class DurableEndpointDiagnostics
 {
-    /// <summary>Suppress it with &lt;NoWarn&gt;$(NoWarn);INNGEST001&lt;/NoWarn&gt; or #pragma warning disable INNGEST001.</summary>
-    public const string Id = "INNGEST001";
+    /// <summary>
+    /// Suppress it with &lt;NoWarn&gt;$(NoWarn);INNGESTEXP001&lt;/NoWarn&gt; or #pragma warning disable INNGESTEXP001.
+    /// Up to 1.0.1 it was INNGEST001, the id the source generator reports for a class with [InngestFunction] that is
+    /// not a function, so suppressing the one hid the other.
+    /// </summary>
+    public const string Id = "INNGESTEXP001";
 }

@@ -272,8 +272,8 @@ that `useRealtime` and `subscribe` of the TypeScript SDK take.
 
 ## Durable endpoints
 
-Package `Inngest.AspNetCore`. The API is marked `[Experimental("INNGEST001")]`, because Inngest calls durable endpoints
-beta; [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#beta) shows how to suppress the diagnostic.
+Package `Inngest.AspNetCore`. The API is marked `[Experimental("INNGESTEXP001")]`, because Inngest calls durable
+endpoints beta; [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#beta) shows how to suppress the diagnostic.
 
 **`DurableEndpointOptions`**, the argument of `WithDurableEndpoint`:
 
@@ -291,7 +291,8 @@ answers with the endpoint's response, or `Token`, a 200 with `{"run_id", "token"
 
 **`DurableEndpointAttribute`** marks a controller or an action, as `WithDurableEndpoint` does for a minimal API
 endpoint. Its constructor is `(string? id = null)`, and its properties are `Retries`, where a negative number means the
-default, and `AsyncResponse`. **`DurableEndpointDiagnostics.Id`** is `"INNGEST001"`, the diagnostic that marks the API.
+default, and `AsyncResponse`. **`DurableEndpointDiagnostics.Id`** is `"INNGESTEXP001"`, the diagnostic that marks the
+API; up to 1.0.1 it was `"INNGEST001"`.
 
 ## Errors
 

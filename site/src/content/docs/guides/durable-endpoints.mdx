@@ -18,17 +18,22 @@ that nobody waits for, or that takes longer, belongs in a function.
 ## Beta
 
 Inngest calls durable endpoints beta, so the protocol and the .NET API may still change. The API is marked
-`[Experimental("INNGEST001")]`. Code that uses it, from `UseInngestDurableEndpoints` and `WithDurableEndpoint` to
+`[Experimental("INNGESTEXP001")]`. Code that uses it, from `UseInngestDurableEndpoints` and `WithDurableEndpoint` to
 `DurableEndpointOptions` and the `[DurableEndpoint]` attribute, is a compile error until the app suppresses that
 diagnostic. Suppress it in the project file:
 
 ```xml title="Shop.csproj"
 <PropertyGroup>
-  <NoWarn>$(NoWarn);INNGEST001</NoWarn>
+  <NoWarn>$(NoWarn);INNGESTEXP001</NoWarn>
 </PropertyGroup>
 ```
 
-Or put `#pragma warning disable INNGEST001` above the code that uses it.
+Or put `#pragma warning disable INNGESTEXP001` above the code that uses it.
+
+Up to 1.0.1 the id was `INNGEST001`, which a
+[source generator warning](/inngest-dotnet/guides/source-generator/#inngest001) also uses, so suppressing it for
+durable endpoints hid that warning too. When you upgrade, change the suppression to `INNGESTEXP001`.
+
 [Durable Endpoints](https://www.inngest.com/docs/durable-execution/durable-endpoints) in the Inngest docs describes
 the feature itself.
 
