@@ -20,8 +20,8 @@ namespace Inngest;
 /// Answers the requests Inngest sends to an app: GET for introspection, PUT to sync the app and POST to run functions.
 /// The ASP.NET Core endpoint, AWS Lambda and Azure Functions are built on it; resolve it from the services of an app
 /// that called <c>AddInngest</c> to serve Inngest from another host. It checks the request's signature, signs the
-/// response and never throws for a request Inngest sends, so the host only turns an IServeRequest into a call and the
-/// ServeResponse back into a response of its own.
+/// response and answers a failure with an error response, so the host only turns its request into an IServeRequest and
+/// the ServeResponse back into a response of its own.
 /// </summary>
 public sealed partial class InngestCommHandler
 {
@@ -85,7 +85,8 @@ public sealed partial class InngestCommHandler
     /// <summary>
     /// Answers one request. A call that runs a function returns once the function has run its step or ended. Dispose
     /// the response once its body has been written: the body may live in a pooled buffer that the response owns. The
-    /// cancellation token reaches the function, as the request's abort signal does in ASP.NET Core.
+    /// cancellation token reaches the function, as the request's abort signal does in ASP.NET Core; once it is
+    /// cancelled the call may throw, and otherwise every failure is answered with an error response.
     /// </summary>
     public async Task<ServeResponse> HandleAsync(IServeRequest request, CancellationToken cancellationToken = default)
     {
