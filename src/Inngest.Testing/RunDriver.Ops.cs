@@ -78,6 +78,7 @@ internal sealed partial class RunDriver
     private StepRecord Executed(ReportedOp op)
     {
         var step = Track(op);
+        _ranLast.Add(step);
         step.Attempts++;
         step.Mocked |= _mocked.Contains(step.HashedId);
         return step;
@@ -94,6 +95,7 @@ internal sealed partial class RunDriver
 
         var step = Track(op);
         _pending.Add(step.HashedId);
+        _foundLast.Add(step);
         var mock = _mocks.Find(step.Id);
         switch (op.Code)
         {
@@ -211,7 +213,7 @@ internal sealed partial class RunDriver
         StepType.Sleep => "sleep",
         StepType.WaitForEvent => "wait for an event",
         StepType.Invoke => "invoke",
-        StepType.SendEvent => "send step, whose events the host records",
+        StepType.SendEvent => "send-event step",
         StepType.WaitForSignal => "wait for a signal",
         StepType.SendSignal => "send-signal step",
         StepType.Fetch => "fetch",

@@ -58,6 +58,12 @@ public sealed class TestRun
     /// <summary>The steps a waiting run waits on; empty unless the run is waiting.</summary>
     public IReadOnlyList<TestStep> WaitingOn { get; }
 
+    /// <summary>
+    /// The steps at the checkpoint where the run stopped: the steps found, the step that ran, or the step ExecuteStepAsync
+    /// ran. Empty unless the run stopped.
+    /// </summary>
+    public IReadOnlyList<TestStep> StoppedAt { get; internal init; } = [];
+
     /// <summary>Every event the run sent, from send steps and from the client, in the order it sent them.</summary>
     public IReadOnlyList<InngestEvent> SentEvents { get; }
 
@@ -113,6 +119,7 @@ public sealed class TestRun
         TestRunStatus.Completed => $"Completed with {Output?.GetRawText()}.",
         TestRunStatus.Failed => $"Failed with {Error?.GetType().Name}: {Error?.Message}",
         TestRunStatus.Waiting => $"Waiting on {string.Join(", ", WaitingOn.Select(static step => step.Describe()))}.",
-        _ => Steps.Count == 0 ? "Stopped." : $"Stopped after {Steps[^1].Describe()}.",
+        _ when StoppedAt.Count > 1 => $"Stopped at {string.Join(", ", StoppedAt.Select(static step => step.Describe()))}.",
+        _ => Steps.Count == 0 ? "Stopped." : $"Stopped after {(StoppedAt.Count == 1 ? StoppedAt[0] : Steps[^1]).Describe()}.",
     };
 }

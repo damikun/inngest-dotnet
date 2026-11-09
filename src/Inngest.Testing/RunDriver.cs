@@ -29,7 +29,7 @@ internal sealed partial class RunDriver
     private readonly FunctionDefinition _function;
     private readonly IReadOnlyList<byte[]> _events;
     private readonly StepMocks _mocks;
-    private readonly string? _stopAt;
+    private readonly TestCheckpoint? _stopAt;
     private readonly RunClock _clock;
     private readonly int _maxAttempts;
 
@@ -39,6 +39,11 @@ internal sealed partial class RunDriver
 
     private readonly Dictionary<string, StepRecord> _steps = new(StringComparer.Ordinal);
     private readonly List<StepRecord> _found = [];
+
+    // What the last call reported: the steps whose handler ran, and the steps it found without running them.
+    private readonly List<StepRecord> _ranLast = [];
+    private readonly List<StepRecord> _foundLast = [];
+    private List<StepRecord>? _stoppedAt;
 
     // Steps Inngest has taken on but not finished: planned, sleeping, waiting, invoking or not understood.
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
@@ -58,7 +63,7 @@ internal sealed partial class RunDriver
     private bool _forceStepPlan;
     private bool _discoveryQueued;
 
-    public RunDriver(InngestTestHost host, FunctionDefinition function, IReadOnlyList<byte[]> events, StepMocks mocks, string? stopAt)
+    public RunDriver(InngestTestHost host, FunctionDefinition function, IReadOnlyList<byte[]> events, StepMocks mocks, TestCheckpoint? stopAt)
     {
         _host = host;
         _events = events;
@@ -106,6 +111,8 @@ internal sealed partial class RunDriver
         {
             cancellationToken.ThrowIfCancellationRequested();
             _clock.AdvanceTo(due.At);
+            _ranLast.Clear();
+            _foundLast.Clear();
             var finished = work.Kind switch
             {
                 WorkKind.Discover => await DiscoverAsync(work, cancellationToken).ConfigureAwait(false),
@@ -128,10 +135,11 @@ internal sealed partial class RunDriver
     }
 
     // Called by the host's middleware during a call of this run.
-    // A send-signal step is a run step whose handler calls Inngest, so a run mock stands in for it as well.
+    // The steps whose handler runs in the SDK and calls Inngest, such as a send-signal or a send-event step, are
+    // answered by a mock of the same kind in the handler's place.
     public RunMock? FindRunMock(StepInfo step)
     {
-        if (step.Type is not (StepType.Run or StepType.AIWrap or StepType.SendSignal) || _mocks.Find(step.Id) is not RunMock mock)
+        if (_mocks.Find(step.Id) is not RunMock mock || !mock.CanAnswer(step.Type))
         {
             return null;
         }
@@ -222,16 +230,35 @@ internal sealed partial class RunDriver
             return false;
         }
 
-        foreach (var step in _found)
+        switch (_stopAt.Kind)
         {
-            if (step.Id == _stopAt)
-            {
+            case TestCheckpoint.CheckpointKind.StepsFound:
+                if (_foundLast.Count > 0 && _stopAt.StepIds.All(id => _foundLast.Exists(step => step.Id == id)))
+                {
+                    _stoppedAt = [.. _foundLast];
+                }
+
+                break;
+
+            case TestCheckpoint.CheckpointKind.StepRan:
+                if (_ranLast.Find(step => step.Id == _stopAt.StepIds[0]) is { } ran)
+                {
+                    _stoppedAt = [ran];
+                }
+
+                break;
+
+            default:
                 // A step Inngest carries out is done once it is reported; a run step once it has run for good.
-                return !step.Runnable || step.Status != TestStepStatus.Pending;
-            }
+                if (_found.Find(step => step.Id == _stopAt.StepIds[0]) is { } step && (!step.Runnable || step.Status != TestStepStatus.Pending))
+                {
+                    _stoppedAt = [step];
+                }
+
+                break;
         }
 
-        return false;
+        return _stoppedAt is not null;
     }
 
     // One item of the run's queue: a call that finds the next steps, a targeted call that runs a planned step, or

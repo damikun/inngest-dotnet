@@ -16,6 +16,6 @@ public enum TestRunStatus
     /// </summary>
     Waiting,
 
-    /// <summary>ExecuteStepAsync reached its step and stopped the run there.</summary>
+    /// <summary>ExecuteStepAsync or RunUntilAsync reached its step or checkpoint and stopped the run there; see StoppedAt.</summary>
     Stopped,
 }

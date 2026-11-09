@@ -158,7 +158,27 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(stepId);
         ArgumentNullException.ThrowIfNull(@event);
-        return StartAsync(functionId, [@event], mocks, stepId, cancellationToken);
+        return StartAsync(functionId, [@event], mocks, TestCheckpoint.StepDone(stepId), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the function until it reaches the checkpoint, such as the steps of a parallel group being found, and stops
+    /// it there as Stopped, with the checkpoint's steps in StoppedAt. A run that completes, fails or waits before that
+    /// ends as it would with RunAsync.
+    /// </summary>
+    public Task<TestRun> RunUntilAsync(string functionId, InngestEvent @event, TestCheckpoint checkpoint, CancellationToken cancellationToken = default) =>
+        RunUntilAsync(functionId, @event, checkpoint, NoMocks, cancellationToken);
+
+    public Task<TestRun> RunUntilAsync(
+        string functionId,
+        InngestEvent @event,
+        TestCheckpoint checkpoint,
+        StepMocks mocks,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        return StartAsync(functionId, [@event], mocks, checkpoint, cancellationToken);
     }
 
     /// <summary>
@@ -188,6 +208,14 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
     public Task<TestRun> ExecuteStepAsync<TFunction>(string stepId, InngestEvent @event, StepMocks mocks, CancellationToken cancellationToken = default)
         where TFunction : InngestFunction =>
         ExecuteStepAsync(FunctionIdOf(typeof(TFunction)), stepId, @event, mocks, cancellationToken);
+
+    public Task<TestRun> RunUntilAsync<TFunction>(InngestEvent @event, TestCheckpoint checkpoint, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunUntilAsync(FunctionIdOf(typeof(TFunction)), @event, checkpoint, cancellationToken);
+
+    public Task<TestRun> RunUntilAsync<TFunction>(InngestEvent @event, TestCheckpoint checkpoint, StepMocks mocks, CancellationToken cancellationToken = default)
+        where TFunction : InngestFunction =>
+        RunUntilAsync(FunctionIdOf(typeof(TFunction)), @event, checkpoint, mocks, cancellationToken);
 
     public void Dispose() => _provider.Dispose();
 
@@ -228,7 +256,7 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
         string functionId,
         IReadOnlyList<InngestEvent> events,
         StepMocks mocks,
-        string? stopAt,
+        TestCheckpoint? stopAt,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(functionId);

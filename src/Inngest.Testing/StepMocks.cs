@@ -105,6 +105,47 @@ public sealed class StepMocks
     /// </summary>
     public StepMocks SendSignal(string stepId, string? runId) => With(stepId, new RunMock(_ => runId));
 
+    /// <summary>
+    /// The send-event step returns these ids for its events instead of sending them, so they are not recorded in
+    /// SentEvents.
+    /// </summary>
+    public StepMocks SendEvent(string stepId, params string[] eventIds)
+    {
+        ArgumentNullException.ThrowIfNull(eventIds);
+        var result = new SendEventsResult([.. eventIds]);
+        return With(stepId, new RunMock(_ => result, StepType.SendEvent));
+    }
+
+    /// <summary>
+    /// Called instead of sending the events of the send-event step on every attempt, with the attempt number counted from
+    /// zero; it returns the ids of the events. Throw from it to fail the attempt.
+    /// </summary>
+    public StepMocks SendEvent(string stepId, Func<int, IReadOnlyList<string>> eventIds)
+    {
+        ArgumentNullException.ThrowIfNull(eventIds);
+        return With(stepId, new RunMock(attempt => new SendEventsResult(eventIds(attempt)), StepType.SendEvent));
+    }
+
+    /// <summary>
+    /// The send-event step throws on every attempt, as a send Inngest refuses does, so it is retried and then fails for
+    /// good, at once for a NonRetriableException. Nothing is sent or recorded.
+    /// </summary>
+    public StepMocks SendEventThrows(string stepId, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return With(stepId, new RunMock(_ => throw exception, StepType.SendEvent));
+    }
+
+    /// <summary>
+    /// The realtime publish step, or the step that streams to a topic, throws on every attempt instead of publishing, so
+    /// it is retried and then fails for good, at once for a NonRetriableException. Nothing is recorded in Published.
+    /// </summary>
+    public StepMocks PublishThrows(string stepId, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return With(stepId, new RunMock(_ => throw exception, StepType.RealtimePublish));
+    }
+
     /// <summary>The request of the fetch step gets this response, whatever its status, as Inngest would hand it back.</summary>
     public StepMocks Fetch(string stepId, HttpStatusCode statusCode, string? body = null, IReadOnlyDictionary<string, string>? headers = null) =>
         With(stepId, new GatewayMock(StepType.Fetch, (writer, _) =>

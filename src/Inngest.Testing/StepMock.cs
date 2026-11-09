@@ -17,13 +17,14 @@ internal abstract class StepMock
     public virtual bool CanAnswer(StepType type) => type == Answers;
 }
 
-// Also answers the steps that run in the SDK like a run step: an AI wrap and a sent signal, whose answer is the id
-// of the run it resumed.
-internal sealed class RunMock(Func<int, object?> answer) : StepMock
+// Answers in place of a handler that runs in the SDK. A mock of a run step also answers an AI wrap and a sent signal,
+// whose answer is the id of the run it resumed; a mock of a send-event or publish step answers only that kind.
+internal sealed class RunMock(Func<int, object?> answer, StepType answers = StepType.Run) : StepMock
 {
-    public override StepType Answers => StepType.Run;
+    public override StepType Answers => answers;
 
-    public override bool CanAnswer(StepType type) => type is StepType.Run or StepType.AIWrap or StepType.SendSignal;
+    public override bool CanAnswer(StepType type) =>
+        answers == StepType.Run ? type is StepType.Run or StepType.AIWrap or StepType.SendSignal : type == answers;
 
     public object? Answer(int attempt) => answer(attempt);
 }

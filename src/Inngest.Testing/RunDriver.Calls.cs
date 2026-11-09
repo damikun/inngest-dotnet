@@ -158,9 +158,13 @@ internal sealed partial class RunDriver
             }
         }
 
+        TestStep[] stoppedAt = status == TestRunStatus.Stopped && _stoppedAt is { } checkpoint
+            ? [.. checkpoint.Select(step => steps[_found.IndexOf(step)])]
+            : [];
         return new TestRun(RunId, _function.Id, status, output, error, steps, waitingOn, [.. _sent], [.. _signals], [.. _published], options)
         {
             ErrorJson = errorJson,
+            StoppedAt = stoppedAt,
         };
     }
 }
