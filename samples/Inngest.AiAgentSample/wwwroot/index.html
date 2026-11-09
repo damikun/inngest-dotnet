@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Durable AI agent</title>
+  <style>
+    :root {
+      --bg: #f6f6fb; --card: #ffffff; --text: #17172b; --muted: #636380; --line: #e3e3ef;
+      --accent: #5b3df5; --accent-soft: #eeeaff; --ok: #12825a; --ok-soft: #e3f6ee; --bad: #c0262d; --bad-soft: #fdecec;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f0f1a; --card: #181827; --text: #ececf6; --muted: #9a9ab8; --line: #2a2a40;
+        --accent: #8b75ff; --accent-soft: #241f45; --ok: #3ccf91; --ok-soft: #133126; --bad: #ff6b72; --bad-soft: #3a1619;
+      }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; overflow: hidden;
+      color: var(--text); background: var(--bg); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button { font: inherit; cursor: pointer; }
+    .inner { max-width: 48rem; margin: 0 auto; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem 1rem; border-bottom: 1px solid var(--line); background: var(--card); }
+    .brand { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+    .logo { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 9px; color: #fff; background: var(--accent); font-size: .9rem; }
+    .brand strong { display: block; font-size: .95rem; line-height: 1.2; }
+    .brand div span { display: block; color: var(--muted); font-size: .75rem; }
+    .bar-right { display: flex; align-items: center; gap: .75rem; }
+    .bar-right a { color: var(--muted); font-size: .82rem; text-decoration: none; white-space: nowrap; }
+    .bar-right a:hover { color: var(--accent); }
+    .chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .25rem .2rem .7rem; border: 1px solid var(--line); border-radius: 99px; font-size: .8rem; white-space: nowrap; }
+    .chip button { border: 0; border-radius: 99px; padding: .15rem .55rem; background: transparent; color: var(--muted); font-size: .78rem; }
+    .chip button:hover { color: var(--bad); background: var(--bad-soft); }
+
+    .log { overflow-y: auto; overscroll-behavior: contain; }
+    .log .inner { padding: 1.5rem 1rem 2rem; }
+    .welcome { text-align: center; padding: 2rem 0 1rem; }
+    .welcome h1 { font-size: clamp(1.6rem, 4.5vw, 2.1rem); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 .5rem; }
+    .welcome > p { color: var(--muted); margin: 0 auto; max-width: 32rem; }
+    .points { display: grid; grid-template-columns: repeat(3, 1fr); gap: .65rem; margin: 1.6rem 0; padding: 0; list-style: none; text-align: left; }
+    .points li { padding: .8rem .9rem; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+    .points strong { display: block; font-size: .88rem; margin-bottom: .1rem; }
+    .points span { display: block; color: var(--muted); font-size: .8rem; line-height: 1.45; }
+    .examples { display: flex; flex-wrap: wrap; justify-content: center; gap: .45rem; }
+    .examples button { border: 1px solid var(--line); border-radius: 99px; padding: .35rem .8rem; background: var(--card); color: var(--muted); font-size: .84rem; }
+    .examples button:hover { color: var(--accent); border-color: var(--accent); }
+    @media (max-width: 40rem) { .points { grid-template-columns: 1fr; } }
+
+    .msg { margin: 1.1rem 0; animation: rise .25s ease-out; }
+    .msg.user { display: flex; justify-content: flex-end; }
+    .bubble { max-width: 85%; padding: .6rem .95rem; border-radius: 16px 16px 4px 16px; color: #fff; background: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.agent { display: flex; gap: .75rem; }
+    .avatar { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 50%; color: var(--accent); background: var(--accent-soft); font-size: .85rem; }
+    .body { flex: 1; min-width: 0; padding-top: .2rem; }
+
+    ol.timeline { list-style: none; margin: 0 0 .6rem; padding: 0; font-size: .88rem; color: var(--muted); }
+    .timeline li { position: relative; display: flex; flex-wrap: wrap; gap: .1rem .6rem; align-items: baseline; padding: 0 0 .45rem 1.35rem; }
+    .timeline li::before { content: ""; position: absolute; left: .27rem; top: .55rem; bottom: -.1rem; width: 2px; background: var(--line); }
+    .timeline li:last-child::before { display: none; }
+    .timeline li::after { content: ""; position: absolute; left: 0; top: .35rem; width: .6rem; height: .6rem; border-radius: 50%; background: var(--card); border: 2px solid var(--accent); }
+    .timeline li.finished::after { background: var(--ok); border-color: var(--ok); }
+    .timeline li.active { color: var(--text); }
+    .timeline li.active::after { animation: pulse 1.2s ease-in-out infinite; }
+    .timeline li.failed::after { background: var(--bad); border-color: var(--bad); }
+    .timeline .what { flex: 1 1 10rem; }
+    .timeline .step { font-size: .72rem; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 0 .35rem; }
+
+    .answer { font-size: 1rem; line-height: 1.6; overflow-wrap: anywhere; }
+    .answer:empty { display: none; }
+    .answer p, .answer ul { margin: 0 0 .6rem; }
+    .answer > :last-child { margin-bottom: 0; }
+    .answer ul { padding-left: 1.3rem; }
+    .answer code { background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 0 .3rem; }
+    .caret { display: inline-block; width: .5em; height: 1.1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: blink 1s steps(1) infinite; }
+    .error { margin: .4rem 0 0; padding: .6rem .85rem; border-radius: 10px; color: var(--bad); background: var(--bad-soft); font-size: .9rem; }
+    .error:empty { display: none; }
+    .meta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; margin-top: .7rem; color: var(--muted); font-size: .78rem; }
+    .meta a { color: var(--accent); text-decoration: none; }
+    .meta a:hover { text-decoration: underline; }
+    .pill { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; padding: .1rem .55rem; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+    .pill.done { background: var(--ok-soft); color: var(--ok); }
+    .pill.failed { background: var(--bad-soft); color: var(--bad); }
+
+    .composer { padding: .75rem 1rem calc(.6rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--card); }
+    .box { display: flex; align-items: flex-end; gap: .5rem; padding: .35rem .35rem .35rem .9rem; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); transition: border-color .15s, box-shadow .15s; }
+    .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .box textarea, .box input { flex: 1; min-width: 0; border: 0; outline: none; padding: .45rem 0; background: transparent; color: inherit; font: inherit; }
+    .box textarea { resize: none; max-height: 10rem; }
+    .connect { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem; }
+    .connect .box { flex: 1 1 18rem; }
+    .connect-title { flex-basis: 100%; margin: 0 0 .1rem; font-weight: 600; font-size: .9rem; }
+    .segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); }
+    .segmented label { padding: .4rem .9rem; border-radius: 9px; cursor: pointer; color: var(--muted); font-size: .9rem; }
+    .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+    .segmented label:has(input:checked) { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgb(0 0 0 / 12%); }
+    .segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .primary { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; border: 0; border-radius: 10px; padding: .5rem 1rem; font-weight: 600; color: #fff; background: var(--accent); white-space: nowrap; }
+    .primary:disabled { opacity: .45; cursor: not-allowed; }
+    .send { width: 2.3rem; height: 2.3rem; padding: 0; border-radius: 10px; }
+    .send.busy { cursor: progress; opacity: .8; }
+    .send .spinner { display: none; width: 1em; height: 1em; border: 2px solid rgb(255 255 255 / 40%); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+    .send.busy .spinner { display: block; }
+    .send.busy .arrow { display: none; }
+    .fine { margin: .45rem 0 0; text-align: center; color: var(--muted); font-size: .74rem; }
+    .key-error { flex-basis: 100%; margin: 0; color: var(--bad); font-size: .82rem; }
+    .key-error:empty { display: none; }
+
+    @keyframes spin { to { transform: rotate(1turn); } }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--accent-soft); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+    @media (max-width: 30rem) { .brand div span, .bar-right a { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="currentColor"/></svg></span>
+      <div><strong>Durable AI agent</strong><span>Inngest .NET SDK sample</span></div>
+    </div>
+    <div class="bar-right">
+      <span class="chip" id="key-chip" hidden><span aria-hidden="true">🔒</span><span id="key-label">Key saved</span><button type="button" id="remove">Remove</button></span>
+      <a id="dev-link" href="http://localhost:8288/runs" target="_blank" rel="noopener">Dev server ↗</a>
+    </div>
+  </header>
+
+  <main class="log" id="log" aria-label="Conversation">
+    <div class="inner" id="messages">
+      <section class="welcome" id="welcome">
+        <h1>An AI agent that survives failures</h1>
+        <p>Give it a task and watch it work, on OpenAI or Anthropic. Built on <code>IChatClient</code> and <code>Inngest.Extensions.AI</code>.</p>
+        <ul class="points">
+          <li><strong>Every call is a step</strong><span>Model and tool calls are saved once. A failure retries only that step, never a paid completion.</span></li>
+          <li><strong>Live progress</strong><span>Tool calls and the answer reach this page as they happen, through Inngest Realtime.</span></li>
+          <li><strong>Your key stays here</strong><span>Held in the app's memory for your session. Never stored or sent to Inngest.</span></li>
+        </ul>
+        <div class="examples" aria-label="Example tasks">
+          <button type="button">What time is it in Tokyo, and what is the weather there?</button>
+          <button type="button">Is it warmer in Lisbon or in Oslo right now?</button>
+          <button type="button">Plan a call that suits Bratislava and Sydney today.</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="composer">
+    <div class="inner">
+      <form class="connect" id="key-form">
+        <p class="connect-title">Connect your model to start</p>
+        <div class="segmented" role="radiogroup" aria-label="Provider">
+          <label><input type="radio" name="provider" value="openai" checked> OpenAI</label>
+          <label><input type="radio" name="provider" value="anthropic"> Anthropic</label>
+        </div>
+        <div class="box">
+          <label for="key" class="sr-only" id="key-name">OpenAI API key</label>
+          <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="OpenAI API key, sk-..." required>
+          <button class="primary">Save key</button>
+        </div>
+        <p class="key-error" id="key-error" role="alert"></p>
+      </form>
+
+      <form id="task" hidden>
+        <div class="box">
+          <label for="prompt" class="sr-only">Task</label>
+          <textarea id="prompt" rows="1" placeholder="Give the agent a task…" required></textarea>
+          <button class="primary send" id="run" aria-label="Run the agent">
+            <span class="spinner" aria-hidden="true"></span>
+            <svg class="arrow" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </form>
+      <p class="fine">Your key stays in the app's memory for this session. Never stored or sent to Inngest.</p>
+    </div>
+  </footer>
+
+  <template id="agent-message">
+    <div class="msg agent">
+      <span class="avatar" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="currentColor"/></svg></span>
+      <div class="body">
+        <ol class="timeline"></ol>
+        <div class="answer" aria-busy="false"></div>
+        <p class="error" role="alert"></p>
+        <div class="meta"><span class="pill">Running</span><span class="summary"></span><a class="run-link" target="_blank" rel="noopener" hidden>View the run ↗</a></div>
+      </div>
+    </div>
+  </template>
+  <p class="sr-only" id="announce" aria-live="polite"></p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const providers = {
+      openai: { name: "OpenAI", placeholder: "OpenAI API key, sk-..." },
+      anthropic: { name: "Anthropic", placeholder: "Anthropic API key, sk-ant-..." },
+    };
+    let devServer = "http://localhost:8288";
+    let run = null;
+
+    fetch("/api/dev-server").then((response) => response.json()).then(({ url }) => {
+      devServer = url;
+      $("dev-link").href = `${url}/runs`;
+    }).catch(() => {});
+
+    const provider = () => document.querySelector("input[name=provider]:checked").value;
+
+    document.querySelectorAll("input[name=provider]").forEach((radio) => radio.addEventListener("change", () => {
+      $("key-name").textContent = `${providers[provider()].name} API key`;
+      $("key").placeholder = providers[provider()].placeholder;
+      $("key-error").textContent = "";
+      $("key").focus();
+    }));
+
+    $("key-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch("/api/key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider(), apiKey: $("key").value }),
+      });
+      $("key-error").textContent = response.ok ? "" : "That does not look like a key. Paste it again.";
+      if (!response.ok) return;
+      $("key").value = "";
+      showKey(await response.json());
+      $("prompt").focus();
+    });
+
+    $("remove").addEventListener("click", async () => {
+      await fetch("/api/key", { method: "DELETE" });
+      showKey(null);
+      $("key").focus();
+    });
+
+    function showKey(saved) {
+      $("key-form").hidden = Boolean(saved);
+      $("task").hidden = !saved;
+      $("key-chip").hidden = !saved;
+      if (!saved) return;
+      const name = providers[saved.provider]?.name ?? "API";
+      $("key-label").textContent = saved.endsWith ? `${name} …${saved.endsWith}` : `${name} key`;
+    }
+
+    fetch("/api/key").then(async (response) => showKey(response.ok ? await response.json() : null));
+
+    const grow = () => {
+      $("prompt").style.height = "auto";
+      $("prompt").style.height = `${$("prompt").scrollHeight}px`;
+    };
+    $("prompt").addEventListener("input", grow);
+    $("prompt").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        $("task").requestSubmit();
+      }
+    });
+
+    document.querySelectorAll(".examples button").forEach((button) => button.addEventListener("click", () => {
+      if ($("task").hidden) return $("key").focus();
+      $("prompt").value = button.textContent;
+      grow();
+      $("prompt").focus();
+    }));
+
+    $("task").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const prompt = $("prompt").value.trim();
+      if (run || !prompt) return;
+
+      $("welcome").hidden = true;
+      addUserMessage(prompt);
+      $("prompt").value = "";
+      grow();
+      run = startRun();
+
+      const taskId = crypto.randomUUID();
+      const current = run;
+      current.updates = new EventSource(`/api/tasks/${taskId}/updates`);
+      current.updates.onmessage = (message) => show(current, JSON.parse(message.data));
+      await new Promise((resolve) => current.updates.addEventListener("open", resolve, { once: true }));
+
+      step(current, "Task sent to Inngest", "event");
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, prompt }),
+      });
+      if (response.status === 401) {
+        showKey(null);
+        finish(current, "The app no longer holds your key, for example after a restart. Save it again.");
+      } else if (!response.ok) {
+        finish(current, `The app refused the task (HTTP ${response.status}).`);
+      }
+    });
+
+    function addUserMessage(text) {
+      const message = Object.assign(document.createElement("div"), { className: "msg user" });
+      message.append(Object.assign(document.createElement("div"), { className: "bubble", textContent: text }));
+      $("messages").append(message);
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+
+    function startRun() {
+      const el = $("agent-message").content.firstElementChild.cloneNode(true);
+      $("messages").append(el);
+      const r = { el, current: null, answer: "", counts: { chat: 0, tool: 0 }, started: performance.now(), updates: null };
+      r.timer = setInterval(() => setState(r, `Running · ${elapsed(r)} s`, ""), 100);
+      $("run").classList.add("busy");
+      $("run").disabled = true;
+      $("log").scrollTop = $("log").scrollHeight;
+      return r;
+    }
+
+    function show(r, message) {
+      const link = r.el.querySelector(".run-link");
+      if (message.run_id && link.hidden) {
+        link.href = `${devServer}/run?runID=${encodeURIComponent(message.run_id)}`;
+        link.hidden = false;
+      }
+
+      if (message.kind === "datastream-start") {
+        r.counts.chat++;
+        step(r, "Asking the model", "chat");
+        setAnswer(r, "", true);
+      }
+      if (message.kind === "chunk") {
+        if (!r.answer) r.current.querySelector(".what").textContent = "Writing the answer";
+        setAnswer(r, r.answer + message.data, true);
+      }
+      if (message.kind === "datastream-end") setAnswer(r, r.answer, false);
+      if (message.kind !== "data") return;
+
+      const update = message.data;
+      if (update.kind === "tool") {
+        r.counts.tool++;
+        step(r, update.text, `tool ${update.tool}`);
+      }
+      if (update.kind === "answer") {
+        setAnswer(r, update.text, false);
+        finish(r);
+      }
+      if (update.kind === "error") finish(r, update.text);
+    }
+
+    function stick(change) {
+      const log = $("log");
+      const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+      change();
+      if (atBottom) log.scrollTop = log.scrollHeight;
+    }
+
+    function step(r, text, name) {
+      stick(() => {
+        r.current?.classList.replace("active", "finished");
+        r.current = Object.assign(document.createElement("li"), { className: "active" });
+        r.current.innerHTML = `<span class="what"></span><code class="step"></code>`;
+        r.current.querySelector(".what").textContent = text;
+        r.current.querySelector(".step").textContent = name;
+        r.el.querySelector(".timeline").append(r.current);
+      });
+    }
+
+    function setAnswer(r, text, streaming) {
+      stick(() => {
+        r.answer = text;
+        const answer = r.el.querySelector(".answer");
+        answer.innerHTML = markdown(text) + (streaming ? `<span class="caret"></span>` : "");
+        answer.setAttribute("aria-busy", String(streaming));
+      });
+    }
+
+    function markdown(text) {
+      const escaped = text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      const inline = (line) => line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+      const blocks = [];
+      for (const line of escaped.split("\n")) {
+        const item = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+        if (item) {
+          if (!Array.isArray(blocks.at(-1))) blocks.push([]);
+          blocks.at(-1).push(item[1]);
+        } else if (line.trim()) {
+          blocks.push(line.replace(/^#+\s*/, ""));
+        } else {
+          blocks.push(null);
+        }
+      }
+      return blocks.filter(Boolean).map((block) => Array.isArray(block)
+        ? `<ul>${block.map((item) => `<li>${inline(item)}</li>`).join("")}</ul>`
+        : `<p>${inline(block)}</p>`).join("");
+    }
+
+    function finish(r, error = "") {
+      if (r.finished) return;
+      r.finished = true;
+      clearInterval(r.timer);
+      r.updates?.close();
+      stick(() => {
+        r.current?.classList.replace("active", error ? "failed" : "finished");
+        r.el.querySelector(".error").textContent = /API key/.test(error) ? `${error} Remove the key at the top and save the right one.` : error;
+        setState(r, error ? "Failed" : `Done in ${elapsed(r)} s`, error ? "failed" : "done");
+        if (!error) r.el.querySelector(".summary").textContent = summary(r);
+      });
+      $("announce").textContent = error || `The agent is done. ${r.el.querySelector(".answer").textContent}`;
+      if (run === r) run = null;
+      $("run").classList.remove("busy");
+      $("run").disabled = false;
+      $("prompt").focus();
+    }
+
+    function summary(r) {
+      const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+      const parts = [plural(r.counts.chat, "model call"), r.counts.tool && plural(r.counts.tool, "tool call")].filter(Boolean);
+      return `${parts.join(" and ")}, each saved as a step`;
+    }
+
+    const elapsed = (r) => ((performance.now() - r.started) / 1000).toFixed(1);
+
+    function setState(r, text, kind) {
+      const pill = r.el.querySelector(".pill");
+      pill.textContent = text;
+      pill.className = `pill ${kind}`;
+    }
+  </script>
+</body>
+</html>

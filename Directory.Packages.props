@@ -32,6 +32,9 @@
     <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
     <!-- The newest stable release, with builds for net8.0 and net10.0. It brings in Microsoft.Extensions.AI.Abstractions. -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
+    <!-- The model clients of the AI agent sample. -->
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
+    <PackageVersion Include="Anthropic" Version="13.6.0" />
     <!-- XSalsa20, Poly1305 and BLAKE2b for Inngest.Encryption. -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- The first line built on System.Diagnostics.DiagnosticSource 10, which the SDK already depends on. -->

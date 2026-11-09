@@ -4,6 +4,7 @@
     <Project Path="benchmarks/Inngest.Soak/Inngest.Soak.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/Inngest.AiAgentSample/Inngest.AiAgentSample.csproj" />
     <Project Path="samples/Inngest.AotSample/Inngest.AotSample.csproj" />
     <Project Path="samples/Inngest.LambdaAotSample/Inngest.LambdaAotSample.csproj" />
     <Project Path="samples/Inngest.Sample.AppHost/Inngest.Sample.AppHost.csproj" />

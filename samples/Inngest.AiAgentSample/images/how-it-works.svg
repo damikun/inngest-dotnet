@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#5b3df5"/>
+    </marker>
+    <style>
+      .box { fill: #fff; stroke: #dcdcea; stroke-width: 1.5; }
+      .inner { fill: #f6f6fb; stroke: #dcdcea; }
+      .title { font-size: 16px; font-weight: 700; fill: #17172b; }
+      .sub { font-size: 12.5px; fill: #636380; }
+      .chip { fill: #eeeaff; }
+      .chip-text { font-size: 12.5px; fill: #3a24c7; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .text { font-size: 13px; fill: #17172b; }
+      .flow { stroke: #5b3df5; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .label { font-size: 12.5px; fill: #5b3df5; font-weight: 600; }
+      .num { fill: #5b3df5; }
+      .num-text { font-size: 11px; font-weight: 700; fill: #fff; }
+      .key { fill: #e3f6ee; }
+      .key-text { font-size: 12.5px; fill: #0d6b48; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="960" height="470" rx="16" fill="#f6f6fb"/>
+
+  <rect class="box" x="24" y="120" width="170" height="170" rx="12"/>
+  <text class="title" x="44" y="152">Browser</text>
+  <text class="sub" x="44" y="174">Chat page</text>
+  <rect class="inner" x="44" y="192" width="130" height="78" rx="8"/>
+  <text class="text" x="56" y="216">Task</text>
+  <text class="text" x="56" y="238">Steps, live</text>
+  <text class="text" x="56" y="260">Answer, live</text>
+
+  <rect class="box" x="262" y="28" width="400" height="330" rx="12"/>
+  <text class="title" x="282" y="58">ASP.NET Core app</text>
+  <rect class="key" x="282" y="72" width="226" height="26" rx="13"/>
+  <text class="key-text" x="296" y="90">🔒 API key, session memory</text>
+  <rect class="chip" x="282" y="108" width="132" height="26" rx="6"/>
+  <text class="chip-text" x="294" y="126">POST /api/tasks</text>
+
+  <rect class="inner" x="282" y="148" width="360" height="126" rx="10"/>
+  <text class="text" x="298" y="172" font-weight="700">run-agent</text>
+  <text class="sub" x="370" y="172">each call is a durable step</text>
+  <rect class="chip" x="298" y="186" width="50" height="26" rx="6"/>
+  <text class="chip-text" x="308" y="204">chat</text>
+  <rect class="chip" x="356" y="186" width="180" height="26" rx="6"/>
+  <text class="chip-text" x="366" y="204">tool get_current_time</text>
+  <rect class="chip" x="298" y="222" width="140" height="26" rx="6"/>
+  <text class="chip-text" x="308" y="240">tool get_weather</text>
+  <rect class="chip" x="446" y="222" width="50" height="26" rx="6"/>
+  <text class="chip-text" x="456" y="240">chat</text>
+  <rect class="chip" x="504" y="222" width="126" height="26" rx="6"/>
+  <text class="chip-text" x="514" y="240">publish-answer</text>
+
+  <rect class="chip" x="282" y="290" width="200" height="26" rx="6"/>
+  <text class="chip-text" x="294" y="308">MapInngestRealtime (SSE)</text>
+
+  <rect class="box" x="726" y="28" width="210" height="330" rx="12"/>
+  <text class="title" x="746" y="58">Inngest</text>
+  <text class="sub" x="746" y="78">dev server or cloud</text>
+  <rect class="inner" x="746" y="96" width="170" height="60" rx="8"/>
+  <text class="text" x="758" y="120">Event</text>
+  <text class="sub" x="758" y="141">taskId, prompt, provider</text>
+  <rect class="inner" x="746" y="176" width="170" height="60" rx="8"/>
+  <text class="text" x="758" y="200">Saved step results</text>
+  <text class="sub" x="758" y="221">a retry reads them back</text>
+  <rect class="inner" x="746" y="256" width="170" height="60" rx="8"/>
+  <text class="text" x="758" y="280">Realtime</text>
+  <text class="sub" x="758" y="301">channel agent:{taskId}</text>
+
+  <rect class="box" x="430" y="396" width="240" height="56" rx="12"/>
+  <text class="title" x="450" y="422">Model API</text>
+  <text class="sub" x="450" y="441">OpenAI or Anthropic</text>
+
+  <path class="flow" d="M194 150 C 230 150, 240 121, 278 121"/>
+  <circle class="num" cx="228" cy="128" r="9"/><text class="num-text" x="224.5" y="132">1</text>
+
+  <path class="flow" d="M414 121 C 600 121, 650 126, 742 126"/>
+  <circle class="num" cx="700" cy="108" r="9"/><text class="num-text" x="696.5" y="112">2</text>
+  <text class="label" x="560" y="110">event, no key</text>
+
+  <path class="flow" d="M742 206 L 646 206"/>
+  <circle class="num" cx="694" cy="192" r="9"/><text class="num-text" x="690.5" y="196">3</text>
+  <text class="label" x="650" y="228">runs each step</text>
+
+  <path class="flow" d="M550 274 L 550 392"/>
+  <circle class="num" cx="550" cy="340" r="9"/><text class="num-text" x="546.5" y="344">4</text>
+  <text class="label" x="566" y="378">key from memory</text>
+
+  <path class="flow" d="M642 262 C 690 262, 710 286, 742 286"/>
+  <circle class="num" cx="694" cy="270" r="9"/><text class="num-text" x="690.5" y="274">5</text>
+
+  <path class="flow" d="M746 306 C 700 306, 620 303, 486 303"/>
+  <text class="label" x="560" y="296">progress, text</text>
+
+  <path class="flow" d="M282 303 C 240 303, 230 262, 198 262"/>
+  <circle class="num" cx="236" cy="282" r="9"/><text class="num-text" x="232.5" y="286">6</text>
+</svg>

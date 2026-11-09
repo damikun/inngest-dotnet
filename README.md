@@ -236,6 +236,7 @@ with the other ways to install the dev server.
 | Sample | What it shows |
 |---|---|
 | [`samples/Inngest.Sample`](samples/Inngest.Sample) | An ASP.NET Core app with an onboarding flow that waits for the user to activate and stops when the account is deleted, a cron job that fans out with `InvokeAsync`, and a delegate function. It comes with a Dockerfile and a Compose file with dev and cloud profiles. |
+| [`samples/Inngest.AiAgentSample`](samples/Inngest.AiAgentSample) | A page where you save an OpenAI or Anthropic API key and give an agent a task. The function runs the tool loop with `Inngest.Extensions.AI`, so each model call and tool call is a step, and the answer streams back to the page through realtime. The key stays in the app's memory and never reaches Inngest. |
 | [`samples/Inngest.AotSample`](samples/Inngest.AotSample) | An app published as a Native AOT binary, with no trimming or AOT warnings. It also receives Stripe's webhooks as events. |
 | [`samples/Inngest.LambdaAotSample`](samples/Inngest.LambdaAotSample) | An AWS Lambda function behind an HTTP API or a function URL, served by `InngestLambdaHandler` and published as a Native AOT executable. |
 | [`samples/Inngest.Sample.AppHost`](samples/Inngest.Sample.AppHost) | An Aspire AppHost for `Inngest.Sample`: `dotnet run --project samples/Inngest.Sample.AppHost` starts the dev server in Docker, the sample next to it and the Aspire dashboard, with no other setup. |

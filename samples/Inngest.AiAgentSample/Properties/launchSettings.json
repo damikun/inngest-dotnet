@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Inngest.AiAgentSample": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5290",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "INNGEST_DEV": "1"
+      }
+    }
+  }
+}
