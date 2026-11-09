@@ -7,6 +7,23 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
 .NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
+## New in 1.0.1
+
+Bug fixes, with no change to the public API:
+
+- A step's handler runs in the execution context of the code that called the step, so an `AsyncLocal`, the current
+  `Activity` or a logging scope set around the call is there in the handler too.
+- A fetch step claims its id when it is called, and a parallel group with a fetch whose body is still being read is
+  reported to Inngest as one group.
+- An invoke step fails when the invoked run was cancelled, instead of returning the run's finished event as its output.
+- A `NonRetriableException` thrown by an event transform or the event type fails the run without retries.
+- The error for a stored step result that cannot be read names the step and the type.
+- A Connect worker keeps the newest lease of a request when Inngest renews it while an extension is on its way.
+- `Inngest.Extensions.AI`: model calls after a tool call no longer log the warning about reused step ids, and a replay
+  of a conversation no longer warns that a result was made for another input.
+- New samples of an AI agent that streams its work to a page and of one that waits for a person to approve its
+  actions, and corrections across the docs.
+
 ## New in 1.0.0
 
 1.0.0 brings every package to its first major version, and adds 16 packages to the 5 that 0.1.0 had. From here on,

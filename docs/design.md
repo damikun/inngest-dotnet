@@ -55,7 +55,7 @@ The configuration (the register body, and the `functions` of an in-band reply):
   "deployType": "ping",
   "appName": "shop",
   "appVersion": "1.4.0",
-  "sdk": "dotnet:v1.0.0",
+  "sdk": "dotnet:v1.0.1",
   "v": "0.1",
   "framework": "aspnetcore",
   "capabilities": { "trust_probe": "v1" },
