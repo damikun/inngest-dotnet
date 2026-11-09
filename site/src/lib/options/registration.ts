@@ -4,7 +4,7 @@ import { formatDuration } from './time.ts';
 // The sync body the SDK sends for an app, built the way src/Inngest/Registration/RegistrationWriter.cs writes it:
 // the same properties in the same order, with options that are not set left out.
 
-export const SDK_VERSION = '1.0.2-preview';
+export const SDK_VERSION = '1.0.1-preview';
 
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 type JsonObject = { [key: string]: Json };
