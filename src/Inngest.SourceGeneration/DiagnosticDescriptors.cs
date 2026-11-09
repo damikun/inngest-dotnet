@@ -8,6 +8,7 @@ internal static class DiagnosticDescriptors
 {
     private const string FunctionsCategory = "Inngest.Functions";
     private const string SerializationCategory = "Inngest.Serialization";
+    private const string StepsCategory = "Inngest.Steps";
 
     // Every diagnostic has a heading of its own in the guide, whose anchor is the lower-case id.
     private const string GuideUrl = "https://damikun.github.io/inngest-dotnet/guides/source-generator/";
@@ -91,4 +92,64 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "A JsonSerializerContext lists types by name, and an anonymous type has none. Use a record, a class or a struct and list it with [JsonSerializable].",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.AnonymousType.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor StateAssignedInStep = new(
+        DiagnosticIds.StateAssignedInStep,
+        title: "A step's handler assigns a variable that the function reads outside the step",
+        messageFormat: "'{0}' is assigned in the handler of {1} and read outside it; once the step has a result its handler does not run again, so the function reads what '{0}' held before. Return the value from the step instead.",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Inngest calls a function again for every step, and hands the steps that ran before their saved results without running their handlers. A local, a parameter or a field that a handler assigns keeps its old value in every later call, so code after the step sees a different value than in the call that ran it.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.StateAssignedInStep.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor CleanupAroundStep = new(
+        DiagnosticIds.CleanupAroundStep,
+        title: "A finally block or a using declaration encloses a step",
+        messageFormat: "This {0} encloses {1}; a call that stops at a new step leaves the function without running it, so it runs only in the call that gets past the step",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "When a call reaches a step that has no result yet, the SDK answers Inngest and abandons the function: its task never completes, and finally blocks and Dispose calls that enclose the step do not run in that call. A resource or a lock held across a step is released only in the call that goes past it. Acquire it inside the step, or after the steps.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.CleanupAroundStep.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor NondeterministicStepId = new(
+        DiagnosticIds.NondeterministicStepId,
+        title: "A step id changes from one call to the next",
+        messageFormat: "The id of {0} uses {1}, which differs in every call, so Inngest never finds the step's result and runs it again",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Inngest memoizes a step by its id. An id built from the clock, a new Guid or a random number is different in the next call of the function, so the step is new every time, and the run never ends or repeats its work. Build ids from the event's data, or make the value inside a step and use its result.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.NondeterministicStepId.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor BlockingOnStep = new(
+        DiagnosticIds.BlockingOnStep,
+        title: "Blocking on the task of a step",
+        messageFormat: "{0} blocks on the task of {1}, which deadlocks the call; await it instead",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The SDK runs a function on a scheduler of its own, one continuation at a time, and completes a step's task from that scheduler. Blocking the scheduler's thread on the task keeps it from ever completing, and a step that is new never completes in the call at all.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.BlockingOnStep.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor NestedStep = new(
+        DiagnosticIds.NestedStep,
+        title: "A step is called inside the handler of another step",
+        messageFormat: "{0} is called inside the handler of {1}; steps cannot be nested, so it throws when the handler runs. Call it from the function instead.",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A step's handler is the unit Inngest retries and memoizes, and it cannot hold steps of its own. The SDK throws when a handler calls one.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.NestedStep.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor StepNotAwaited = new(
+        DiagnosticIds.StepNotAwaited,
+        title: "The task of a step or of SendAsync is dropped",
+        messageFormat: "The task of {0} is dropped; await it or return it, or assign it to a discard to show that nothing waits for it",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A send that nothing awaits may not have reached Inngest when the function or step returns, and its errors go unseen. A step that nothing awaits lets the code after it go on before the step has run. The compiler warns about such calls in async methods (CS4014); this covers methods and lambdas that are not async, such as a handler written as an Action.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.StepNotAwaited.ToLowerInvariant());
 }

@@ -12,4 +12,10 @@ internal static class DiagnosticIds
     public const string InvalidOption = "INNGEST006";
     public const string TypeNotInJsonContext = "INNGEST010";
     public const string AnonymousType = "INNGEST011";
+    public const string StateAssignedInStep = "INNGEST020";
+    public const string CleanupAroundStep = "INNGEST021";
+    public const string NondeterministicStepId = "INNGEST022";
+    public const string BlockingOnStep = "INNGEST023";
+    public const string NestedStep = "INNGEST024";
+    public const string StepNotAwaited = "INNGEST025";
 }

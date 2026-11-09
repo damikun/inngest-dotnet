@@ -22,6 +22,12 @@ internal static class InngestTypes
 
     public static bool IsStepTools(INamedTypeSymbol? type) => IsInngestType(type, "IStepTools") || IsInngestType(type, "StepToolsExtensions");
 
+    public static bool IsStepToolsInterface(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "IStepTools");
+
+    public static bool IsClientInterface(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "IInngestClient");
+
+    public static bool IsStepOptions(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "StepOptions");
+
     public static bool IsBuilderExtensions(INamedTypeSymbol? type) => IsInngestType(type, "InngestBuilderExtensions");
 
     public static bool IsDeclaredBySdk(ITypeSymbol type) => type.ContainingAssembly?.Name == "Inngest";

@@ -13,3 +13,9 @@ INNGEST005 | Inngest.Functions | Warning | A function class needs a public const
 INNGEST006 | Inngest.Functions | Warning | An MSBuild property of the function registration has an invalid value
 INNGEST010 | Inngest.Serialization | Warning | A type that Inngest serializes is missing from the JsonSerializerContext
 INNGEST011 | Inngest.Serialization | Warning | An anonymous type cannot be serialized without reflection
+INNGEST020 | Inngest.Steps | Warning | A step's handler assigns a variable that the function reads outside the step
+INNGEST021 | Inngest.Steps | Info | A finally block or a using declaration encloses a step
+INNGEST022 | Inngest.Steps | Warning | A step id changes from one call to the next
+INNGEST023 | Inngest.Steps | Warning | Blocking on the task of a step
+INNGEST024 | Inngest.Steps | Warning | A step is called inside the handler of another step
+INNGEST025 | Inngest.Steps | Warning | The task of a step or of SendAsync is dropped
