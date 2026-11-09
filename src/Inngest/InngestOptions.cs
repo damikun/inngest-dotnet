@@ -87,6 +87,13 @@ public sealed class InngestOptions
     public CheckpointingOptions? Checkpointing { get; set; }
 
     /// <summary>
+    /// Attaches what the model calls in a step's handler used, read from their OpenTelemetry GenAI activities, to the
+    /// step as "inngest.ai" metadata, which the Inngest UI shows: models, provider, token counts, finish reasons and the
+    /// request settings, never prompts or responses. Null leaves it on, as in the TypeScript SDK.
+    /// </summary>
+    public bool? AIMetadata { get; set; }
+
+    /// <summary>
     /// Used for event data, step results and function output. Add source-generated contexts to its
     /// TypeInfoResolverChain to run without reflection, for example under Native AOT.
     /// </summary>

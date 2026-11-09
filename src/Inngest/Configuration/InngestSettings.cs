@@ -71,6 +71,8 @@ internal sealed record InngestSettings
     // Checkpointing for functions whose own options leave it unset; null leaves it off.
     public CheckpointingOptions? Checkpointing { get; init; }
 
+    public bool AIMetadata { get; init; } = true;
+
     public required JsonSerializerOptions SerializerOptions { get; init; }
 
     public bool IsDev => Mode == InngestMode.Dev;
@@ -167,6 +169,7 @@ internal sealed record InngestSettings
                 ?? section?.SessionPropagation
                 ?? true,
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
+            AIMetadata = options.AIMetadata ?? section?.AIMetadata ?? true,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
     }

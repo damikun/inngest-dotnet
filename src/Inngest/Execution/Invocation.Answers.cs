@@ -40,6 +40,7 @@ internal sealed partial class Invocation
         writer.WritePropertyName(DataProperty);
         step.WriteData(writer, output, _settings.SerializerOptions);
         timing.Write(writer);
+        step.Metadata?.Write(writer);
         writer.WriteEndObject();
     }
 
@@ -51,6 +52,7 @@ internal sealed partial class Invocation
         writer.WritePropertyName(ErrorProperty);
         ErrorSerializer.Write(writer, error);
         timing.Write(writer);
+        step.Metadata?.Write(writer);
         writer.WriteEndObject();
         writer.WriteEndArray();
     }

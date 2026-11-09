@@ -72,6 +72,9 @@ internal abstract class FoundStep(string id)
     // Inngest.Extensions.AI do with a digest, so a repeated id needs no warning from the engine.
     public bool ChecksItsInput { get; set; }
 
+    // Sent with the op of the step's result or error, such as the AI metadata of its handler. Null while there is none.
+    public StepMetadata? Metadata { get; private set; }
+
     // The WrapStepAsync chain whose result becomes the step's result.
     public Task<object?>? Chain { get; set; }
 
@@ -101,6 +104,9 @@ internal abstract class FoundStep(string id)
         _name = string.IsNullOrEmpty(options.Name) ? null : options.Name;
         ParallelMode = options.ParallelMode ?? ParallelMode;
     }
+
+    public void SetMetadata(string kind, MetadataScope scope, MetadataValues values) =>
+        (Metadata ??= new StepMetadata()).Set(kind, scope, values);
 
     public StepInfo CreateInfo(bool memoized) => new(FinalId, HashedId, Type, memoized) { Name = _name };
 

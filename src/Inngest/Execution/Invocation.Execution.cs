@@ -205,11 +205,12 @@ internal sealed partial class Invocation
 
         var startedAt = _time.GetUtcNow();
         var started = _time.GetTimestamp();
+        var ai = _settings.AIMetadata ? new AIMetadataCollector() : null;
         object? output = null;
         Exception? error = null;
         try
         {
-            output = await AwaitHandlerAsync(RunHandler(step, info)).ConfigureAwait(false);
+            output = await AwaitHandlerAsync(RunHandler(step, info, ai)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_cancellationToken.IsCancellationRequested)
         {
@@ -218,6 +219,12 @@ internal sealed partial class Invocation
         catch (Exception exception)
         {
             error = exception;
+        }
+
+        // A step that failed sends what its calls used as well, as inngest-js does.
+        if (ai?.Close() is { } metadata)
+        {
+            step.SetMetadata(StepMetadata.AIKind, MetadataScope.Step, metadata);
         }
 
         return new StepOutcome(info, output, error, new Timing(startedAt, _time.GetElapsedTime(started)));
@@ -406,23 +413,24 @@ internal sealed partial class Invocation
 
     // Step handlers run off the scheduler, so their own awaits do not wait for it, and in the execution context of the
     // code that called the step rather than the engine's.
-    private Task<object?> RunHandler(FoundStep step, StepInfo? info)
+    private Task<object?> RunHandler(FoundStep step, StepInfo? info, AIMetadataCollector? ai)
     {
         if (step.CallerContext is not { } caller)
         {
-            return StartHandler(step, info);
+            return StartHandler(step, info, ai);
         }
 
         Task<object?> handler = null!;
-        ExecutionContext.Run(caller, _ => handler = StartHandler(step, info), null);
+        ExecutionContext.Run(caller, _ => handler = StartHandler(step, info, ai), null);
         return handler;
     }
 
-    private Task<object?> StartHandler(FoundStep step, StepInfo? info)
+    private Task<object?> StartHandler(FoundStep step, StepInfo? info, AIMetadataCollector? ai)
     {
         var synchronizationContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(null);
         ExecutingStep.Value = step.FinalId;
+        ai?.Enter();
         try
         {
             return _pipeline is null
@@ -436,6 +444,11 @@ internal sealed partial class Invocation
         finally
         {
             ExecutingStep.Value = null;
+            if (ai is not null)
+            {
+                AIMetadataCollector.Exit();
+            }
+
             SynchronizationContext.SetSynchronizationContext(synchronizationContext);
         }
     }

@@ -38,6 +38,7 @@ internal static class InngestConfiguration
             Streaming = ReadBoolean(section, nameof(InngestOptions.Streaming)),
             SessionPropagation = ReadBoolean(section, nameof(InngestOptions.SessionPropagation)),
             Checkpointing = ReadCheckpointing(section),
+            AIMetadata = ReadBoolean(section, nameof(InngestOptions.AIMetadata)),
         };
     }
 

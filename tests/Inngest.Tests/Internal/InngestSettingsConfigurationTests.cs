@@ -469,6 +469,15 @@ public sealed class InngestSettingsConfigurationTests
             .Message.ShouldContain("Inngest:IsDev");
 
     [Fact]
+    public void AI_metadata_stays_on_unless_the_options_or_the_section_turn_it_off()
+    {
+        Create([]).AIMetadata.ShouldBeTrue();
+        Create([("AIMetadata", "false")]).AIMetadata.ShouldBeFalse();
+        Create([("AIMetadata", "false")], options => options.AIMetadata = true).AIMetadata.ShouldBeTrue();
+        Create([], options => options.AIMetadata = false).AIMetadata.ShouldBeFalse();
+    }
+
+    [Fact]
     public void Printing_the_settings_does_not_reveal_keys_from_the_section()
     {
         var settings = Create([("EventKey", "secret-event-key"), ("SigningKey", SigningKeyValue), ("SigningKeyFallback", FallbackKeyValue)]);
