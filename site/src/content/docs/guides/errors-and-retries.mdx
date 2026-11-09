@@ -142,8 +142,10 @@ catch (StepFailedException exception) when (exception.Error.Code == "card_declin
 }
 ```
 
-The code is the `code` field of the error, which the TypeScript SDK reads and writes too, so a step that failed in
-a TypeScript function shows its code here as well. A number there is read as its text.
+The code is written as the `code` field of the error, where the TypeScript SDK writes and reads it, and under the
+error's `data`, which Inngest keeps for the SDK: Inngest drops a `code` field from a step's error. A number is read as
+its text. The error a run fails with reaches `inngest/function.failed` with its name, message and stack only, so a
+failure handler gets no code.
 
 Left uncaught, `StepFailedException` fails the run without further retries: the step already used its attempts.
 Inngest's guide to [rollbacks](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/rollbacks)
@@ -193,7 +195,7 @@ The handler is a function of its own. The SDK registers it as `<function id>-fai
 |---|---|
 | `FunctionId` | The failed function as Inngest knows it, `<app id>-<function id>`. |
 | `RunId` | The failed run. `context.RunId` is the failure handler's own run. |
-| `Error` | The error the run failed with: `Name`, `Message`, `Stack`, `Code` and `Cause`, the error that caused it. |
+| `Error` | The error the run failed with: `Name`, `Message`, `Stack` and `Cause`, the error that caused it. |
 | `Event` | The event that triggered the failed run, as a `JsonElement`. |
 
 With [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/#pass-the-user-on) the handler also runs as the user who

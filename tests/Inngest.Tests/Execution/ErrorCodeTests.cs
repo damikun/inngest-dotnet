@@ -4,7 +4,8 @@ using Inngest.Internal;
 
 namespace Inngest.Tests.Execution;
 
-// inngest/inngest-js#1726: an error's code is written as "code", as the TypeScript SDK writes and reads it.
+// inngest/inngest-js#1726: an error's code is written as "code", as the TypeScript SDK writes and reads it, and under
+// "data", which Inngest keeps with the error of a step where it drops "code".
 public sealed class ErrorCodeTests : IDisposable
 {
     private readonly EngineHost _host = new();
@@ -17,7 +18,8 @@ public sealed class ErrorCodeTests : IDisposable
         var json = Write(new PaymentDeclined("card_declined"));
 
         json.GetProperty("code").GetString().ShouldBe("card_declined");
-        json.EnumerateObject().Select(static property => property.Name).ShouldBe(["name", "message", "stack", "code"]);
+        json.GetProperty("data").GetRawText().ShouldBe("""{"code":"card_declined"}""");
+        json.EnumerateObject().Select(static property => property.Name).ShouldBe(["name", "message", "stack", "code", "data"]);
     }
 
     [Fact]
@@ -48,10 +50,10 @@ public sealed class ErrorCodeTests : IDisposable
     }
 
     [Fact]
-    public void An_exception_without_a_code_has_no_code_field()
+    public void An_exception_without_a_code_is_written_as_before()
     {
-        Write(new PaymentDeclined(null)).TryGetProperty("code", out _).ShouldBeFalse();
-        Write(new InvalidOperationException("x")).TryGetProperty("code", out _).ShouldBeFalse();
+        Write(new PaymentDeclined(null)).EnumerateObject().Select(static property => property.Name).ShouldBe(["name", "message", "stack"]);
+        Write(new InvalidOperationException("x")).EnumerateObject().Select(static property => property.Name).ShouldBe(["name", "message", "stack"]);
     }
 
     [Fact]
@@ -69,6 +71,9 @@ public sealed class ErrorCodeTests : IDisposable
     [InlineData("""{"name":"E","message":"m","code":null}""", null)]
     [InlineData("""{"name":"E","message":"m","code":{"a":1}}""", null)]
     [InlineData("""{"name":"E","message":"m"}""", null)]
+    [InlineData("""{"name":"E","message":"m","data":{"code":"card_declined"}}""", "card_declined")]
+    [InlineData("""{"name":"E","message":"m","code":"top","data":{"code":"nested"}}""", "top")]
+    [InlineData("""{"name":"E","message":"m","data":"text"}""", null)]
     public void A_recorded_code_is_read_when_it_is_text_or_a_number(string json, string? code)
     {
         using var document = JsonDocument.Parse(json);

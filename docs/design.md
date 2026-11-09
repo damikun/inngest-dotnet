@@ -638,7 +638,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |
 | Failure handlers (`inngest/function.failed`) | Supported |
 | Cancel handlers (`onCancel`, `inngest/function.cancelled`) | Supported: `ICancelHandler` or `onCancel` |
-| Errors: non-retriable, retry-after, step failures, error codes (`code`, inngest/inngest-js#1726) | Supported: `IHasErrorCode` or a `"code"` entry in `Exception.Data`, restored as `FunctionError.Code` |
+| Errors: non-retriable, retry-after, step failures, error codes (`code`, inngest/inngest-js#1726) | Supported: `IHasErrorCode` or a `"code"` entry in `Exception.Data`, written as `code` like inngest-js and as `data.code`, since Inngest drops `code` from a step's error and keeps `data`; restored as `FunctionError.Code` on a step failure. Inngest rebuilds the error of `inngest/function.failed` from name, message and stack, so failure handlers get no code |
 | Middleware: observer and wrap hooks, for the whole app or for one function | Supported |
 | `use_api` for large runs | Supported |
 | Checkpointing (running several steps per call and saving each to Inngest as it completes) | Supported, opt-in with `CheckpointingOptions`; off by default |

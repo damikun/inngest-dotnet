@@ -6,8 +6,9 @@ using System.Text.Json;
 
 namespace Inngest.Errors;
 
-// Errors on the wire are {"name","message","stack","code","cause"}, which is what Inngest stores, shows and hands back
-// in memoized step state. The TypeScript SDK reads and writes the same fields, code only when an error has one.
+// Errors on the wire are {"name","message","stack","cause"}, with "code" and {"data":{"code"}} when the error has a
+// code. That is what Inngest stores, shows and hands back in memoized step state. The TypeScript SDK reads and writes
+// the same fields, apart from data.
 internal static class ErrorSerializer
 {
     private const int MaxCauseDepth = 5;
@@ -18,6 +19,7 @@ internal static class ErrorSerializer
     private static readonly JsonEncodedText MessageProperty = JsonEncodedText.Encode("message");
     private static readonly JsonEncodedText StackProperty = JsonEncodedText.Encode("stack");
     private static readonly JsonEncodedText CodeProperty = JsonEncodedText.Encode("code");
+    private static readonly JsonEncodedText DataProperty = JsonEncodedText.Encode("data");
     private static readonly JsonEncodedText CauseProperty = JsonEncodedText.Encode("cause");
 
     public static void Write(Utf8JsonWriter writer, Exception exception)
@@ -90,7 +92,7 @@ internal static class ErrorSerializer
         writer.WriteString(StackProperty, exception.StackTrace ?? string.Empty);
         if (CodeOf(exception) is { } code)
         {
-            writer.WriteString(CodeProperty, code);
+            WriteCode(writer, code);
         }
 
         if (exception.InnerException is { } cause && depth < MaxCauseDepth)
@@ -108,7 +110,7 @@ internal static class ErrorSerializer
         writer.WriteString(StackProperty, error.Stack ?? string.Empty);
         if (error.Code is { } code)
         {
-            writer.WriteString(CodeProperty, code);
+            WriteCode(writer, code);
         }
 
         if (error.Cause is { } cause && depth < MaxCauseDepth)
@@ -117,6 +119,16 @@ internal static class ErrorSerializer
             WriteProperties(writer, cause, depth + 1);
             writer.WriteEndObject();
         }
+    }
+
+    // "code" is where the TypeScript SDK writes it. Inngest drops fields it does not know from the error of a step, and
+    // keeps "data" for the SDK's own use, so the code goes there too and comes back with the step's error.
+    private static void WriteCode(Utf8JsonWriter writer, string code)
+    {
+        writer.WriteString(CodeProperty, code);
+        writer.WriteStartObject(DataProperty);
+        writer.WriteString(CodeProperty, code);
+        writer.WriteEndObject();
     }
 
     private static string? CodeOf(Exception exception)
@@ -138,7 +150,8 @@ internal static class ErrorSerializer
     // JavaScript errors usually have string codes, but some libraries use numbers.
     private static string? ReadCode(JsonElement error)
     {
-        if (!error.TryGetProperty("code", out var code))
+        if (!error.TryGetProperty("code", out var code) &&
+            !(error.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object && data.TryGetProperty("code", out code)))
         {
             return null;
         }
