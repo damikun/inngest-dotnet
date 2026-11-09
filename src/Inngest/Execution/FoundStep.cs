@@ -130,7 +130,7 @@ internal abstract class FoundStep(string id)
 
         writer.WriteString(DisplayNameProperty, DisplayName);
         writer.WriteStartObject(OptsProperty);
-        WriteOptions(writer, name, settings);
+        WriteInput(writer, name, settings);
 
         // Inngest calls the function again after each step of a race finishes, not once all have.
         if (ParallelMode == ParallelMode.Race)
@@ -147,6 +147,19 @@ internal abstract class FoundStep(string id)
         }
 
         writer.WriteEndObject();
+    }
+
+    // The step's options as the payload transforms of the call's middleware, when it has any, rewrote them.
+    private void WriteInput(Utf8JsonWriter writer, string? name, InngestSettings settings)
+    {
+        if (Owner.Transforms is { } transforms)
+        {
+            transforms.WriteStepInput(writer, this, input => WriteOptions(input, name, settings));
+        }
+        else
+        {
+            WriteOptions(writer, name, settings);
+        }
     }
 
     public virtual Task<object?> ExecuteAsync(FunctionContext context, IServiceProvider services, CancellationToken cancellationToken) =>

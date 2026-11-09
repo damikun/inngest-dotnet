@@ -24,6 +24,15 @@ public interface IPayloadTransform
     /// <summary>Rewrites what a step handler returned before Inngest memoizes it.</summary>
     bool TransformStepOutput(FunctionContext context, StepInfo step, JsonElement output, Utf8JsonWriter writer) => false;
 
+    /// <summary>
+    /// Rewrites the input of a step before Inngest gets it: the "opts" object of the step's op, such as the function id,
+    /// the payload and the timeout of an invoke, or the event, the expression and the timeout of a wait for an event.
+    /// What is written must be a JSON object, and Inngest reads the step from it. It runs each time the op is written,
+    /// for a new step or one that ran in the call, and never for a memoized step. Changing a step's id is not possible
+    /// here, unlike transformStepInput in the TypeScript SDK.
+    /// </summary>
+    bool TransformStepInput(FunctionContext context, StepInfo step, JsonElement input, Utf8JsonWriter writer) => false;
+
     /// <summary>Rewrites the function's output before it is sent to Inngest.</summary>
     bool TransformFunctionOutput(FunctionContext context, JsonElement output, Utf8JsonWriter writer) => false;
 }

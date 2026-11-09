@@ -14,8 +14,8 @@ public static class InngestEncryptionBuilderExtensions
     /// <summary>
     /// Adds the middleware that encrypts what leaves the app and decrypts what comes back, in the format of
     /// @inngest/middleware-encryption, so that .NET and TypeScript services can read each other's data. Step results
-    /// and the function's output are encrypted as a whole, and events are encrypted in the field that
-    /// <see cref="EncryptionOptions.EventEncryptionField"/> names. Incoming events and memoized step results are
+    /// and the function's output are encrypted as a whole, and events and the data of invokes are encrypted in the field
+    /// that <see cref="EncryptionOptions.EventEncryptionField"/> names. Incoming events and memoized step results are
     /// decrypted before the function reads them. Register it after middleware that add or change events, so that it
     /// encrypts the events they send. Options can also be set with <c>Configure&lt;EncryptionOptions&gt;</c>.
     /// </summary>

@@ -353,6 +353,7 @@ call.
 |---|---|
 | `TransformEvent(JsonElement @event, Utf8JsonWriter writer)` | A triggering event, before the function's event type is read from it |
 | `TransformStepResult(FunctionContext context, StepInfo step, JsonElement result, Utf8JsonWriter writer)` | A memoized result of any step type, before the step's result type is read from it |
+| `TransformStepInput(FunctionContext context, StepInfo step, JsonElement input, Utf8JsonWriter writer)` | The input of a new step, the `opts` object of its op, before Inngest gets it: for an invoke, `function_id`, `payload` and `timeout`. It must write an object. |
 | `TransformStepOutput(FunctionContext context, StepInfo step, JsonElement output, Utf8JsonWriter writer)` | What a step handler returned, before Inngest memoizes it |
 | `TransformFunctionOutput(FunctionContext context, JsonElement output, Utf8JsonWriter writer)` | The function's output, before it is sent to Inngest |
 

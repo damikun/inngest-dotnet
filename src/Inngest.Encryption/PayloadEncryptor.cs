@@ -95,6 +95,51 @@ internal sealed class PayloadEncryptor
         return true;
     }
 
+    // Encrypts the data an invoke sends, {"payload": {"data": ...}} in the op's options, as the data of an event, since
+    // the invoked function receives it as one. Options without that field are kept as they are.
+    public bool EncryptInvokeInput(JsonElement input, Utf8JsonWriter writer)
+    {
+        if (_decryptOnly ||
+            input.ValueKind != JsonValueKind.Object ||
+            !input.TryGetProperty("payload", out var payload) ||
+            payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty(_eventField, out _))
+        {
+            return false;
+        }
+
+        writer.WriteStartObject();
+        foreach (var property in input.EnumerateObject())
+        {
+            if (!property.NameEquals("payload"))
+            {
+                property.WriteTo(writer);
+                continue;
+            }
+
+            writer.WriteStartObject("payload");
+            foreach (var field in payload.EnumerateObject())
+            {
+                if (field.NameEquals("data"))
+                {
+                    writer.WritePropertyName("data");
+                    WriteWithEncryptedField(data, writer);
+                }
+                else
+                {
+                    field.WriteTo(writer);
+                }
+            }
+
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndObject();
+        return true;
+    }
+
     // Encrypts the field of each event's data that EventEncryptionField names. Events without it are the same instances.
     public IReadOnlyList<InngestEvent> EncryptEvents(IReadOnlyList<InngestEvent> events)
     {
@@ -123,7 +168,7 @@ internal sealed class PayloadEncryptor
         var data = @event.Data!;
         using var document = JsonSerializer.SerializeToDocument(data, _serializer.GetTypeInfo(data.GetType()));
         var root = document.RootElement;
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(_eventField, out var field))
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(_eventField, out _))
         {
             return null;
         }
@@ -131,25 +176,30 @@ internal sealed class PayloadEncryptor
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = _serializer.Encoder }))
         {
-            writer.WriteStartObject();
-            foreach (var property in root.EnumerateObject())
-            {
-                if (property.NameEquals(_eventField))
-                {
-                    writer.WritePropertyName(_eventField);
-                    Seal(field, writer);
-                }
-                else
-                {
-                    property.WriteTo(writer);
-                }
-            }
-
-            writer.WriteEndObject();
+            WriteWithEncryptedField(root, writer);
         }
 
         using var encrypted = JsonDocument.Parse(buffer.WrittenMemory);
         return @event with { Data = encrypted.RootElement.Clone() };
+    }
+
+    private void WriteWithEncryptedField(JsonElement data, Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+        foreach (var property in data.EnumerateObject())
+        {
+            if (property.NameEquals(_eventField))
+            {
+                writer.WritePropertyName(_eventField);
+                Seal(property.Value, writer);
+            }
+            else
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
     }
 
     private void Seal(JsonElement value, Utf8JsonWriter writer)

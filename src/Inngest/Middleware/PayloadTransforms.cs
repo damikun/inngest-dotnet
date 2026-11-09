@@ -72,6 +72,40 @@ internal sealed class PayloadTransforms(IPayloadTransform[] transforms, Function
             (Context: context, Step: step.CreateInfo(memoized: false)),
             static (transform, state, value, writer) => transform.TransformStepOutput(state.Context, state.Step, value, writer));
 
+    // Writes the properties of a step's opts object, the step's input, rewritten by the transforms in reverse order.
+    // The writer is inside that object, so the result is copied property by property.
+    public void WriteStepInput(Utf8JsonWriter writer, FoundStep step, Action<Utf8JsonWriter> writeInput)
+    {
+        using var original = new PooledBufferWriter();
+        using (var originalWriter = WireWriter.Create(original, options))
+        {
+            originalWriter.WriteStartObject();
+            writeInput(originalWriter);
+            originalWriter.WriteEndObject();
+        }
+
+        using var document = JsonDocument.Parse(original.WrittenMemory, JsonPayload.DocumentOptions(options));
+        using var result = Apply(
+            transforms,
+            reverse: true,
+            document.RootElement,
+            options,
+            nameof(IPayloadTransform.TransformStepInput),
+            (Context: context, Step: step.CreateInfo(memoized: false)),
+            static (transform, state, value, writer) => transform.TransformStepInput(state.Context, state.Step, value, writer));
+
+        if (result.Value.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(IPayloadTransform.TransformStepInput)} wrote {result.Value.ValueKind} for step \"{step.FinalId}\", but a step's input is a JSON object.");
+        }
+
+        foreach (var property in result.Value.EnumerateObject())
+        {
+            property.WriteTo(writer);
+        }
+    }
+
     private void RewriteFunctionOutput(Utf8JsonWriter writer, object? output) =>
         WriteRewritten(
             writer,

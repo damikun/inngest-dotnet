@@ -5,8 +5,8 @@ using System.Text.Json;
 
 namespace Inngest.Encryption;
 
-// What @inngest/middleware-encryption does with transformFunctionInput, wrapStep, wrapStepHandler, wrapFunctionHandler
-// and transformSendEvent, as payload transforms on the raw JSON and a wrapper around event sends.
+// What @inngest/middleware-encryption does with transformFunctionInput, transformStepInput, wrapStep, wrapStepHandler,
+// wrapFunctionHandler and transformSendEvent, as payload transforms on the raw JSON and a wrapper around event sends.
 internal sealed class EncryptionMiddleware(PayloadEncryptor encryptor) : InngestMiddleware, IPayloadTransform
 {
     public bool TransformEvent(JsonElement @event, Utf8JsonWriter writer) => encryptor.DecryptEvent(@event, writer);
@@ -18,6 +18,10 @@ internal sealed class EncryptionMiddleware(PayloadEncryptor encryptor) : Inngest
 
     public bool TransformStepOutput(FunctionContext context, StepInfo step, JsonElement output, Utf8JsonWriter writer) =>
         encryptor.EncryptOutput(output, writer);
+
+    // An invoke is the only step whose input carries data; the data of sendEvent steps is encrypted with the events.
+    public bool TransformStepInput(FunctionContext context, StepInfo step, JsonElement input, Utf8JsonWriter writer) =>
+        step.Type == StepType.Invoke && encryptor.EncryptInvokeInput(input, writer);
 
     public bool TransformFunctionOutput(FunctionContext context, JsonElement output, Utf8JsonWriter writer) =>
         encryptor.EncryptOutput(output, writer);

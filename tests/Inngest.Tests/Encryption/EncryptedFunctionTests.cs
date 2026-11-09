@@ -172,6 +172,62 @@ public sealed class EncryptedFunctionTests
     }
 
     [Fact]
+    public async Task The_data_an_invoke_sends_is_encrypted_in_its_field_as_the_typescript_package_does()
+    {
+        await using var services = Build();
+        var function = TestFunction.Define(async context =>
+            await context.Step.InvokeAsync<string>("child", new InvokeOptions("child-fn")
+            {
+                Data = new { PublicField = 1, Encrypted = new { Secret = "x" } },
+                Timeout = TimeSpan.FromMinutes(5),
+            }));
+
+        var result = await CallAsync(services, function, Call.New());
+
+        result.OpCodes.ShouldBe(["InvokeFunction"]);
+        var opts = result.Op().GetProperty("opts");
+        opts.GetProperty("function_id").GetString().ShouldBe("test-app-child-fn");
+        opts.GetProperty("timeout").GetString().ShouldBe("5m");
+        var data = opts.GetProperty("payload").GetProperty("data");
+        data.EnumerateObject().Select(static property => property.Name).ShouldBe(["publicField", "encrypted"]);
+        data.GetProperty("publicField").GetInt32().ShouldBe(1);
+        data.GetProperty("encrypted").GetProperty("__STRATEGY__").GetString().ShouldBe("inngest/libsodium");
+        EncryptionHarness.Decrypt(Service, data.GetProperty("encrypted").GetRawText()).ShouldBe("""{"secret":"x"}""");
+    }
+
+    [Fact]
+    public async Task The_data_an_invoke_sends_without_the_field_or_in_decrypt_only_mode_is_sent_as_it_is()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.InvokeAsync<string>("plain", new InvokeOptions("child-fn") { Data = new { PublicField = 1 } });
+            return await context.Step.InvokeAsync<string>("secret", new InvokeOptions("child-fn") { Data = new { Encrypted = "x" } });
+        });
+        await using var services = Build();
+        await using var decryptOnly = Build(options => options.DecryptOnly = true);
+
+        var plain = await CallAsync(services, function, Call.New());
+        var kept = await CallAsync(decryptOnly, function, Call.New().Data("plain", "\"ok\""));
+
+        plain.Op().GetProperty("opts").GetProperty("payload").GetProperty("data").GetRawText().ShouldBe("""{"publicField":1}""");
+        kept.Op().GetProperty("opts").GetProperty("payload").GetProperty("data").GetRawText().ShouldBe("""{"encrypted":"x"}""");
+    }
+
+    [Fact]
+    public async Task The_data_an_invoke_sends_is_encrypted_in_the_field_the_options_name()
+    {
+        await using var services = Build(options => options.EventEncryptionField = "private");
+        var function = TestFunction.Define(async context =>
+            await context.Step.InvokeAsync<string>("child", new InvokeOptions("child-fn") { Data = new { Encrypted = "plain", Private = "x" } }));
+
+        var result = await CallAsync(services, function, Call.New());
+
+        var data = result.Op().GetProperty("opts").GetProperty("payload").GetProperty("data");
+        data.GetProperty("encrypted").GetString().ShouldBe("plain");
+        EncryptionHarness.Decrypt(Service, data.GetProperty("private").GetRawText()).ShouldBe("\"x\"");
+    }
+
+    [Fact]
     public async Task The_output_of_a_function_is_encrypted_unless_there_is_none()
     {
         await using var services = Build();
