@@ -1,3 +1,4 @@
+using Inngest.Execution;
 using Inngest.Functions;
 
 namespace Inngest.Tests.Execution;
@@ -255,6 +256,25 @@ public sealed class ParallelismTests : IDisposable
 
         result.Ops.Select(op => op.GetProperty("id").GetString()).ShouldBe([Call.Hash("A:1"), Call.Hash("A:2")]);
         _host.Logs.GetSnapshot().Count(record => record.Id.Id == 101).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Reusing_an_id_after_other_work_does_not_warn_for_steps_that_check_their_input()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            await Invocation.RegisterInputChecked(() => context.Step.RunAsync("A", () => Record("A")));
+            await Task.Delay(TimeSpan.FromSeconds(1), _host.Time);
+            await Invocation.RegisterInputChecked(() => context.Step.RunAsync("A", () => Record("A again")));
+            return null;
+        });
+
+        var pending = _host.Start(function, Call.New().Data("A", "\"A\""));
+        _host.Time.Advance(TimeSpan.FromSeconds(1));
+        var result = await EngineHost.ResultOf(pending);
+
+        result.Ops.Select(op => op.GetProperty("id").GetString()).ShouldBe([Call.Hash("A:1")]);
+        _host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 101);
     }
 
     [Fact]

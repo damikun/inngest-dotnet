@@ -79,9 +79,10 @@ internal static class ToolSteps
             }
         }
 
-        var stored = input is { } stepInput
-            ? await steps.AIWrapAsync(stepId, stepInput, HandleAsync).ConfigureAwait(false)
-            : await steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken)).ConfigureAwait(false);
+        // The saved digest of the arguments catches a mix-up, so the engine's warning about repeated ids is left out.
+        var stored = await Invocation.RegisterInputChecked(() => input is { } stepInput
+            ? steps.AIWrapAsync(stepId, stepInput, HandleAsync)
+            : steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken))).ConfigureAwait(false);
         var (value, terminate, savedDigest) = ToolJson.ReadResult(stored);
         InputChecks.Check(stepId, savedDigest, serialized?.Digest);
         if (terminate)

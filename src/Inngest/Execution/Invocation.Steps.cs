@@ -32,6 +32,7 @@ internal sealed partial class Invocation
 
         step.Owner = this;
         step.CallerContext = ExecutionContext.Capture();
+        step.ChecksItsInput = t_registeringInputChecked;
         if (_pipeline is not null)
         {
             step.Guard = MiddlewarePipeline.ActiveWraps;
@@ -82,7 +83,7 @@ internal sealed partial class Invocation
             return;
         }
 
-        var (finalId, index, hashedId) = ClaimId(step.Id);
+        var (finalId, index, hashedId) = ClaimId(step);
         MemoEntry? memo = _run.Memo.TryGetValue(hashedId, out var entry) ? entry : null;
         step.Attach(finalId, index, hashedId, memo);
         _steps.Add(hashedId, step);
@@ -179,8 +180,9 @@ internal sealed partial class Invocation
     }
 
     // Repeated ids get ":1", ":2", ... in the order they are called, which is stable across replays.
-    private (string FinalId, int? Index, string HashedId) ClaimId(string id)
+    private (string FinalId, int? Index, string HashedId) ClaimId(FoundStep step)
     {
+        var id = step.Id;
         if (!_repeats.TryGetValue(id, out var repeat))
         {
             var hashed = StepIds.Hash(id);
@@ -192,7 +194,7 @@ internal sealed partial class Invocation
             repeat = (1, first);
         }
 
-        WarnIfReused(id, repeat.First);
+        WarnIfReused(id, repeat.First, step);
         for (var index = repeat.Next; ; index++)
         {
             var candidate = string.Create(CultureInfo.InvariantCulture, $"{id}:{index}");
@@ -206,10 +208,13 @@ internal sealed partial class Invocation
     }
 
     // Reusing an id in a loop is fine. Reusing it after the first use was already decided on usually means that
-    // parallel branches share an id, and then which branch gets which result depends on timing.
-    private void WarnIfReused(string id, FoundStep first)
+    // parallel branches share an id, and then which branch gets which result depends on timing. A step whose caller
+    // checks the input of its result tells a mix-up apart from a loop itself, so it is left out. That matters for the
+    // tool loop of FunctionInvokingChatClient, which leaves the scheduler after every tool and so starts every model
+    // call of the loop in a new window.
+    private void WarnIfReused(string id, FoundStep first, FoundStep reuse)
     {
-        if (_warnedReuse || first.Window == _windowVersion)
+        if (_warnedReuse || reuse.ChecksItsInput || first.Window == _windowVersion)
         {
             return;
         }

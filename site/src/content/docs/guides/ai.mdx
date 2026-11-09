@@ -128,6 +128,10 @@ such as the time, would then fail the run on every replay: it gets the warning o
 the call, to keep the changing part out of the prompt, or to ignore the warning. An input edited in the Inngest UI does
 not change the digest, which is that of the input the code asked for.
 
+This warning takes the place of the one the SDK logs for any step whose id parallel branches reuse. That one is left out
+for these steps: the tool loop of `FunctionInvokingChatClient` leaves the function's scheduler after every tool, so
+every model call after a tool would look like such a branch, while the digest tells a real mix-up from a loop.
+
 Tool steps are named for the tool, and a model that calls the same tool twice in one response gets the ids in the order
 of its calls, so they need no name. Conversations that run side by side would claim the same tool ids in no fixed order,
 so a conversation that you name carries its name into its tool steps: with `WithInngestStepId("plan")` the steps are

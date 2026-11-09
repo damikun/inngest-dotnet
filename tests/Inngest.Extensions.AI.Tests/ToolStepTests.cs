@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Inngest.Testing;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using static Inngest.Tests.Testing.TestHosts;
 
 namespace Inngest.Extensions.AI.Tests;
@@ -42,6 +43,25 @@ public sealed class ToolStepTests
         var result = model.Messages[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>().Single();
         result.CallId.ShouldBe("call_1");
         ((JsonElement)result.Result!).GetString().ShouldBe("Sunny in Prague");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_model_call_after_a_tool_is_not_taken_for_a_step_of_a_parallel_branch(bool streaming)
+    {
+        var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "get_weather", "Prague")) : Says("It is sunny in Prague."));
+        var chat = Pipeline(model);
+        var options = new ChatOptions { Tools = [Weather(() => { })] };
+        var services = Services(async context => streaming
+            ? (await chat.GetStreamingResponseAsync("What is the weather in Prague?", options).ToChatResponseAsync()).Text
+            : (await chat.GetResponseAsync("What is the weather in Prague?", options)).Text);
+        await using var host = new InngestTestHost(services.AddFakeLogging());
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Steps.Select(step => step.Id).ShouldBe(["chat", "tool get_weather", "chat:1"]);
+        host.Services.GetFakeLogCollector().GetSnapshot().ShouldNotContain(record => record.Id.Id == 101);
     }
 
     [Fact]

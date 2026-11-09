@@ -158,6 +158,25 @@ internal sealed partial class Invocation
     // Null unless some middleware of the call rewrites payloads; steps read and write their JSON through it.
     public PayloadTransforms? Transforms { get; }
 
+    [ThreadStatic]
+    private static bool t_registeringInputChecked;
+
+    // Marks the steps that register calls as steps that check the input of their memoized result themselves; see
+    // FoundStep.ChecksItsInput. The step tools register a step on the calling thread, before they return.
+    public static T RegisterInputChecked<T>(Func<T> register)
+    {
+        var outer = t_registeringInputChecked;
+        t_registeringInputChecked = true;
+        try
+        {
+            return register();
+        }
+        finally
+        {
+            t_registeringInputChecked = outer;
+        }
+    }
+
     // The steps of the invocation running in the current async flow, or null where steps cannot be called: outside an
     // invocation, inside a step handler and in observer hooks. Code the function started that outlives the call, such
     // as a loop or a task a singleton caches, still flows the invocation, which then no longer takes steps.

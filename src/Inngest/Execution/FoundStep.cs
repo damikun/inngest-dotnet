@@ -68,6 +68,10 @@ internal abstract class FoundStep(string id)
     // around the call, such as an AsyncLocal, the current Activity or a logging scope, is there in the handler too.
     public ExecutionContext? CallerContext { get; set; }
 
+    // The code that called the step checks that a memoized result was made for its input, as the chat clients of
+    // Inngest.Extensions.AI do with a digest, so a repeated id needs no warning from the engine.
+    public bool ChecksItsInput { get; set; }
+
     // The WrapStepAsync chain whose result becomes the step's result.
     public Task<object?>? Chain { get; set; }
 

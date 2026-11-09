@@ -158,9 +158,10 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
             return written;
         }
 
-        var json = input is { } stepInput
-            ? await steps.AIWrapAsync(stepId, stepInput, HandleAsync).ConfigureAwait(false)
-            : await steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken)).ConfigureAwait(false);
+        // The digest below catches a result made for another input, so the engine's warning about repeated ids is left out.
+        var json = await Invocation.RegisterInputChecked(() => input is { } stepInput
+            ? steps.AIWrapAsync(stepId, stepInput, HandleAsync)
+            : steps.RunAsync(stepId, stepToken => HandleAsync(default, stepToken))).ConfigureAwait(false);
         InputChecks.Check(stepId, ChatJson.InputDigestOf(json), digest);
         return ChatJson.ReadResponse(json);
     }
