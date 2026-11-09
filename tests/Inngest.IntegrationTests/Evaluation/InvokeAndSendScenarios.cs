@@ -111,6 +111,8 @@ public sealed class InvokeScenarios(EvaluationEnvironment environment) : Evaluat
 [Trait("Area", "sendEvent")]
 public sealed class SendEventScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
+    // The ids the send returns are Inngest's own ids of the events. The events carry the ids the step gave them, made of
+    // the run, the step and their place in the list, which is what the functions they trigger see.
     [Fact(Timeout = 60_000)]
     public async Task SendEvent_sends_several_events_and_each_starts_a_run_with_its_id()
     {
@@ -122,7 +124,9 @@ public sealed class SendEventScenarios(EvaluationEnvironment environment) : Eval
         var received = await Task.WhenAll(ids.Select(id => WaitForEndAsync(id)));
         received.Select(child => child.OutputAs<int>()).ShouldBe([1, 2, 3]);
         received.Select(child => child.EventId).ShouldBe(ids);
-        Observed.Values<ReceivedEvent>("received").Select(seen => seen.Id).ShouldBe(ids, ignoreOrder: true);
+        var stepId = Inngest.Execution.StepIds.Hash("fan-out");
+        Observed.Values<ReceivedEvent>("received").Select(seen => seen.Id)
+            .ShouldBe([.. Enumerable.Range(0, 3).Select(index => $"{run.RunId}-{stepId}-{index}")], ignoreOrder: true);
     }
 
     [Fact(Timeout = 60_000)]
