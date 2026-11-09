@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Inngest.AgentApprovalSample": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5292",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "INNGEST_DEV": "1"
+      }
+    }
+  }
+}
