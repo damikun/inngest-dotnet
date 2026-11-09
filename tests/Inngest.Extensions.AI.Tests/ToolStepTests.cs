@@ -85,6 +85,44 @@ public sealed class ToolStepTests
         host.Services.GetFakeLogCollector().GetSnapshot().ShouldNotContain(record => record.Id.Id == 822);
     }
 
+    [Theory]
+    [InlineData(true, 1, "Refunded 1042")]
+    [InlineData(false, 0, "Tool call invocation was rejected by the approver and must not be retried. Too much")]
+    public async Task A_tool_that_needs_approval_runs_once_after_the_decision_that_the_run_waits_for(bool approved, int refunds, string result)
+    {
+        var invocations = 0;
+        var refund = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(
+            (string order) =>
+            {
+                invocations++;
+                return $"Refunded {order}";
+            },
+            "refund"));
+        var model = new FakeChatClient((call, _) => call == 0
+            ? new ChatResponse(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call_1", "refund", new Dictionary<string, object?> { ["order"] = "1042" })])) { FinishReason = ChatFinishReason.ToolCalls }
+            : Says("Done."));
+        var chat = Pipeline(model);
+        await using var host = For(async context =>
+        {
+            List<ChatMessage> messages = [new(ChatRole.User, "Refund order 1042")];
+            var options = new ChatOptions { Tools = [refund] };
+            var response = await chat.GetResponseAsync(messages, options);
+            messages.AddRange(response.Messages);
+            var request = response.Messages.SelectMany(message => message.Contents).OfType<ToolApprovalRequestContent>().Single();
+            var decision = await context.Step.WaitForEventAsync("approval", new WaitForEventOptions("approval", TimeSpan.FromHours(1)));
+            messages.Add(new ChatMessage(ChatRole.User, [request.CreateResponse(decision!.Data.GetProperty("approved").GetBoolean(), approved ? null : "Too much")]));
+            return (await chat.GetResponseAsync(messages, options)).Text;
+        });
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().WaitForEvent("approval", new InngestEvent("approval", new { approved })), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        invocations.ShouldBe(refunds);
+        run.Steps.Select(step => step.Id).ShouldBe(approved ? ["chat", "approval", "tool refund", "chat:1"] : ["chat", "approval", "chat:1"]);
+        var told = model.Messages[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>().Single();
+        (told.Result is JsonElement json ? json.GetString() : told.Result?.ToString()).ShouldBe(result);
+    }
+
     [Fact]
     public async Task A_conversation_that_was_named_carries_its_name_into_the_steps_of_its_tools()
     {
