@@ -606,6 +606,32 @@ public sealed class RestoreTests
     }
 
     [Fact]
+    public async Task A_cancel_handler_gets_the_user_of_the_event_that_started_the_cancelled_run()
+    {
+        UserContextApp.Seen? seen = null;
+        await using var app = NewApp(inngest: inngest =>
+        {
+            inngest.AddFunction(
+                new FunctionOptions { Id = "fn", Triggers = [Trigger.Event(UserContextApp.EventName)] },
+                (_, _) => Task.FromResult<object?>(null),
+                onCancel: (context, _) =>
+                {
+                    seen = UserContextApp.SeenBy(context);
+                    return Task.CompletedTask;
+                });
+        });
+        var cancelledRun = app.Time.GetUtcNow();
+        var original = UserContextApp.EventJson(app.Seal(UserContextApp.Ada()));
+        app.Time.Advance(TimeSpan.FromDays(30));
+
+        var result = await app.CallAsync(app.Function("fn-cancel"), Call.New().Event(CancelledEvent("test-app-fn", RunId(cancelledRun), original)), app.Time.GetUtcNow());
+
+        result.StatusCode.ShouldBe(200);
+        seen.ShouldNotBeNull().IsAuthenticated.ShouldBeTrue();
+        seen.Claims.ShouldBe(AdaClaims);
+    }
+
+    [Fact]
     public async Task Other_functions_that_listen_for_failures_do_not_get_a_user()
     {
         await using var app = NewApp(inngest: inngest =>
@@ -722,6 +748,9 @@ public sealed class RestoreTests
     private static string RunId(DateTimeOffset time) => UserContextApp.RunIdAt(time);
 
     // The event Inngest sends when a run fails, which carries the event of the run that failed.
+    private static string CancelledEvent(string functionId, string cancelledRunId, string originalEvent) =>
+        $$$"""{"name":"inngest/function.cancelled","id":"01JCANCELLED","ts":1793268000000,"user":{},"data":{"function_id":"{{{functionId}}}","run_id":"{{{cancelledRunId}}}","event":{{{originalEvent}}}}}""";
+
     private static string FailedEvent(string functionId, string failedRunId, string originalEvent) =>
         $$$"""{"name":"inngest/function.failed","id":"01JFAILED","ts":1793268000000,"user":{},"data":{"function_id":"{{{functionId}}}","run_id":"{{{failedRunId}}}","error":{"name":"Error","message":"boom"},"event":{{{originalEvent}}}}}""";
 }

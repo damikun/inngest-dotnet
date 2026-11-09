@@ -67,14 +67,37 @@ public static class InngestBuilderExtensions
             });
         }
 
+        if (typeof(ICancelHandler).IsAssignableFrom(typeof(TFunction)))
+        {
+            builder.Services.AddSingleton(new FunctionDefinition(
+                CancelFunction.CreateOptions(options),
+                static services => new CancelFunction(((ICancelHandler)services.GetRequiredService<TFunction>()).OnCancelAsync))
+            {
+                CancelHandlerFor = options.Id,
+            });
+        }
+
         return builder;
     }
 
+    // Kept for code compiled against 1.0; the overload below takes a cancel handler too.
     public static IInngestBuilder AddFunction<TEventData>(
         this IInngestBuilder builder,
         FunctionOptions options,
         Func<FunctionContext<TEventData>, CancellationToken, Task<object?>> handler,
-        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure = null)
+        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure) =>
+        builder.AddFunction(options, handler, onFailure, onCancel: null);
+
+    /// <summary>
+    /// Registers a delegate function. onFailure runs once the function has failed for good, as the function
+    /// "&lt;id&gt;-failure", and onCancel once one of its runs was cancelled, as the function "&lt;id&gt;-cancel".
+    /// </summary>
+    public static IInngestBuilder AddFunction<TEventData>(
+        this IInngestBuilder builder,
+        FunctionOptions options,
+        Func<FunctionContext<TEventData>, CancellationToken, Task<object?>> handler,
+        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure = null,
+        Func<FunctionContext<FunctionCancelled>, CancellationToken, Task>? onCancel = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
@@ -91,15 +114,34 @@ public static class InngestBuilderExtensions
             });
         }
 
+        if (onCancel is not null)
+        {
+            var cancel = new CancelFunction(onCancel);
+            builder.Services.AddSingleton(new FunctionDefinition(CancelFunction.CreateOptions(options), _ => cancel)
+            {
+                CancelHandlerFor = options.Id,
+            });
+        }
+
         return builder;
     }
 
+    // Kept for code compiled against 1.0; the overload below takes a cancel handler too.
     public static IInngestBuilder AddFunction(
         this IInngestBuilder builder,
         FunctionOptions options,
         Func<FunctionContext<JsonElement>, CancellationToken, Task<object?>> handler,
-        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure = null) =>
-        builder.AddFunction<JsonElement>(options, handler, onFailure);
+        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure) =>
+        builder.AddFunction<JsonElement>(options, handler, onFailure, onCancel: null);
+
+    /// <summary>Registers a delegate function that reads its event data as JSON, with optional failure and cancel handlers.</summary>
+    public static IInngestBuilder AddFunction(
+        this IInngestBuilder builder,
+        FunctionOptions options,
+        Func<FunctionContext<JsonElement>, CancellationToken, Task<object?>> handler,
+        Func<FunctionContext<FunctionFailure>, CancellationToken, Task>? onFailure = null,
+        Func<FunctionContext<FunctionCancelled>, CancellationToken, Task>? onCancel = null) =>
+        builder.AddFunction<JsonElement>(options, handler, onFailure, onCancel);
 
     /// <summary>
     /// Middleware runs in registration order. It is scoped: one instance serves one call from Inngest, including the

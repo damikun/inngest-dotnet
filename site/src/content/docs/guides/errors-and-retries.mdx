@@ -1,6 +1,6 @@
 ---
 title: Errors, retries and failure handlers
-description: How failed steps and functions are retried, how to stop or delay retries with exceptions, how to recover from a failed step, and how to run code when a function fails for good.
+description: How failed steps and functions are retried, how to stop or delay retries with exceptions, how to recover from a failed step, and how to run code when a function fails for good or a run is cancelled.
 sidebar:
   label: Errors and retries
 ---
@@ -222,14 +222,60 @@ itself, with `FunctionFailure` as its event data. See Inngest's
 [failure handlers](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/failure-handlers)
 page and the [function.failed event](https://www.inngest.com/docs/reference/system-events/inngest-function-failed).
 
+## Run code when a run is cancelled
+
+Implement `ICancelHandler` on the function's class to clean up after a run that was cancelled, by a
+[`CancelOn`](/inngest-dotnet/guides/flow-control/#cancel-on-events) event, a timeout or the REST API:
+
+```csharp title="ReserveTickets.cs"
+using Inngest;
+
+public sealed record TicketsRequested(string ReservationId, int Count);
+
+[InngestFunction("reserve-tickets")]
+[EventTrigger("tickets/requested")]
+[CancelOn("tickets/request.withdrawn", Match = "data.reservationId")]
+public sealed class ReserveTickets(ITicketPool pool) : InngestFunction<TicketsRequested>, ICancelHandler
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<TicketsRequested> context, CancellationToken cancellationToken)
+    {
+        var request = context.Event.Data;
+        await context.Step.RunAsync("hold", ct => pool.HoldAsync(request.ReservationId, request.Count, ct));
+        await context.Step.SleepAsync("wait-for-payment", TimeSpan.FromMinutes(15));
+        await context.Step.RunAsync("confirm", ct => pool.ConfirmAsync(request.ReservationId, ct));
+        return null;
+    }
+
+    public async Task OnCancelAsync(FunctionContext<FunctionCancelled> context, CancellationToken cancellationToken)
+    {
+        var reservationId = context.Event.Data.Event.GetProperty("data").GetProperty("reservationId").GetString()!;
+        await context.Step.RunAsync("release", ct => pool.ReleaseAsync(reservationId, ct));
+    }
+}
+
+public interface ITicketPool
+{
+    Task HoldAsync(string reservationId, int count, CancellationToken cancellationToken);
+
+    Task ConfirmAsync(string reservationId, CancellationToken cancellationToken);
+
+    Task ReleaseAsync(string reservationId, CancellationToken cancellationToken);
+}
+```
+
+Like a failure handler, it is a function of its own: the SDK registers it as `<function id>-cancel`, triggered by the
+`inngest/function.cancelled` event for this function, with one retry. `context.Event.Data` is a `FunctionCancelled`
+with the cancelled run's `FunctionId` and `RunId`, and `Event`, the event that triggered it. A delegate function takes
+its cancel handler as `onCancel`, next to `onFailure`. This is `onCancel` in the TypeScript SDK.
+
 ## What Inngest records
 
 The SDK reports an error as the exception's type name, its message, its stack trace and its code when it has one,
 and includes inner exceptions as the cause, up to five levels deep. That is what the run history shows, what `StepFailedException.Error`
 and `FunctionFailure.Error` hold, and what Inngest sends in `inngest/function.failed`.
 
-A run that is cancelled, by an event, a timeout or the API, ends with an `inngest/function.cancelled` event. A
-function triggered by that event can clean up after it; see
+A run that is cancelled, by an event, a timeout or the API, ends with an `inngest/function.cancelled` event, which
+cancel handlers run on. A function triggered by that event can also clean up after every function; see
 [function.cancelled](https://www.inngest.com/docs/reference/system-events/inngest-function-cancelled).
 
 Middleware sees every failed attempt, not only the last one, through `OnRunErrorAsync` and `OnStepErrorAsync`; see

@@ -25,7 +25,8 @@ out, so Inngest applies its defaults. A few details worth knowing:
 - `Match` on a cancellation becomes the expression `event.<path> == async.<path>`.
 - A cron trigger with a time zone is sent with a `TZ=` prefix.
 - A class that implements `IFailureHandler` registers a second function, `<id>-failure`, triggered by
-  `inngest/function.failed`.
+  `inngest/function.failed`, and one that implements `ICancelHandler` registers `<id>-cancel`, triggered by
+  `inngest/function.cancelled`.
 
 The checks are the ones `FunctionOptionsValidator` makes when the app starts, and the SDK, like the builder, reports
 all the problems at once.

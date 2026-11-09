@@ -261,8 +261,9 @@ var rendered = await context.Step.InvokeAsync<string>("render", options);
 Other keys that `InvokeOptions.User` already holds are kept. A run without a user passes none.
 
 A [failure handler](/inngest-dotnet/guides/errors-and-retries/) gets the user of the run that failed. Inngest sends it
-the failed run's event, with its `user`, and the user is judged as that run was. Other functions that listen for
-`inngest/function.failed` do not get it.
+the failed run's event, with its `user`, and the user is judged as that run was. A cancel handler gets the user of the
+cancelled run the same way. Other functions that listen for `inngest/function.failed` or `inngest/function.cancelled`
+do not get it.
 
 ```csharp title="ImportCatalog.cs"
 using Inngest;
@@ -294,8 +295,8 @@ public sealed class ImportCatalog(ICurrentUser user, IAlerts alerts) : InngestFu
 }
 ```
 
-There is no single user where there is no single event. A function that batches events has none, and neither has the
-failure handler of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not
+There is no single user where there is no single event. A function that batches events has none, and neither have the
+failure and cancel handlers of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not
 restored.
 
 ## When the user cannot be used
@@ -306,7 +307,7 @@ is, and `OnInvalid` decides what the run does:
 | Setting | A run whose payload cannot be used |
 |---|---|
 | `Anonymous` (the default) | Writes one warning and runs without a user. |
-| `FailRun` | Fails. An expired payload, one made for another event or function and one with an unknown format fail without retries; one that cannot be unprotected is retried, because the app may not have the sender's newest key yet, and fails on the last attempt. A failure handler never fails on its user: it takes the `Anonymous` path, so that it can do what it is there for. |
+| `FailRun` | Fails. An expired payload, one made for another event or function and one with an unknown format fail without retries; one that cannot be unprotected is retried, because the app may not have the sender's newest key yet, and fails on the last attempt. A failure or cancel handler never fails on its user: it takes the `Anonymous` path, so that it can do what it is there for. |
 
 | Reason in the log | What it means |
 |---|---|

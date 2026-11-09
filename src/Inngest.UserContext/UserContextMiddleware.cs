@@ -73,8 +73,9 @@ internal sealed class UserContextMiddleware(
         }
     }
 
-    // The event whose user the run gets: the triggering event, or for a failure handler the event of the failed run,
-    // which inngest/function.failed carries. A function that batches events has no single user, so it gets none.
+    // The event whose user the run gets: the triggering event, or for a failure or cancel handler the event of the run it
+    // handles, which inngest/function.failed and inngest/function.cancelled carry. A function that batches events has no
+    // single user, so it gets none.
     private bool TryFindUser(FunctionContext context, out EventUser found)
     {
         found = default;
@@ -90,21 +91,22 @@ internal sealed class UserContextMiddleware(
         var ofFailedRun = false;
         if (registry.TryGet(runningFunction, out var function))
         {
-            if (function.FailureHandlerFor is { } failedId)
+            if ((function.FailureHandlerFor ?? function.CancelHandlerFor) is { } handledId)
             {
-                if (context.EventName != SystemEvents.FunctionFailed ||
+                var handled = function.FailureHandlerFor is null ? SystemEvents.FunctionCancelled : SystemEvents.FunctionFailed;
+                if (context.EventName != handled ||
                     !raw.TryGetProperty("data", out var data) ||
                     data.ValueKind != JsonValueKind.Object ||
                     !data.TryGetProperty("event", out @event) ||
                     @event.ValueKind != JsonValueKind.Object ||
-                    IsBatched(failedId))
+                    IsBatched(handledId))
                 {
                     return false;
                 }
 
-                // The user is judged as the failed run judged it, not by the time its failure was found.
+                // The user is judged as the handled run judged it, not by the time its failure or cancellation was found.
                 ofFailedRun = true;
-                runningFunction = Compose(failedId);
+                runningFunction = Compose(handledId);
                 if (data.TryGetProperty("run_id", out var failedRun) && failedRun.ValueKind == JsonValueKind.String)
                 {
                     runId = failedRun.GetString()!;
@@ -149,7 +151,7 @@ internal sealed class UserContextMiddleware(
     private string Compose(string functionId) => $"{settings.AppId}-{functionId}";
 
     // A failure handler runs because the run it belongs to failed, often on this very user, so it never fails on one: it
-    // takes the anonymous path, with the warning, and can do what it is there for.
+    // takes the anonymous path, with the warning, and can do what it is there for. A cancel handler does the same.
     private void Reject(FunctionContext context, string eventName, UserReadProblem problem, bool ofFailedRun)
     {
         if (_options.OnInvalid == InvalidUserContextAction.FailRun && !ofFailedRun)

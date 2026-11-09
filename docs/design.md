@@ -95,7 +95,8 @@ Notes on the fields:
   are parsed with Go's `time.ParseDuration`, so they never use `d` or `w` units.
 - `idempotency` is turned into a 24h rate limit by the server and replaces any `rateLimit`.
 - A function with a failure handler registers a second function `<id>-failure`, triggered by
-  `inngest/function.failed` with `event.data.function_id == '<app id>-<id>'` and one retry.
+  `inngest/function.failed` with `event.data.function_id == '<app id>-<id>'` and one retry. A cancel handler is
+  registered the same way as `<id>-cancel`, triggered by `inngest/function.cancelled` (inngest/inngest-js#1800).
 
 ### Introspection (GET)
 
@@ -358,7 +359,8 @@ The API follows .NET conventions rather than the shape of the TypeScript SDK:
   disposal must not do work that can fail.
 - Errors are exceptions: `NonRetriableException`, `RetryAfterException`, and `StepFailedException` thrown at a
   step's call site when the step failed for good. `InngestException` covers failures talking to Inngest.
-- Failure handlers implement `IFailureHandler` on the function class, or pass `onFailure` with a delegate.
+- Failure handlers implement `IFailureHandler` on the function class, or pass `onFailure` with a delegate. Cancel
+  handlers implement `ICancelHandler`, or pass `onCancel`.
 - Middleware derives from `InngestMiddleware` and overrides only the hooks it needs: observers (`OnRunStartAsync`,
   `OnMemoizationEndAsync`, `OnRunCompleteAsync`, `OnRunErrorAsync`, `OnStepStartAsync`, `OnStepCompleteAsync`,
   `OnStepErrorAsync`) and wrappers (`WrapFunctionAsync`, `WrapStepAsync`, `WrapStepHandlerAsync`,
@@ -629,6 +631,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Function config as attributes on the class, typed events, typed results and invoke by class | Supported (.NET only) |
 | Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |
 | Failure handlers (`inngest/function.failed`) | Supported |
+| Cancel handlers (`onCancel`, `inngest/function.cancelled`) | Supported: `ICancelHandler` or `onCancel` |
 | Errors: non-retriable, retry-after, step failures, error codes (`code`, inngest/inngest-js#1726) | Supported: `IHasErrorCode` or a `"code"` entry in `Exception.Data`, restored as `FunctionError.Code` |
 | Middleware: observer and wrap hooks, for the whole app or for one function | Supported |
 | `use_api` for large runs | Supported |
@@ -649,7 +652,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Azure Functions (isolated worker): built-in HTTP model and ASP.NET Core integration | Supported (`Inngest.AzureFunctions`): tested against fakes of the worker and against the Inngest server behind a stand-in for the Functions host, not in a deployed app. A call has to be answered within the platform's 230 seconds. |
 | Receiving webhooks: Stripe, GitHub, Shopify, Standard Webhooks (Svix, Clerk, Resend) and HMAC signatures, event ids from the delivery ids | Supported (`Inngest.Webhooks`, `MapInngestWebhook`). Inngest's hosted webhooks and their transforms are the counterpart. `v1a` (Ed25519) signatures are not checked. |
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
-| The user behind an event: selected claims of the current user in the event's `user`, protected, restored in the run, passed on to events, invocations and failure handlers | Supported (.NET only): `Inngest.UserContext`, `Inngest.UserContext.AspNetCore`. See [User context](#user-context) |
+| The user behind an event: selected claims of the current user in the event's `user`, protected, restored in the run, passed on to events, invocations, failure handlers and cancel handlers | Supported (.NET only): `Inngest.UserContext`, `Inngest.UserContext.AspNetCore`. See [User context](#user-context) |
 | `defer` | Not yet |
 | Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGESTEXP001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, the input of steps (the `opts` of their ops), step output and function output. `TransformStepInput` cannot change a step's id. |
@@ -688,7 +691,7 @@ Behaviour that differs on purpose, beyond the API shape:
 |---|---|---|
 | Function options | Invalid options produce a warning at sync | Rejected at startup with one exception that lists every problem, each naming its function |
 | Sync URL | Keeps `deployId` in the registered URLs | Strips it, as the spec requires |
-| Failure handlers | Always registered with runtime type `http` | Same runtime type as the function they belong to |
+| Failure and cancel handlers | Failure handlers always registered with runtime type `http` | Same runtime type as the function they belong to |
 | Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |
 | `INNGEST_DEV` URL | Redirects the APIs even when `isDev` is false | Only used in dev mode |
 | Flags in variables | `1`/`true` and `0`/`false`; any other `INNGEST_DEV` is a dev server address | Also `on`/`yes` and `off`/`no`, so `INNGEST_DEV=off` is cloud mode, not a dev server at `http://off` that turns off signature checks |

@@ -6,22 +6,29 @@ using Inngest.Functions;
 namespace Inngest.Registration;
 
 // A function as Inngest knows it: under its composite id, and with the trigger that only the app id makes
-// possible filled in for a failure handler.
+// possible filled in for a failure or cancel handler.
 internal sealed record RegisteredFunction(string CompositeId, FunctionOptions Options)
 {
-    private const string FunctionFailedEvent = "inngest/function.failed";
-
     public static RegisteredFunction Create(FunctionDefinition definition, string appId)
     {
         var options = definition.Options;
         if (definition.FailureHandlerFor is { } failedFunctionId)
         {
-            var failedId = EscapeLiteral(ComposeId(appId, failedFunctionId));
-            var trigger = new EventTrigger(FunctionFailedEvent) { If = $"event.data.function_id == '{failedId}'" };
-            options = options with { Triggers = [.. options.Triggers, trigger] };
+            options = WithTrigger(options, SystemEvents.FunctionFailed, ComposeId(appId, failedFunctionId));
+        }
+
+        if (definition.CancelHandlerFor is { } cancelledFunctionId)
+        {
+            options = WithTrigger(options, SystemEvents.FunctionCancelled, ComposeId(appId, cancelledFunctionId));
         }
 
         return new RegisteredFunction(ComposeId(appId, options.Id), options);
+    }
+
+    private static FunctionOptions WithTrigger(FunctionOptions options, string eventName, string functionId)
+    {
+        var trigger = new EventTrigger(eventName) { If = $"event.data.function_id == '{EscapeLiteral(functionId)}'" };
+        return options with { Triggers = [.. options.Triggers, trigger] };
     }
 
     // Inngest addresses a function as "<app id>-<function id>", and the fnId query parameter carries the same value.

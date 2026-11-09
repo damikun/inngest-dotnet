@@ -18,8 +18,8 @@ looking things up. Types are in the `Inngest` namespace unless noted.
 | `IInngestBuilder.AddFunction<TFunction>()` | Registers a class function configured by its [attributes](#attributes). |
 | `IInngestBuilder.AddFunction<TFunction>(Func<FunctionOptions, FunctionOptions>)` | Registers a class function with the options its attributes give, as the callback changes them. |
 | `IInngestBuilder.AddInngestFunctions()` | Written into your project by the source generator, once the project sets `InngestGenerateFunctionRegistration` to `true`: registers every class that has `[InngestFunction]`, as `AddFunction<TFunction>()` does. See [Source generator and analyzers](#source-generator-and-analyzers). |
-| `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?)` | Registers a delegate function with typed event data. |
-| `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?)` | Registers a delegate function with `JsonElement` event data. |
+| `IInngestBuilder.AddFunction<TEventData>(FunctionOptions, handler, onFailure?, onCancel?)` | Registers a delegate function with typed event data, and its failure and cancel handlers. |
+| `IInngestBuilder.AddFunction(FunctionOptions, handler, onFailure?, onCancel?)` | Registers a delegate function with `JsonElement` event data. |
 | `IInngestBuilder.AddMiddleware<TMiddleware>()` | Registers middleware, one instance per call. |
 | `IInngestBuilder.AddMiddleware(InngestMiddleware)` | Registers one middleware instance for all calls. |
 | `IInngestBuilder.AddConnect(Action<ConnectOptions>?)` | Runs the functions in a Connect worker. Package `Inngest.Connect`. |
@@ -136,10 +136,11 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
 | `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |
+| `ICancelHandler` | Implement `OnCancelAsync(FunctionContext<FunctionCancelled>, CancellationToken)` to clean up after a cancelled run. The SDK registers it as `<id>-cancel`. |
 | `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`, `Code`, and `Cause`, the error that caused it. |
 | `SystemEvents` | The names of the events Inngest sends about runs: `FunctionFailed`, `FunctionFinished`, `FunctionCancelled`, `FunctionInvoked`, `ScheduledTimer`. |
 | `FunctionFinished` | The data of `inngest/function.finished`, sent when a run ends however it ends: `FunctionId`, `RunId`, `Result`, `Error`, `Event`, `CorrelationId`. |
-| `FunctionCancelled` | The data of `inngest/function.cancelled`: `FunctionId`, `RunId`, `Event`, `CorrelationId`. |
+| `FunctionCancelled` | The data of `inngest/function.cancelled`, and the cancel handler's event data: `FunctionId`, `RunId`, `Event`, `CorrelationId`. |
 
 ## Steps
 

@@ -342,7 +342,8 @@ Cancels a run when a matching event arrives. `Match` compares a property of the 
 property of the cancelling one; `If` is a full expression where `event` is the triggering event and `async` the
 cancelling one; when both are set, both apply. `CancelOn.For<T>()` and `[CancelOn<T>]` take the event's name from a
 [typed event](/inngest-dotnet/guides/sending-events/#typed-events). `Timeout` limits how long after the run is
-scheduled an event can still cancel it. A function can have up to five.
+scheduled an event can still cancel it. A function can have up to five. To clean up after a cancelled run, give the
+function a [cancel handler](/inngest-dotnet/guides/errors-and-retries/#run-code-when-a-run-is-cancelled).
 
 Cancellation takes effect between steps: a step that is running finishes, and the run stops before the next one.
 See [cancellation](https://www.inngest.com/docs/durable-execution/guides-and-advanced/cancellation/events).

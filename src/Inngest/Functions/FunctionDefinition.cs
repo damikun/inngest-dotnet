@@ -14,6 +14,9 @@ internal sealed class FunctionDefinition(FunctionOptions options, Func<IServiceP
     // app id, so the registry adds it when the app id is known.
     public string? FailureHandlerFor { get; init; }
 
+    // Set for the "<id>-cancel" companion of a function that handles its own cancellations, the same way.
+    public string? CancelHandlerFor { get; init; }
+
     // The class of a class-based function, by which other functions can invoke it. Null for a delegate.
     public Type? FunctionType { get; init; }
 
