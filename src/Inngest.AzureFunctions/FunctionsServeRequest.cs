@@ -1,6 +1,5 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 
-using Inngest.Serving;
 using Microsoft.Azure.Functions.Worker.Http;
 
 namespace Inngest.AzureFunctions;

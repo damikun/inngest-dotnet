@@ -1,4 +1,3 @@
-using Inngest.Serving;
 using Inngest.Tests.Serving.Fakes;
 
 namespace Inngest.Tests.Serving;

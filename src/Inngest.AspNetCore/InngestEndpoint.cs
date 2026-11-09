@@ -3,7 +3,6 @@
 
 using System.Text.Json;
 using Inngest.Internal;
-using Inngest.Serving;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;

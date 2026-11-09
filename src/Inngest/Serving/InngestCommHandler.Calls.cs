@@ -7,18 +7,19 @@ using Inngest.Functions;
 using Inngest.Internal;
 using Inngest.Signing;
 using Microsoft.Extensions.DependencyInjection;
+using Log = Inngest.Serving.Log;
 
-namespace Inngest.Serving;
+namespace Inngest;
 
 // Calls that run a function or one of its steps.
-internal sealed partial class InngestCommHandler
+public sealed partial class InngestCommHandler
 {
     private async Task<Reply> CallAsync(IServeRequest request, SignatureCheck caller, CancellationToken cancellationToken)
     {
         // Checked before the signature, as in the TypeScript SDK.
         if (request.Body.IsEmpty)
         {
-            Log.MissingBody(logger);
+            Log.MissingBody(_logger);
             return Unauthorized;
         }
 
@@ -37,7 +38,7 @@ internal sealed partial class InngestCommHandler
                 return new Reply(200, ReadOnlyMemory<byte>.Empty);
             }
 
-            Log.UnknownProbe(logger, probe);
+            Log.UnknownProbe(_logger, probe);
             return Error(400, type: null, $"Unknown probe \"{probe}\"");
         }
 
@@ -47,9 +48,9 @@ internal sealed partial class InngestCommHandler
             return Error(500, "internal", "No function ID found in request");
         }
 
-        if (!registry.TryGet(functionId, out var function))
+        if (!_registry.TryGet(functionId, out var function))
         {
-            Log.FunctionNotFound(logger, functionId);
+            Log.FunctionNotFound(_logger, functionId);
             return Error(500, "internal", $"Function \"{functionId}\" was not found in this app; is the app synced correctly?");
         }
 
@@ -67,7 +68,7 @@ internal sealed partial class InngestCommHandler
             }
 
             // Hosts without a request scope get one per invocation, so scoped services work as in a web request.
-            var scope = scopeFactory.CreateAsyncScope();
+            var scope = _scopeFactory.CreateAsyncScope();
             try
             {
                 return await ExecuteAsync(request, function, stepId, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
@@ -79,7 +80,7 @@ internal sealed partial class InngestCommHandler
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            Log.ExecutionFailed(logger, functionId, exception);
+            Log.ExecutionFailed(_logger, functionId, exception);
             return InternalError(exception);
         }
     }
@@ -94,7 +95,7 @@ internal sealed partial class InngestCommHandler
         }
         catch (Exception exception)
         {
-            Log.ScopeDisposalFailed(logger, functionId, exception);
+            Log.ScopeDisposalFailed(_logger, functionId, exception);
         }
     }
 
@@ -118,7 +119,7 @@ internal sealed partial class InngestCommHandler
                 : null,
         };
 
-        var result = await engine.ExecuteAsync(execution, cancellationToken).ConfigureAwait(false);
+        var result = await _engine.ExecuteAsync(execution, cancellationToken).ConfigureAwait(false);
 
         // The response takes over the result, which owns the body.
         return new Reply(result.StatusCode, result.Body.WrittenMemory, result)

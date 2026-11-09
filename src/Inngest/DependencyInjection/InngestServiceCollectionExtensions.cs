@@ -9,10 +9,10 @@ using Inngest.Execution;
 using Inngest.Realtime;
 using Inngest.Registration;
 using Inngest.Rest;
-using Inngest.Serving;
 using Inngest.Signing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -70,7 +70,17 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<IInngestRealtime, InngestRealtime>();
         services.TryAddSingleton<IFunctionRegistry, FunctionRegistry>();
         services.TryAddSingleton<IExecutionEngine, ExecutionEngine>();
-        services.TryAddSingleton<InngestCommHandler>();
+        services.TryAddSingleton(static provider => new InngestCommHandler(
+            provider.GetRequiredService<InngestSettings>(),
+            provider.GetRequiredService<IFunctionRegistry>(),
+            provider.GetRequiredService<IExecutionEngine>(),
+            provider.GetRequiredService<IInngestApi>(),
+            provider.GetRequiredService<RequestSigner>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<ILogger<InngestCommHandler>>()));
+        services.TryAddSingleton(static provider => new InngestSignatureVerifier(
+            provider.GetRequiredService<InngestSettings>(),
+            provider.GetRequiredService<RequestSigner>()));
 
         return new InngestBuilder(services);
     }

@@ -3,7 +3,6 @@
 
 using System.Text;
 using Amazon.Lambda.APIGatewayEvents;
-using Inngest.Serving;
 
 namespace Inngest.AwsLambda;
 

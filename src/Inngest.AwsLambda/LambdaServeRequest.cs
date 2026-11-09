@@ -2,7 +2,6 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using Amazon.Lambda.APIGatewayEvents;
-using Inngest.Serving;
 
 namespace Inngest.AwsLambda;
 

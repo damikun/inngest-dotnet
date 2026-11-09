@@ -5,32 +5,34 @@ using System.Globalization;
 using Inngest.Execution;
 using Inngest.Functions;
 using Inngest.Internal;
+using Inngest.Serving;
 using Inngest.Signing;
+using Log = Inngest.Serving.Log;
 
-namespace Inngest.Serving;
+namespace Inngest;
 
 // Calls from Inngest that resume the run of a durable endpoint. They arrive at the endpoint's own URL, with the
 // original request's method, query and body, which the signature covers whatever the method. The run's events and
 // steps come from the API, and the answer is the usual one: a step as ops, or the endpoint's response once it is done.
-internal sealed partial class InngestCommHandler
+public sealed partial class InngestCommHandler
 {
-    public async Task<ServeResponse> HandleEndpointCallAsync(IServeRequest request, FunctionDefinition function, CancellationToken cancellationToken)
+    internal async Task<ServeResponse> HandleEndpointCallAsync(IServeRequest request, FunctionDefinition function, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(function);
 
         SignatureCheck caller;
-        if (settings.IsDev)
+        if (_settings.IsDev)
         {
             caller = DevCaller;
         }
-        else if (settings.SigningKey is { } signingKey)
+        else if (_settings.SigningKey is { } signingKey)
         {
-            caller = signer.Verify(request.GetHeader(Headers.Signature), request.Body.Span, signingKey, settings.SigningKeyFallback);
+            caller = _signer.Verify(request.GetHeader(Headers.Signature), request.Body.Span, signingKey, _settings.SigningKeyFallback);
         }
         else
         {
-            Log.MissingSigningKey(logger);
+            Log.MissingSigningKey(_logger);
             return Respond(request, NoSigningKey, new Reply(500, MisconfiguredBody));
         }
 
@@ -48,7 +50,7 @@ internal sealed partial class InngestCommHandler
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                Log.ExecutionFailed(logger, function.Id, exception);
+                Log.ExecutionFailed(_logger, function.Id, exception);
                 reply = InternalError(exception);
             }
         }
@@ -81,7 +83,7 @@ internal sealed partial class InngestCommHandler
                 : null,
         };
 
-        var result = await engine.ExecuteAsync(execution, cancellationToken).ConfigureAwait(false);
+        var result = await _engine.ExecuteAsync(execution, cancellationToken).ConfigureAwait(false);
         return new Reply(result.StatusCode, result.Body.WrittenMemory, result)
         {
             NoRetry = result.NoRetry,

@@ -7,11 +7,12 @@ using Inngest.Client;
 using Inngest.Internal;
 using Inngest.Registration;
 using Inngest.Signing;
+using Log = Inngest.Serving.Log;
 
-namespace Inngest.Serving;
+namespace Inngest;
 
 // Introspection and the in-band and out-of-band syncs.
-internal sealed partial class InngestCommHandler
+public sealed partial class InngestCommHandler
 {
     private Reply Introspect(IServeRequest request, SignatureCheck caller)
     {
@@ -34,12 +35,12 @@ internal sealed partial class InngestCommHandler
 
     private async Task<Reply> SyncAsync(IServeRequest request, SignatureCheck caller)
     {
-        if (settings.AllowInBandSync && request.GetHeader(Headers.SyncKind) == InBand)
+        if (_settings.AllowInBandSync && request.GetHeader(Headers.SyncKind) == InBand)
         {
             return SyncInBand(request, caller);
         }
 
-        if (!caller.IsValid && !settings.AllowUnsignedSync)
+        if (!caller.IsValid && !_settings.AllowUnsignedSync)
         {
             LogRejected(request, caller);
             return Unauthorized;
@@ -70,37 +71,37 @@ internal sealed partial class InngestCommHandler
         {
             try
             {
-                serveUrl = ServeUrl.Resolve(request.Url, settings.ServeOrigin, settings.ServePath);
-                if (!caller.IsValid && settings.ServeOrigin is null)
+                serveUrl = ServeUrl.Resolve(request.Url, _settings.ServeOrigin, _settings.ServePath);
+                if (!caller.IsValid && _settings.ServeOrigin is null)
                 {
-                    Log.UnsignedSyncFromRequestUrl(logger, serveUrl);
+                    Log.UnsignedSyncFromRequestUrl(_logger, serveUrl);
                 }
 
-                registry.WriteRegistration(registration, serveUrl, request.Framework);
-                result = await api
+                _registry.WriteRegistration(registration, serveUrl, request.Framework);
+                result = await _api
                     .RegisterAsync(registration.WrittenMemory, deployId, request.GetHeader(Headers.ServerKind), CancellationToken.None)
                     .ConfigureAwait(false);
             }
             catch (Exception exception)
             {
-                Log.SyncFailed(logger, exception);
+                Log.SyncFailed(_logger, exception);
                 return SyncResult(500, caller.IsValid ? $"Failed to register; {exception.Message}" : "Failed to register", modified: false);
             }
         }
 
         if (!result.Success)
         {
-            Log.SyncRejected(logger, result.StatusCode, result.Error);
+            Log.SyncRejected(_logger, result.StatusCode, result.Error);
             return SyncResult(500, string.IsNullOrEmpty(result.Error) || !caller.IsValid ? "Failed to register" : result.Error, modified: false);
         }
 
         if (result.Modified)
         {
-            Log.Synced(logger, registry.Functions.Count, serveUrl);
+            Log.Synced(_logger, _registry.Functions.Count, serveUrl);
         }
         else
         {
-            Log.SyncUnchanged(logger, serveUrl);
+            Log.SyncUnchanged(_logger, serveUrl);
         }
 
         return SyncResult(200, "Successfully registered", result.Modified);
@@ -118,13 +119,13 @@ internal sealed partial class InngestCommHandler
 
         if (!TryReadInBandUrl(request.Body, out var url, out var problem))
         {
-            Log.InvalidInBandSync(logger, problem);
+            Log.InvalidInBandSync(_logger, problem);
             return InvalidRequest(problem);
         }
 
-        var serveUrl = ServeUrl.Resolve(url, settings.ServeOrigin, settings.ServePath);
+        var serveUrl = ServeUrl.Resolve(url, _settings.ServeOrigin, _settings.ServePath);
         using var registration = new PooledBufferWriter(RegistrationCapacity);
-        registry.WriteRegistration(registration, serveUrl, request.Framework);
+        _registry.WriteRegistration(registration, serveUrl, request.Framework);
         using var configuration = JsonDocument.Parse(registration.WrittenMemory);
         var source = configuration.RootElement;
         var authenticated = caller.KeyUsed is not null;
@@ -133,14 +134,14 @@ internal sealed partial class InngestCommHandler
         using (var writer = new Utf8JsonWriter(body, WriterOptions))
         {
             writer.WriteStartObject();
-            writer.WriteString("app_id"u8, settings.AppId);
-            if (settings.AppVersion is not null)
+            writer.WriteString("app_id"u8, _settings.AppId);
+            if (_settings.AppVersion is not null)
             {
-                writer.WriteString("appVersion"u8, settings.AppVersion);
+                writer.WriteString("appVersion"u8, _settings.AppVersion);
             }
 
             CopyProperty(writer, source, "capabilities"u8);
-            writer.WriteString("env"u8, settings.Environment);
+            writer.WriteString("env"u8, _settings.Environment);
             CopyProperty(writer, source, "framework"u8);
             CopyProperty(writer, source, "functions"u8);
             CopyProperty(writer, source, "featureObservations"u8);
@@ -154,7 +155,7 @@ internal sealed partial class InngestCommHandler
             writer.WriteEndObject();
         }
 
-        Log.SyncedInBand(logger, serveUrl);
+        Log.SyncedInBand(_logger, serveUrl);
         return new Reply(200, body.WrittenMemory, body) { SyncKind = InBand };
     }
 

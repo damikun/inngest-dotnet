@@ -5,7 +5,6 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using Inngest.AspNetCore;
 using Inngest.Internal;
-using Inngest.Serving;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.DependencyInjection;

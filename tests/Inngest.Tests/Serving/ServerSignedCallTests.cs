@@ -1,5 +1,4 @@
 using Inngest.Configuration;
-using Inngest.Serving;
 using Inngest.Signing;
 using Inngest.Tests.Serving.Fakes;
 using Inngest.Tests.Signing;

@@ -3,7 +3,6 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using Inngest.Configuration;
 using Inngest.Execution;
-using Inngest.Serving;
 using Inngest.Signing;
 using Inngest.Tests.Serving;
 using Microsoft.Extensions.DependencyInjection;

@@ -8,22 +8,22 @@ using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Internal;
 using Inngest.Registration;
+using Inngest.Serving;
 using Inngest.Signing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Log = Inngest.Serving.Log;
 
-namespace Inngest.Serving;
+namespace Inngest;
 
-// Implements the serve endpoint protocol: GET introspection, PUT sync and POST invocation. Status codes, bodies
-// and headers follow the TypeScript SDK; docs/design.md describes the protocol.
-internal sealed partial class InngestCommHandler(
-    InngestSettings settings,
-    IFunctionRegistry registry,
-    IExecutionEngine engine,
-    IInngestApi api,
-    RequestSigner signer,
-    IServiceScopeFactory scopeFactory,
-    ILogger<InngestCommHandler> logger)
+/// <summary>
+/// Answers the requests Inngest sends to an app: GET for introspection, PUT to sync the app and POST to run functions.
+/// The ASP.NET Core endpoint, AWS Lambda and Azure Functions are built on it; resolve it from the services of an app
+/// that called <c>AddInngest</c> to serve Inngest from another host. It checks the request's signature, signs the
+/// response and never throws for a request Inngest sends, so the host only turns an IServeRequest into a call and the
+/// ServeResponse back into a response of its own.
+/// </summary>
+public sealed partial class InngestCommHandler
 {
     private const string ContentTypeHeader = "Content-Type";
     private const string JsonContentType = "application/json";
@@ -46,31 +46,63 @@ internal sealed partial class InngestCommHandler(
     private static readonly SignatureCheck DevCaller = new(true, null, null);
     private static readonly SignatureCheck NoSigningKey = SignatureCheck.Failed("No signing key is configured.");
 
-    private readonly Introspection _introspection = new(settings, registry);
+    private readonly InngestSettings _settings;
+    private readonly IFunctionRegistry _registry;
+    private readonly IExecutionEngine _engine;
+    private readonly IInngestApi _api;
+    private readonly RequestSigner _signer;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<InngestCommHandler> _logger;
+    private readonly Introspection _introspection;
+
+    // Resolved from the services rather than created, so that it shares the app's settings and functions.
+    internal InngestCommHandler(
+        InngestSettings settings,
+        IFunctionRegistry registry,
+        IExecutionEngine engine,
+        IInngestApi api,
+        RequestSigner signer,
+        IServiceScopeFactory scopeFactory,
+        ILogger<InngestCommHandler> logger)
+    {
+        _settings = settings;
+        _registry = registry;
+        _engine = engine;
+        _api = api;
+        _signer = signer;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        _introspection = new Introspection(settings, registry);
+    }
 
     private static Reply Unauthorized => new(401, UnauthorizedBody);
 
     // Whether the transport should keep this request open while it runs, as streaming does in the TypeScript SDK: a
     // call from Inngest when streaming is on, never a probe.
-    public bool Streams(IServeRequest request) =>
-        settings.Streaming && IsMethod(request.Method, "POST") && request.GetQuery(ProbeParameter) is null;
+    internal bool Streams(IServeRequest request) =>
+        _settings.Streaming && IsMethod(request.Method, "POST") && request.GetQuery(ProbeParameter) is null;
 
-    public async Task<ServeResponse> HandleAsync(IServeRequest request, CancellationToken cancellationToken)
+    /// <summary>
+    /// Answers one request. A call that runs a function returns once the function has run its step or ended. Dispose
+    /// the response once its body has been written: the body may live in a pooled buffer that the response owns. The
+    /// cancellation token reaches the function, as the request's abort signal does in ASP.NET Core.
+    /// </summary>
+    public async Task<ServeResponse> HandleAsync(IServeRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         SignatureCheck caller;
-        if (settings.IsDev)
+        if (_settings.IsDev)
         {
             caller = DevCaller;
         }
-        else if (settings.SigningKey is { } signingKey)
+        else if (_settings.SigningKey is { } signingKey)
         {
             caller = Verify(request, signingKey);
         }
         else
         {
-            Log.MissingSigningKey(logger);
+            Log.MissingSigningKey(_logger);
             return Respond(request, NoSigningKey, new Reply(500, MisconfiguredBody));
         }
 
@@ -92,13 +124,13 @@ internal sealed partial class InngestCommHandler(
             }
             else
             {
-                Log.MethodNotAllowed(logger, method);
+                Log.MethodNotAllowed(_logger, method);
                 reply = new Reply(405, MethodNotAllowedBody);
             }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            Log.RequestFailed(logger, method, exception);
+            Log.RequestFailed(_logger, method, exception);
             reply = InternalError(exception);
         }
 
@@ -119,18 +151,18 @@ internal sealed partial class InngestCommHandler(
     private SignatureCheck Verify(IServeRequest request, SigningKey signingKey)
     {
         ReadOnlySpan<byte> body = IsMethod(request.Method, "POST") || IsMethod(request.Method, "PUT") ? request.Body.Span : [];
-        return signer.Verify(request.GetHeader(Headers.Signature), body, signingKey, settings.SigningKeyFallback);
+        return _signer.Verify(request.GetHeader(Headers.Signature), body, signingKey, _settings.SigningKeyFallback);
     }
 
     private void LogRejected(IServeRequest request, SignatureCheck caller)
     {
         if (string.IsNullOrEmpty(request.GetHeader(Headers.Signature)))
         {
-            Log.Unsigned(logger, request.Method);
+            Log.Unsigned(_logger, request.Method);
         }
         else
         {
-            Log.Unauthorized(logger, request.Method, caller.Error);
+            Log.Unauthorized(_logger, request.Method, caller.Error);
         }
     }
 
@@ -149,9 +181,9 @@ internal sealed partial class InngestCommHandler(
             headers.Add(new(Headers.Sdk, SdkInfo.Header));
             headers.Add(new(Headers.RequestVersion, Headers.ExecutionVersion));
             headers.Add(new(Headers.Framework, request.Framework));
-            if (!string.IsNullOrEmpty(settings.Environment))
+            if (!string.IsNullOrEmpty(_settings.Environment))
             {
-                headers.Add(new(Headers.Environment, settings.Environment));
+                headers.Add(new(Headers.Environment, _settings.Environment));
             }
 
             if (reply.SyncKind is not null)
@@ -166,7 +198,7 @@ internal sealed partial class InngestCommHandler(
 
             if (caller.KeyUsed is not null)
             {
-                headers.Add(new(Headers.Signature, signer.Sign(reply.Body.Span, caller.KeyUsed)));
+                headers.Add(new(Headers.Signature, _signer.Sign(reply.Body.Span, caller.KeyUsed)));
             }
         }
 

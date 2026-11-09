@@ -5,7 +5,6 @@ using System.Diagnostics.CodeAnalysis;
 using Inngest;
 using Inngest.AspNetCore;
 using Inngest.Realtime;
-using Inngest.Serving;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
