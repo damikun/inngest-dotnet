@@ -9,11 +9,12 @@ namespace Inngest;
 public static class InngestSentryBuilderExtensions
 {
     /// <summary>
-    /// Adds the middleware that reports the errors of functions and steps to Sentry, with the app, the function, the run
-    /// and the event as tags, and a trace derived from the run id that all calls of a run share. Sentry is set up as
-    /// usual, with SentrySdk.Init or UseSentry: the middleware uses the IHub the app registered, and otherwise the
-    /// static hub, and does nothing while Sentry is not enabled. Add it before other middleware so that their work falls
-    /// inside its scope.
+    /// Adds the middleware that reports function runs to Sentry: a transaction for every call, with a span for every step
+    /// the call executes, and the errors of functions and steps, with the app, the function, the run and the event as
+    /// tags, in a trace derived from the run id that all calls of a run share. Transactions are sampled by Sentry's
+    /// TracesSampleRate or TracesSampler. Sentry is set up as usual, with SentrySdk.Init or UseSentry: the middleware
+    /// uses the IHub the app registered, and otherwise the static hub, and does nothing while Sentry is not enabled. Add
+    /// it before other middleware so that their work falls inside its scope.
     /// </summary>
     public static IInngestBuilder AddSentryReporting(this IInngestBuilder builder, Action<SentryReportingOptions>? configure = null)
     {

@@ -26,6 +26,7 @@ internal sealed class SentryHost : IAsyncDisposable
     private readonly ServiceProvider _provider;
     private readonly IDisposable? _sdk;
     private readonly ConcurrentQueue<SentryEvent> _events = new();
+    private readonly ConcurrentQueue<SentryTransaction> _transactions = new();
     private readonly ConcurrentQueue<SentryId> _sent = new();
 
     // registerHub puts a hub that forwards to Sentry's own into the container, the way UseSentry registers one, and
@@ -52,6 +53,11 @@ internal sealed class SentryHost : IAsyncDisposable
                 {
                     _events.Enqueue(@event);
                     return @event;
+                });
+                options.SetBeforeSendTransaction((transaction, _) =>
+                {
+                    _transactions.Enqueue(transaction);
+                    return transaction;
                 });
             });
         }
@@ -82,6 +88,9 @@ internal sealed class SentryHost : IAsyncDisposable
     public HubSpy? Spy { get; }
 
     public IReadOnlyList<SentryEvent> Events => [.. _events];
+
+    // The transactions of the calls, each with the spans of its steps.
+    public IReadOnlyList<SentryTransaction> Transactions => [.. _transactions];
 
     // The events that reached the transport, which is what a flush waits for.
     public IReadOnlyList<SentryId> Sent => [.. _sent];

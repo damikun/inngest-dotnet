@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>Inngest.Sentry</RootNamespace>
-    <Description>Sentry for the Inngest .NET SDK: reports the errors of function runs and steps, tagged with the app, the function, the run and the event.</Description>
+    <Description>Sentry for the Inngest .NET SDK: a transaction for every call of a function and a span for every step, and the errors of runs and steps, tagged with the app, the function, the run and the event.</Description>
     <PackageTags>$(PackageTags);sentry;error-tracking;exceptions</PackageTags>
   </PropertyGroup>
   <ItemGroup>
