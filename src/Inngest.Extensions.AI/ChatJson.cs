@@ -57,7 +57,62 @@ internal static class ChatJson
             writer.WriteEndObject();
         }
 
-        return new RecordedInput(Parse(buffer), Digest(buffer.WrittenSpan));
+        var json = Parse(buffer);
+        return new RecordedInput(json, DigestOfInput(json));
+    }
+
+    // FunctionInvokingChatClient gives the messages it makes for the results of tools a new id and the current time each time
+    // it runs, also when the calls before it are replayed, and a caller that passes a response on into the next call passes
+    // them on as well. The model sees neither, so the digest leaves both out, and an input differs only where the model would
+    // see a difference.
+    private static string DigestOfInput(JsonElement input)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (var property in input.EnumerateObject())
+            {
+                if (property.NameEquals("messages") && property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    writer.WriteStartArray(property.Name);
+                    foreach (var message in property.Value.EnumerateArray())
+                    {
+                        WriteWithout(writer, message, "messageId", "createdAt");
+                    }
+
+                    writer.WriteEndArray();
+                }
+                else
+                {
+                    property.WriteTo(writer);
+                }
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Digest(buffer.WrittenSpan);
+    }
+
+    private static void WriteWithout(Utf8JsonWriter writer, JsonElement value, string first, string second)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            value.WriteTo(writer);
+            return;
+        }
+
+        writer.WriteStartObject();
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!property.NameEquals(first) && !property.NameEquals(second))
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
     }
 
     // The messages and options of an input edited in the Inngest UI. What JSON cannot hold, the tools of the options and the

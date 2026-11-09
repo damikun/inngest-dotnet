@@ -65,6 +65,27 @@ public sealed class ToolStepTests
     }
 
     [Fact]
+    public async Task A_conversation_that_passes_on_a_response_with_tool_results_gets_no_warning_on_a_replay()
+    {
+        var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "get_weather", "Prague")) : Says("It is sunny in Prague."));
+        var chat = Pipeline(model);
+        var options = new ChatOptions { Tools = [Weather(() => { })] };
+        var services = Services(async context =>
+        {
+            List<ChatMessage> messages = [new(ChatRole.User, "What is the weather in Prague?")];
+            messages.AddRange((await chat.GetStreamingResponseAsync(messages, options).ToChatResponseAsync()).Messages);
+            messages.Add(new ChatMessage(ChatRole.User, "And tomorrow?"));
+            return (await chat.GetStreamingResponseAsync(messages, options).ToChatResponseAsync()).Text;
+        });
+        await using var host = new InngestTestHost(services.AddFakeLogging());
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Steps.Select(step => step.Id).ShouldBe(["chat", "tool get_weather", "chat:1", "chat:2"]);
+        host.Services.GetFakeLogCollector().GetSnapshot().ShouldNotContain(record => record.Id.Id == 822);
+    }
+
+    [Fact]
     public async Task A_conversation_that_was_named_carries_its_name_into_the_steps_of_its_tools()
     {
         var model = new FakeChatClient((call, _) => call == 0 ? Calls(Call("call_1", "get_weather", "Prague")) : Says("It is sunny in Prague."));
