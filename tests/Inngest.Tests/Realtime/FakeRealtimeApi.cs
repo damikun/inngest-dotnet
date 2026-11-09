@@ -19,6 +19,9 @@ internal sealed class FakeRealtimeApi : IRealtimeApi
 
     public List<CancellationToken> Subscriptions { get; } = [];
 
+    // The token and API of each subscription opened with a token given to it, rather than minted here.
+    public List<(string Token, Uri? ApiBaseUrl)> Opened { get; } = [];
+
     public List<(RealtimeTopic Topic, string? RunId, string Body)> Published { get; } = [];
 
     public void Answer(SseFeed feed) => _answers.Writer.TryWrite(feed.Response);
@@ -57,11 +60,15 @@ internal sealed class FakeRealtimeApi : IRealtimeApi
         return TokenFailure is { } failure ? Task.FromException<string>(failure) : Task.FromResult($"jwt-{count}");
     }
 
-    public async Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken)
+    public async Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken)
     {
         lock (Subscriptions)
         {
             Subscriptions.Add(cancellationToken);
+            if (apiBaseUrl is not null)
+            {
+                Opened.Add((token, apiBaseUrl));
+            }
         }
 
         var answer = await _answers.Reader.ReadAsync(cancellationToken);

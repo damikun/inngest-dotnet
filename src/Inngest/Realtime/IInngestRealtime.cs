@@ -37,4 +37,21 @@ public interface IInngestRealtime
 
     /// <summary>Receives the messages of a typed topic, with their data read as a T, as SubscribeAsync does for a channel.</summary>
     IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Receives the messages of the token's topics with a token minted elsewhere, such as by a backend with
+    /// GetSubscriptionTokenAsync or by the TypeScript SDK, so no signing key is needed. It connects to the token's
+    /// ApiBaseUrl, or to the app's Inngest when the token has none. A token is short-lived and only another can follow
+    /// it, so the connection is not opened again: the messages end when Inngest closes it, after 15 minutes at the
+    /// latest, or when it is lost. Subscribe with a new token to go on. Failing to connect throws InngestException.
+    /// </summary>
+    IAsyncEnumerable<RealtimeMessage<JsonElement>> SubscribeAsync(RealtimeToken token, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException($"{GetType().Name} does not implement SubscribeAsync with a token.");
+
+    /// <summary>
+    /// Receives the messages of the token's topics with their data read as a T, as SubscribeAsync with a token does. A
+    /// message whose data is not a T is skipped.
+    /// </summary>
+    IAsyncEnumerable<RealtimeMessage<T>> SubscribeAsync<T>(RealtimeToken token, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException($"{GetType().Name} does not implement SubscribeAsync with a token.");
 }

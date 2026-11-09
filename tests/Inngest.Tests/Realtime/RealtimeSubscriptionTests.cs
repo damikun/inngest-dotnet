@@ -258,11 +258,68 @@ public sealed class RealtimeSubscriptionTests
     }
 
     [Fact]
+    public async Task A_subscription_with_a_given_token_ends_with_its_connection_and_mints_none()
+    {
+        var feed = new SseFeed();
+        _api.Answer(feed);
+        var received = new List<string>();
+        var subscription = Collect(Realtime().SubscribeAsync(Token(), Cancel), received, count: 3);
+
+        await feed.SendAsync(Message("A"));
+        await feed.SendAsync(Message("B"));
+        await feed.EndAsync();
+
+        await subscription.WaitAsync(Wait, Cancel);
+        received.ShouldBe(["A", "B"]);
+        _api.TokensMinted.ShouldBe(0);
+        _api.Opened.ShouldBe([("eyJ.minted", new Uri("https://inngest.example/"))]);
+    }
+
+    [Fact]
+    public async Task A_subscription_with_a_given_token_ends_quietly_when_the_connection_is_lost()
+    {
+        var feed = new SseFeed();
+        _api.Answer(feed);
+        var received = new List<string>();
+        var subscription = Collect(Realtime().SubscribeAsync(Token(), Cancel), received, count: 2);
+
+        await feed.SendAsync(Message("A"));
+        await Until(() => received.Count == 1);
+        await _time.TimersCreated(1).WaitAsync(Wait, Cancel);
+        _time.Advance(TimeSpan.FromSeconds(46));
+
+        await subscription.WaitAsync(Wait, Cancel);
+        received.ShouldBe(["A"]);
+        _api.Subscriptions.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_subscription_with_a_given_token_that_cannot_connect_throws()
+    {
+        _api.Fail(new InngestException("Failed to subscribe to realtime messages: 401 Unauthorized", 401));
+
+        var exception = await Should.ThrowAsync<InngestException>(() => FirstAsync(Realtime().SubscribeAsync(Token(), Cancel)));
+
+        exception.StatusCode.ShouldBe(401);
+        _api.Subscriptions.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("", "order:7", null)]
+    [InlineData("eyJ", "", null)]
+    [InlineData("eyJ", "order:7", "ftp://inngest.example")]
+    [InlineData("eyJ", "order:7", "/relative")]
+    public void A_token_is_checked_when_subscribing(string key, string channel, string? apiBaseUrl) =>
+        Should.Throw<ArgumentException>(() => Realtime().SubscribeAsync(new RealtimeToken(channel, ["status"], key) { ApiBaseUrl = apiBaseUrl }, Cancel));
+
+    [Fact]
     public void Arguments_are_checked_when_subscribing_not_when_reading() =>
         Should.Throw<ArgumentException>(() => Realtime().SubscribeAsync("", ["status"], Cancel));
 
     private InngestRealtime Realtime() =>
         new(_api, new RealtimeSubscriber(_api, _time, NullLogger<RealtimeSubscriber>.Instance), EngineHost.Settings, NullLogger<InngestRealtime>.Instance);
+
+    private static RealtimeToken Token() => new("order:7", ["status"], "eyJ.minted") { ApiBaseUrl = "https://inngest.example/" };
 
     private static string Message(string text) => $$"""{"kind":"data","data":"{{text}}","channel":"order:7","topic":"status"}""";
 

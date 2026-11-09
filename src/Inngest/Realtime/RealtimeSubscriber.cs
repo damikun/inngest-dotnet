@@ -42,7 +42,7 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
             try
             {
                 var token = await api.GetTokenAsync(channel, topics, cancellationToken).ConfigureAwait(false);
-                response = await api.OpenSubscriptionAsync(token, cancellationToken).ConfigureAwait(false);
+                response = await api.OpenSubscriptionAsync(token, apiBaseUrl: null, cancellationToken).ConfigureAwait(false);
             }
             catch (InngestException exception) when (IsTransient(exception))
             {
@@ -101,6 +101,42 @@ internal sealed class RealtimeSubscriber(IRealtimeApi api, TimeProvider time, IL
             Log.RealtimeReconnecting(logger, channel, failure!.Message, (long)delay.TotalMilliseconds);
             onConnection?.Invoke(opened ? RealtimeConnection.Reconnecting : RealtimeConnection.Connecting);
             await Task.Delay(delay, time, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // One connection with a token minted elsewhere, such as by another service. Nothing here can mint another, and a
+    // token is only good for connecting within a minute, so the messages end with the connection, as they do in
+    // inngest-js: when Inngest closes it, after 15 minutes at the latest, or when it is lost. Failing to connect throws.
+    public async IAsyncEnumerable<string> ReadAsync(
+        string token,
+        Uri? apiBaseUrl,
+        string channel,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var response = await api.OpenSubscriptionAsync(token, apiBaseUrl, cancellationToken).ConfigureAwait(false);
+        Log.RealtimeConnected(logger, channel);
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var events = ServerSentEvents.ReadDataAsync(stream, time, IdleTimeout, cancellationToken).GetAsyncEnumerator(cancellationToken);
+        await using (events.ConfigureAwait(false))
+        {
+            while (true)
+            {
+                try
+                {
+                    if (!await events.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        Log.RealtimeTokenSubscriptionEnded(logger, channel, "Inngest closed the connection.");
+                        yield break;
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or HttpRequestException or TimeoutException && !cancellationToken.IsCancellationRequested)
+                {
+                    Log.RealtimeTokenSubscriptionEnded(logger, channel, exception.Message);
+                    yield break;
+                }
+
+                yield return events.Current;
+            }
         }
     }
 

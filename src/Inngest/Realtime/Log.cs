@@ -15,4 +15,7 @@ internal static partial class Log
 
     [LoggerMessage(EventId = 352, Level = LogLevel.Warning, Message = "Skipped a realtime message of channel {Channel} that could not be read as {Type}: {Reason}")]
     public static partial void RealtimeMessageSkipped(ILogger logger, string channel, string type, string reason);
+
+    [LoggerMessage(EventId = 353, Level = LogLevel.Information, Message = "The realtime subscription to channel {Channel} with a given token ended: {Reason}")]
+    public static partial void RealtimeTokenSubscriptionEnded(ILogger logger, string channel, string reason);
 }

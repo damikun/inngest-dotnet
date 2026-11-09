@@ -24,8 +24,9 @@ internal interface IRealtimeApi
 
     Task<string> GetTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken);
 
-    // The response with the subscription's events, once its headers have arrived. The caller disposes it.
-    Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken);
+    // The response with the subscription's events, once its headers have arrived. The caller disposes it. A token
+    // minted elsewhere may name the API it belongs to; null means the app's.
+    Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken);
 }
 
 internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<RealtimeApi> logger) : IRealtimeApi
@@ -43,14 +44,14 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
         return content.Text;
     }
 
-    public async Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken)
+    public async Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken)
     {
         const string Action = "subscribe to realtime messages";
         HttpResponseMessage response;
         try
         {
             response = await _transport.SendAsync(
-                new ApiCall(HttpMethod.Get, _transport.Url("/v1/realtime/sse"), Token: token),
+                new ApiCall(HttpMethod.Get, apiBaseUrl is null ? _transport.Url("/v1/realtime/sse") : new Uri(apiBaseUrl, "/v1/realtime/sse"), Token: token),
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
         }

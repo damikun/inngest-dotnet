@@ -64,6 +64,25 @@ public sealed class RealtimeTests(EvaluationEnvironment environment) : Evaluatio
     }
 
     [Fact(Timeout = 90_000)]
+    public async Task A_client_without_keys_subscribes_with_a_token_the_app_minted()
+    {
+        var topic = FeatureFunctions.Status(TestId);
+        var token = await Realtime.GetSubscriptionTokenAsync(topic.Channel, [topic.Name], Cancellation);
+        await using var client = TokenClient();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var subscription = client.GetRequiredService<IInngestRealtime>().SubscribeAsync<Progress>(token, stop.Token);
+        await using var messages = subscription.GetAsyncEnumerator(stop.Token);
+        await WaitUntilSubscribedAsync(messages, () => Realtime.PublishAsync(topic, new Progress("ready", 0), Cancellation));
+
+        var run = await RunToEndAsync(FeatureFunctions.TypedPublish, new RunEvent(TestId));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        var message = await NextAsync(messages, message => message.Data?.Percent == 50);
+        message.Data.ShouldBe(new Progress("Packed", 50));
+        message.RunId.ShouldBe(run.RunId);
+    }
+
+    [Fact(Timeout = 90_000)]
     public async Task The_relay_serves_a_subscription_to_the_dev_server_as_server_sent_events()
     {
         var topic = FeatureFunctions.Tokens(TestId);
@@ -149,6 +168,18 @@ public sealed class RealtimeTests(EvaluationEnvironment environment) : Evaluatio
         }
 
         return null;
+    }
+
+    // Services of a client that has no signing key and is not in dev mode, so all it can do is use a token it is given.
+    private static ServiceProvider TokenClient()
+    {
+        var services = new ServiceCollection();
+        services.AddInngest(options =>
+        {
+            options.AppId = "token-client";
+            options.IsDev = false;
+        });
+        return services.BuildServiceProvider();
     }
 
     // An app of its own that relays the topic from the fixture's dev server.

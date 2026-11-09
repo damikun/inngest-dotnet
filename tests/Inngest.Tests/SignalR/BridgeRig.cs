@@ -32,8 +32,8 @@ internal sealed class RecordingRealtimeApi(FakeRealtimeApi inner) : IRealtimeApi
         return inner.GetTokenAsync(channel, topics, cancellationToken);
     }
 
-    public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken) =>
-        inner.OpenSubscriptionAsync(token, cancellationToken);
+    public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken) =>
+        inner.OpenSubscriptionAsync(token, apiBaseUrl, cancellationToken);
 }
 
 // One instance of an app: its own subscriptions to Inngest and the bridge of its own, over the hub every instance of the

@@ -69,6 +69,66 @@ public sealed class RealtimeTests
     }
 
     [Fact]
+    public async Task A_token_minted_elsewhere_subscribes_at_its_api_without_the_signing_key()
+    {
+        var handler = new FakeHttpHandler().Respond(
+            HttpStatusCode.OK,
+            "data: {\"kind\":\"data\",\"data\":{\"text\":\"Packed\",\"percent\":50},\"channel\":\"order:7\",\"topic\":\"status\"}\n\n",
+            "text/event-stream");
+        await using var provider = ClientServices.Build(
+            handler,
+            new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero)),
+            configureOptions: options =>
+            {
+                options.AppId = "mobile";
+                options.IsDev = false;
+            });
+        var token = new RealtimeToken("order:7", ["status"], "eyJ.minted") { ApiBaseUrl = "https://inngest.example/api/" };
+
+        var messages = new List<RealtimeMessage<Progress>>();
+        await foreach (var message in provider.GetRequiredService<IInngestRealtime>().SubscribeAsync<Progress>(token, Cancel))
+        {
+            messages.Add(message);
+        }
+
+        messages.ShouldHaveSingleItem().Data.ShouldBe(new Progress("Packed", 50));
+        handler.Single.Method.ShouldBe(HttpMethod.Get);
+        handler.Single.Uri.AbsoluteUri.ShouldBe("https://inngest.example/v1/realtime/sse");
+        handler.Single.Header("Authorization").ShouldBe("Bearer eyJ.minted");
+    }
+
+    [Fact]
+    public async Task A_token_without_an_api_subscribes_at_the_apps()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, "", "text/event-stream");
+        await using var provider = Build(handler);
+
+        await foreach (var _ in provider.GetRequiredService<IInngestRealtime>().SubscribeAsync(new RealtimeToken("order:7", ["status"], "eyJ.minted"), Cancel))
+        {
+        }
+
+        handler.Single.Uri.AbsoluteUri.ShouldBe("http://localhost:8288/v1/realtime/sse");
+    }
+
+    [Fact]
+    public async Task A_refused_token_throws_with_what_Inngest_said()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.Unauthorized, """{"error":"token expired"}""");
+        await using var provider = Build(handler);
+        var messages = provider.GetRequiredService<IInngestRealtime>().SubscribeAsync(new RealtimeToken("order:7", ["status"], "eyJ.old"), Cancel);
+
+        var exception = await Should.ThrowAsync<InngestException>(async () =>
+        {
+            await foreach (var _ in messages)
+            {
+            }
+        });
+
+        exception.StatusCode.ShouldBe(401);
+        exception.Message.ShouldContain("token expired");
+    }
+
+    [Fact]
     public async Task An_answer_without_a_token_throws()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, "{}");
@@ -159,7 +219,7 @@ public sealed class RealtimeTests
 
         public Task<string> GetTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken) => Task.FromResult("jwt");
 
-        public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken) =>
+        public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

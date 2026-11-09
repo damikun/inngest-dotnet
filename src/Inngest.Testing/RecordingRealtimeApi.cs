@@ -35,7 +35,7 @@ internal sealed class RecordingRealtimeApi(InngestTestHost host) : IRealtimeApi
     public Task<string> GetTokenAsync(string channel, IReadOnlyList<string> topics, CancellationToken cancellationToken) =>
         Task.FromResult(PlaceholderToken);
 
-    public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, CancellationToken cancellationToken) =>
+    public Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken) =>
         Task.FromException<HttpResponseMessage>(new InvalidOperationException(
             "The test host records realtime messages in run.Published and host.Published and delivers them to no subscriber."));
 
