@@ -155,12 +155,17 @@ Step operations (`id` is the hashed step id):
 | `op` | Sent when | Shape |
 |---|---|---|
 | `StepPlanned` | A `run` or `sendEvent` step is found but not executed | `{id, op, name, displayName, opts: {type}}` |
-| `StepRun` | A step ran and succeeded | `{id, op, name, displayName, data, timing}` |
-| `StepError` | A step threw and has attempts left | `{id, op, name, displayName, error}` |
-| `StepFailed` | A step threw on its last attempt or threw `NonRetriableException` | `{id, op, name, displayName, error}` |
+| `StepRun` | A step ran and succeeded | `{id, op, name, displayName, data, timing, metadata?}` |
+| `StepError` | A step threw and has attempts left | `{id, op, name, displayName, error, timing, metadata?}` |
+| `StepFailed` | A step threw on its last attempt or threw `NonRetriableException` | `{id, op, name, displayName, error, timing, metadata?}` |
 | `Sleep` | `SleepAsync`, `SleepUntilAsync` | `{id, op, name: "<duration or RFC 3339 time>", opts: {duration}}` |
 | `WaitForEvent` | `WaitForEventAsync` | `{id, op, name: "<event>", opts: {event, timeout, if}}` |
 | `InvokeFunction` | `InvokeAsync` | `{id, op, opts: {function_id, payload: {data, user}, timeout}}` |
+
+`metadata` is a list of `{kind, scope, op, values}` written while the step ran, one for each kind and scope, as inngest-js
+sends it: today only `inngest.ai` with scope `step` and op `set`, the usage of the step's model calls (see
+`StepMetadata`, which `step.metadata` and scores of a later release can write to as well). Inngest replaces the values of
+a kind on every write, so values that add up are combined before the op goes out.
 
 Step ids are the lowercase hex SHA-1 of the id the code passed. A repeated id gets `:1`, `:2`, ... appended before
 hashing, in call order (`my-step` = `e7d8a2f1...` is the spec's example for `my-step-id`).
@@ -633,6 +638,8 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Serve health check: keys configured, the API answers a request that carries the signing key, optionally the app is synced | Supported (`AddInngest` on `IHealthChecksBuilder`, `InngestHealthCheckOptions`) |
 | Aspire AppHost: the dev server and a self-hosted server as containers, apps synced at the address the server's container reaches, `INNGEST_*` settings for projects and containers | Supported (`Inngest.Aspire.Hosting`), for local development. The servers keep no state outside their container. |
 | `step.waitForSignal` and sending signals, `step.fetch`, `step.ai.infer` | Supported (`WaitForSignalAsync`, `SendSignalAsync`, `FetchAsync` and `AddInngestStepFetch`, `InferAsync`) |
+| Model helpers of `@inngest/ai` (`openai`, `openaiResponses`, `anthropic`, `gemini`, `grok`, `azureOpenai`, `deepseek`) | Supported (`AIModels`, `InferModel<TRequest, TResponse>` and `InferAsync(id, model, request)`): the same addresses, headers, key variables and model fill-in, with typed requests and responses for the OpenAI chat, OpenAI Responses, Anthropic and Gemini formats, written and read with a source-generated context of the SDK's |
+| AI metadata on steps (`aiMetadata`) | Supported, on by default (`InngestOptions.AIMetadata`): the `gen_ai.*` attributes of the activities that stop in a step's handler, summed and sent as `inngest.ai` metadata with the step's op, as inngest-js reads its spans. An `ActivityListener` asks for the activities of Microsoft.Extensions.AI while a step runs; other sources count when the app samples them |
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
 | Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
 | Realtime messages to SignalR clients: joining and leaving through a hub, authorization of each join, one shared subscription per channel and topics, a bounded queue for each connection, delivery by connection id | Supported (`Inngest.SignalR`) over the JSON and MessagePack protocols; under Native AOT only where SignalR supports it (JSON, .NET 9 and later) |
@@ -697,6 +704,9 @@ Behaviour that differs on purpose, beyond the API shape:
 | `Match` and `If` on a wait or cancellation | Match replaces If (the types forbid setting both) | Both apply, joined with `&&` |
 | Connect shutdown | Closes the socket without a code | Closes with 1000 and `WORKER_SHUTDOWN`, which the gateway recognizes |
 | Connect replies not acknowledged | Flushed over HTTP only on reconnect and close | Flushed as soon as the 5 second deadline passes, and at shutdown |
+| Default parameters of the model helpers | The OpenAI-format models copy the defaults over the body, so they win; Gemini's let the body win | The body wins for every provider |
+| AI metadata of nested GenAI spans | Every span with `gen_ai.*` attributes that ends while the step runs is summed | An activity around activities already counted is skipped, so the `orchestrate_tools` activity of `FunctionInvokingChatClient`, which repeats the usage of its calls, does not double it |
+| AI metadata finish reasons | A string attribute becomes a list with that one string | A string that holds a JSON array, as Microsoft.Extensions.AI writes it, is read as that array |
 | Unsigned out-of-band syncs | Can be refused with `INNGEST_ENABLE_UNAUTHED_SYNC=false` | Same, plus `AllowUnsignedSync`; unsigned callers are never told why a sync failed |
 
 ## AWS Lambda

@@ -39,6 +39,7 @@ builder.Services.AddInngest(options =>
 | `AllowUnsignedSync` | `INNGEST_ENABLE_UNAUTHED_SYNC` | `true` |
 | `Streaming` | `INNGEST_STREAMING` | `false` |
 | `SessionPropagation` | `INNGEST_SESSION_PROPAGATION` | `true` |
+| `AIMetadata` | | `true`; see [Calls to AI models](/inngest-dotnet/guides/steps/#what-a-model-call-used) |
 | `SerializerOptions` | | `JsonSerializerDefaults.Web` |
 
 An address in a variable may leave out the scheme, as in `INNGEST_DEV=localhost:8288`. The dev server, localhost, IP

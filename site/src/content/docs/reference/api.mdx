@@ -43,7 +43,7 @@ resolves to the steps of the durable endpoint or function that is running.
 
 **`InngestOptions`**: `AppId`, `AppVersion`, `EventKey`, `SigningKey`, `SigningKeyFallback`, `Environment`,
 `IsDev`, `DevServerUrl`, `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl`, `ServeOrigin`, `ServePath`, `AllowInBandSync`,
-`AllowUnsignedSync`, `Streaming`, `SessionPropagation`, `Checkpointing`, `SerializerOptions`. See
+`AllowUnsignedSync`, `Streaming`, `SessionPropagation`, `Checkpointing`, `AIMetadata`, `SerializerOptions`. See
 [Configuration](/inngest-dotnet/guides/configuration/).
 
 **`ConnectOptions`**: `InstanceId`, `MaxWorkerConcurrency`, `GatewayUrl`. See [Connect](/inngest-dotnet/guides/connect/).
@@ -173,7 +173,9 @@ the id.
 synchronous, a non-generic `WaitForEventAsync` that returns `JsonElement` data, and `SendEventAsync` for a single
 event. For a typed event `T` it adds `WaitForEventAsync<T>(string id, TimeSpan timeout, string? match = null,
 string? @if = null)` and `SendEventAsync<T>` for one `T` or several. It also adds a non-generic `WaitForSignalAsync`
-with `JsonElement` data, an `InferAsync` that returns `JsonElement`, an `AIWrapAsync` whose handler takes no token,
+with `JsonElement` data, an `InferAsync` that returns `JsonElement`, `InferAsync<TRequest, TResponse>(string id,
+InferModel<TRequest, TResponse> model, TRequest request)` for a [model of a provider](#models-of-ai-providers), an
+`AIWrapAsync` whose handler takes no token,
 and `ParallelAsync(ParallelMode, Func<Task>)` for steps without a result. For scoped steps it adds a `RunScopedAsync`
 whose handler returns no result, and `RunScopedAsync<TService, T>` and `RunScopedAsync<TService>`, whose handler takes
 the `TService` that the SDK resolves from the step's scope with `GetRequiredService`. These methods also take a `StepOptions` in place of the id, except `ParallelAsync`.
@@ -192,6 +194,28 @@ the `TService` that the SDK resolves from the step's scope with `GetRequiredServ
 have finished, or `Race`, where it calls the function again each time one of them finishes. See
 [Parallel steps](/inngest-dotnet/guides/parallel-steps/). `AIFormat` names the provider API: `OpenAIChat`,
 `OpenAIResponses`, `Anthropic`, `Gemini`, `Grok` or `AzureOpenAI`.
+
+### Models of AI providers
+
+`AIModels` makes an `InferModel<TRequest, TResponse>` for each provider of `@inngest/ai`, which fills in the address,
+headers, API key, model and default parameters of an inference step. See
+[Models of the providers](/inngest-dotnet/guides/steps/#models-of-the-providers).
+
+| Method | Options | Request and response |
+|---|---|---|
+| `OpenAI` | `OpenAIModelOptions(string Model)`: `ApiKey`, `BaseUrl`, `DefaultParameters` | `OpenAIChatRequest`, `OpenAIChatResponse` |
+| `OpenAIResponses` | `OpenAIResponsesModelOptions(string Model)`: `ApiKey`, `BaseUrl`, `DefaultParameters` | `OpenAIResponsesRequest`, `OpenAIResponsesResponse` |
+| `Anthropic` | `AnthropicModelOptions(string Model, int MaxTokens)`: `ApiKey`, `BaseUrl`, `BetaHeaders`, `DefaultParameters` | `AnthropicRequest`, `AnthropicResponse` |
+| `Gemini` | `GeminiModelOptions(string Model)`: `ApiKey`, `BaseUrl`, `DefaultParameters` | `GeminiRequest`, `GeminiResponse` |
+| `Grok`, `DeepSeek` | `OpenAIModelOptions(string Model)` | `OpenAIChatRequest`, `OpenAIChatResponse` |
+| `AzureOpenAI` | `AzureOpenAIModelOptions(Uri Endpoint, string Deployment, string ApiVersion)`: `Model`, `ApiKey`, `DefaultParameters` | `OpenAIChatRequest`, `OpenAIChatResponse` |
+
+`InferModel<TRequest, TResponse>` has `Format`, `Url`, `AuthKey`, `Headers`, `Model` and `DefaultParameters`, and
+`CreateOptions(TRequest request)`, which returns the `InferOptions` of a step that sends the request. The requests and
+responses are records named after the provider, such as `OpenAIChatMessage`, `AnthropicContentBlock` and
+`GeminiPart`, with the provider's JSON names and `AdditionalProperties` for the rest. Messages and parts have factories
+such as `OpenAIChatMessage.User(string)`, `AnthropicMessage.User(string)` and `GeminiContent.User(string)`, and the
+responses have `Text`, or `OutputText` for the Responses API.
 
 ## Fan-out
 

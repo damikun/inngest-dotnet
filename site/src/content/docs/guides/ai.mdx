@@ -40,6 +40,10 @@ builder.Services
     .UseLogging();
 ```
 
+With `UseOpenTelemetry` after `UseInngestSteps`, its activity is inside the step, and the Inngest UI shows the model,
+the tokens and the finish reason of each call with its step; see
+[What a model call used](/inngest-dotnet/guides/steps/#what-a-model-call-used).
+
 `UseInngestFunctionInvocation` takes the place of `UseFunctionInvocation`. It adds a `FunctionInvokingChatClient`, so
 its callback changes the same properties, such as `MaximumIterationsPerRequest` and `AllowConcurrentInvocation`. A
 pipeline with `UseFunctionInvocation` instead still has its model calls saved, but runs its tools in the function
@@ -222,7 +226,7 @@ It is a step already, so it needs no `UseInngestSteps`; `UseInngestFunctionInvoc
 Like every inference step it works inside a run only and throws elsewhere. Inngest stores the request with the run, the
 API key included. A streaming call returns the saved response as updates once the model has finished, as Inngest does
 not stream the answer to the SDK. It speaks the OpenAI chat format only; for another provider's format, call
-`InferAsync` yourself.
+`InferAsync` with a [model of that provider](/inngest-dotnet/guides/steps/#models-of-the-providers).
 
 Strict structured outputs are asked for as Microsoft's adapter for the OpenAI client takes them: with a `strict`
 additional property, `true` or `false`, on the `ChatOptions` or on an `AIFunction`, which wins for that function. Without

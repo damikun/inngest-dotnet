@@ -171,6 +171,66 @@ var note = await context.Step.AIWrapAsync(
 The input is saved with the step, and a rerun from the Inngest UI with an edited input hands the handler the edited
 one. Keep the input serializable, as a step's result is.
 
+### Models of the providers
+
+`AIModels` makes the model of a provider for `InferAsync`, as `@inngest/ai` does in the TypeScript SDK. A model knows the
+address of the provider's API, its headers and the API key, and fills in the model and the default parameters of each
+request:
+
+{/* check: body OrderPlaced */}
+```csharp
+var model = AIModels.Anthropic(new AnthropicModelOptions("claude-sonnet-4-5", MaxTokens: 1024));
+
+var summary = await context.Step.InferAsync("summarize", model, new AnthropicRequest
+{
+    System = "Summarize the order in one sentence.",
+    Messages = [AnthropicMessage.User($"Order {context.Event.Data.OrderId} for {context.Event.Data.Total}")],
+});
+
+var text = summary.Text;
+```
+
+| Model | Format | Address | Key variable |
+|---|---|---|---|
+| `OpenAI(OpenAIModelOptions)` | OpenAI chat completions | `https://api.openai.com/v1/chat/completions` | `OPENAI_API_KEY` |
+| `OpenAIResponses(OpenAIResponsesModelOptions)` | OpenAI Responses | `https://api.openai.com/v1/responses` | `OPENAI_API_KEY` |
+| `Anthropic(AnthropicModelOptions)` | Anthropic Messages, with `anthropic-version: 2023-06-01` | `https://api.anthropic.com/v1/messages` | `ANTHROPIC_API_KEY` |
+| `Gemini(GeminiModelOptions)` | Gemini `generateContent`, with the key in the URL | `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | `GEMINI_API_KEY` |
+| `Grok(OpenAIModelOptions)` | OpenAI chat completions | `https://api.x.ai/v1/chat/completions` | `XAI_API_KEY` |
+| `DeepSeek(OpenAIModelOptions)` | OpenAI chat completions | `https://api.deepseek.com/v1/chat/completions` | `DEEPSEEK_API_KEY` |
+| `AzureOpenAI(AzureOpenAIModelOptions)` | OpenAI chat completions, with the key in `api-key` | `{Endpoint}/openai/deployments/{Deployment}/chat/completions?api-version={ApiVersion}` | `AZURE_OPENAI_API_KEY` |
+
+`BaseUrl` points a model at another address, such as a proxy or a local server that speaks the format. A key left out
+of the options is read from the variable when the model is made, from the process environment, and is empty when the
+variable is not set either, as in `@inngest/ai`. Inngest stores the request with the run, the key included.
+`DefaultParameters` is a request whose properties every request gets where it leaves them unset, so what a request sets
+wins; for Gemini, the properties of `GenerationConfig` and its `ThinkingConfig` are filled in one by one.
+
+The requests and responses are records with the provider's property names, and with `AdditionalProperties` for what they
+do not have, which is sent and read as it is. The SDK writes and reads them with source-generated contracts of its own,
+so the app's `JsonSerializerOptions` need nothing for them, under [Native AOT](/inngest-dotnet/guides/native-aot/) too.
+`Text` gives the answer of an `OpenAIChatResponse`, an `AnthropicResponse` and a `GeminiResponse`, and `OutputText` that
+of an `OpenAIResponsesResponse`. For a response type of your own, `model.CreateOptions(request)` gives the
+`InferOptions` to pass to `InferAsync<TResponse>`.
+
+### What a model call used
+
+A model call made in the handler of a step, such as an `AIWrapAsync` or a `RunAsync`, shows with the step in the Inngest
+UI: the model asked for and the one that answered, the provider, the input, output, cached and reasoning tokens, the
+finish reasons, the temperature and the other settings of the request, and how long the calls took. Prompts and answers
+are not part of it. The SDK sends it with the step as Inngest's AI metadata, as the TypeScript SDK does since 4.6.
+
+It comes from the OpenTelemetry GenAI attributes (`gen_ai.*`) of the activities that stop in the handler while it runs,
+such as those of `UseOpenTelemetry` in a `ChatClientBuilder` of Microsoft.Extensions.AI. The SDK asks for those itself
+while a step runs, so the app needs no OpenTelemetry setup for them, and what its own OpenTelemetry exports does not
+change. Other instrumentation, such as that of the OpenAI library, is read when the app's OpenTelemetry listens to its
+source, and so is a `UseOpenTelemetry` given a source name of its own. A step that calls the model several times adds up
+the tokens and the time, and keeps the rest of the last call. An activity around calls already counted, such as the
+`orchestrate_tools` activity of `FunctionInvokingChatClient`, is not counted again.
+
+`InngestOptions.AIMetadata = false` turns it off, as `aiMetadata: false` does in the TypeScript SDK. The usage of an
+`InferAsync` call, which Inngest makes, is not part of it.
+
 For a whole `IChatClient` pipeline, with its tool loop, [AI chat clients](/inngest-dotnet/guides/ai/) shows how the
 `Inngest.Extensions.AI` package makes every model call and tool call a step without wrapping each one by hand.
 
