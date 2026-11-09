@@ -276,8 +276,9 @@ binder, so it works trimmed and under Native AOT.
 
 `Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Blazor`, `Inngest.Connect`, `Inngest.SignalR`, `Inngest.Testing`,
 `Inngest.Encryption`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI` and `Inngest.UserContext` use internals of
-`Inngest` through `InternalsVisibleTo`: the serve handler, the execution engine, the registry and the resolved settings,
-of which `Inngest.Encryption` only reads the serializer options, `Inngest.EntityFrameworkCore` those and the checks the
+`Inngest` through `InternalsVisibleTo`: the serve handler's internal calls, the execution engine, the registry and the
+resolved settings, of which `Inngest.Encryption` only reads the serializer options and registers the decryptor of the
+durable endpoint output proxy, `Inngest.EntityFrameworkCore` those and the checks the
 client makes on an event it sends, `Inngest.Extensions.AI` only asks which invocation the calling code runs in, and so
 whether it can make a step, and `Inngest.UserContext` reads the settings, the registry and the run a piece of code
 belongs to. `Inngest.Blazor` and `Inngest.SignalR` use the realtime subscriber, and `Inngest.Blazor`
@@ -390,8 +391,12 @@ response is copied into an `HttpResponseData`, which the worker sends to the hos
 cannot be streamed.
 
 `InngestCommHandler` knows nothing about ASP.NET Core; it works on `IServeRequest` and returns `ServeResponse`, so
-other hosts, and the Connect worker, reuse it. Startup data (resolved settings, the function registry) is immutable and
-read without locks. Request and response bodies live in pooled buffers; the body's raw bytes are what the
+other hosts, and the Connect worker, reuse it. The three are public, with `HandleAsync` as the handler's only public
+member, so an adapter for a host the SDK does not cover can be written outside it, as inngest-js lets anyone build on
+its `InngestCommHandler`. Such a host answers with one buffered response: `Streams` and the durable endpoint calls stay
+internal. `InngestSignatureVerifier` checks a signature with the app's keys for code outside the handler. Startup data
+(resolved settings, the function registry) is immutable and read without locks. Request and response bodies live in
+pooled buffers; the body's raw bytes are what the
 signature is computed over and what `JsonDocument` parses, without copies.
 
 ### Execution engine
@@ -631,6 +636,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 |---|---|
 | Serve endpoint: introspection, in-band and out-of-band sync, calls | Supported |
 | Dev mode and cloud mode, signing, signing key rotation, response signing | Supported |
+| Serving from a host of one's own, and checking Inngest's signatures in app code | Supported: `InngestCommHandler`, `IServeRequest`, `ServeResponse` and `InngestSignatureVerifier` are public. A custom host answers with one buffered response, so `Streaming` has no effect on it |
 | Steps: run, sleep, sleepUntil, waitForEvent, invoke, sendEvent, parallel steps | Supported |
 | A dependency injection scope per step handler, for a `DbContext` and other scoped services | Supported (.NET only): `RunScopedAsync` and typed overloads on the step tools |
 | Flow control and function config: concurrency, throttle, rate limit, debounce, batching, priority, idempotency, retries, cancelOn, timeouts, singleton | Supported |
@@ -650,7 +656,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Model helpers of `@inngest/ai` (`openai`, `openaiResponses`, `anthropic`, `gemini`, `grok`, `azureOpenai`, `deepseek`) | Supported (`AIModels`, `InferModel<TRequest, TResponse>` and `InferAsync(id, model, request)`): the same addresses, headers, key variables and model fill-in, with typed requests and responses for the OpenAI chat, OpenAI Responses, Anthropic and Gemini formats, written and read with a source-generated context of the SDK's |
 | AI metadata on steps (`aiMetadata`) | Supported, on by default (`InngestOptions.AIMetadata`): the `gen_ai.*` attributes of the activities that stop in a step's handler, summed and sent as `inngest.ai` metadata with the step's op, as inngest-js reads its spans. An `ActivityListener` asks for the activities of Microsoft.Extensions.AI while a step runs; other sources count when the app samples them |
 | `step.ai.wrap` | Supported (`AIWrapAsync`), with its input shown in the Inngest UI and an input edited there passed to the handler; an input edited for `step.ai.infer` is spread over its body, as in inngest-js |
-| Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
+| Realtime: publishing data and streams, subscription tokens, subscribing | Supported: `PublishAsync` and `PublishStreamAsync` (`text/stream`) on the step tools and `IInngestRealtime`, typed topics, tokens, `SubscribeAsync` over Inngest's server-sent events with a new token on every reconnect, `SubscribeAsync(RealtimeToken)` with a token minted elsewhere and no signing key, over one connection, as `subscribe({ key })` in inngest-js, and `MapInngestRealtime`, a relay to browsers that shares one subscription per channel and topics |
 | Realtime messages to SignalR clients: joining and leaving through a hub, authorization of each join, one shared subscription per channel and topics, a bounded queue for each connection, delivery by connection id | Supported (`Inngest.SignalR`) over the JSON and MessagePack protocols; under Native AOT only where SignalR supports it (JSON, .NET 9 and later) |
 | Blazor components for realtime: Blazor Server, WebAssembly and interactive Auto | Supported (`Inngest.Blazor`): `RealtimeView` subscribes after its first interactive render and never while prerendering, through a source each side registers; the WebAssembly source reads the server-sent events of `MapInngestRealtime` with `HttpClient` response streaming and opens the connection again with a growing delay. It does not interpret run messages or pause in hidden tabs. |
 | AWS Lambda: the serve endpoint behind API Gateway REST and HTTP APIs and function URLs, in a managed runtime function or a Native AOT executable | Supported (`Inngest.AwsLambda`, `InngestLambdaHandler`), with buffered responses only: `Streaming` has no effect, and the call's cancellation token is never cancelled |
@@ -660,7 +666,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Event sessions and their propagation (`meta.sessions`, `sessionPropagation`) | Supported (`EventMeta`, `FunctionContext.Sessions`, `InngestOptions.SessionPropagation`) |
 | The user behind an event: selected claims of the current user in the event's `user`, protected, restored in the run, passed on to events, invocations, failure handlers and cancel handlers | Supported (.NET only): `Inngest.UserContext`, `Inngest.UserContext.AspNetCore`. See [User context](#user-context) |
 | `defer` | Not yet |
-| Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGESTEXP001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. Not yet: the output proxy on the app's domain, streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |
+| Durable endpoints (beta in Inngest) | Supported on ASP.NET Core and marked experimental (`INNGESTEXP001`): `UseInngestDurableEndpoints`, `WithDurableEndpoint` and `[DurableEndpoint]` in `Inngest.AspNetCore`. The steps of a request run inline, and the run goes to Inngest through the checkpoint API when a step has to wait or fails, or steps run in parallel. `MapInngestDurableEndpointProxy` serves a run's output on the app's domain with CORS headers, as `endpointProxy()` does, and decrypts an output that `Inngest.Encryption` encrypted, which Inngest's own output URL cannot replay. Not yet: streaming responses from an endpoint, resuming an endpoint that requires authorization, and `InngestTestHost`. Flow control, `defer` and `group.experiment` are not supported for endpoints upstream |
 | Middleware transform hooks (`transformFunctionInput`, `transformStepInput`) | Supported as `IPayloadTransform`, on raw JSON: events, memoized step results, the input of steps (the `opts` of their ops), step output and function output. `TransformStepInput` cannot change a step's id. |
 | `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |
@@ -671,7 +677,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
 | Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. `InngestInferChatClient` has Inngest call an OpenAI-compatible provider instead (`step.ai.infer`). |
 | Transactional outbox: events saved with the app's data in one transaction and sent afterwards under one id each | Supported (`Inngest.EntityFrameworkCore`) on Entity Framework Core 8 (net8.0) and 10 (net10.0), not 9; the tests run SQLite on both and PostgreSQL with EF Core 10 and Npgsql 10 on net10.0 only; not Native AOT |
-| Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`) |
+| Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`): a mock for each kind of step, send-event and realtime publish steps included, and `RunUntilAsync` to stop a run at a checkpoint, such as the steps found for a parallel group, as `run.waitFor` does in `@inngest/test` |
 | End-to-end tests against the dev server or a self-hosted server in Docker, including the Connect gateway, and against an app under `WebApplicationFactory` | Supported (`Inngest.Testing.Containers`, `Inngest.Testing.Containers.AspNetCore`), with the image you choose; tested with `inngest/inngest:v1.49.0`. The factory needs .NET 10. |
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
 | Registering function classes without listing them | Supported (.NET only), when a project sets `InngestGenerateFunctionRegistration`: the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |

@@ -248,6 +248,107 @@ runtime function or a Native AOT executable. `Inngest.AwsLambda` handles the eve
 API Gateway apply to the steps it runs. [Running on AWS Lambda](/inngest-dotnet/guides/aws-lambda/) covers the setup
 and the limits.
 
+## On another host
+
+ASP.NET Core, AWS Lambda and Azure Functions are built on `InngestCommHandler`, which answers Inngest's requests
+without knowing where they came from. A host the SDK does not cover gets its own adapter in two parts: an
+`IServeRequest` over the host's request, and code that turns the `ServeResponse` into the host's response. This one
+serves Inngest from an `HttpListener`:
+
+```csharp
+using System.Net;
+using Inngest;
+
+public sealed class ListenerServeRequest(HttpListenerRequest request, byte[] body) : IServeRequest
+{
+    public string Method => request.HttpMethod;
+
+    public Uri Url => request.Url!;
+
+    public ReadOnlyMemory<byte> Body => body;
+
+    // Reported to Inngest in the X-Inngest-Framework header.
+    public string Framework => "httplistener";
+
+    // Null has the handler create a scope for each call.
+    public IServiceProvider? Services => null;
+
+    public string? GetHeader(string name) => request.Headers[name];
+
+    public string? GetQuery(string name) => request.QueryString[name];
+}
+
+public static class ListenerHost
+{
+    public static async Task ServeAsync(
+        HttpListenerContext context,
+        InngestCommHandler handler,
+        CancellationToken cancellationToken)
+    {
+        using var body = new MemoryStream();
+        await context.Request.InputStream.CopyToAsync(body, cancellationToken);
+        var request = new ListenerServeRequest(context.Request, body.ToArray());
+
+        using var response = await handler.HandleAsync(request, cancellationToken);
+        context.Response.StatusCode = response.StatusCode;
+        foreach (var (name, value) in response.Headers)
+        {
+            context.Response.AddHeader(name, value);
+        }
+
+        context.Response.ContentLength64 = response.Body.Length;
+        await context.Response.OutputStream.WriteAsync(response.Body, cancellationToken);
+        context.Response.Close();
+    }
+}
+```
+
+The handler comes from the services of an app that called `AddInngest`, which resolves it as a singleton:
+
+{/* check: statements; IServiceProvider services */}
+```csharp
+var handler = services.GetRequiredService<InngestCommHandler>();
+```
+
+The handler checks the signature of each request in cloud mode, signs its responses and answers every request,
+failures included, with a status and a JSON body, so the adapter only copies what it gets. It needs the body exactly as
+it arrived, since the signature covers those bytes, and `Url` as the client called it, which a sync tells Inngest to
+call unless `ServeOrigin` and `ServePath` say otherwise. The response's body may live in a pooled buffer, so dispose
+the response once the body has been written. The answer is one buffered response, so `InngestOptions.Streaming` has no
+effect on such a host, and a call has to be answered within the host's own timeout.
+
+### Checking a signature in app code
+
+Code that receives a request from Inngest outside the handler checks its `X-Inngest-Signature` header with
+`InngestSignatureVerifier`. `AddInngest` registers one with the app's signing keys, the fallback key included:
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapPost("/internal/from-inngest", async (
+    HttpRequest request,
+    InngestSignatureVerifier verifier,
+    ILogger<InngestSignatureVerifier> logger,
+    CancellationToken cancellationToken) =>
+{
+    using var body = new MemoryStream();
+    await request.Body.CopyToAsync(body, cancellationToken);
+
+    if (!verifier.Verify(request.Headers["X-Inngest-Signature"], body.ToArray(), out var error))
+    {
+        logger.LogWarning("Refused a request that Inngest did not sign: {Error}", error);
+        return Results.Unauthorized();
+    }
+
+    // The body is exactly what Inngest signed.
+    return Results.Ok();
+});
+```
+
+A signature is an HMAC-SHA256 of the raw body, made less than five minutes before. In dev mode the registered verifier
+accepts every request, as the handler does, since the dev server signs nothing.
+`new InngestSignatureVerifier(signingKey, signingKeyFallback)` checks with keys of your choosing, whatever mode the app
+is in.
+
 ## Self-hosting Inngest
 
 To run Inngest yourself instead of using Inngest Cloud, point the SDK at your server with `INNGEST_BASE_URL` and use

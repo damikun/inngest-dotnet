@@ -128,6 +128,10 @@ signatures from either key while both are set, and retries API calls with the fa
 refused. Inngest describes the procedure in
 [rotating keys](https://www.inngest.com/docs/platform-and-operations/rotate-event-and-signing-keys).
 
+`InngestSignatureVerifier` checks the signature of a request from Inngest with the same keys, for code outside the
+Inngest endpoint; see
+[Checking a signature in app code](/inngest-dotnet/guides/deploying/#checking-a-signature-in-app-code).
+
 ## Branch environments
 
 `Environment` selects an Inngest [branch environment](https://www.inngest.com/docs/platform-and-operations/environments-and-branch-deploys),

@@ -348,7 +348,41 @@ new DurableEndpointOptions
 ```
 
 The default location is not on the app's origin, so a script in a browser follows the redirect under cross-origin
-rules.
+rules. The output proxy below serves the same answer on the app's origin.
+
+### The output on the app's own domain
+
+`MapInngestDurableEndpointProxy` serves the output of runs on a path of the app, as `endpointProxy()` does in the
+TypeScript SDK. Point `RedirectUrl` at it, and the client waits there instead of on the Inngest API:
+
+{/* check: statements; WebApplication app */}
+```csharp
+app.MapInngestDurableEndpointProxy("/api/inngest/output");
+
+app.MapPost("/reports", async (IStepTools step) =>
+{
+    await step.SleepAsync("wait-for-data", TimeSpan.FromSeconds(10));
+    return Results.Ok(new { ready = true });
+})
+.WithDurableEndpoint(new DurableEndpointOptions
+{
+    RedirectUrl = run => new Uri(
+        $"/api/inngest/output?runId={run.RunId}&token={Uri.EscapeDataString(run.Token)}",
+        UriKind.Relative),
+});
+```
+
+A GET with the `runId` and `token` query parameters asks Inngest for the output with the token, which needs no signing
+key, and waits as the Inngest URL does. It answers with the endpoint's status, content type and body, and with CORS
+headers that let a page on any origin read it; an `OPTIONS` preflight gets 204. A request without both parameters gets
+400 with `{"error": "Missing runId or token query parameter"}`, an answer of Inngest that is not a success, such as an
+unknown token, is passed on as it is, and Inngest out of reach is a 502. The token is what lets a caller read the
+output, as on Inngest's own URL, so the proxy needs no authorization of its own.
+
+The proxy matters most to an app that uses the [encryption middleware](/inngest-dotnet/guides/middleware/#encryption).
+The middleware encrypts the output of a run that Inngest resumed, as it does a function's, and Inngest cannot replay an
+encrypted response: its URL answers with the encrypted value. The proxy decrypts it with the app's key and answers with
+the endpoint's response, so an app that encrypts sends its clients to the proxy.
 
 ### Request size
 

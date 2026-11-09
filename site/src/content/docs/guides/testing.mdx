@@ -251,6 +251,10 @@ share a set and add to it.
 | `WaitForSignal<T>(id, T data)` | The wait for a signal receives `data`, under the name of the signal it waits for. |
 | `WaitForSignalTimeout(id)` | The wait for a signal times out and returns null. |
 | `SendSignal(id, runId)` | The send-signal step returns `runId` as the run the signal resumed; null says no run waited. |
+| `SendEvent(id, params string[] eventIds)` | The send-event step returns these ids instead of sending its events, which are then not recorded. |
+| `SendEvent(id, Func<int, IReadOnlyList<string>> eventIds)` | Calls `eventIds` in place of the send on every attempt, with the attempt number from 0. Throw from it to fail the attempt. |
+| `SendEventThrows(id, exception)` | The send fails on every attempt, so the step is retried and then fails for good, at once for a `NonRetriableException`. |
+| `PublishThrows(id, exception)` | The realtime publish step, or a step that streams to a topic, fails the same way instead of publishing. |
 | `Fetch(id, statusCode, body, headers)` | The fetch step gets this response, as Inngest would hand it back. |
 | `Infer<T>(id, T response)` | The AI provider answers the inference step with `response`. |
 
@@ -274,8 +278,9 @@ The compiler checks that `ScoreAccount` returns an `AccountScore`, and the host 
 `Invoke<T>` without a class answers any invoke, by class or by id.
 
 A mock that does not fit its step makes `RunAsync` throw `InvalidOperationException` too: a mock for another kind of
-step, such as `Run` for a sleep, or a wait mock whose event has another name. Send steps take no mock; the host
-records their events. A signal sent without a mock resumes no run and is recorded too, and so are realtime messages.
+step, such as `Run` for a sleep, or a wait mock whose event has another name. A send step without a mock sends its
+events to the host, which records them and returns ids; a mock makes it fail or return the ids a test chooses. A
+signal sent without a mock resumes no run and is recorded too, and so are realtime messages.
 
 The steps of a [fan-out over a list](/inngest-dotnet/guides/fan-out/#testing) are mocked by their ids, such as
 `charge[0]`.
@@ -312,6 +317,39 @@ carries out, such as a sleep or a wait, has been reached. The run then ends as `
 failed or started waiting before it got there. The last test above uses it to check how the function waits, with no
 mocks for what comes after the wait. `ExecuteStepAsync<TFunction>` finds the function by its class, and
 `ExecuteStepAsync(functionId, stepId, ...)` by its id.
+
+### Stopping at a checkpoint
+
+`RunUntilAsync` runs the function until a `TestCheckpoint`, as `run.waitFor` does in the TypeScript test package, and
+stops it there as `Stopped`, with the steps of the checkpoint in `run.StoppedAt`:
+
+| Checkpoint | Where the run stops |
+|---|---|
+| `TestCheckpoint.StepsFound(params string[] stepIds)` | Once the function reports steps it has not run: the steps of a parallel group, before Inngest runs any of them, or a sleep, wait or invoke. With ids, once one report holds all of them. |
+| `TestCheckpoint.StepRan(string stepId)` | Once the step's handler, or its mock, has run an attempt, before a retry. A step that threw is still `Pending`, with the exception in `Errors`. |
+
+A test of a parallel group can check what the function asks Inngest to run, with the options of each step, while
+nothing has run:
+
+{/* check: statements; InngestTestHost host */}
+```csharp
+using Inngest.Testing;
+using Xunit;
+
+var paid = new InngestEvent("shop/order.paid", new { orderId = "o-1001" });
+
+var run = await host.RunUntilAsync("fulfil-order", paid,
+    TestCheckpoint.StepsFound("reserve-stock", "charge-card"),
+    TestContext.Current.CancellationToken);
+
+Assert.Equal(TestRunStatus.Stopped, run.Status);
+Assert.Equal(["reserve-stock", "charge-card"], run.StoppedAt.Select(step => step.Id));
+Assert.All(run.StoppedAt, step => Assert.Equal(TestStepStatus.Pending, step.Status));
+```
+
+A run that completes, fails or waits before the checkpoint ends as it would with `RunAsync`. `RunUntilAsync` takes
+mocks like `RunAsync`, and `RunUntilAsync<TFunction>` finds the function by its class. `ExecuteStepAsync` is the
+checkpoint of one step that has run for good, and its run has that step in `StoppedAt` too.
 
 ## A fake for the step tools
 

@@ -96,6 +96,28 @@ It connects again with a new token when the connection drops and when Inngest cl
 minutes; what is published meanwhile is missed. A message whose data is not the topic's type is skipped, with a
 warning in the log.
 
+### With a token from elsewhere
+
+A .NET client that has no signing key, such as a MAUI app or another service, subscribes with a token that a backend
+minted for it with `GetSubscriptionTokenAsync`, or that the TypeScript SDK minted. It registers the SDK with an app id
+and nothing else, and passes the token as it came, deserialized from the JSON the backend returned:
+
+{/* check: statements; IInngestRealtime realtime; HttpClient backend; CancellationToken cancellationToken */}
+```csharp
+var token = await backend.GetFromJsonAsync<RealtimeToken>("/api/orders/o-1001/realtime-token", cancellationToken);
+
+await foreach (var message in realtime.SubscribeAsync<OrderStatus>(token!, cancellationToken))
+{
+    Console.WriteLine($"{message.Data?.Text} ({message.Data?.Percent}%)");
+}
+```
+
+It connects to the token's `ApiBaseUrl`, or to the app's Inngest when the token has none. `SubscribeAsync(token)`
+receives every topic of the token with the data as `JsonElement`, and `SubscribeAsync<T>(token)` reads the data as a
+`T`. Only the backend can mint the next token, so the connection is not opened again: the messages end when Inngest
+closes it, after 15 minutes at the latest, or when it is lost, and the client subscribes again with a new token.
+A token Inngest refuses, such as one minted more than a minute before, throws `InngestException`.
+
 ## In the browser
 
 ### With server-sent events
