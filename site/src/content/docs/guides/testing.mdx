@@ -191,8 +191,9 @@ What it does not do:
 - It does not apply what Inngest enforces outside the SDK: concurrency limits, throttling, rate limits, debounce,
   priority, idempotency, singletons, cancellation and timeouts. A batch is the list of events the test passes.
 - It does not check a wait mock's event against the wait's `Match` or `If`, only against the event name.
-- It does not carry out signal waits, fetch steps or inference steps, which cannot be mocked, so the run waits on
-  them. Nor does it run invoked functions: an invoke without a mock leaves the run waiting.
+- It does not run invoked functions, send the requests of fetch steps or call AI models. An invoke, a fetch or an
+  inference step without a mock leaves the run waiting, and so does a wait for an event or a signal without one;
+  [Mocking steps](#mocking-steps) lists the mocks for each kind of step.
 - It does not checkpoint. A function with checkpointing on runs one step per call in the host, as without it, so
   code outside steps runs more often than in production; the results are the same.
 
