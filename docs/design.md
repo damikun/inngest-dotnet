@@ -259,9 +259,9 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Connect` | `AddConnect`, a hosted worker that receives calls over an outbound WebSocket instead of an HTTP endpoint. |
 | `Inngest.Aspire.Hosting` | `AddInngest` and `AddInngestSelfHosted`, which run the Inngest dev server or a self-hosted server as a container of an Aspire AppHost, `WithApp`, which tells the server where an app that serves functions is, and `WithReference`, which gives a project the `INNGEST_*` settings the SDK reads. Depends on `Aspire.Hosting` only, not on `Inngest`. |
 | `Inngest.Testing` | `InngestTestHost`, which runs functions in memory on the real execution engine for unit tests, with mocked steps, retries and replays. |
-| `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations. Depends on `OpenTelemetry.Api` only. |
+| `Inngest.OpenTelemetry` | `AddInstrumentation`, a middleware with spans for calls and executed steps and metrics for runs, steps, retries and durations, and `AddExtendedTraces` (experimental), which sends the spans of a run to Inngest. Depends on `OpenTelemetry.Api` only. |
 | `Inngest.Encryption` | `AddEncryption`, a middleware that encrypts event data, step results and function output in the format of `@inngest/middleware-encryption`. XSalsa20, Poly1305 and BLAKE2b come from `BouncyCastle.Cryptography`, which is managed code. |
-| `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports the errors of functions and steps to Sentry, with tags for the call and the run's trace. Depends on `Sentry` only. |
+| `Inngest.Sentry` | `AddSentryReporting`, a middleware that reports calls to Sentry as transactions with a span for each executed step, and the errors of functions and steps, with tags for the call and the run's trace. Depends on `Sentry` only. |
 | `Inngest.Extensions.AI` | `UseInngestSteps` and `UseInngestFunctionInvocation`, stages for the `ChatClientBuilder` of Microsoft.Extensions.AI that make each model call and each tool call of a run an AI wrap step, and `InngestInferChatClient`, a chat client of inference steps in the OpenAI chat format. Depends on `Microsoft.Extensions.AI`. |
 | `Inngest.EntityFrameworkCore` | `AddEntityFrameworkOutbox`, a transactional outbox: events are rows saved with the app's data through `DbContext.AddInngestEvent`, and a hosted dispatcher sends them. Depends on `Microsoft.EntityFrameworkCore.Relational`, version 8 for net8.0 and 10 for net10.0. See [Transactional outbox](#transactional-outbox). |
 | `Inngest.Testing.Containers` | A Testcontainers module (`InngestServerBuilder`, `InngestServerContainer`, `InngestServerConfiguration`) that runs the dev server or the self-hosted server (`inngest start`) in Docker for tests, with the settings that point an app at it and a call that has it sync the app. Depends on `Testcontainers` and `Inngest`'s public options only. |
@@ -275,16 +275,17 @@ binder, so it works trimmed and under Native AOT.
 | `Inngest.Webhooks` | Verifiers for Standard Webhooks (Svix, Clerk, Resend), Stripe, GitHub, Shopify and any HMAC, the providers that turn a verified delivery into an event, and the pipeline behind `MapInngestWebhook` (which is in `Inngest.AspNetCore`). Depends on `Inngest` only, and uses `System.Security.Cryptography` for every signature. |
 
 `Inngest.AspNetCore`, `Inngest.AwsLambda`, `Inngest.Blazor`, `Inngest.Connect`, `Inngest.SignalR`, `Inngest.Testing`,
-`Inngest.Encryption`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI` and `Inngest.UserContext` use internals of
-`Inngest` through `InternalsVisibleTo`: the serve handler's internal calls, the execution engine, the registry and the
+`Inngest.Encryption`, `Inngest.EntityFrameworkCore`, `Inngest.Extensions.AI`, `Inngest.OpenTelemetry` and
+`Inngest.UserContext` use internals of `Inngest` through `InternalsVisibleTo`: the serve handler's internal calls, the execution engine, the registry and the
 resolved settings, of which `Inngest.Encryption` only reads the serializer options and registers the decryptor of the
 durable endpoint output proxy, `Inngest.EntityFrameworkCore` those and the checks the
 client makes on an event it sends, `Inngest.Extensions.AI` only asks which invocation the calling code runs in, and so
 whether it can make a step, and `Inngest.UserContext` reads the settings, the registry and the run a piece of code
 belongs to. `Inngest.Blazor` and `Inngest.SignalR` use the realtime subscriber, and `Inngest.Blazor`
-also its message reader and server-sent events parser. Internals can change in any release, so the packages ship
-together and each depends on exactly the `Inngest` of its own version (a target in `src/Directory.Build.targets` writes
-the exact range). `Inngest.OpenTelemetry` and `Inngest.Sentry` use only the public middleware API, and
+also its message reader and server-sent events parser. `Inngest.OpenTelemetry` sends extended traces through the
+transport of the REST API and reads the userland id and index of a step. Internals can change in any release, so the
+packages ship together and each depends on exactly the `Inngest` of its own version (a target in
+`src/Directory.Build.targets` writes the exact range). `Inngest.Sentry` uses only the public middleware API, and
 `Inngest.Testing.Containers` only `InngestOptions`; `Inngest.Testing.Containers.AspNetCore` reaches one internal helper
 of `Inngest.Testing.Containers` through `InternalsVisibleTo`, and depends on exactly its version too.
 `Inngest.AzureFunctions` uses the serve handler of `Inngest` and the `InngestEndpoint` of `Inngest.AspNetCore` in the
@@ -503,8 +504,8 @@ the app's options need no contracts for them.
 
 ### Source generator and analyzers
 
-`src/Inngest.SourceGeneration` holds an incremental source generator and two analyzers, and
-`src/Inngest.SourceGeneration.CodeFixes` the code fix. Neither is a package. `src/Inngest/Inngest.csproj` builds both
+`src/Inngest.SourceGeneration` holds an incremental source generator and the analyzers, and
+`src/Inngest.SourceGeneration.CodeFixes` the code fixes. Neither is a package. `src/Inngest/Inngest.csproj` builds both
 without referencing them and packs the two assemblies in `analyzers/dotnet/cs`, with `buildTransitive/Inngest.props`
 and `Inngest.targets`. They ship in the package of the SDK because the generated code calls `AddFunction<T>()` of the
 same release and every project that defines a function references `Inngest`, which is where System.Text.Json and
@@ -568,6 +569,16 @@ project turns reflection-based JSON off, and then it reports types that would fa
   the analyzer to this: they compile a set of probe types, one for each rule, and compare the analyzer with the generator
   of every .NET version they can find in the targeting packs (8 and 10 agree), and compare the types taken from the SDK's
   context with the ones that context has. The set is computed when the first type needs it.
+- **Step analyzers.** `StepCallAnalyzer` and `StepCleanupAnalyzer` port `@inngest/eslint-plugin` (`no-nested-steps`,
+  `no-variable-mutation-in-step`, `await-inngest-send`) and add the mistakes that a replay makes in .NET: ids from the
+  clock or a random source, blocking on a step's task, and `finally` or `using` around a step, whose cleanup does not run
+  in a call abandoned at a new step. A step is any method of `IStepTools` or extension method on it except
+  `ParallelAsync`, whose callback runs in place, and a handler is a delegate argument of a step. They are on in every
+  project, so each reports only what it can see in one method and stays quiet otherwise: assignments come from the
+  compiler's data flow analysis of the handler, and only reads in the function that calls the step count, so a test that
+  reads a captured flag after the run is not reported; a dropped task is reported only where `CS4014` is not, in
+  methods and lambdas that are not async; and the cleanup rule, which is often harmless, is `Info`. Run over the
+  samples and the SDK's own code they find nothing; in the tests they find the cases the tests set up on purpose.
 - **The generator cannot fill the context.** Generators run on the same input and the output of one is not input to
   another, so `[JsonSerializable]` attributes written by Inngest's generator would never reach System.Text.Json's. The
   code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives. Its equivalence
@@ -673,8 +684,9 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Fan-out over a list: a step per item with stable ids, a window of parallel items, fail-fast or collected outcomes, chunks in child runs for lists beyond the 1,000 steps of a run | Supported (.NET only): `MapAsync`, `ForEachAsync`, `MapOutcomesAsync`, `MapInChunksAsync` and `MapOutcomesInChunksAsync` over `IStepTools`, and `FanOutFunction` for the function of a chunk |
 | REST API for runs: get a run, list the runs of an event, cancel a run | Supported (`IInngestRunsClient`) |
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
+| Extended traces: the app's spans in the run's trace in Inngest (`extendedTracesMiddleware`, experimental upstream) | Supported and marked experimental (`INNGESTEXP002`): `AddExtendedTraces` in `Inngest.OpenTelemetry` sends every span under a call's span, from any `ActivitySource`, as OTLP/HTTP JSON to `/v1/traces/userland` at the end of the call, tagged as inngest-js tags them. It listens to activities itself, so no OpenTelemetry SDK is needed. Checked against the dev server (`inngest/inngest:v1.49.0`), which shows the spans under their steps. The trace context comes from the host's span for the request, which ASP.NET Core and Connect start; Lambda and Azure Functions were not checked |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them. The data of `step.invoke` is encrypted in the event field, as the package does with `transformStepInput`; like the package, it leaves the input of AI wrap steps and the request of inference steps in the clear. |
-| Sentry error reporting | Supported (`Inngest.Sentry`), without the TypeScript middleware's Sentry spans |
+| Sentry error reporting and spans | Supported (`Inngest.Sentry`): a transaction for each call, as the TypeScript middleware's request span, with a span for each executed step. Code in the function does not get the transaction as its active span |
 | Chat clients of Microsoft.Extensions.AI as steps | Supported (.NET only, `Inngest.Extensions.AI`): `UseInngestSteps` makes model calls and streaming calls steps, `UseInngestFunctionInvocation` makes tool calls steps, with the input shown in the Inngest UI and an edited input passed on. Responses are saved as JSON written with `AIJsonUtilities.DefaultOptions`, so the app registers no contracts for them, and `RawRepresentation` does not survive a replay. A streaming call publishes its text to a realtime topic while the model runs, when asked to. `InngestInferChatClient` has Inngest call an OpenAI-compatible provider instead (`step.ai.infer`). |
 | Transactional outbox: events saved with the app's data in one transaction and sent afterwards under one id each | Supported (`Inngest.EntityFrameworkCore`) on Entity Framework Core 8 (net8.0) and 10 (net10.0), not 9; the tests run SQLite on both and PostgreSQL with EF Core 10 and Npgsql 10 on net10.0 only; not Native AOT |
 | Unit tests on the real execution engine, with mocked steps | Supported (`Inngest.Testing`): a mock for each kind of step, send-event and realtime publish steps included, and `RunUntilAsync` to stop a run at a checkpoint, such as the steps found for a parallel group, as `run.waitFor` does in `@inngest/test` |
@@ -682,6 +694,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
 | Registering function classes without listing them | Supported (.NET only), when a project sets `InngestGenerateFunctionRegistration`: the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
 | Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and the typed steps; values whose type is known only at run time, such as the data of an invoke or an event the app sends, are not checked |
+| Replay-safety lint (`@inngest/eslint-plugin`) | Supported as analyzers in `Inngest` (`INNGEST020` to `INNGEST025`): nested steps, a handler that assigns what the function reads, a send or step whose task is dropped, and, beyond the plugin, step ids from the clock or a random source, blocking on a step and cleanup around a step. A code fix awaits a step that code blocks on |
 
 
 ## Spec deviations

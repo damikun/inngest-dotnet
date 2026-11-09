@@ -1,11 +1,11 @@
 ---
 title: Source generator and analyzers
-description: Register every function class of a project with one generated call, and find the types a Native AOT app has not given its JsonSerializerContext while the project builds.
+description: Register every function class of a project with one generated call, find the types a Native AOT app has not given its JsonSerializerContext, and find code that breaks when Inngest replays a function, while the project builds.
 sidebar:
   label: Source generator and analyzers
 ---
 
-The `Inngest` package carries a source generator, two analyzers and a code fix. The compiler loads them from the
+The `Inngest` package carries a source generator, analyzers and code fixes. The compiler loads them from the
 package, so there is nothing more to install: every project that references `Inngest`, directly or through
 `Inngest.AspNetCore` or `Inngest.Connect`, has them. They are built against Roslyn 4.8, the compiler of the first .NET 8
 SDK and of Visual Studio 17.8, and run in that compiler and in every newer one.
@@ -13,8 +13,11 @@ SDK and of Visual Studio 17.8, and run in that compiler and in every newer one.
 - The generator writes `AddInngestFunctions()`, which registers the function classes of the project. A project turns it
   on; until then it writes nothing, and the project builds as it did before.
 - An analyzer, with the generator, says why a class with `[InngestFunction]` is not registered.
-- The other analyzer, in an app that turns reflection-based JSON off, finds the types that no `JsonSerializerContext`
-  lists. A code fix lists them.
+- An analyzer, in an app that turns reflection-based JSON off, finds the types that no `JsonSerializerContext` lists. A
+  code fix lists them.
+- The step analyzers find code that breaks when Inngest replays a function: state a step's handler leaves behind, step
+  ids that change, steps inside steps, and tasks of steps that nothing awaits. A code fix awaits a step that code blocks
+  on.
 
 ## Register the function classes
 
@@ -171,7 +174,7 @@ The MSBuild properties:
 | `InngestGenerateFunctionRegistration` | `false` | `true` writes the method and reports the classes it leaves out. |
 | `InngestFunctionsMethodName` | `AddInngestFunctions` | The name of the generated method. It must be a C# identifier. |
 | `InngestFunctionsAccessibility` | `internal` | `public` or `internal`, for the class and the method. |
-| `DisableInngestAnalyzers` | `false` | `true` takes everything the package runs in the compiler out of the build: the generator and both analyzers. |
+| `DisableInngestAnalyzers` | `false` | `true` takes everything the package runs in the compiler out of the build: the generator and the analyzers. |
 
 A value the generator cannot use is reported as [`INNGEST006`](#inngest006), and the default is used.
 
@@ -276,6 +279,71 @@ your own file instead.
 - Contexts that are built in code, and options whose resolver chain does not contain the context. Test the paths that
   matter after you publish.
 
+## Check steps for replay safety
+
+Inngest calls a function again for every step. Each call runs the function from the top, hands the steps that already
+ran their saved results without running their handlers, and stops at the first step that has none. Code that is fine in
+an ordinary method can break under that, and these analyzers find the common cases while you type. They run in every
+project that references `Inngest`, with nothing to turn on, and look only at calls of the step tools (`IStepTools` and
+its extension methods, such as `RunAsync`, `SleepAsync` and `MapAsync`) and of `SendAsync`.
+
+| Diagnostic | Severity | Finds |
+|---|---|---|
+| [`INNGEST020`](#inngest020) | Warning | A step's handler assigns a local, a parameter or a field that the function reads outside the step. |
+| [`INNGEST021`](#inngest021) | Info | A `finally` block, a `using` statement or a `using` declaration around a step. |
+| [`INNGEST022`](#inngest022) | Warning | A step id built from the clock, a new `Guid` or a random number. |
+| [`INNGEST023`](#inngest023) | Warning | `.Result`, `.Wait()` or `.GetAwaiter().GetResult()` on the task of a step. A code fix awaits it. |
+| [`INNGEST024`](#inngest024) | Warning | A step called inside the handler of another step. |
+| [`INNGEST025`](#inngest025) | Warning | The task of a step or of `SendAsync` dropped in a method or lambda that is not async. |
+
+This function has two of the mistakes. On the call after `charge` ran, its handler does not run again, so `receiptId`
+is still `null`, and the id of the second step is new on every day the run goes on:
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IEmailSender email; warns INNGEST020 INNGEST022 */}
+```csharp
+var order = context.Event.Data;
+string? receiptId = null;
+await context.Step.RunAsync("charge", async () =>
+{
+    // warning INNGEST020: 'receiptId' is assigned in the handler of RunAsync("charge") and read outside it
+    receiptId = await payments.ChargeAsync(order.CustomerId, order.Total, cancellationToken);
+});
+
+// warning INNGEST022: The id of RunAsync uses DateTime.UtcNow, which differs in every call
+await context.Step.RunAsync($"email-{DateTime.UtcNow:yyyyMMdd}", () =>
+    email.SendAsync(order.CustomerId, $"Receipt {receiptId}", cancellationToken));
+```
+
+A step returns what the function needs, and its id comes from data that stays the same:
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IEmailSender email */}
+```csharp
+var order = context.Event.Data;
+var receiptId = await context.Step.RunAsync("charge", () =>
+    payments.ChargeAsync(order.CustomerId, order.Total, cancellationToken));
+
+await context.Step.RunAsync($"email-{order.OrderId}", () =>
+    email.SendAsync(order.CustomerId, $"Receipt {receiptId}", cancellationToken));
+```
+
+### What the step analyzers do not see
+
+They read the code of one method at a time, so they keep quiet rather than guess:
+
+- `INNGEST020` follows assignments, increments and `out` arguments to locals, parameters and the fields of the class,
+  read in the method, local function or lambda that calls the step. A change through a reference, such as `list.Add`
+  inside a handler, is not an assignment and is not reported, although it is lost in the same way. Code that reads the
+  variable after the function has returned, such as a test, is left alone.
+- `INNGEST022` looks at the id expression and at the initializer of a local it reads. A value made inside a step and
+  returned from it is stable, and so is `new Random(seed)`.
+- `INNGEST023` reports a blocking call made on the step call itself. Reading `.Result` of a task that was awaited before,
+  as after `Task.WhenAll`, is fine and not reported.
+- `INNGEST025` leaves async methods to the compiler, which reports a call that is not awaited there (`CS4014`). Assigning
+  the task to a discard, `_ = client.SendAsync(...)`, says that nothing should wait for it.
+- `INNGEST021` is information only, because the cleanup often does no harm when it runs late, as with a
+  `CancellationTokenSource`. Raise it in `.editorconfig` to see it in the build:
+  `dotnet_diagnostic.INNGEST021.severity = warning`.
+
 ## Diagnostics
 
 Every diagnostic has an id that `.editorconfig` can configure, such as `dotnet_diagnostic.INNGEST010.severity = none`,
@@ -323,3 +391,45 @@ turns reflection-based JSON off. Add `[JsonSerializable(typeof(...))]` for it to
 ### INNGEST011
 
 Warning. The type is anonymous, which no context can list. Use a record, a class or a struct, and list it.
+
+### INNGEST020
+
+Warning. A step's handler assigns a local, a parameter or a field, and the function reads it outside the step. In the
+call that runs the handler the value is there; in every call after it the handler does not run, and the function reads
+what the variable held before the step. Return the value from the step instead:
+`var receiptId = await context.Step.RunAsync("charge", ...)`.
+
+### INNGEST021
+
+Info. A `finally` block, a `using` statement or a `using` declaration encloses a step. A call that reaches a step without
+a result answers Inngest and abandons the function: the step's task never completes, so the `finally` block and the
+`Dispose` call do not run in that call, and run only in the call that gets past the step. A lock or a scope held across
+a step is held until then, and a resource is not disposed in the calls in between. Acquire it inside the step, or after
+the steps. The same holds for a step in a `catch` block with a `finally` after it.
+
+### INNGEST022
+
+Warning. A step id uses `DateTime.Now`, `DateTime.UtcNow`, `DateTimeOffset.Now`, `Guid.NewGuid()`, `Random`,
+`RandomNumberGenerator`, `Environment.TickCount`, `Stopwatch.GetTimestamp()` or `TimeProvider.GetUtcNow()`. Inngest finds
+a step's result by its id, so an id that is different in the next call makes the step new every time: it runs again,
+and the run may never end. Build the id from the event's data, or make the value inside a step and use its result. The
+display name, `StepOptions.Name`, can hold anything.
+
+### INNGEST023
+
+Warning. Code blocks on the task of a step with `.Result`, `.Wait()` or `.GetAwaiter().GetResult()`. The SDK runs a function
+on a scheduler of its own and completes a step's task from there, so blocking its thread deadlocks the call, and a step
+that is new never completes in the call at all. Await the task. In an async method or lambda the code fix does that.
+
+### INNGEST024
+
+Warning. A step is called inside the handler of another step, such as `RunAsync` inside `RunAsync`, or inside the handler
+of an item of `MapAsync`. Steps cannot be nested, and the SDK throws when the handler runs. Call the step from the
+function, before or after the other. The callback of `ParallelAsync` is not a handler, and steps belong there.
+
+### INNGEST025
+
+Warning. The task of a step or of `SendAsync` is the value of a statement, in a method or lambda that is not async, such
+as a step handler written as an `Action`. Nothing waits for it: an event may not have left the app when the function
+returns, a step lets the code after it go on before it has run, and their errors go unseen. Await the task or return it,
+or assign it to a discard to show that nothing should wait for it.

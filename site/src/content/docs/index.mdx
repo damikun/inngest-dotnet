@@ -516,7 +516,7 @@ inngest.AddEncryption(options =>
 
 #### Sentry
 
-Report the errors of functions and steps to Sentry, tagged with the app, the function, the run and the event.
+Report every call and step to Sentry as a transaction and its spans, and their errors, tagged with the app, the function, the run and the event.
 
 {/* check: statements; WebApplicationBuilder builder; IInngestBuilder inngest; string dsn */}
 ```csharp
@@ -600,7 +600,7 @@ builder.AddProject<Projects.Shop>("shop")
 
 #### Source generator and analyzers
 
-Turn on a generator that registers every function class of a project with one call, and find the types a Native AOT app has not listed.
+Turn on a generator that registers every function class of a project with one call, find the types a Native AOT app has not listed, and find code that breaks when a run replays.
 
 {/* check: statements; IInngestBuilder inngest */}
 ```csharp

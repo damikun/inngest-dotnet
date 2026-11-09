@@ -445,12 +445,50 @@ Package `Inngest.OpenTelemetry`.
 | `TracerProviderBuilder.AddInngestInstrumentation()` | Collects the SDK's spans. In `OpenTelemetry.Trace`. |
 | `MeterProviderBuilder.AddInngestInstrumentation()` | Collects the SDK's metrics. In `OpenTelemetry.Metrics`. |
 | `InngestInstrumentation.ActivitySourceName`, `InngestInstrumentation.MeterName` | `"inngest"`, for `AddSource`, `AddMeter` or a listener of your own. |
+| `IInngestBuilder.AddExtendedTraces()` | Experimental (`INNGESTEXP002`). Sends the spans the app's code makes while a function runs to Inngest, which shows them in the run's trace. Adds `AddInstrumentation()` as well. See [Extended traces](#extended-traces). |
+| `ExtendedTracesDiagnostics.Id` | `"INNGESTEXP002"`, the diagnostic that marks the extended traces API. |
 
 The spans are `inngest.execution`, one per call from Inngest, and `inngest.step`, one per step the app executes; a
 Connect worker adds `inngest.connect.request` for every request it receives. The metrics are `inngest.run.started`,
 `inngest.run.completed`, `inngest.run.failed`, `inngest.retries`, `inngest.execution.duration` and
 `inngest.step.duration`, with durations in seconds. The [tracing middleware example](/inngest-dotnet/examples/tracing-middleware/)
 shows how to write such a middleware yourself.
+
+### Extended traces
+
+`AddExtendedTraces()` is the counterpart of the TypeScript SDK's `extendedTracesMiddleware()`, and experimental there
+too, so the API is marked `[Experimental("INNGESTEXP002")]` and may still change. Suppress the diagnostic to use it:
+
+```xml title="Shop.csproj"
+<PropertyGroup>
+  <NoWarn>$(NoWarn);INNGESTEXP002</NoWarn>
+</PropertyGroup>
+```
+
+{/* check: statements; WebApplicationBuilder builder */}
+```csharp title="Program.cs"
+builder.Services
+    .AddInngest(options => options.AppId = "shop")
+    .AddExtendedTraces();
+```
+
+Every span that starts under the call's span, `inngest.execution`, is sent to Inngest at the end of the call, from any
+`ActivitySource`: an `HttpClient` request, a database query, a model call, a span of your own. Inngest shows them in the
+run's trace, under the step whose handler made them. They go over OTLP/HTTP, as JSON, to `/v1/traces/userland` of the
+Inngest API, with the signing key, and carry the attributes Inngest reads to place them: `inngest.traceref` and the
+function's id from the trace state Inngest sent with the call, `sdk.run.id`, and `inngest.step.id`, `inngest.step.index`,
+`inngest.step.hash` and `inngest.step.attempt` for the spans of a step. The dev server shows them too.
+
+- No OpenTelemetry SDK is needed for this: the package listens to the activities itself. The spans of a run are
+  recorded even where the app's own sampler would drop them, and other spans are left alone. An app that exports to its
+  own collector as well gets the same spans there, with the attributes above.
+- A call continues the trace Inngest sent with it through the host's span for the request, which ASP.NET Core starts
+  from the `traceparent` and `tracestate` headers, and the Connect worker from its request. A call without Inngest's
+  trace state sends nothing.
+- Once a step has run in a call, spans outside a step are left out, as the TypeScript SDK does, since they are the SDK's
+  own work between checkpointed steps. A span that has not ended when the call ends, such as one around a step that the
+  call stops at, is dropped.
+- An export that fails drops its spans and logs a warning once.
 
 ## Encryption
 
@@ -480,11 +518,11 @@ Package `Inngest.Sentry`.
 
 | Member | Purpose |
 |---|---|
-| `IInngestBuilder.AddSentryReporting(Action<SentryReportingOptions>?)` | Adds the middleware that reports the errors of functions and steps to Sentry. Add it before other middleware, so that their work falls inside its scope. |
+| `IInngestBuilder.AddSentryReporting(Action<SentryReportingOptions>?)` | Adds the middleware that reports calls to Sentry, as a transaction with a span for each step the call executes, and the errors of functions and steps. Add it before other middleware, so that their work falls inside its scope. |
 
 **`SentryReportingOptions`**: `OnlyCaptureFinalAttempt` (default `true`), `CaptureStepErrors` (`false`),
 `DisableAutomaticFlush` (`false`) and `FlushTimeout` (2 seconds). See [Middleware](/inngest-dotnet/guides/middleware/#sentry)
-for the tags, the trace and the options.
+for the tags, the spans, the trace and the options.
 
 ## AI chat clients
 
@@ -521,7 +559,7 @@ The MSBuild properties of the project that the generator and the analyzers read:
 | `InngestGenerateFunctionRegistration` | `false` | `true` writes the method and reports the classes it leaves out (`INNGEST001` to `INNGEST005`). Nothing is written or reported until it is set. |
 | `InngestFunctionsMethodName` | `AddInngestFunctions` | The name of the generated method. |
 | `InngestFunctionsAccessibility` | `internal` | `public` or `internal`. |
-| `DisableInngestAnalyzers` | `false` | `true` removes everything the package runs in the compiler, the generator and both analyzers, from the build. |
+| `DisableInngestAnalyzers` | `false` | `true` removes everything the package runs in the compiler, the generator and the analyzers, from the build. |
 | `PublishAot`, `PublishTrimmed`, `JsonSerializerIsReflectionEnabledByDefault` | | Read by the JSON analyzer, which is active when reflection-based JSON is off. |
 
 The diagnostics:
@@ -536,6 +574,12 @@ The diagnostics:
 | [`INNGEST006`](/inngest-dotnet/guides/source-generator/#inngest006) | Warning | `InngestGenerateFunctionRegistration`, `InngestFunctionsMethodName` or `InngestFunctionsAccessibility` has a value the generator cannot use. |
 | [`INNGEST010`](/inngest-dotnet/guides/source-generator/#inngest010) | Warning | The event data or result of a function, or a type a typed step saves (`RunAsync<T>`, `WaitForEventAsync<T>`, `InvokeAsync`, `PublishAsync<T>` and the others), is in no `JsonSerializerContext`, and reflection-based JSON is off. A code fix lists it. |
 | [`INNGEST011`](/inngest-dotnet/guides/source-generator/#inngest011) | Warning | The same type is anonymous, which no context can list. |
+| [`INNGEST020`](/inngest-dotnet/guides/source-generator/#inngest020) | Warning | A step's handler assigns a local, a parameter or a field that the function reads outside the step. |
+| [`INNGEST021`](/inngest-dotnet/guides/source-generator/#inngest021) | Info | A `finally` block, a `using` statement or a `using` declaration encloses a step. |
+| [`INNGEST022`](/inngest-dotnet/guides/source-generator/#inngest022) | Warning | A step id uses the clock, a new `Guid` or a random number. |
+| [`INNGEST023`](/inngest-dotnet/guides/source-generator/#inngest023) | Warning | Code blocks on the task of a step with `.Result`, `.Wait()` or `.GetAwaiter().GetResult()`. A code fix awaits it. |
+| [`INNGEST024`](/inngest-dotnet/guides/source-generator/#inngest024) | Warning | A step is called inside the handler of another step. |
+| [`INNGEST025`](/inngest-dotnet/guides/source-generator/#inngest025) | Warning | The task of a step or of `SendAsync` is dropped in a method or lambda that is not async. |
 
 ## Entity Framework Core outbox
 

@@ -362,10 +362,11 @@ that the default strategies wrote are still decrypted, so data can move from one
 
 ## Sentry
 
-The [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) package reports the errors of functions and
-steps to Sentry. An exception that a function throws never leaves the request: the SDK turns it into the answer to
-Inngest, so Sentry's ASP.NET Core middleware never sees it. This middleware reports it, with the app, the function,
-the run and the event as tags.
+The [`Inngest.Sentry`](https://www.nuget.org/packages/Inngest.Sentry/) package reports function runs to Sentry: a
+transaction for every call from Inngest, with a span for every step the call executes, and the errors of functions and
+steps. An exception that a function throws never leaves the request: the SDK turns it into the answer to Inngest, so
+Sentry's ASP.NET Core middleware never sees it. This middleware reports it, with the app, the function, the run and the
+event as tags.
 
 ```bash
 dotnet add package Inngest.Sentry
@@ -406,6 +407,19 @@ An event it reports has the transaction name `inngest:<function id>` and these t
 A step that fails for good and reaches a function that does not catch it is reported by the function. With
 `CaptureStepErrors` on, the step reports it as well, so it appears twice.
 
+### Spans
+
+Every call is a transaction named `inngest:<function id>`, with the operation `request` and the tags above other than
+the error's. Each step the call executes is a span of it, with the operation `step`, the step's display name, or its id,
+as the description, and the tags `inngest.step.name` and `inngest.step.type`. A step that throws ends its span with the
+status `internal_error`, and an error of the step or of the function ends the transaction with it too; otherwise the
+status is `ok`. A step that Inngest carries out, such as a sleep or an invoke, runs no handler in the app and has no
+span, and neither has a step whose result was saved in an earlier call.
+
+The transaction ends when the call's service scope ends, since a call that stops at a new step never returns from the
+function. Sentry samples transactions by `TracesSampleRate` or `TracesSampler`, as any other, so set one of them to see
+them. An error the middleware reports is linked to the transaction, or to the span of the step that failed.
+
 ### Scope and trace
 
 Sentry's scope follows the async flow. The middleware pushes one around the function and around every step handler,
@@ -416,10 +430,11 @@ mode, which is meant for desktop and mobile apps, the whole app has one scope an
 the tags go on it, and calls that run at the same time mix them.
 
 All calls of a run report to one trace. A run id is a ULID, which holds 128 bits, as a trace id does, and the
-middleware makes it the trace id the way the TypeScript middleware does. The events it reports are in that trace,
-even when the calls reach different instances of the app, and not in the trace of the request that carries the call,
-which is new for every call. What your own code reports during the call stays in the request's trace while Sentry has
-a transaction for the request, as Sentry.AspNetCore starts one.
+middleware makes it the trace id the way the TypeScript middleware does. The transactions and the events it reports are
+in that trace, even when the calls reach different instances of the app, and not in the trace of the request that
+carries the call, which is new for every call. What your own code reports during the call, and the spans it starts,
+stay in the request's trace while Sentry has a transaction for the request, as Sentry.AspNetCore starts one: the
+middleware does not make its transaction the scope's, which would take it from the request.
 
 ### Options
 
@@ -464,9 +479,9 @@ builder.WebHost.UseSentry(options =>
 
 ### Compared with @inngest/middleware-sentry
 
-- The TypeScript middleware also starts a Sentry span for each request and each step. This one reports errors only.
-  For spans, use [`Inngest.OpenTelemetry`](/inngest-dotnet/reference/api/#opentelemetry) with Sentry's OpenTelemetry
-  integration.
+- The TypeScript middleware's request span is a transaction here, since a span at the root of a trace is one in
+  Sentry's .NET SDK, and it does not become the active span of your code. It does not carry the event's JSON as
+  `inngest.event`.
 - There is no `ctx.sentry`. Use `SentrySdk`, or take an `IHub` from the container.
 - There is no `inngest.function.name` tag, because a function's context holds its id only.
 - `FlushTimeout` is new: `FlushAsync` needs a timeout.
