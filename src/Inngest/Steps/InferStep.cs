@@ -90,5 +90,5 @@ internal sealed class InferStep<TResponse>(string id, InferOptions infer) : Foun
     }
 
     protected override TResponse Read(JsonElement value, JsonSerializerOptions options) =>
-        value.Deserialize((JsonTypeInfo<TResponse>)options.GetTypeInfo(typeof(TResponse)))!;
+        value.Deserialize(infer.ResponseType as JsonTypeInfo<TResponse> ?? (JsonTypeInfo<TResponse>)options.GetTypeInfo(typeof(TResponse)))!;
 }

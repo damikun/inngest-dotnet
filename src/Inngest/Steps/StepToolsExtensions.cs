@@ -80,6 +80,17 @@ public static class StepToolsExtensions
     public static Task<JsonElement> InferAsync(this IStepTools step, string id, InferOptions options) =>
         step.InferAsync<JsonElement>(id, options);
 
+    /// <summary>
+    /// Has Inngest send the request to the model's provider, as InferAsync does with the options the model makes for it,
+    /// and reads the response in the provider's format.
+    /// </summary>
+    public static Task<TResponse> InferAsync<TRequest, TResponse>(this IStepTools step, string id, InferModel<TRequest, TResponse> model, TRequest request)
+        where TRequest : class
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        return step.InferAsync<TResponse>(id, model.CreateOptions(request));
+    }
+
     public static Task<TResult> AIWrapAsync<TInput, TResult>(this IStepTools step, string id, TInput input, Func<TInput, Task<TResult>> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -192,6 +203,21 @@ public static class StepToolsExtensions
 
     public static Task<JsonElement> InferAsync(this IStepTools step, StepOptions stepOptions, InferOptions options) =>
         step.InferAsync<JsonElement>(stepOptions, options);
+
+    /// <summary>
+    /// Has Inngest send the request to the model's provider, as InferAsync does with the options the model makes for it,
+    /// and reads the response in the provider's format.
+    /// </summary>
+    public static Task<TResponse> InferAsync<TRequest, TResponse>(
+        this IStepTools step,
+        StepOptions stepOptions,
+        InferModel<TRequest, TResponse> model,
+        TRequest request)
+        where TRequest : class
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        return step.InferAsync<TResponse>(stepOptions, model.CreateOptions(request));
+    }
 
     public static Task<TResult> AIWrapAsync<TInput, TResult>(
         this IStepTools step,
