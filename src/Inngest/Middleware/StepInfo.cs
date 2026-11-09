@@ -10,4 +10,9 @@ namespace Inngest;
 public sealed record StepInfo(string Id, string HashedId, StepType Type, bool Memoized)
 {
     public string? Name { get; init; }
+
+    // The id without the suffix and the number of the repeat, as Inngest's "userland" id of the step has them.
+    internal string? UserlandId { get; init; }
+
+    internal int? Index { get; init; }
 }

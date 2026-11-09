@@ -2,6 +2,7 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Diagnostics;
+using Inngest.OpenTelemetry.ExtendedTraces;
 
 namespace Inngest.OpenTelemetry;
 
@@ -11,7 +12,11 @@ namespace Inngest.OpenTelemetry;
 //
 // Memoized steps get no spans and count as no steps, because nothing runs for them; the call's span says how many it
 // replayed. The engine runs every hook of a call one after the other, so the fields need no locks.
-internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry) : InngestMiddleware, IDisposable
+//
+// With AddExtendedTraces the call's span and the spans of the steps are declared to the exporter, which sends them and
+// the spans under them to Inngest once the scope ends.
+internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry, ExtendedTraceExporter? extendedTraces = null)
+    : InngestMiddleware, IAsyncDisposable, IDisposable
 {
     private FunctionContext? _context;
     private Activity? _call;
@@ -77,6 +82,11 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry) : In
         }
 
         using var activity = InngestTelemetry.StartStep(call, _slug, context, step);
+        if (activity is not null)
+        {
+            extendedTraces?.DeclareStep(activity, step, context.Attempt);
+        }
+
         var startedAt = Stopwatch.GetTimestamp();
         string? errorType = null;
         try
@@ -153,7 +163,17 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry) : In
         return ValueTask.CompletedTask;
     }
 
-    public void Dispose() => End();
+    public async ValueTask DisposeAsync()
+    {
+        End();
+        if (extendedTraces is not null)
+        {
+            await extendedTraces.FlushAsync().ConfigureAwait(false);
+        }
+    }
+
+    // Hosts dispose the scope of a call asynchronously. One that does not still gets the call's spans sent, by waiting.
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
     private Activity? Begin(FunctionContext context)
     {
@@ -172,6 +192,11 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry) : In
         var previous = Activity.Current;
         _call = InngestTelemetry.StartCall(_slug, context);
         Activity.Current = previous;
+        if (_call is not null)
+        {
+            extendedTraces?.DeclareRoot(_call, context.RunId);
+        }
+
         return _call;
     }
 

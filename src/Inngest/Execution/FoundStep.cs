@@ -108,7 +108,7 @@ internal abstract class FoundStep(string id)
     public void SetMetadata(string kind, MetadataScope scope, MetadataValues values) =>
         (Metadata ??= new StepMetadata()).Set(kind, scope, values);
 
-    public StepInfo CreateInfo(bool memoized) => new(FinalId, HashedId, Type, memoized) { Name = _name };
+    public StepInfo CreateInfo(bool memoized) => new(FinalId, HashedId, Type, memoized) { Name = _name, UserlandId = Id, Index = Index };
 
     // The legacy "name" of the op: the id for run steps, the duration of a sleep, the event to wait for.
     public abstract string? GetName();
