@@ -18,6 +18,9 @@
 //   {/* check: file isolated */}                         types in a namespace of their own
 //   {/* check: skip */}                                  not compiled
 //
+// A `warns` part, as in {/* check: body OrderPlaced; warns INNGEST020 INNGEST022 */}, is for a block that shows a
+// mistake: the build must report those warnings of the SDK's analyzers in the block, and they do not fail it.
+//
 // Blocks of one page share a namespace, so a later block can use the types of an earlier one.
 
 import { spawnSync } from 'node:child_process';
@@ -55,6 +58,7 @@ interface Directive {
   type?: string;
   params: string[];
   isolated: boolean;
+  warns: string[];
 }
 
 interface Line {
@@ -86,7 +90,14 @@ function parseDirective(text: string): Directive {
   const kinds: Kind[] = ['file', 'program', 'body', 'statements', 'expression', 'members', 'attributes', 'skip'];
   const kind = kinds.find((k) => k === words[0]?.replace(/[,:]$/, '')) ?? 'auto';
   const rest = words.slice(1).filter((word) => word !== 'isolated');
-  return { kind, type: rest[0], params: params.filter(Boolean), isolated: words.includes('isolated') };
+  const warns = params.filter((part) => part.startsWith('warns ')).flatMap((part) => part.slice('warns '.length).split(/[\s,]+/).filter(Boolean));
+  return {
+    kind,
+    type: rest[0],
+    params: params.filter((part) => part !== '' && !part.startsWith('warns ')),
+    isolated: words.includes('isolated'),
+    warns,
+  };
 }
 
 function extract(file: string, page: string): Snippet[] {
@@ -402,9 +413,13 @@ const props = `<Project>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Warnings the wrappers cause rather than the snippets: async methods without await, the return after a
-         snippet's own return, unused local functions and variables of fragments. INNGESTEXP001 marks the durable
-         endpoint API as experimental; the durable endpoints guide has readers suppress it in their project file. -->
-    <NoWarn>$(NoWarn);CS1998;CS0162;CS8321;CS0219;CS0168;CS1591;xUnit1051;INNGESTEXP001</NoWarn>
+         snippet's own return, unused local functions and variables of fragments. INNGESTEXP001 and INNGESTEXP002 mark
+         the durable endpoint and extended traces APIs as experimental; their pages have readers suppress them in their
+         project file. -->
+    <NoWarn>$(NoWarn);CS1998;CS0162;CS8321;CS0219;CS0168;CS1591;xUnit1051;INNGESTEXP001;INNGESTEXP002</NoWarn>
+    <!-- The analyzers of steps stay warnings, so that a block marked with warns can show the mistake they report. Every
+         other block fails on them, as on any warning. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);INNGEST020;INNGEST021;INNGEST022;INNGEST023;INNGEST024;INNGEST025</WarningsNotAsErrors>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>
@@ -536,7 +551,7 @@ console.log(`${all.length} C# blocks in ${pages.size} pages (${skipped.length} s
 
 const build = run('dotnet', ['build', 'Snippets.slnx', '-nologo', '-v:q', '-clp:NoSummary']);
 // Diagnostics point at the .mdx files through #line directives; paths are shortened to keep them readable.
-const diagnostics = [
+let diagnostics = [
   ...new Set(
     build.output
       .split('\n')
@@ -544,6 +559,22 @@ const diagnostics = [
       .map((line) => line.trim().replace(/ \[[^\]]+\.csproj\]$/, '').replaceAll(`${site}${sep}`, '').replaceAll(`${out}${sep}`, '')),
   ),
 ];
+// The warnings a block expects are taken out, and one it expects and does not get is a failure of its own.
+for (const snippet of all.filter((s) => s.directive.warns.length > 0 && s.lines.length > 0)) {
+  const path = relative(site, snippet.file);
+  const first = snippet.lines[0].number;
+  const last = snippet.lines[snippet.lines.length - 1].number;
+  const seen = new Set<string>();
+  diagnostics = diagnostics.filter((line) => {
+    const match = /^(.+)\((\d+),\d+\): warning (\w+):/.exec(line);
+    const expected = match !== null && match[1] === path && +match[2] >= first && +match[2] <= last && snippet.directive.warns.includes(match[3]);
+    if (expected) seen.add(match[3]);
+    return !expected;
+  });
+  for (const id of snippet.directive.warns.filter((id) => !seen.has(id))) {
+    diagnostics.push(`${path}(${first}): the block expects warning ${id}, which the build did not report`);
+  }
+}
 if (build.status !== 0 || diagnostics.length > 0) {
   console.error(diagnostics.length > 0 ? diagnostics.join('\n') : build.output);
   console.error(`\nThe snippets do not compile (${diagnostics.length} diagnostics).`);

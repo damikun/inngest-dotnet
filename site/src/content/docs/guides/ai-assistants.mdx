@@ -60,6 +60,8 @@ callback given to `createFunction`, and an event's data is a record.
 | `NonRetriableError`, `RetryAfterError` | `NonRetriableException`, `RetryAfterException` |
 | `new InngestMiddleware(...)` | A class that derives from `InngestMiddleware`, registered with `AddMiddleware<T>()` on the builder that `AddInngest` returns. See [Middleware](/inngest-dotnet/guides/middleware/). |
 | `@inngest/middleware-encryption`, `@inngest/middleware-sentry` | `AddEncryption(...)` from `Inngest.Encryption`, `AddSentryReporting()` from `Inngest.Sentry`. |
+| `extendedTracesMiddleware()` | `AddExtendedTraces()` from `Inngest.OpenTelemetry`. The API is experimental: suppress the diagnostic `INNGESTEXP002`. See [Extended traces](/inngest-dotnet/reference/api/#extended-traces). |
+| `@inngest/eslint-plugin` | Nothing to install: the analyzers of the `Inngest` package report the same mistakes, `INNGEST020` to `INNGEST025`. See [Check steps for replay safety](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety). |
 | `@inngest/test` | `InngestTestHost` and `StepMocks` from `Inngest.Testing`, which run a function on the real execution engine. See [Testing](/inngest-dotnet/guides/testing/). |
 
 By default event data is serialized with camelCase names, so the property `OrderId` is `data.orderId` in the
@@ -229,11 +231,11 @@ again on every call and the run does not get past it. Use a constant, or build t
 results of earlier steps and loop indexes. Never build it from the clock, `Guid.NewGuid()` or `Random`.
 [Steps](/inngest-dotnet/guides/steps/#step-ids) explains how repeated ids are numbered.
 
-{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders; warns INNGEST022 */}
 ```csharp
 var order = context.Event.Data;
 
-// Wrong: a new id on every call, so no call finds a saved result and the charge runs every time.
+// Wrong (INNGEST022): a new id on every call, so no call finds a saved result and the charge runs every time.
 var paymentId = await context.Step.RunAsync($"charge-{Guid.NewGuid()}",
     ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
 
@@ -293,11 +295,11 @@ foreach (var invoice in invoices)
 
 A handler does not run again once its step has a saved result, so a variable it assigned is empty on every later call.
 
-{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders; warns INNGEST020 */}
 ```csharp
 var order = context.Event.Data;
 
-// Wrong: on later calls the handler does not run, so paymentId stays null.
+// Wrong (INNGEST020): on later calls the handler does not run, so paymentId stays null.
 string? paymentId = null;
 await context.Step.RunAsync("charge", async ct =>
 {
@@ -370,11 +372,11 @@ before. The SDK hands results back on the function's own thread, which the block
 To run steps in parallel, start them and `await Task.WhenAll(...)`; see
 [Parallel steps](/inngest-dotnet/guides/parallel-steps/).
 
-{/* check: body OrderPlaced; IPaymentGateway payments */}
+{/* check: body OrderPlaced; IPaymentGateway payments; warns INNGEST023 */}
 ```csharp
 var order = context.Event.Data;
 
-// Wrong: the call hangs.
+// Wrong (INNGEST023): the call hangs.
 var paymentId = context.Step.RunAsync("charge",
     ct => payments.ChargeAsync(order.CustomerId, order.Total, ct)).Result;
 ```
@@ -393,11 +395,11 @@ var paymentId = await context.Step.RunAsync("charge",
 A step tool called inside another step's handler throws an `InvalidOperationException`. Call the steps from the
 function, one after the other.
 
-{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders */}
+{/* check: body OrderPlaced; IPaymentGateway payments; IOrderStore orders; warns INNGEST024 */}
 ```csharp
 var order = context.Event.Data;
 
-// Wrong: "charge" is called inside the handler of "pay-order".
+// Wrong (INNGEST024): "charge" is called inside the handler of "pay-order".
 await context.Step.RunAsync("pay-order", async ct =>
 {
     var paymentId = await context.Step.RunAsync("charge",
