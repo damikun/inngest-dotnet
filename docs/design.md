@@ -221,6 +221,11 @@ In dev mode nothing is verified or signed.
 `X-Inngest-Event-Id-Seed: <unix ms>,<base64 of 10 random bytes>` once per send and keeps it across retries, so a
 retried send creates the same event ids. Sends are retried up to 5 attempts with exponential backoff.
 
+An event a `sendEvent` step sends without an id gets `<run id>-<hashed step id>-<index in the list>`. Inngest takes an
+event's id as the idempotency key of the runs it starts, so a step that runs again because its result was lost sends
+the same events without starting their runs twice; the seed alone would not do that, since each attempt of the step is
+a new send.
+
 ### Modes and configuration
 
 | Setting | Environment variable | Default |
@@ -693,6 +698,7 @@ Behaviour that differs on purpose, beyond the API shape:
 | Sync URL | Keeps `deployId` in the registered URLs | Strips it, as the spec requires |
 | Failure and cancel handlers | Failure handlers always registered with runtime type `http` | Same runtime type as the function they belong to |
 | Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |
+| Ids of events a `sendEvent` step sends | Left to Inngest, so a step that runs again sends copies | `<run id>-<hashed step id>-<index>` when the code sets none, so Inngest drops the copies |
 | `INNGEST_DEV` URL | Redirects the APIs even when `isDev` is false | Only used in dev mode |
 | Flags in variables | `1`/`true` and `0`/`false`; any other `INNGEST_DEV` is a dev server address | Also `on`/`yes` and `off`/`no`, so `INNGEST_DEV=off` is cloud mode, not a dev server at `http://off` that turns off signature checks |
 | Error names | JavaScript error names, with a `__serialized` marker | .NET exception type names, no marker |

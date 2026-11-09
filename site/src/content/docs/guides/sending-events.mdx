@@ -91,6 +91,10 @@ await context.Step.SendEventAsync("request-shipping", new LabelRequested(order.O
 
 The step takes a list of records too, or `InngestEvent`s for events named by a string.
 
+An event the step sends without an `Id` gets one made of the run id, the step's hashed id and the event's place in
+the list, such as `01JC…-a94a8fe5…-0`. A step whose result was lost on its way to Inngest runs again and sends its
+events under the same ids, so Inngest starts no second runs for them. An `Id` you set is sent as it is.
+
 Sending through `IInngestClient` inside a function would send again on every call that passes that line. Use the
 step tool there.
 
