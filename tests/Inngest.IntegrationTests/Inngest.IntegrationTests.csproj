@@ -42,6 +42,7 @@
     <ProjectReference Include="..\..\src\Inngest.AzureFunctions\Inngest.AzureFunctions.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Blazor\Inngest.Blazor.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Connect\Inngest.Connect.csproj" />
+    <ProjectReference Include="..\..\src\Inngest.Encryption\Inngest.Encryption.csproj" />
     <ProjectReference Include="..\..\src\Inngest.EntityFrameworkCore\Inngest.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Inngest.Extensions.AI\Inngest.Extensions.AI.csproj" />
     <ProjectReference Include="..\..\src\Inngest.SignalR\Inngest.SignalR.csproj" />
