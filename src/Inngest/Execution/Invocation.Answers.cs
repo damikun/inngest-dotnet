@@ -38,10 +38,69 @@ internal sealed partial class Invocation
     {
         step.WriteOpStart(writer, Ops.StepRun, _settings);
         writer.WritePropertyName(DataProperty);
+        var start = writer.BytesCommitted + writer.BytesPending;
         step.WriteData(writer, output, _settings.SerializerOptions);
+        CheckOutputSize(step, writer.BytesCommitted + writer.BytesPending - start);
         timing.Write(writer);
         step.Metadata?.Write(writer);
         writer.WriteEndObject();
+    }
+
+    // Inngest refuses a larger output, and the same step would return it again, so the step fails without retries. The
+    // run's state is only estimated, from what this call received, so passing its limit is a warning; Inngest fails the run.
+    private void CheckOutputSize(FoundStep step, long bytes)
+    {
+        if (bytes > MaxStepOutputBytes)
+        {
+            var mebibytes = (bytes / 1024.0 / 1024.0).ToString("0.0", CultureInfo.InvariantCulture);
+            throw new NonRetriableException(
+                $"The output of step \"{step.FinalId}\" is {mebibytes} MiB, more than the 4 MiB Inngest keeps for a step. " +
+                "Keep large data outside the run and return a reference to it.");
+        }
+
+        _stateBytes ??= ReceivedStateBytes();
+        _stateBytes += bytes;
+        if (_stateBytes > MaxRunStateBytes && !_warnedState)
+        {
+            _warnedState = true;
+            Log.RunStateTooLarge(_runLogger, step.FinalId, _run.RunId, _functionId, _stateBytes.Value);
+        }
+    }
+
+    // The request carries the events and the step results unless Inngest left them out for their size.
+    private long ReceivedStateBytes()
+    {
+        if (!_run.UseApi)
+        {
+            return _requestBytes;
+        }
+
+        long bytes = 0;
+        foreach (var @event in _run.Events)
+        {
+            bytes += RawBytes(@event);
+        }
+
+        foreach (var memo in _run.Memo.Values)
+        {
+            bytes += RawBytes(memo.Value);
+        }
+
+        return bytes;
+    }
+
+    private static int RawBytes(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Undefined)
+        {
+            return 0;
+        }
+
+#if NET9_0_OR_GREATER
+        return System.Runtime.InteropServices.JsonMarshal.GetRawUtf8Value(element).Length;
+#else
+        return Encoding.UTF8.GetByteCount(element.GetRawText());
+#endif
     }
 
     private void WriteStepError(PooledBufferWriter body, FoundStep step, Exception error, bool final, Timing timing)

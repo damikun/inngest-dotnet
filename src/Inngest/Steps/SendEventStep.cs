@@ -32,6 +32,12 @@ internal sealed class SendEventStep(string id, IReadOnlyList<InngestEvent> event
 
     public override async Task<object?> ExecuteAsync(FunctionContext context, IServiceProvider services, CancellationToken cancellationToken)
     {
+        // Another attempt would send the same list.
+        if (InngestClient.TooManyEvents(events.Count) is { } tooMany)
+        {
+            throw new NonRetriableException(tooMany);
+        }
+
         var client = services.GetRequiredService<InngestClient>();
         return await client.SendAsync(WithStableIds(events, context.RunId), context, services, cancellationToken).ConfigureAwait(false);
     }

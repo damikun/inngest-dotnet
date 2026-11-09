@@ -191,6 +191,9 @@ wrong key or `400` for an invalid event, fail at once.
 Every attempt of one `SendAsync` call carries the same seed for event ids, so a retry after a lost response creates
 the same events rather than copies.
 
+Inngest takes at most 5,000 events in one send. `SendAsync` throws an `ArgumentException` for more, before sending
+any, and a `SendEventAsync` step with more fails without retries. Send larger lists in several calls or steps.
+
 When the send fails for good, `SendAsync` throws `InngestException`, with the HTTP status in `StatusCode` when
 there was one. Inside a function, `SendEventAsync` fails like any other step and is retried with it.
 

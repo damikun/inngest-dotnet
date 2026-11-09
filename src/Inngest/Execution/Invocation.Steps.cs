@@ -88,6 +88,11 @@ internal sealed partial class Invocation
         step.Attach(finalId, index, hashedId, memo);
         _steps.Add(hashedId, step);
         _found.Add(step);
+        if (_found.Count == MaxSteps + 1)
+        {
+            Log.StepLimitPassed(_runLogger, _run.RunId, _functionId, _found.Count, finalId);
+        }
+
         if (memo is { Ordered: true } && --_unseen == 0)
         {
             EndMemoization();

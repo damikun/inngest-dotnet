@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -18,6 +19,9 @@ namespace Inngest.Client;
 internal sealed class InngestClient : IInngestClient
 {
     internal const int MaxAttempts = 5;
+
+    // Inngest reads at most this many events from one request.
+    internal const int MaxEventsPerSend = 5_000;
 
     // The dev server accepts any non-empty key, so a client without one can still send in dev mode.
     internal const string PlaceholderEventKey = "NO_EVENT_KEY_SET";
@@ -173,6 +177,11 @@ internal sealed class InngestClient : IInngestClient
         return $"{now.ToUnixTimeMilliseconds()},{Convert.ToBase64String(entropy)}";
     }
 
+    internal static string? TooManyEvents(int count) =>
+        count > MaxEventsPerSend
+            ? string.Create(CultureInfo.InvariantCulture, $"Inngest accepts at most {MaxEventsPerSend:N0} events in one send, but this one has {count:N0}. Send them in several calls.")
+            : null;
+
     // Like inngest-js, an empty environment leaves the app's in place.
     private static string? EnvironmentOf(SendOptions options) =>
         string.IsNullOrEmpty(options.Environment) ? null : options.Environment;
@@ -225,6 +234,11 @@ internal sealed class InngestClient : IInngestClient
         if (events.Count == 0)
         {
             return EmptyResult;
+        }
+
+        if (TooManyEvents(events.Count) is { } tooMany)
+        {
+            throw new ArgumentException(tooMany, nameof(events));
         }
 
         using var body = new PooledBufferWriter(InitialBodyCapacity);

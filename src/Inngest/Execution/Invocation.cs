@@ -31,6 +31,12 @@ internal sealed partial class Invocation
     private const int MaxContinuationsPerTick = 100_000;
     private const int MaxStepsInNotFoundReport = 25;
 
+    // Inngest's limits: what one step may return, the state a run may keep (events, step results and output) and the
+    // steps of a run by default. Plans can allow more steps, so only the output fails here.
+    private const int MaxStepOutputBytes = 4 * 1024 * 1024;
+    private const long MaxRunStateBytes = 32 * 1024 * 1024;
+    private const int MaxSteps = 1_000;
+
     // The step whose handler runs in the current async flow. Steps cannot be nested.
     private static readonly AsyncLocal<string?> ExecutingStep = new();
 
@@ -57,6 +63,7 @@ internal sealed partial class Invocation
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
     private readonly RunRequest _run;
+    private readonly int _requestBytes;
     private readonly IServiceProvider _services;
     private readonly string _functionId;
     private readonly string? _target;
@@ -87,6 +94,10 @@ internal sealed partial class Invocation
     private bool _memoizationEnded;
     private bool _memoizationObserversPending;
     private bool _warnedReuse;
+    private bool _warnedState;
+
+    // The run's state as far as this call knows it, in bytes; computed when a step first writes its output.
+    private long? _stateBytes;
     private long _waitingSince;
     private volatile bool _finished;
 
@@ -99,6 +110,7 @@ internal sealed partial class Invocation
         _time = engine.TimeProvider;
         _logger = engine.Logger;
         _run = run;
+        _requestBytes = request.Body.Length;
         _services = request.Services;
         _functionId = request.Function.Id;
         _target = string.IsNullOrEmpty(request.StepId) || request.StepId == "step" ? null : request.StepId;

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Inngest.Client;
 using Inngest.Execution;
 using Inngest.Functions;
 using Inngest.Tests.Client;
@@ -59,6 +60,35 @@ public sealed class SendEventIdTests
         await CallAsync(services, function, Call.New().Data("notify", """{"ids":["01HQ0000000000000000000001"]}"""));
 
         SentIds(0).ShouldBe([$"01JRUN-{Call.Hash("notify:1")}-0"]);
+    }
+
+    [Fact]
+    public async Task A_step_with_more_events_than_inngest_takes_fails_without_retries_and_sends_nothing()
+    {
+        await using var services = Build();
+        var events = Enumerable.Range(0, InngestClient.MaxEventsPerSend + 1).Select(static _ => new InngestEvent("app/a")).ToArray();
+        var function = TestFunction.Define(async context => await context.Step.SendEventAsync("notify", events));
+
+        var result = await CallAsync(services, function, Call.New());
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        result.NoRetry.ShouldBe(true);
+        result.Op().GetProperty("error").GetProperty("message").GetString()
+            .ShouldBe("Inngest accepts at most 5,000 events in one send, but this one has 5,001. Send them in several calls.");
+        _handler.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_send_outside_a_run_with_more_events_than_inngest_takes_is_refused()
+    {
+        await using var services = Build();
+        var events = Enumerable.Range(0, InngestClient.MaxEventsPerSend + 1).Select(static _ => new InngestEvent("app/a"));
+
+        var exception = await Should.ThrowAsync<ArgumentException>(
+            () => services.GetRequiredService<IInngestClient>().SendAsync(events, TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldStartWith("Inngest accepts at most 5,000 events in one send");
+        _handler.Requests.ShouldBeEmpty();
     }
 
     private string[] SentIds(int request)

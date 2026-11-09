@@ -224,7 +224,8 @@ retried send creates the same event ids. Sends are retried up to 5 attempts with
 An event a `sendEvent` step sends without an id gets `<run id>-<hashed step id>-<index in the list>`. Inngest takes an
 event's id as the idempotency key of the runs it starts, so a step that runs again because its result was lost sends
 the same events without starting their runs twice; the seed alone would not do that, since each attempt of the step is
-a new send.
+a new send. A send of more than 5,000 events, Inngest's limit for one request, is refused before anything is sent:
+`ArgumentException` from the client, and a step that fails without retries.
 
 ### Modes and configuration
 
@@ -699,6 +700,7 @@ Behaviour that differs on purpose, beyond the API shape:
 | Failure and cancel handlers | Failure handlers always registered with runtime type `http` | Same runtime type as the function they belong to |
 | Event sends | Retries every failure | Retries transport errors, 5xx, 408, 425 and 429; other 4xx fail at once |
 | Ids of events a `sendEvent` step sends | Left to Inngest, so a step that runs again sends copies | `<run id>-<hashed step id>-<index>` when the code sets none, so Inngest drops the copies |
+| Inngest's limits | Left to Inngest | Checked before Inngest refuses them: a step output over 4 MiB fails the step without retries, a send of more than 5,000 events is refused, and a run past 32 MiB of state or 1,000 steps is logged as a warning |
 | `INNGEST_DEV` URL | Redirects the APIs even when `isDev` is false | Only used in dev mode |
 | Flags in variables | `1`/`true` and `0`/`false`; any other `INNGEST_DEV` is a dev server address | Also `on`/`yes` and `off`/`no`, so `INNGEST_DEV=off` is cloud mode, not a dev server at `http://off` that turns off signature checks |
 | Error names | JavaScript error names, with a `__serialized` marker | .NET exception type names, no marker |

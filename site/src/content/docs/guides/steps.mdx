@@ -109,8 +109,11 @@ error, so a fix or a rollback deployed before the retries run out lets those run
 keep the new type able to read the old JSON, or give the step a new id, so that runs in flight run it again instead of
 reading the old result.
 
-Results count toward Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits): a few MiB per step
-and in total per run. Store large data elsewhere and return a reference to it.
+Results count toward Inngest's [limits](https://www.inngest.com/docs/durable-execution/limits): 4 MiB per step and
+32 MiB of state per run, which holds the events, the results of steps and the function's output. A step whose result
+is larger than 4 MiB fails without retries, with a `StepFailedException` where it is awaited. A step that takes the
+run past 32 MiB is logged as a warning (event id 171), since Inngest then fails the run. Store large data elsewhere
+and return a reference to it.
 
 ## Keep side effects in steps
 

@@ -66,4 +66,14 @@ internal static partial class Log
     [LoggerMessage(160, LogLevel.Error,
         "Disposing the services of step {StepId} of run {RunId} of function {FunctionId} failed; the step's outcome stands.")]
     public static partial void StepScopeDisposalFailed(ILogger logger, string stepId, string runId, string functionId, Exception exception);
+
+    [LoggerMessage(170, LogLevel.Warning,
+        "Run {RunId} of function {FunctionId} reached step {Count}, \"{StepId}\". Inngest allows 1,000 steps in a run unless " +
+        "the account has a higher limit, and fails the run beyond it. Spread the work over child runs, for example with MapInChunksAsync.")]
+    public static partial void StepLimitPassed(ILogger logger, string runId, string functionId, int count, string stepId);
+
+    [LoggerMessage(171, LogLevel.Warning,
+        "Step {StepId} of run {RunId} of function {FunctionId} brings the run's state to about {StateBytes} bytes, more than the 32 MiB " +
+        "Inngest keeps for a run, so Inngest fails the run. Keep large data outside the run and return references to it.")]
+    public static partial void RunStateTooLarge(ILogger logger, string stepId, string runId, string functionId, long stateBytes);
 }
