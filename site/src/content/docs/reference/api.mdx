@@ -136,7 +136,7 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
 | `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |
-| `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`, and `Cause`, the error that caused it. |
+| `FunctionError` | A failure as Inngest stores it: `Name`, `Message`, `Stack`, `Code`, and `Cause`, the error that caused it. |
 | `SystemEvents` | The names of the events Inngest sends about runs: `FunctionFailed`, `FunctionFinished`, `FunctionCancelled`, `FunctionInvoked`, `ScheduledTimer`. |
 | `FunctionFinished` | The data of `inngest/function.finished`, sent when a run ends however it ends: `FunctionId`, `RunId`, `Result`, `Error`, `Event`, `CorrelationId`. |
 | `FunctionCancelled` | The data of `inngest/function.cancelled`: `FunctionId`, `RunId`, `Event`, `CorrelationId`. |
@@ -326,6 +326,9 @@ API; up to 1.0.1 it was `"INNGEST001"`.
 | `RetryAfterException` | Thrown by your code to retry after `Delay` or at `RetryAt`. |
 | `StepFailedException` | Thrown by the SDK where a step that failed for good is awaited: `StepId`, `Error`. When the recorded error has a cause, `InnerException` is a `FunctionErrorException` for it. |
 | `FunctionErrorException` | An error Inngest recorded, rebuilt as an exception: `Error` holds the recorded name, message and stack, and `InnerException` the recorded cause. |
+
+An exception gives Inngest a code, which `FunctionError.Code` holds, by implementing **`IHasErrorCode`**, whose only
+member is `string? Code { get; }`, or with a `"code"` entry in its `Data`.
 | `InngestException` | Thrown by the SDK when talking to Inngest fails, with `StatusCode` when there is one. |
 
 ## Middleware

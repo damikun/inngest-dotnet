@@ -6,8 +6,8 @@ using System.Text.Json.Serialization;
 namespace Inngest;
 
 /// <summary>
-/// An error as Inngest stores it: the exception type name, its message, the stack trace if one was captured and the
-/// error that caused it.
+/// An error as Inngest stores it: the exception type name, its message, the stack trace if one was captured, its code
+/// if it has one and the error that caused it.
 /// </summary>
 public sealed record FunctionError
 {
@@ -19,6 +19,14 @@ public sealed record FunctionError
 
     [JsonPropertyName("stack")]
     public string? Stack { get; init; }
+
+    /// <summary>
+    /// The error's code, from an exception that implements <see cref="IHasErrorCode"/> or has a "code" entry in its
+    /// Data, or the code another SDK recorded. Null when it has none.
+    /// </summary>
+    [JsonPropertyName("code")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Code { get; init; }
 
     /// <summary>What an inner exception becomes on the wire. Inngest keeps up to five levels.</summary>
     [JsonPropertyName("cause")]

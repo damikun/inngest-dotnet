@@ -629,7 +629,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | Function config as attributes on the class, typed events, typed results and invoke by class | Supported (.NET only) |
 | Settings from a configuration section (`appsettings.json`), below `INNGEST_*` variables | Supported (.NET only) |
 | Failure handlers (`inngest/function.failed`) | Supported |
-| Errors: non-retriable, retry-after, step failures | Supported |
+| Errors: non-retriable, retry-after, step failures, error codes (`code`, inngest/inngest-js#1726) | Supported: `IHasErrorCode` or a `"code"` entry in `Exception.Data`, restored as `FunctionError.Code` |
 | Middleware: observer and wrap hooks, for the whole app or for one function | Supported |
 | `use_api` for large runs | Supported |
 | Checkpointing (running several steps per call and saving each to Inngest as it completes) | Supported, opt-in with `CheckpointingOptions`; off by default |

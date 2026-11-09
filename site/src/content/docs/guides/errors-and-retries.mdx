@@ -112,8 +112,38 @@ catch (StepFailedException exception)
 ```
 
 `StepId` names the failed step and `Error` holds the original failure as Inngest stored it: the exception type
-name, the message and the stack trace. The exception object itself does not survive; the step failed in another
-call, perhaps on another machine.
+name, the message, the stack trace and the error's code, if it had one. The exception object itself does not
+survive; the step failed in another call, perhaps on another machine.
+
+To tell failures apart by more than the type name, give the exception a code. An exception that implements
+`IHasErrorCode` has one, and so does any exception with a `"code"` entry in its `Data`. The code comes back as
+`Error.Code`:
+
+{/* check: file isolated */}
+```csharp
+using Inngest;
+
+public sealed class PaymentDeclinedException(string code, string message) : Exception(message), IHasErrorCode
+{
+    public string? Code { get; } = code;
+}
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments */}
+```csharp
+var order = context.Event.Data;
+try
+{
+    await context.Step.RunAsync("charge-card", ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+}
+catch (StepFailedException exception) when (exception.Error.Code == "card_declined")
+{
+    await context.Step.SendEventAsync("ask-for-another-card", new InngestEvent("payment/card.declined", new { order.OrderId }));
+}
+```
+
+The code is the `code` field of the error, which the TypeScript SDK reads and writes too, so a step that failed in
+a TypeScript function shows its code here as well. A number there is read as its text.
 
 Left uncaught, `StepFailedException` fails the run without further retries: the step already used its attempts.
 Inngest's guide to [rollbacks](https://www.inngest.com/docs/durable-execution/guides-and-advanced/error-handling/rollbacks)
@@ -163,7 +193,7 @@ The handler is a function of its own. The SDK registers it as `<function id>-fai
 |---|---|
 | `FunctionId` | The failed function as Inngest knows it, `<app id>-<function id>`. |
 | `RunId` | The failed run. `context.RunId` is the failure handler's own run. |
-| `Error` | The error the run failed with: `Name`, `Message`, `Stack` and `Cause`, the error that caused it. |
+| `Error` | The error the run failed with: `Name`, `Message`, `Stack`, `Code` and `Cause`, the error that caused it. |
 | `Event` | The event that triggered the failed run, as a `JsonElement`. |
 
 With [`Inngest.UserContext`](/inngest-dotnet/guides/user-context/#pass-the-user-on) the handler also runs as the user who
@@ -194,8 +224,8 @@ page and the [function.failed event](https://www.inngest.com/docs/reference/syst
 
 ## What Inngest records
 
-The SDK reports an error as the exception's type name, its message and its stack trace, and includes inner
-exceptions as the cause, up to five levels deep. That is what the run history shows, what `StepFailedException.Error`
+The SDK reports an error as the exception's type name, its message, its stack trace and its code when it has one,
+and includes inner exceptions as the cause, up to five levels deep. That is what the run history shows, what `StepFailedException.Error`
 and `FunctionFailure.Error` hold, and what Inngest sends in `inngest/function.failed`.
 
 A run that is cancelled, by an event, a timeout or the API, ends with an `inngest/function.cancelled` event. A

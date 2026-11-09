@@ -1,12 +1,13 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Globalization;
 using System.Text.Json;
 
 namespace Inngest.Errors;
 
-// Errors on the wire are {"name","message","stack","cause"}, which is what Inngest stores, shows and hands back
-// in memoized step state.
+// Errors on the wire are {"name","message","stack","code","cause"}, which is what Inngest stores, shows and hands back
+// in memoized step state. The TypeScript SDK reads and writes the same fields, code only when an error has one.
 internal static class ErrorSerializer
 {
     private const int MaxCauseDepth = 5;
@@ -16,6 +17,7 @@ internal static class ErrorSerializer
     private static readonly JsonEncodedText NameProperty = JsonEncodedText.Encode("name");
     private static readonly JsonEncodedText MessageProperty = JsonEncodedText.Encode("message");
     private static readonly JsonEncodedText StackProperty = JsonEncodedText.Encode("stack");
+    private static readonly JsonEncodedText CodeProperty = JsonEncodedText.Encode("code");
     private static readonly JsonEncodedText CauseProperty = JsonEncodedText.Encode("cause");
 
     public static void Write(Utf8JsonWriter writer, Exception exception)
@@ -62,6 +64,7 @@ internal static class ErrorSerializer
             Name = NonEmptyString(error, "name") ?? "Error",
             Message = NonEmptyString(error, "message") ?? NonEmptyString(error, "error") ?? "Unknown error",
             Stack = NonEmptyString(error, "stack"),
+            Code = ReadCode(error),
             Cause = depth < MaxCauseDepth && error.TryGetProperty("cause", out var cause) && cause.ValueKind != JsonValueKind.Null
                 ? Read(cause, depth + 1)
                 : null,
@@ -85,6 +88,11 @@ internal static class ErrorSerializer
         writer.WriteString(NameProperty, exception.GetType().Name);
         writer.WriteString(MessageProperty, exception.Message);
         writer.WriteString(StackProperty, exception.StackTrace ?? string.Empty);
+        if (CodeOf(exception) is { } code)
+        {
+            writer.WriteString(CodeProperty, code);
+        }
+
         if (exception.InnerException is { } cause && depth < MaxCauseDepth)
         {
             writer.WriteStartObject(CauseProperty);
@@ -98,12 +106,49 @@ internal static class ErrorSerializer
         writer.WriteString(NameProperty, error.Name);
         writer.WriteString(MessageProperty, error.Message);
         writer.WriteString(StackProperty, error.Stack ?? string.Empty);
+        if (error.Code is { } code)
+        {
+            writer.WriteString(CodeProperty, code);
+        }
+
         if (error.Cause is { } cause && depth < MaxCauseDepth)
         {
             writer.WriteStartObject(CauseProperty);
             WriteProperties(writer, cause, depth + 1);
             writer.WriteEndObject();
         }
+    }
+
+    private static string? CodeOf(Exception exception)
+    {
+        if (exception is IHasErrorCode { Code: { } code })
+        {
+            return code;
+        }
+
+        return exception.Data?["code"] switch
+        {
+            null => null,
+            string text => text,
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+            var other => other.ToString(),
+        };
+    }
+
+    // JavaScript errors usually have string codes, but some libraries use numbers.
+    private static string? ReadCode(JsonElement error)
+    {
+        if (!error.TryGetProperty("code", out var code))
+        {
+            return null;
+        }
+
+        return code.ValueKind switch
+        {
+            JsonValueKind.String => code.GetString(),
+            JsonValueKind.Number => code.GetRawText(),
+            _ => null,
+        };
     }
 
     private static string? NonEmptyString(JsonElement element, string name) =>
