@@ -102,6 +102,9 @@ public abstract class FunctionContext
     // The middleware of the call, the function's own included, which also wraps the events its steps send. Null
     // when the context was not created by the engine.
     internal IReadOnlyList<InngestMiddleware>? Middleware { get; init; }
+
+    // Whether the call's middleware encrypts payloads, so that what it cannot cover is not sent in plain text.
+    internal bool EncryptsPayloads => Middleware?.Any(static middleware => middleware is Middleware.IEncryptingMiddleware) == true;
 }
 
 public sealed class FunctionContext<TEventData> : FunctionContext

@@ -354,8 +354,8 @@ that the default strategies wrote are still decrypted, so data can move from one
   events and step results.
 - The input of an AI wrap step and the request of an inference step are stored in the clear, as the TypeScript package
   leaves them: of what a step was made with, only the data of an invoke is encrypted. That includes the messages and options, and the arguments of tool calls, that the
-  [chat client steps](/inngest-dotnet/guides/ai/#what-the-input-costs) record, which `InngestStepsOptions.RecordInput`
-  turns off. The results of those steps are encrypted like any other.
+  [chat client steps](/inngest-dotnet/guides/ai/#what-the-input-costs) would record, so those steps record no input
+  while encryption runs for the function. The results of those steps are encrypted like any other.
 - It works under Native AOT. Event data types go in the serializer context as for any event.
 - The test host reports what is stored, so `Output` and `SentEvents` show encrypted values when encryption is added to
   the services it runs. Tests of functions usually leave it out.

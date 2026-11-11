@@ -7,7 +7,7 @@ namespace Inngest.Encryption;
 
 // What @inngest/middleware-encryption does with transformFunctionInput, transformStepInput, wrapStep, wrapStepHandler,
 // wrapFunctionHandler and transformSendEvent, as payload transforms on the raw JSON and a wrapper around event sends.
-internal sealed class EncryptionMiddleware(PayloadEncryptor encryptor) : InngestMiddleware, IPayloadTransform
+internal sealed class EncryptionMiddleware(PayloadEncryptor encryptor) : InngestMiddleware, IPayloadTransform, Inngest.Middleware.IEncryptingMiddleware
 {
     public bool TransformEvent(JsonElement @event, Utf8JsonWriter writer) => encryptor.DecryptEvent(@event, writer);
 

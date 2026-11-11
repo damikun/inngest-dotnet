@@ -38,14 +38,18 @@ internal static class ToolSteps
         var conversation = context.Options is { } chatOptions ? CallSettings.Of(chatOptions).StepId : null;
         var stepId = conversation is null ? $"tool {context.Function.Name}" : $"{conversation} tool {context.Function.Name}";
 
+        // Inngest stores the input as it is, so it is not recorded while the encryption middleware keeps the rest of the
+        // run from Inngest.
+        var run = Invocation.AmbientContext;
+        var recordInput = options.RecordInput && run?.EncryptsPayloads != true;
         var serialized = ToolJson.TryWriteInput(context, out var problem);
-        if (problem is not null && options.RecordInput)
+        if (problem is not null && recordInput)
         {
             // The function's logger, which drops what is written while the run replays, so that this is written once.
-            Log.InputNotRecorded(Invocation.AmbientContext?.Logger ?? NullLogger.Instance, stepId, problem);
+            Log.InputNotRecorded(run?.Logger ?? NullLogger.Instance, stepId, problem);
         }
 
-        var input = options.RecordInput ? serialized?.Json : null;
+        var input = recordInput ? serialized?.Json : null;
 
         async Task<JsonElement> HandleAsync(JsonElement received, CancellationToken stepToken)
         {

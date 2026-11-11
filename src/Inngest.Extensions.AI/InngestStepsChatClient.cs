@@ -99,13 +99,16 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
         var time = context.Services.GetService<TimeProvider>() ?? TimeProvider.System;
 
         // The digest goes with the saved response whether the input is recorded or not.
+        // Inngest stores the input as it is, so it is not recorded while the encryption middleware keeps the rest of the
+        // run from Inngest.
+        var recordInput = options.RecordInput && !context.EncryptsPayloads;
         var serialized = ChatJson.TryWriteInput(history, callOptions, out var problem);
-        if (problem is not null && options.RecordInput)
+        if (problem is not null && recordInput)
         {
             Log.InputNotRecorded(logger, stepId, problem);
         }
 
-        var input = options.RecordInput ? serialized?.Json : null;
+        var input = recordInput ? serialized?.Json : null;
         var digest = serialized?.Digest;
 
         // The handler gets the recorded input back, or an edit of it from the Inngest UI, which is then what the model is

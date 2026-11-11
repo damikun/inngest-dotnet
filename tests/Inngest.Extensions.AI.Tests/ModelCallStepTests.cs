@@ -160,6 +160,27 @@ public sealed class ModelCallStepTests
     }
 
     [Fact]
+    public async Task The_input_is_left_out_while_the_function_encrypts_its_payloads()
+    {
+        var model = new FakeChatClient();
+        var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
+        var services = new ServiceCollection();
+        services.AddInngest(options => options.AppId = AppId)
+            .AddMiddleware<EncryptingMiddleware>()
+            .AddFunction(Options(), async (context, _) => (await chat.GetResponseAsync("A secret prompt")).Text);
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.GetOutput<string>().ShouldBe("Reply 0");
+        var step = run.GetStep("chat");
+        step.Type.ShouldBe(StepType.Run);
+        step.Options.TryGetProperty("input", out _).ShouldBeFalse();
+    }
+
+    private sealed class EncryptingMiddleware : InngestMiddleware, Inngest.Middleware.IEncryptingMiddleware;
+
+    [Fact]
     public async Task Input_that_is_not_JSON_is_left_out_with_one_warning_and_the_call_goes_through()
     {
         var model = new FakeChatClient();

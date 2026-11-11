@@ -261,8 +261,9 @@ JSON, so what JSON cannot hold, such as the raw representations of a provider, s
 ## What the input costs
 
 Inngest stores the input of a step as plain JSON, which the [encryption middleware](/inngest-dotnet/guides/middleware/#encryption)
-does not cover, and the messages of a conversation repeat in the input of every model call of a run. Where the prompts
-must not be stored in the clear, or the conversations grow too large for that, leave the input out:
+does not cover, and the messages of a conversation repeat in the input of every model call of a run. While that
+middleware runs for the function, the input is never recorded. Where the prompts must not be stored in the clear for
+another reason, or the conversations grow too large for that, leave the input out:
 
 {/* check: statements; ChatClientBuilder builder */}
 ```csharp
