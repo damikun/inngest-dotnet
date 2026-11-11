@@ -55,7 +55,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -136,7 +136,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -225,7 +225,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -308,7 +308,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -403,7 +403,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -491,7 +491,7 @@
       "response": {
         "status": 206,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": [
@@ -587,7 +587,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "X-Inngest-SDK": "inngest-dotnet:v1.0.1-preview",
+          "X-Inngest-SDK": "inngest-dotnet:v1.1.0-preview",
           "X-Inngest-Req-Version": "2"
         },
         "body": {
