@@ -7,6 +7,75 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
 .NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
+## New in 1.1.0
+
+New features, all compatible with code built against 1.0.0, and the changes in behaviour listed at the end.
+
+- **Typed models for inference steps.** `AIModels` has OpenAI, OpenAI Responses, Anthropic, Gemini, Grok, DeepSeek and
+  Azure OpenAI, each with typed requests and responses for `InferAsync`. See
+  [Models of the providers](/inngest-dotnet/guides/steps/#models-of-the-providers).
+- **What a model call used.** A step whose handler calls a model shows in the Inngest UI the models, the tokens, the
+  settings and the time of the calls, without prompts or answers. See
+  [What a model call used](/inngest-dotnet/guides/steps/#what-a-model-call-used).
+- **Error codes.** An exception that implements `IHasErrorCode`, or has a `"code"` entry in its `Data`, keeps its code
+  in what Inngest records and in the `StepFailedException` of a failed step. See
+  [Recover from a failed step](/inngest-dotnet/guides/errors-and-retries/#recover-from-a-failed-step).
+- **Cancel handlers.** `ICancelHandler`, or `onCancel` next to `onFailure`, runs code after a run was cancelled. See
+  [Run code when a run is cancelled](/inngest-dotnet/guides/errors-and-retries/#run-code-when-a-run-is-cancelled).
+- **Step input transforms.** `IPayloadTransform.TransformStepInput` rewrites what a step was made with. See
+  [What is encrypted](/inngest-dotnet/guides/middleware/#what-is-encrypted).
+- **Stable ids for the events a step sends.** An event sent without an `Id` gets one made of the run, the step and its
+  place in the list, so a step that runs again starts no second runs. See
+  [From a function](/inngest-dotnet/guides/sending-events/#from-a-function).
+- **Inngest's limits, checked in the app.** A step result over 4 MiB fails the step without retries, a send of more than
+  5,000 events throws, and a warning says when a run passes 1,000 steps or 32 MiB of state.
+- **Other hosts.** `InngestCommHandler` is public, so any HTTP host can serve functions, and `InngestSignatureVerifier`
+  checks Inngest's signature in app code. See [On another host](/inngest-dotnet/guides/deploying/#on-another-host).
+- **Realtime with a token from elsewhere.** `IInngestRealtime.SubscribeAsync(RealtimeToken)` receives the messages a
+  token minted by another app allows. See
+  [With a token from elsewhere](/inngest-dotnet/guides/realtime/#with-a-token-from-elsewhere).
+- **More in the test host.** Mocks for send-event steps and for sends and publishes that fail, and `RunUntilAsync`,
+  which stops a run at a checkpoint. See [Mocking steps](/inngest-dotnet/guides/testing/#mocking-steps).
+- **Durable endpoint output on the app's domain.** `MapInngestDurableEndpointProxy` serves a run's output with CORS
+  headers, and decrypts it when the encryption middleware encrypted it. See
+  [The output on the app's own domain](/inngest-dotnet/guides/durable-endpoints/#the-output-on-the-apps-own-domain).
+- **Analyzers for replay safety.** `INNGEST020` to `INNGEST025` find step code that breaks when a run replays, such as
+  state set inside a step and read outside it, step ids made from the clock and steps blocked on with `.Result`, with
+  a code fix that awaits the step. See
+  [Check steps for replay safety](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety).
+- **Extended traces** (experimental, `INNGESTEXP002`). `AddExtendedTraces()` sends the spans the app's code makes while
+  a function runs to Inngest, which shows them in the run's trace. See
+  [Extended traces](/inngest-dotnet/reference/api/#extended-traces).
+- **Sentry performance.** `Inngest.Sentry` reports every call as a transaction with a span for each step. See
+  [Spans](/inngest-dotnet/guides/middleware/#spans).
+- **Inngest v1.52.0.** The tests run against `inngest/inngest:v1.52.0`, the Aspire integration runs that tag, and
+  `dotnet inngest dev` downloads that version.
+
+### Changes in behaviour
+
+- **Durable endpoints** (experimental):
+  - Their API is marked `INNGESTEXP001` instead of `INNGEST001`, so change the `NoWarn` that suppresses it.
+  - Outside dev mode, an app with durable endpoints does not start without `ServeOrigin`, or `INNGEST_SERVE_ORIGIN`.
+    Inngest resumes a run at the origin its event records and signs the original body for it, and the origin of the
+    request comes from its `Host` header, which the client chooses. See
+    [Configuration](/inngest-dotnet/guides/durable-endpoints/#configuration).
+  - With the encryption middleware, the output of a run that finishes in its first request is encrypted, as a resumed
+    run's already was.
+- **Encryption:**
+  - The data of invokes is encrypted, so the invoked function needs the encryption middleware as well, as it does for
+    events. The TypeScript package reads it.
+  - The steps of `Inngest.Extensions.AI` record no input while encryption runs for the function, because Inngest stores
+    the input of a step in the clear.
+- **User context:** an event that the middleware writes no user for loses the reserved `_inngest_dotnet_user` key, so
+  that a protected user copied from someone else's event is never sent on.
+- **New warnings:**
+  - The step analyzers run in every project that references `Inngest`. A project that treats warnings as errors fails
+    to build on what they find until it is fixed or suppressed.
+  - A sync that registers an `http://` URL for a request that came through a proxy over https logs a warning, event id
+    417. See [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy).
+- **Sentry:** with `TracesSampleRate` or `TracesSampler` set, the calls of functions are sampled and sent as
+  transactions like any other.
+
 ## New in 1.0.1
 
 Bug fixes, with no change to the public API:
@@ -183,6 +252,6 @@ The first stable release of `Inngest`, `Inngest.AspNetCore`, `Inngest.Connect`, 
 
 ## After that
 
-- More Roslyn analyzers, and `defer`.
+- `defer`, and inboxes (`step.subscribe`) once the TypeScript SDK releases them.
 
 Ideas and pull requests are welcome on [GitHub](https://github.com/damikun/inngest-dotnet/issues).
