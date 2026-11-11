@@ -187,6 +187,32 @@ public sealed class SyncTests
         warning.Message.ShouldContain("http://evil.example/api/inngest");
     }
 
+    [Theory]
+    [InlineData("https", true)]
+    [InlineData("HTTPS, http", true)]
+    [InlineData("http", false)]
+    public async Task A_sync_of_an_http_url_behind_a_proxy_reached_over_https_is_warned_about(string forwardedProto, bool warned)
+    {
+        var request = new FakeServeRequest("PUT", "http://shop.example.com/api/inngest").WithHeader("X-Forwarded-Proto", forwardedProto);
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, request);
+
+        response.StatusCode.ShouldBe(200);
+        _harness.Logger.Collector.GetSnapshot().Any(record => record.Id.Id == 417).ShouldBe(warned);
+    }
+
+    [Fact]
+    public async Task A_sync_behind_a_proxy_reached_over_https_with_a_serve_origin_is_not_warned_about()
+    {
+        var settings = CommHandlerHarness.CloudSettings with { ServeOrigin = new Uri("https://shop.example.com") };
+        var request = new FakeServeRequest("PUT", "http://shop.example.com/api/inngest").WithHeader("X-Forwarded-Proto", "https");
+
+        using var response = await _harness.SendAsync(settings, request);
+
+        response.StatusCode.ShouldBe(200);
+        _harness.Logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == 417);
+    }
+
     [Fact]
     public async Task An_unsigned_sync_registers_the_serve_origin_without_a_warning()
     {

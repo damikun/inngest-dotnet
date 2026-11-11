@@ -20,7 +20,9 @@ to be synced after each deploy.
   Without a signing key the endpoint answers Inngest with errors. See
   [Configuration](/inngest-dotnet/guides/configuration/).
 - **A public endpoint.** Inngest calls `/api/inngest` over HTTPS. Behind a proxy or load balancer, set
-  `INNGEST_SERVE_ORIGIN` to the public origin so that syncs report the right URL. If the app cannot be reachable,
+  `INNGEST_SERVE_ORIGIN` to the public origin so that syncs report the right URL, `https://` included: a proxy that
+  ends TLS otherwise makes the app register an `http://` URL. See
+  [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy). If the app cannot be reachable,
   use [Connect](/inngest-dotnet/guides/connect/) instead.
 - **A sync after every deploy.** See below.
 - **A readiness check.** Point the probe at a path of its own, and add the check that tells whether the app can work

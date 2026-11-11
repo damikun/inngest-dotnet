@@ -57,6 +57,10 @@ internal static partial class Log
         Message = "An unsigned sync registered {ServeUrl}, taken from the request's Host header, which the caller chooses; set ServeOrigin, or INNGEST_SERVE_ORIGIN, to the app's public origin")]
     public static partial void UnsignedSyncFromRequestUrl(ILogger logger, Uri serveUrl);
 
+    [LoggerMessage(EventId = 417, Level = LogLevel.Warning,
+        Message = "The sync registered {ServeUrl}, though the request came through a proxy that the client reached over https; Inngest's calls to the http address can be redirected and lost. Set ServeOrigin, or INNGEST_SERVE_ORIGIN, or use the forwarded headers middleware")]
+    public static partial void SyncedHttpBehindHttpsProxy(ILogger logger, Uri serveUrl);
+
     [LoggerMessage(EventId = 416, Level = LogLevel.Error,
         Message = "Disposing the services of a call to function {FunctionId} failed; the answer goes out as it is.")]
     public static partial void ScopeDisposalFailed(ILogger logger, string functionId, Exception exception);

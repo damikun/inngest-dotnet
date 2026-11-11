@@ -77,6 +77,11 @@ public sealed partial class InngestCommHandler
                     Log.UnsignedSyncFromRequestUrl(_logger, serveUrl);
                 }
 
+                if (_settings.ServeOrigin is null && serveUrl.Scheme == Uri.UriSchemeHttp && ForwardedOverHttps(request))
+                {
+                    Log.SyncedHttpBehindHttpsProxy(_logger, serveUrl);
+                }
+
                 _registry.WriteRegistration(registration, serveUrl, request.Framework);
                 result = await _api
                     .RegisterAsync(registration.WrittenMemory, deployId, request.GetHeader(Headers.ServerKind), CancellationToken.None)
@@ -106,6 +111,12 @@ public sealed partial class InngestCommHandler
 
         return SyncResult(200, "Successfully registered", result.Modified);
     }
+
+    // A proxy that ends TLS calls the app over http and says so in X-Forwarded-Proto, which the app reads only with the
+    // forwarded headers middleware. Its first value is the client's side of the first proxy.
+    private static bool ForwardedOverHttps(IServeRequest request) =>
+        request.GetHeader(Headers.ForwardedProto) is { Length: > 0 } forwarded
+        && forwarded.Split(',', 2)[0].Trim().Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
     // Inngest takes the configuration from the response, so the app never has to call Inngest. The URL comes from
     // the signed body: Inngest knows the address it called, which the app may not.

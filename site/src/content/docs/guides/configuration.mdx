@@ -153,6 +153,13 @@ options.ServePath = "/api/inngest";
 
 `INNGEST_SERVE_HOST`, the old name of `INNGEST_SERVE_ORIGIN`, is read too.
 
+A proxy that ends TLS, as Railway, Render, Fly.io, Azure Container Apps and most load balancers do, calls the app over
+plain HTTP. Without `ServeOrigin` the app then registers an `http://` URL. The proxy may redirect Inngest's calls to
+it, and a redirected call can end the run without the function running. Set `ServeOrigin`, or let ASP.NET Core take
+the scheme from `X-Forwarded-Proto` with the forwarded headers middleware: `app.UseForwardedHeaders()` with the
+options of your proxy, or `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`. A sync that registers an `http://` URL for a
+request that came with `X-Forwarded-Proto: https` logs a warning, event id 417.
+
 Proxies and load balancers also close a connection that stays idle too long, often after 60 seconds, and that cuts
 off a long call: a step that runs for minutes, or a long function without steps. With streaming on, a call still
 running after three seconds is answered at once with a 201, then with a space every three seconds, then with its
