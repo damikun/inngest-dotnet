@@ -103,6 +103,30 @@ public sealed class HttpContextSourceTests
     }
 
     [Fact]
+    public async Task A_protected_user_the_app_did_not_write_is_taken_out_of_the_event()
+    {
+        var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        await using var app = await StartAsync(
+            new EphemeralDataProtectionProvider(),
+            http,
+            inngest => inngest.AddUserContextFromHttpContext(),
+            app => app.MapPost("/track", async (IInngestClient client, CancellationToken cancellationToken) =>
+            {
+                // A user the app took from what the caller sent, with a protected text copied from someone else's event.
+                var user = JsonDocument.Parse($$$"""{"plan":"pro","{{{UserContextCodec.Key}}}":{"v":1,"t":"copied"}}""").RootElement;
+                await client.SendAsync(new InngestEvent("shop/order.paid", new { OrderId = 7 }) { User = user }, cancellationToken);
+                return Results.Ok();
+            }));
+
+        using var response = await PostAsync(app, "/track", signedIn: false);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var sent = Sent(http).Single().GetProperty("user");
+        sent.GetProperty("plan").GetString().ShouldBe("pro");
+        sent.TryGetProperty(UserContextCodec.Key, out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Without_the_source_the_web_app_sends_without_a_user()
     {
         var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);

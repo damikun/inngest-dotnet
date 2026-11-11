@@ -45,6 +45,40 @@ internal static class EventUsers
         return merged.RootElement.Clone();
     }
 
+    // The user without the reserved key, so that a protected text this app did not just write for the event is never
+    // sent on, such as one copied from another user's event. Null when there is nothing to take out.
+    public static JsonElement? WithoutEnvelope(object? user, JsonSerializerOptions serializer)
+    {
+        if (user is null)
+        {
+            return null;
+        }
+
+        using var existing = Serialize(user, serializer);
+        if (existing is null || existing.RootElement.ValueKind != JsonValueKind.Object || !existing.RootElement.TryGetProperty(UserContextCodec.Key, out _))
+        {
+            return null;
+        }
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = serializer.Encoder }))
+        {
+            writer.WriteStartObject();
+            foreach (var property in existing.RootElement.EnumerateObject())
+            {
+                if (!property.NameEquals(UserContextCodec.Key))
+                {
+                    property.WriteTo(writer);
+                }
+            }
+
+            writer.WriteEndObject();
+        }
+
+        using var stripped = JsonDocument.Parse(buffer.WrittenMemory);
+        return stripped.RootElement.Clone();
+    }
+
     // Null for no user. The JSON types are taken as they are, so that they need no metadata from the app's serializer.
     private static JsonDocument? Serialize(object? user, JsonSerializerOptions serializer) => user switch
     {

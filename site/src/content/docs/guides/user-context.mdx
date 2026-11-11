@@ -328,6 +328,9 @@ Anyone with your event key can send an event with any `user`. What they can do w
   is logged. They cannot choose claims.
 - **Move a payload to another event:** nothing. A payload is bound to the name of its event, and one made for an
   invocation to the function that is invoked.
+- **Get your app to send a payload they copied:** nothing. The middleware takes the reserved key out of every event it
+  does not write a payload for itself, such as one sent for an anonymous request with a `user` the app built from what
+  the caller sent.
 - **Send a payload they copied again,** for example from the dashboard: the run starts as that user until the payload
   expires, with any data they like. A far timestamp does not stretch it, because a run is judged by the later of its
   creation and the event's timestamp. Keep `Lifetime` as short as your delays allow, and keep the event key secret.

@@ -43,7 +43,29 @@ internal sealed class UserContextMiddleware(
         CancellationToken cancellationToken)
     {
         var snapshot = await FindSnapshotAsync(context, cancellationToken).ConfigureAwait(false);
-        return await next(snapshot is null ? events : Attach(events, snapshot)).ConfigureAwait(false);
+        return await next(snapshot is null ? Strip(events) : Attach(events, snapshot)).ConfigureAwait(false);
+    }
+
+    // An event gets a user only from this middleware. One the app built from what a caller sent could otherwise carry a
+    // protected text taken from another user's event, and start a run as that user.
+    private IReadOnlyList<InngestEvent> Strip(IReadOnlyList<InngestEvent> events)
+    {
+        InngestEvent[]? stripped = null;
+        for (var i = 0; i < events.Count; i++)
+        {
+            StripAt(events, ref stripped, i);
+        }
+
+        return stripped ?? events;
+    }
+
+    private void StripAt(IReadOnlyList<InngestEvent> events, ref InngestEvent[]? changed, int index)
+    {
+        if (events[index] is { User: { } user } @event && EventUsers.WithoutEnvelope(user, settings.SerializerOptions) is { } without)
+        {
+            changed ??= [.. events];
+            changed[index] = @event with { User = without };
+        }
     }
 
     private void Restore(FunctionContext context)
@@ -198,6 +220,7 @@ internal sealed class UserContextMiddleware(
         {
             if (events[i] is not { Name: { Length: > 0 } name } @event || _options.EventFilter?.Invoke(@event) == false)
             {
+                StripAt(events, ref attached, i);
                 continue;
             }
 
@@ -209,6 +232,7 @@ internal sealed class UserContextMiddleware(
                     told = true;
                 }
 
+                StripAt(events, ref attached, i);
                 continue;
             }
 
@@ -226,6 +250,10 @@ internal sealed class UserContextMiddleware(
             {
                 attached ??= [.. events];
                 attached[i] = @event with { User = user };
+            }
+            else
+            {
+                StripAt(events, ref attached, i);
             }
         }
 
