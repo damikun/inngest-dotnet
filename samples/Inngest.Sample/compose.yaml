@@ -41,7 +41,7 @@ x-sample-logging: &sample-logging
   Logging__Console__FormatterOptions__UseUtcTimestamp: "true"
 
 x-server: &server
-  image: inngest/inngest:v1.49.0
+  image: inngest/inngest:v1.52.0
   restart: unless-stopped
   ports:
     - "127.0.0.1:${INNGEST_HOST_PORT:-18288}:8288"

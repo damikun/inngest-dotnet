@@ -62,7 +62,7 @@ sending an event runs them. The repository has such an AppHost for its sample ap
 
 What the three calls do:
 
-- **`AddInngest`** runs the `inngest/inngest` image at the tag `v1.49.0`, the Inngest CLI version the tests of this SDK
+- **`AddInngest`** runs the `inngest/inngest` image at the tag `v1.52.0`, the Inngest CLI version the tests of this SDK
   run against, as `inngest dev --no-discovery`. Discovery would only scan the container's own ports. It has two
   endpoints: `http`, which is the REST API, the event API and the UI, and `connect`, which is the gateway of
   [Connect](/inngest-dotnet/guides/connect/) workers. Aspire proxies both on ports it picks. Change the tag with
@@ -210,7 +210,7 @@ a polling interval of 5 seconds.
 
 The dev server holds its runs and events in memory, and the self-hosted server writes a SQLite database, `main.db`, to
 `/.inngest` inside its container. Both lose their state when the container is removed, because the integration adds
-no volume. Inngest v1.49.0 can keep it: `inngest dev --persist` writes the dev server's database to the same
+no volume. Inngest v1.52.0 can keep it: `inngest dev --persist` writes the dev server's database to the same
 directory, and a volume at that directory survives the container. Pass the flag with `WithArgs` and add the volume:
 
 {/* check: statements; IDistributedApplicationBuilder builder */}

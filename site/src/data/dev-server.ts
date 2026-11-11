@@ -3,7 +3,7 @@
 // (install script, Homebrew, npx, Docker); the .NET tool, which runs the same CLI, sits next to npx, and Compose is added
 // for teams. Every command is one line, so it pastes into any shell; long lines wrap on screen.
 
-const IMAGE = 'inngest/inngest:v1.49.0';
+const IMAGE = 'inngest/inngest:v1.52.0';
 
 export interface DevServerBlock {
   lang: string;

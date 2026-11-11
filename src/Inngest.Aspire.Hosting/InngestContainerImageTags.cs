@@ -10,5 +10,5 @@ internal static class InngestContainerImageTags
 
     public const string Image = "inngest/inngest";
 
-    public const string Tag = "v1.49.0";
+    public const string Tag = "v1.52.0";
 }

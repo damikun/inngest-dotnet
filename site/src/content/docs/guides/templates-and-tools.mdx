@@ -267,11 +267,11 @@ runs.
 
 | System | Architecture | File |
 |---|---|---|
-| Linux | x64, Arm64 | `inngest_1.49.0_linux_amd64.tar.gz`, `inngest_1.49.0_linux_arm64.tar.gz` |
-| macOS | x64, Arm64 | `inngest_1.49.0_darwin_amd64.tar.gz`, `inngest_1.49.0_darwin_arm64.tar.gz` |
-| Windows | x64, Arm64 | `inngest_1.49.0_windows_amd64.zip`, `inngest_1.49.0_windows_arm64.zip` |
+| Linux | x64, Arm64 | `inngest_1.52.0_linux_amd64.tar.gz`, `inngest_1.52.0_linux_arm64.tar.gz` |
+| macOS | x64, Arm64 | `inngest_1.52.0_darwin_amd64.tar.gz`, `inngest_1.52.0_darwin_arm64.tar.gz` |
+| Windows | x64, Arm64 | `inngest_1.52.0_windows_amd64.zip`, `inngest_1.52.0_windows_arm64.zip` |
 
-The release has no file for other systems, such as 32-bit ones. The tool is pinned to one version, 1.49.0 here, the
+The release has no file for other systems, such as 32-bit ones. The tool is pinned to one version, 1.52.0 here, the
 one of the `inngest/inngest` image that this SDK's tests run against, and a new version of the tool moves the pin.
 
 Before it unpacks anything the tool checks the SHA-256 of the download:
@@ -295,7 +295,7 @@ about 100 MB unpacked.
 
 `INNGEST_DOTNET_CACHE` names another folder for the whole cache. Delete a version's folder to remove it. A machine
 without access to GitHub can use the cache as it is: put the binary of the release in the folder of its version
-and system, such as `1.49.0/linux_amd64`, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
+and system, such as `1.52.0/linux_amd64`, as `inngest` (`inngest.exe` on Windows), and the tool runs it without a request.
 
 The tool checks a download once, when it installs it, and runs the binary it finds in the cache from then on. So the
 cache folder must be writable by you alone. The default is in your own profile. Do not point `INNGEST_DOTNET_CACHE`
@@ -316,7 +316,7 @@ When it cannot get the CLI, because the machine is offline or no release exists 
 command that runs the dev server in Docker instead, for the same address:
 
 ```text
-docker run --rm -p 8288:8288 -p 8289:8289 --add-host=host.docker.internal:host-gateway inngest/inngest:v1.49.0 inngest dev -u http://host.docker.internal:5280/api/inngest
+docker run --rm -p 8288:8288 -p 8289:8289 --add-host=host.docker.internal:host-gateway inngest/inngest:v1.52.0 inngest dev -u http://host.docker.internal:5280/api/inngest
 ```
 
 The container reaches the app on the host as `host.docker.internal`, since `localhost` inside it is the container

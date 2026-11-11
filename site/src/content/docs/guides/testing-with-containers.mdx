@@ -17,7 +17,7 @@ address, the settings that point an app at it, and a call that has it sync the a
 `WebApplicationFactory` that runs your ASP.NET Core app on a real port for the server to call.
 
 You need Docker running on the machine that runs the tests, with Linux containers. Like every Testcontainers module, the
-builder takes the image you choose; the module is tested with `inngest/inngest:v1.49.0`, and starts the server with
+builder takes the image you choose; the module is tested with `inngest/inngest:v1.52.0`, and starts the server with
 command line flags that older images may not know.
 
 ```bash
@@ -46,7 +46,7 @@ public sealed class InngestFixture : IAsyncLifetime
 {
     private WebApplication? _app;
 
-    public InngestServerContainer Server { get; } = new InngestServerBuilder("inngest/inngest:v1.49.0").Build();
+    public InngestServerContainer Server { get; } = new InngestServerBuilder("inngest/inngest:v1.52.0").Build();
 
     public async ValueTask InitializeAsync()
     {
@@ -112,7 +112,7 @@ app may start before or after the server.
 ```csharp
 using Inngest.Testing.Containers;
 
-var server = new InngestServerBuilder("inngest/inngest:v1.49.0")
+var server = new InngestServerBuilder("inngest/inngest:v1.52.0")
     .WithAppUrl("http://localhost:5280/api/inngest")
     .Build();
 ```
@@ -197,7 +197,7 @@ public sealed class ShopFactory(InngestServerContainer inngest, IEmailSender ema
 public sealed class OnboardingTests : IAsyncLifetime
 {
     private readonly SignalingEmailSender _email = new();
-    private readonly InngestServerContainer _server = new InngestServerBuilder("inngest/inngest:v1.49.0").Build();
+    private readonly InngestServerContainer _server = new InngestServerBuilder("inngest/inngest:v1.52.0").Build();
     private ShopFactory? _app;
 
     public async ValueTask InitializeAsync()
@@ -266,7 +266,7 @@ tells them:
 ```csharp
 using Inngest.Testing.Containers;
 
-var server = new InngestServerBuilder("inngest/inngest:v1.49.0")
+var server = new InngestServerBuilder("inngest/inngest:v1.52.0")
     .WithSelfHosting()
     .Build();
 await server.StartAsync();
@@ -309,7 +309,7 @@ using var worker = builder.Build();
 await worker.StartAsync();
 ```
 
-Build the container with `new InngestServerBuilder("inngest/inngest:v1.49.0").WithConnectGateway()`. `ConnectGatewayPort`
+Build the container with `new InngestServerBuilder("inngest/inngest:v1.52.0").WithConnectGateway()`. `ConnectGatewayPort`
 tells the port. The builder picks the port when it builds the container and keeps it from other processes until Docker
 has pulled the image and is about to publish it. A port that is taken by then can only be one a process took in that
 moment; if a start fails because the port is already allocated, build the container again, which picks another, or give

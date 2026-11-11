@@ -12,7 +12,7 @@ namespace Inngest.Testing.Containers;
 /// <summary>
 /// Builds an <see cref="InngestServerContainer"/> that runs the Inngest dev server, or with <see cref="WithSelfHosting"/> the
 /// self-hosted server. The image is always the caller's choice, as for every Testcontainers module; the builder is
-/// tested with <c>inngest/inngest:v1.49.0</c>, and passes command line flags that older images may not know.
+/// tested with <c>inngest/inngest:v1.52.0</c>, and passes command line flags that older images may not know.
 /// </summary>
 /// <remarks>
 /// Both servers start ready to test with: <c>--no-discovery</c> keeps the dev server from scanning ports, and by default
@@ -39,7 +39,7 @@ public sealed class InngestServerBuilder : ContainerBuilder<InngestServerBuilder
     /// </summary>
     /// <param name="image">
     /// The full Docker image name, including the image repository and tag
-    /// (e.g., <c>inngest/inngest:v1.49.0</c>).
+    /// (e.g., <c>inngest/inngest:v1.52.0</c>).
     /// </param>
     /// <remarks>
     /// Docker image tags available at <see href="https://hub.docker.com/r/inngest/inngest/tags" />.

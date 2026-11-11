@@ -9,7 +9,7 @@ namespace Inngest.IntegrationTests.Harness;
 // a fixed host port so that the app under test can be configured with its URL before either of them starts.
 public sealed class InngestServer : IAsyncDisposable
 {
-    public const string Image = "inngest/inngest:v1.49.0";
+    public const string Image = "inngest/inngest:v1.52.0";
 
     // Lets a developer find containers left behind by a killed test run.
     public const string Label = "inngest-dotnet.itests";

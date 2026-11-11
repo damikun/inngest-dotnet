@@ -12,7 +12,7 @@ internal static partial class CliRelease
     // The version the tool runs unless --cli-version names another. It is the version of the inngest/inngest image the
     // repository's tests and docs use, and a test fails when they differ. Raise them together, and replace
     // PinnedChecksums.Text with the new release's checksums.txt.
-    public const string PinnedVersion = "1.49.0";
+    public const string PinnedVersion = "1.52.0";
 
     // Release versions are semantic versions, which the tag spells with a leading v. The version ends up in a URL and in
     // a folder name, so anything else is refused: only ASCII digits (\d takes the digits of other scripts too), and \z

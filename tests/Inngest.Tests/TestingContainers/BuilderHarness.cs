@@ -7,7 +7,7 @@ namespace Inngest.Tests.TestingContainers;
 // it before a container starts. What a container would be started with is read back from its configuration.
 internal static class BuilderHarness
 {
-    public const string Image = "inngest/inngest:v1.49.0";
+    public const string Image = "inngest/inngest:v1.52.0";
 
     public static InngestServerBuilder Builder() => new InngestServerBuilder(Image).WithDockerEndpoint("tcp://127.0.0.1:1");
 

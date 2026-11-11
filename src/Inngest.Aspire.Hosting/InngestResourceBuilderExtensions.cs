@@ -23,7 +23,7 @@ public static class InngestResourceBuilderExtensions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This version of the package runs the <c>v1.49.0</c> tag of the <c>inngest/inngest</c> image. Change it with
+    /// This version of the package runs the <c>v1.52.0</c> tag of the <c>inngest/inngest</c> image. Change it with
     /// <c>WithImageTag</c>.
     /// </para>
     /// <para>

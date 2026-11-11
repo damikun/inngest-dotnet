@@ -214,7 +214,7 @@ the template package holds files only.
    Or with Docker:
 
    ```bash
-   docker run --rm -p 8288:8288 -p 8289:8289 inngest/inngest:v1.49.0 inngest dev -u http://host.docker.internal:5280/api/inngest
+   docker run --rm -p 8288:8288 -p 8289:8289 inngest/inngest:v1.52.0 inngest dev -u http://host.docker.internal:5280/api/inngest
    ```
 
    On Linux without Docker Desktop, add `--add-host=host.docker.internal:host-gateway`.
@@ -262,13 +262,13 @@ The documentation has complete examples:
 | .NET | .NET 8 and .NET 10 (`net8.0`, `net10.0`) |
 | Hosting | ASP.NET Core with `MapInngest`, any generic host with `AddConnect`, Azure Functions (isolated worker) and AWS Lambda |
 | Native AOT and trimming | Compatible, except `Inngest.EntityFrameworkCore`, which runs on Entity Framework Core, and the packages for tests and the Aspire app host, which are never compiled ahead of time. The SDK uses source-generated JSON for its own types; you add a `JsonSerializerContext` for yours, and an analyzer lists the types you forgot. See [Native AOT and trimming](https://damikun.github.io/inngest-dotnet/guides/native-aot/). |
-| Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.49.0. |
+| Inngest | Inngest Cloud, [self-hosted Inngest](https://www.inngest.com/docs/platform-and-operations/self-host-inngest), or the dev server. Tested against `inngest/inngest` v1.52.0. |
 
 ## Quality and testing
 
 - **3,735 unit tests** pass on .NET 10, and the 3,599 of them in projects that also target .NET 8 pass on .NET 8,
   including concurrency stress tests with thousands of invocations at once.
-- **351 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.49.0, in three
+- **351 integration and end-to-end tests** run against the real Inngest server, `inngest/inngest` v1.52.0, in three
   setups: dev mode, a self-hosted server with signing keys (cloud mode), and over Connect.
 - **8,000 of 8,000 runs** completed under sustained load in dev mode, and again in cloud mode. Memory stayed flat
   over 8 million engine invocations and 1.6 million signed HTTP calls.
