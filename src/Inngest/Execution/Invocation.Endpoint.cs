@@ -164,7 +164,7 @@ internal sealed partial class Invocation
 
         try
         {
-            AddRunComplete(writer => PayloadTransforms.WriteFunctionOutput(writer, output, _settings.SerializerOptions, transforms: null));
+            AddRunComplete(writer => PayloadTransforms.WriteFunctionOutput(writer, output, _settings.SerializerOptions, Transforms));
         }
         catch (Exception exception)
         {

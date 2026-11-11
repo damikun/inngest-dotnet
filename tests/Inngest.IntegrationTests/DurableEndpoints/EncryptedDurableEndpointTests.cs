@@ -37,4 +37,20 @@ public sealed class EncryptedDurableEndpointTests(EncryptedDurableEndpointFixtur
         direct.Body.ShouldNotContain(EncryptedDurableEndpointFixture.Secret);
         direct.Body.ShouldContain("__ENCRYPTED__");
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_request_that_finishes_at_once_answers_directly_and_its_encrypted_run_completes_in_Inngest()
+    {
+        using var response = await DurableEndpointTests.Client.PostAsync(
+            new Uri(Fixture.AppUrl, $"/secret-now/{TestId}"),
+            new StringContent("{}", Encoding.UTF8, "application/json"),
+            Cancellation);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(Cancellation)).ShouldBe($"{TestId}: {EncryptedDurableEndpointFixture.Secret}");
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+
+        var trace = await Api.WaitForTraceAsync(runId, "the run completed", trace => trace.Status == "COMPLETED", Cancellation);
+        trace.Spans.ShouldContain(span => span.StepOp == "RUN" && span.Status == "COMPLETED");
+    }
 }

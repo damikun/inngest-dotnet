@@ -393,9 +393,10 @@ most.
 
 ## Configuration
 
-The run records the origin that Inngest calls the endpoint back on. By default that is the origin of the request.
-Behind a reverse proxy, a load balancer or in a container, it may be an address that Inngest cannot reach. Set
-`ServeOrigin`, or `INNGEST_SERVE_ORIGIN`, to the public origin, as for
+The run records the origin that Inngest calls the endpoint back on, with the original body, signed. Outside dev mode
+the app does not start until `ServeOrigin`, or `INNGEST_SERVE_ORIGIN`, names it, because the origin of the request comes
+from its `Host` header, which the client chooses: a client that named its own server would get a signed body of its
+choosing, which the app's other endpoints accept as a call from Inngest. Set it to the public origin, as for
 [syncs](/inngest-dotnet/guides/configuration/#behind-a-proxy):
 
 {/* check: statements; InngestOptions options */}
@@ -407,7 +408,8 @@ Only the scheme, host and port of `ServeOrigin` are used. The path comes from th
 the headers of the calls from Inngest, `X-Run-ID` and `X-Inngest-Signature` among them. A call without them is taken
 for a new request from a client, which starts a second run.
 
-In dev mode the SDK talks to the dev server, so the redirect goes to the dev server, at `http://localhost:8288` unless
+In dev mode the origin of the request is used when `ServeOrigin` is not set. The SDK talks to the dev server, so the
+redirect goes to the dev server, at `http://localhost:8288` unless
 `DevServerUrl` says otherwise. A dev server in Docker reaches the app as `host.docker.internal`, not as `localhost`,
 so set `ServeOrigin` to `http://host.docker.internal:5280` for the app of the example above.
 

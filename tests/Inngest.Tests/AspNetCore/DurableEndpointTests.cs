@@ -19,6 +19,7 @@ namespace Inngest.Tests.AspNetCore;
 // records, and how a call from Inngest resumes the run at the endpoint's own URL.
 public sealed class DurableEndpointTests : IAsyncDisposable
 {
+    private const string EncryptionKey = "0123456789abcdef0123456789abcdef";
     private const string Key = "signkey-prod-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string OrderBody = """{"note":"gift"}""";
 
@@ -240,6 +241,46 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         signed.Headers.GetValues("X-Inngest-Signature").ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task With_encryption_the_output_of_a_request_that_finishes_at_once_is_recorded_encrypted()
+    {
+        var client = await StartAsync(encrypt: true);
+
+        using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<JsonElement>(CancellationToken)).GetProperty("note").GetString().ShouldBe("gift");
+        await _checkpoints.WaitForSavesAsync(1);
+        var save = _checkpoints.Saves.ShouldHaveSingleItem();
+        save.OpNames.ShouldBe(["StepRun", "RunComplete"]);
+        var output = save.Ops[1].GetProperty("data").GetRawText();
+        output.ShouldContain("__ENCRYPTED__");
+        output.ShouldNotContain("gift");
+    }
+
+    [Fact]
+    public async Task In_cloud_mode_the_app_does_not_start_without_a_serve_origin()
+    {
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => StartAsync(cloud: true, serveOrigin: null));
+
+        error.Message.ShouldContain("ServeOrigin");
+    }
+
+    [Fact]
+    public async Task In_cloud_mode_the_run_is_resumed_at_the_serve_origin_whatever_the_host_header()
+    {
+        var client = await StartAsync(cloud: true);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/orders/42") { Content = Json(OrderBody) };
+        request.Headers.Host = "attacker.example";
+
+        using var response = await client.SendAsync(request, CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _checkpoints.WaitForSavesAsync(1);
+        using var @event = JsonDocument.Parse(_checkpoints.Saves.ShouldHaveSingleItem().Event!);
+        @event.RootElement.GetProperty("data").GetProperty("domain").GetString().ShouldBe("https://api.example.com");
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_app is not null)
@@ -248,19 +289,25 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         }
     }
 
-    private async Task<HttpClient> StartAsync(bool cloud = false)
+    private async Task<HttpClient> StartAsync(bool cloud = false, string? serveOrigin = "https://api.example.com", bool encrypt = false)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddInngest(options =>
+        var inngest = builder.Services.AddInngest(options =>
         {
             options.AppId = "shop";
             options.IsDev = !cloud;
             if (cloud)
             {
                 options.SigningKey = Key;
+                options.ServeOrigin = serveOrigin is null ? null : new Uri(serveOrigin);
             }
         });
+        if (encrypt)
+        {
+            inngest.AddEncryption(options => options.Key = EncryptionKey);
+        }
+
         builder.Services.AddSingleton<IEndpointCheckpointApi>(_checkpoints);
         builder.Services.AddSingleton<IInngestApi>(_api);
 

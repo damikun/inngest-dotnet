@@ -54,7 +54,17 @@ internal sealed class DurableEndpointMiddleware
             ?? throw new InvalidOperationException("Call services.AddInngest() before app.UseInngestDurableEndpoints().");
         _handler = services.GetRequiredService<InngestCommHandler>();
         _settings = services.GetRequiredService<InngestSettings>();
-        _time = services.GetService<TimeProvider>() ?? TimeProvider.System;
+
+        // Inngest resumes a run at the origin its event records and signs the original body for it. Taken from the
+        // request's Host header, that origin would be the caller's choice, and so would the server that gets a body it
+        // chose, signed.
+        if (!_settings.IsDev && _settings.ServeOrigin is null)
+        {
+            throw new InvalidOperationException(
+                "Durable endpoints need ServeOrigin (INNGEST_SERVE_ORIGIN) outside dev mode: the origin at which Inngest resumes their runs, such as https://api.example.com.");
+        }
+
+        _time =services.GetService<TimeProvider>() ?? TimeProvider.System;
         _stopping = services.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None;
         _logger = (services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance).CreateLogger("Inngest.AspNetCore.DurableEndpoints");
     }

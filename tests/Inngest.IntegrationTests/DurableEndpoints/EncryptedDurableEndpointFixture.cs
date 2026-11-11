@@ -36,6 +36,12 @@ public sealed class EncryptedDurableEndpointFixture : InngestFixture
         app.UseInngestDurableEndpoints();
         app.MapInngestDurableEndpointProxy("/inngest/output");
 
+        app.MapPost("/secret-now/{testId}", async (string testId, IStepTools step) =>
+        {
+            var note = await step.RunAsync("load", () => Secret);
+            return Results.Text($"{testId}: {note}", "text/plain");
+        }).WithDurableEndpoint("secret-now");
+
         app.MapPost("/secret/{testId}", async (string testId, IStepTools step) =>
         {
             var note = await step.RunAsync("load", () => Secret);
