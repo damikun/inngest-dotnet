@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Inngest.AgentApprovalSample/Inngest.AgentApprovalSample.csproj" />
+    <Project Path="samples/Inngest.AgentFrameworkSample/Inngest.AgentFrameworkSample.csproj" />
     <Project Path="samples/Inngest.AiAgentSample/Inngest.AiAgentSample.csproj" />
     <Project Path="samples/Inngest.AotSample/Inngest.AotSample.csproj" />
     <Project Path="samples/Inngest.LambdaAotSample/Inngest.LambdaAotSample.csproj" />
