@@ -81,7 +81,7 @@ public sealed record OrderSummary(string Id, string Status, List<LineSummary> Li
 A `DbContext` tracks every entity it loads or changes, and `SaveChangesAsync` saves all of them. The context injected
 into the function belongs to the call, so a step that saves also saves whatever the rest of the call left in it:
 
-{/* check: body OrderPlaced; ShopDbContext db */}
+{/* check: body OrderPlaced; ShopDbContext db; warns INNGEST026 */}
 ```csharp
 using Microsoft.EntityFrameworkCore;
 

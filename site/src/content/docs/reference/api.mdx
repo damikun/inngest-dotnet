@@ -580,6 +580,14 @@ The diagnostics:
 | [`INNGEST023`](/inngest-dotnet/guides/source-generator/#inngest023) | Warning | Code blocks on the task of a step with `.Result`, `.Wait()` or `.GetAwaiter().GetResult()`. A code fix awaits it. |
 | [`INNGEST024`](/inngest-dotnet/guides/source-generator/#inngest024) | Warning | A step is called inside the handler of another step. |
 | [`INNGEST025`](/inngest-dotnet/guides/source-generator/#inngest025) | Warning | The task of a step or of `SendAsync` is dropped in a method or lambda that is not async. |
+| [`INNGEST026`](/inngest-dotnet/guides/source-generator/#inngest026) | Warning | A function reads the clock, a new `Guid` or a random number outside a step. A code fix gets it in a step. |
+| [`INNGEST027`](/inngest-dotnet/guides/source-generator/#inngest027) | Warning | A function waits with `Task.Delay` or `Thread.Sleep` outside a step. A code fix sleeps in a step. |
+| [`INNGEST028`](/inngest-dotnet/guides/source-generator/#inngest028) | Info | A function awaits a call outside a step that is not a step. |
+| [`INNGEST029`](/inngest-dotnet/guides/source-generator/#inngest029) | Info | A loop over a dictionary or a set calls a step whose id the item is not part of. |
+| [`INNGEST030`](/inngest-dotnet/guides/source-generator/#inngest030) | Warning | A cron schedule that Inngest does not accept. |
+| [`INNGEST031`](/inngest-dotnet/guides/source-generator/#inngest031) | Warning | A time string in a function attribute is not one, or is out of range for its setting. |
+| [`INNGEST032`](/inngest-dotnet/guides/source-generator/#inngest032) | Warning | Two steps of a function have the same literal id. |
+| [`INNGEST033`](/inngest-dotnet/guides/source-generator/#inngest033) | Warning | None of a function's event triggers is for the event its event data type names. |
 
 ## Entity Framework Core outbox
 

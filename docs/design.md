@@ -579,6 +579,39 @@ project turns reflection-based JSON off, and then it reports types that would fa
   reads a captured flag after the run is not reported; a dropped task is reported only where `CS4014` is not, in
   methods and lambdas that are not async; and the cleanup rule, which is often harmless, is `Info`. Run over the
   samples and the SDK's own code they find nothing; in the tests they find the cases the tests set up on purpose.
+- **Function bodies.** `FunctionBodyAnalyzer` looks at the code that runs in every call, outside the steps, which the
+  step analyzers above do not single out. A body is a method, local function or lambda with a `FunctionContext<T>`
+  parameter: `ExecuteAsync`, `OnFailureAsync`, a delegate function's handler and a helper given the context, but not
+  middleware, which takes the non-generic `FunctionContext` and runs in every call by design. Inside it, lambdas passed
+  to a call run in place and count, such as the callback of `ParallelAsync`; step handlers, local functions and lambdas
+  kept in a variable do not, since they may run inside a step. Values in a step's arguments, a log message or a `throw`
+  are not reported: a step keeps its first arguments, and the other two act in the call alone. The rules, in the order
+  of their ids:
+
+  | Id | Severity | Rule |
+  |---|---|---|
+  | `INNGEST026` | Warning | `DateTime.Now`/`UtcNow`/`Today`, `DateTimeOffset.Now`/`UtcNow`, `TimeProvider.GetUtcNow`, `Guid.NewGuid`, `Random.Shared`, unseeded `new Random()`, `RandomNumberGenerator`, `Environment.TickCount` and `Stopwatch` outside a step. The code fix wraps the value in `RunAsync` with an id the member does not use yet; it has no fix-all, since fixes applied together would pick the same id |
+  | `INNGEST027` | Warning | `Task.Delay` and `Thread.Sleep` outside a step. The code fix calls `SleepAsync` |
+  | `INNGEST028` | Info | An awaited call that is not a step. The allow-list: step tools, the SDK's calls except the client's `SendAsync`, calls given the context or step tools, local functions and delegates, `System.Threading`, `Microsoft.Extensions.AI` and `Microsoft.Agents.AI`, reading `HttpContent`, and the tasks given to `Task.WhenAll` and `WhenAny`, which are looked into |
+  | `INNGEST029` | Info | A `foreach` over `Dictionary`, `HashSet`, their keys and values, `ConcurrentDictionary`, `ConcurrentBag`, `ImmutableDictionary` or `ImmutableHashSet` with a step whose id uses neither the item nor a local of the loop |
+  | `INNGEST032` | Warning | Two step calls with the same literal id, unless they are in different branches of an `if`, a `switch` or a conditional expression |
+
+  `INNGEST028` is `Info` because it cannot be precise: a service can run steps through the ambient context the SDK
+  keeps for a call (a chat client with `UseInngestSteps`, an `HttpClient` through the fetch handler, Microsoft Agent
+  Framework), and only the code knows whether a call is safe to repeat. A warning on every awaited service call in every
+  project would be ignored or turned off, and with it the cases that matter. A list of known I/O types (EF Core,
+  ADO.NET, `HttpClient`, `System.IO`) could carry a warning of its own later. Over the repository these rules find only
+  what the tests and the soak benchmark do on purpose: repeated ids, delays that set up timing, and I/O in an
+  integration test that shows it happening again.
+- **Function options.** `FunctionOptionsAnalyzer` reads the constant arguments of the SDK's attributes, `Trigger.Cron`
+  and `new CronTrigger`. `src/Inngest/Internal/CronExpression.cs`, `DurationLimits.cs` and `TimeString.Parsing.cs` are
+  compiled into the analyzer assembly as links, so the build and `FunctionOptionsValidator` at startup accept the same
+  schedules and durations; they target `netstandard2.0` for that and use no `using` directives, which the SDK's
+  implicit usings would make redundant. The cron parser follows `pkg/inngest/trigger.go` of Inngest v1.52.0, which
+  parses with `robfig/cron/v3` and the five fields without descriptors, and limits a schedule, its `TZ=` prefix
+  included, to 255 characters. The time zone itself is not checked, since the zones a machine knows depend on its
+  system. `INNGEST033` takes the event name from an `EventName` that returns a string literal and reports the event
+  triggers only when none of them matches it, so a function triggered by two events that share a shape is fine.
 - **The generator cannot fill the context.** Generators run on the same input and the output of one is not input to
   another, so `[JsonSerializable]` attributes written by Inngest's generator would never reach System.Text.Json's. The
   code fix edits the user's own file instead, with `ImportAdder` and the simplifier for the using directives. Its equivalence
@@ -721,7 +754,8 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | `dotnet new` templates for a web app and a Connect worker, and a tool that runs the Inngest dev server | Supported (`Inngest.Templates`, `dotnet-inngest`) |
 | Registering function classes without listing them | Supported (.NET only), when a project sets `InngestGenerateFunctionRegistration`: the source generator in `Inngest` writes `AddInngestFunctions()`. It does not compute the options at compile time |
 | Finding the types a Native AOT app has not given its `JsonSerializerContext` | Supported (.NET only): an analyzer and a code fix in `Inngest`, for function classes, delegate functions and the typed steps; values whose type is known only at run time, such as the data of an invoke or an event the app sends, are not checked |
-| Replay-safety lint (`@inngest/eslint-plugin`) | Supported as analyzers in `Inngest` (`INNGEST020` to `INNGEST025`): nested steps, a handler that assigns what the function reads, a send or step whose task is dropped, and, beyond the plugin, step ids from the clock or a random source, blocking on a step and cleanup around a step. A code fix awaits a step that code blocks on |
+| Replay-safety lint (`@inngest/eslint-plugin`) | Supported as analyzers in `Inngest` (`INNGEST020` to `INNGEST029`, `INNGEST032`): nested steps, a handler that assigns what the function reads, a send or step whose task is dropped, and, beyond the plugin, step ids from the clock or a random source, blocking on a step, cleanup around a step, the clock, a `Guid` or a random number read outside a step, `Task.Delay` and `Thread.Sleep` outside a step, awaited calls that are not steps (Info), loops over unordered collections whose steps share an id (Info) and two steps with one id. Code fixes await a step that code blocks on, get a value from the clock in a step and turn a delay into a sleep step |
+| Checking function options at build time | Supported (.NET only) as analyzers in `Inngest` (`INNGEST030`, `INNGEST031`, `INNGEST033`): cron schedules and the time strings of the attributes, read with the parsers the SDK checks options with at startup, and event triggers that do not match the type of the event data |
 
 
 ## Spec deviations

@@ -1,6 +1,6 @@
 ---
 title: Source generator and analyzers
-description: Register every function class of a project with one generated call, find the types a Native AOT app has not given its JsonSerializerContext, and find code that breaks when Inngest replays a function, while the project builds.
+description: Register every function class of a project with one generated call, find the types a Native AOT app has not given its JsonSerializerContext, find code that breaks when Inngest replays a function, and check the options of functions, while the project builds.
 sidebar:
   label: Source generator and analyzers
 ---
@@ -16,8 +16,11 @@ SDK and of Visual Studio 17.8, and run in that compiler and in every newer one.
 - An analyzer, in an app that turns reflection-based JSON off, finds the types that no `JsonSerializerContext` lists. A
   code fix lists them.
 - The step analyzers find code that breaks when Inngest replays a function: state a step's handler leaves behind, step
-  ids that change, steps inside steps, and tasks of steps that nothing awaits. A code fix awaits a step that code blocks
-  on.
+  ids that change or repeat, steps inside steps, tasks of steps that nothing awaits, and code outside the steps that
+  reads the clock, waits or does I/O again in every call. Code fixes await a step that code blocks on, move a value from
+  the clock into a step, and turn a delay into a sleep step.
+- The options analyzer checks the cron schedules and time strings of the attributes as the SDK and Inngest read them,
+  and event triggers that do not match the type of the function's event data.
 
 ## Register the function classes
 
@@ -57,8 +60,8 @@ public sealed class ChargeOrder : InngestFunction<OrderPlaced>
 [EventTrigger<OrderPlaced>]
 public sealed class SendReceipt : InngestFunction<OrderPlaced>
 {
-    public override Task<object?> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken) =>
-        Task.FromResult<object?>(null);
+    public override Task<object?> ExecuteAsync(
+        FunctionContext<OrderPlaced> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
 }
 ```
 
@@ -295,6 +298,15 @@ its extension methods, such as `RunAsync`, `SleepAsync` and `MapAsync`) and of `
 | [`INNGEST023`](#inngest023) | Warning | `.Result`, `.Wait()` or `.GetAwaiter().GetResult()` on the task of a step. A code fix awaits it. |
 | [`INNGEST024`](#inngest024) | Warning | A step called inside the handler of another step. |
 | [`INNGEST025`](#inngest025) | Warning | The task of a step or of `SendAsync` dropped in a method or lambda that is not async. |
+| [`INNGEST026`](#inngest026) | Warning | The clock, a new `Guid` or a random number read in a function outside a step. A code fix gets it in a step. |
+| [`INNGEST027`](#inngest027) | Warning | `Task.Delay` or `Thread.Sleep` in a function outside a step. A code fix sleeps in a step. |
+| [`INNGEST028`](#inngest028) | Info | A call awaited in a function outside a step that is not a step itself. |
+| [`INNGEST029`](#inngest029) | Info | A loop over a dictionary or a set that calls a step with an id the item is not part of. |
+| [`INNGEST032`](#inngest032) | Warning | Two steps of one function with the same literal id. |
+
+`INNGEST026` to `INNGEST029` look at the code that runs in every call: the body of a method, local function or lambda
+that takes `FunctionContext<TEventData>`, which is `ExecuteAsync`, the handler of a delegate function and a helper the
+function passes its context to, outside the handlers of its steps.
 
 This function has two of the mistakes. On the call after `charge` ran, its handler does not run again, so `receiptId`
 is still `null`, and the id of the second step is new on every day the run goes on:
@@ -326,6 +338,41 @@ await context.Step.RunAsync($"email-{order.OrderId}", () =>
     email.SendAsync(order.CustomerId, $"Receipt {receiptId}", cancellationToken));
 ```
 
+The code between the steps runs again in every call. Here the deadline is a different time in each call, so the check
+can pass in one call and fail in the next, and the wait holds every call open for a minute:
+
+{/* check: body OrderPlaced; IEmailSender email; warns INNGEST026 INNGEST027 */}
+```csharp
+// warning INNGEST026: DateTime.UtcNow gives a different value in every call of the function
+var deadline = DateTime.UtcNow.AddDays(1);
+
+// warning INNGEST027: Task.Delay waits in every call of the function and holds the request open
+await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+
+if (deadline > DateTime.UtcNow)
+{
+    await context.Step.RunAsync("remind", () =>
+        email.SendAsync(context.Event.Data.CustomerId, "Reminder", cancellationToken));
+}
+```
+
+Read the clock in a step, whose result every call shares, and wait with a sleep step, which waits in Inngest with no
+request open. The code fixes make these changes, with step ids that you can rename before the function first runs:
+
+{/* check: body OrderPlaced; IEmailSender email */}
+```csharp
+var deadline = await context.Step.RunAsync("deadline", () => DateTime.UtcNow.AddDays(1));
+
+await context.Step.SleepAsync("sleep", TimeSpan.FromMinutes(1));
+
+var now = await context.Step.RunAsync("now", () => DateTime.UtcNow);
+if (deadline > now)
+{
+    await context.Step.RunAsync("remind", () =>
+        email.SendAsync(context.Event.Data.CustomerId, "Reminder", cancellationToken));
+}
+```
+
 ### What the step analyzers do not see
 
 They read the code of one method at a time, so they keep quiet rather than guess:
@@ -343,6 +390,53 @@ They read the code of one method at a time, so they keep quiet rather than guess
 - `INNGEST021` is information only, because the cleanup often does no harm when it runs late, as with a
   `CancellationTokenSource`. Raise it in `.editorconfig` to see it in the build:
   `dotnet_diagnostic.INNGEST021.severity = warning`.
+- `INNGEST026` to `INNGEST029` look only at code that takes `FunctionContext<TEventData>`. A helper that takes the step
+  tools or nothing from the function is not checked, and neither is a local function or a lambda kept in a variable,
+  which may run inside a step. A value in a step's arguments, in a log message or in a `throw` is not reported: a step
+  keeps its first arguments, and the other two act in the call alone.
+- `INNGEST028` is information only. It cannot tell a call that writes from one that is safe to repeat, and a call can
+  run steps of its own that it cannot see, such as a chat client with `UseInngestSteps` or an `HttpClient` through the
+  SDK's fetch handler. It leaves out the SDK's calls except `SendAsync` of the client, calls given the function's context
+  or step tools, local functions and delegates, `System.Threading`, `Microsoft.Extensions.AI` and Microsoft Agent
+  Framework, and reading the content of a response the function already has.
+- `INNGEST029` reports a loop only when the id of its step does not use the item or a local declared in the loop. An id
+  made from the item finds the item's own result in any order.
+- `INNGEST032` compares the ids that are string literals, within one function. A step called in a loop reuses its id
+  by design, and steps in different branches of an `if`, a `switch` or a conditional expression never run in one call.
+
+## Check function options
+
+The SDK refuses a function whose options are out of range when the app starts, and Inngest refuses a sync with a cron
+schedule it cannot read. The options analyzer reports both while you type, with the same parsers the SDK uses at
+startup, which follow the server's:
+
+| Diagnostic | Severity | Finds |
+|---|---|---|
+| [`INNGEST030`](#inngest030) | Warning | A cron schedule, in `[CronTrigger]`, `Trigger.Cron` or `new CronTrigger`, that Inngest does not accept. |
+| [`INNGEST031`](#inngest031) | Warning | A time string in an attribute that is not one, or a duration outside what the setting allows. |
+| [`INNGEST033`](#inngest033) | Warning | Event triggers that all name another event than the type of the function's event data. |
+
+{/* check: file; warns INNGEST030 INNGEST031 INNGEST033 */}
+```csharp
+using Inngest;
+
+// warning INNGEST033: 'OrderReport' reads its events as OrderPlaced, whose EventName is "shop/order.placed",
+// but is triggered by "shop/order.paid"
+[InngestFunction("order-report")]
+[EventTrigger("shop/order.paid")]
+// warning INNGEST030: The cron schedule "0 0 9 * * *" is not valid: it has 6 fields, and Inngest expects 5
+[CronTrigger("0 0 9 * * *")]
+// warning INNGEST031: Period of [RateLimit] is "2d", which must be between 1s and 24h
+[RateLimit(100, "2d")]
+public sealed class OrderReport : InngestFunction<OrderPlaced>
+{
+    public override Task<object?> ExecuteAsync(
+        FunctionContext<OrderPlaced> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
+}
+```
+
+Only constant values are checked: a schedule or a duration made at run time is left to the SDK at startup. The event
+name of a type is known when its `EventName` returns a string literal, as event types are written.
 
 ## Diagnostics
 
@@ -433,3 +527,67 @@ Warning. The task of a step or of `SendAsync` is the value of a statement, in a 
 as a step handler written as an `Action`. Nothing waits for it: an event may not have left the app when the function
 returns, a step lets the code after it go on before it has run, and their errors go unseen. Await the task or return it,
 or assign it to a discard to show that nothing should wait for it.
+
+### INNGEST026
+
+Warning. A function reads `DateTime.Now`, `DateTime.UtcNow`, `DateTime.Today`, `DateTimeOffset.Now`,
+`DateTimeOffset.UtcNow`, `TimeProvider.GetUtcNow()`, `Guid.NewGuid()`, `Random.Shared`, an unseeded `new Random()`,
+`RandomNumberGenerator`, `Environment.TickCount` or `Stopwatch` outside a step. That code runs in every call of the
+function, so the value changes from call to call, and a decision made from it can go one way in one call and another way
+in the next. Get the value in a step, whose saved result every call shares. In an async function the code fix does
+that: `DateTime.UtcNow` becomes `await context.Step.RunAsync("utc-now", () => DateTime.UtcNow)`.
+
+### INNGEST027
+
+Warning. A function waits with `Task.Delay` or `Thread.Sleep` outside a step. The wait happens again in every call, and
+while it waits the request stays open, which a serverless host bills for and times out. Sleep with
+`context.Step.SleepAsync`: Inngest waits, with no request open, and calls the function once the time is up. The code
+fix does that for an awaited `Task.Delay` and a `Thread.Sleep` statement in an async function. Inngest sleeps with
+one-second resolution, so a wait under a second becomes a second. A delay inside a step's handler, such as a backoff
+between tries, is fine.
+
+### INNGEST028
+
+Info. A function awaits a call outside a step that is not a step, such as a method of an injected service. Code outside
+the steps runs in every call: an email sent there goes out again, and a record read there can differ from the one an
+earlier call read. Call it in `context.Step.RunAsync`, which runs it until it succeeds once and saves its result. A call
+that is safe to repeat, such as a read of data that does not change, can stay; suppress the message for it. Raise it in
+`.editorconfig` to see it in the build: `dotnet_diagnostic.INNGEST028.severity = warning`.
+
+### INNGEST029
+
+Info. A `foreach` over a `Dictionary`, a `HashSet`, their keys or values, or a concurrent or immutable dictionary or
+set calls a step whose id does not depend on the item. The SDK numbers an id used again in the order of the calls, so
+the results are matched to the items by their order, and the order of these collections is not defined: with string
+keys, whose hash codes change from process to process, it can differ between the calls of one run. Put the item's key
+in the id, or loop over the items in a fixed order, such as `OrderBy`.
+
+### INNGEST030
+
+Warning. A cron schedule that Inngest does not accept. Inngest reads five fields, minute, hour, day of month, month and
+day of week, with `*`, `?`, lists, ranges, steps and the names `jan` to `dec` and `sun` to `sat`, and no descriptors such
+as `@daily`. The day of week runs from 0 to 6, Sunday to Saturday. A `TZ=` prefix, or `Timezone`, names the time zone,
+and the whole schedule may have 255 characters. The SDK checks the same at startup, and Inngest refuses to sync the app
+otherwise.
+
+### INNGEST031
+
+Warning. A time string in a function attribute is not one, or is outside what Inngest allows for the setting. The
+attributes take whole numbers followed by `w`, `d`, `h`, `m` or `s`, such as `"30s"` or `"1h30m"`. Throttle periods and
+batch timeouts are at least `1s`, rate limit periods `1s` to `24h`, debounce periods `1s` to `7d`, cron jitter `1s` to
+`5m`, and debounce, cancellation and function timeouts more than zero. The SDK refuses the function at startup
+otherwise.
+
+### INNGEST032
+
+Warning. Two steps of a function have the same literal id. The SDK numbers an id used again, in the order of the calls,
+which is right for one step called in a loop. Two different steps with one id are matched to their results by that order
+alone, so steps in `ParallelAsync`, or a step that a later call skips, get each other's results. Give each step an id
+of its own. Steps in different branches of an `if`, a `switch` or a conditional expression are not reported.
+
+### INNGEST033
+
+Warning. The type argument of `InngestFunction<TEventData>` implements `IInngestEventData`, whose `EventName` is one
+event, and none of the function's event triggers runs for that event. The function would read the data of other events
+as that type. Trigger it with `[EventTrigger<TEventData>]`, or use the event data type of the event it is for. A
+function with one matching trigger and others besides, or a trigger whose wildcard covers the name, is not reported.

@@ -417,9 +417,9 @@ const props = `<Project>
          the durable endpoint and extended traces APIs as experimental; their pages have readers suppress them in their
          project file. -->
     <NoWarn>$(NoWarn);CS1998;CS0162;CS8321;CS0219;CS0168;CS1591;xUnit1051;INNGESTEXP001;INNGESTEXP002</NoWarn>
-    <!-- The analyzers of steps stay warnings, so that a block marked with warns can show the mistake they report. Every
-         other block fails on them, as on any warning. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);INNGEST020;INNGEST021;INNGEST022;INNGEST023;INNGEST024;INNGEST025</WarningsNotAsErrors>
+    <!-- The analyzers of steps and of function options stay warnings, so that a block marked with warns can show the
+         mistake they report. Every other block fails on them, as on any warning. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);INNGEST020;INNGEST021;INNGEST022;INNGEST023;INNGEST024;INNGEST025;INNGEST026;INNGEST027;INNGEST028;INNGEST029;INNGEST030;INNGEST031;INNGEST032;INNGEST033</WarningsNotAsErrors>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>
