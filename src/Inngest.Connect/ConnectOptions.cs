@@ -11,8 +11,9 @@ public sealed class ConnectOptions
 {
     /// <summary>
     /// Identifies this worker to Inngest, which tracks leases and capacity per instance. Keep it stable across
-    /// reconnects and restarts of the same worker, and unique between workers. Defaults to the host name, as in the
-    /// TypeScript SDK; workers that share a host, such as several processes, need an id each.
+    /// reconnects and restarts of the same worker, and unique between workers. Null reads INNGEST_CONNECT_INSTANCE_ID
+    /// and defaults to the host name, as in the TypeScript SDK; workers that share a host, such as several processes,
+    /// need an id each. Checkpoints the app sends name the worker by it once the worker starts.
     /// </summary>
     public string? InstanceId { get; set; }
 

@@ -21,6 +21,7 @@ internal sealed record InngestSettings
 {
     private const string DevVariableName = "INNGEST_DEV";
     private const string EnvironmentVariableName = "INNGEST_ENV";
+    internal const string ConnectInstanceIdVariableName = "INNGEST_CONNECT_INSTANCE_ID";
 
     private static readonly Uri DefaultApiBaseUrl = new("https://api.inngest.com/");
     private static readonly Uri DefaultEventApiBaseUrl = new("https://inn.gs/");
@@ -78,6 +79,9 @@ internal sealed record InngestSettings
     // Where the UI that shows a run lives: the dev server in dev mode. Null in cloud mode, where the dashboard's URL
     // names the environment by a slug the SDK is not told, and in the test host, whose runs no server has.
     public Uri? RunUiUrl { get; init; }
+
+    // INNGEST_CONNECT_INSTANCE_ID, which checkpoint requests name when no Connect worker has given its own id.
+    public string? ConnectInstanceId { get; init; }
 
     public required JsonSerializerOptions SerializerOptions { get; init; }
 
@@ -184,6 +188,7 @@ internal sealed record InngestSettings
 
             // The dev server serves its UI next to its API, which is where the SDK reaches it.
             RunUiUrl = isDev ? apiBaseUrl : null,
+            ConnectInstanceId = variables.Get(ConnectInstanceIdVariableName),
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
     }

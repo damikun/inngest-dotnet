@@ -827,6 +827,15 @@ returned gateway with the `v0.connect.inngest.com` subprotocol and exchanges pro
 Each socket has a single writer fed by a channel and a reader that never runs user code, so a slow function cannot
 stall heartbeats or lease extensions.
 
+The worker's instance id is `ConnectOptions.InstanceId`, else `INNGEST_CONNECT_INSTANCE_ID`, else `Dns.GetHostName()`,
+as in inngest-js (inngest/inngest-js#1878). The three checkpoint requests, `POST /v1/checkpoint`,
+`/v1/checkpoint/{runId}/steps` and `/v1/checkpoint/{runId}/async`, send an instance id in `X-Inngest-Instance-Id`: the
+worker's once it starts (it hands the id to the singleton `CheckpointInstance` at the start of `ExecuteAsync`, where
+inngest-js sets it on the client as `connect()` starts), or else `INNGEST_CONNECT_INSTANCE_ID`, or no header at all. No
+other request carries it, the realtime stream checkpoint included. One difference from inngest-js: there an empty
+`instanceId` option skips the variable and goes to the host name, and here a blank option counts as unset, as every
+blank setting does, so the variable applies.
+
 ## Health check
 
 `AddInngest` on `IHealthChecksBuilder` (`Inngest.AspNetCore`) tells a readiness probe whether an app that serves

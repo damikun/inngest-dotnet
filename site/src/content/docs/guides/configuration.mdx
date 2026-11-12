@@ -212,4 +212,11 @@ The SDK takes a copy when it starts, so later changes have no effect. For trimme
 ## Connect settings
 
 The [Connect](/inngest-dotnet/guides/connect/) worker has settings of its own in `ConnectOptions`, with
-`INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` and `INNGEST_CONNECT_GATEWAY_URL` as fallbacks.
+`INNGEST_CONNECT_INSTANCE_ID`, `INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` and `INNGEST_CONNECT_GATEWAY_URL` as
+fallbacks.
+
+Checkpoint requests, which [checkpointing](/inngest-dotnet/reference/api/#options) and
+[durable endpoints](/inngest-dotnet/guides/durable-endpoints/) send, name the app instance in the
+`X-Inngest-Instance-Id` header, as the TypeScript SDK does. The name is the Connect worker's instance id once the
+worker has started. Without a worker, it is `INNGEST_CONNECT_INSTANCE_ID`, so an app that serves over HTTP can set the
+variable to name its instances too. With neither, the header is left out.

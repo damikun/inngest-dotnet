@@ -33,9 +33,12 @@ internal sealed record ConnectSettings
 
         return new ConnectSettings
         {
-            // The full host name, as inngest-js uses: Environment.MachineName drops the domain on Linux and is the
-            // 15-character NetBIOS name on Windows, so different hosts could share it.
-            InstanceId = string.IsNullOrWhiteSpace(options.InstanceId) ? Dns.GetHostName() : options.InstanceId.Trim(),
+            // The option, then INNGEST_CONNECT_INSTANCE_ID, then the full host name, as in inngest-js. Environment.MachineName
+            // would not do: it drops the domain on Linux and is the 15-character NetBIOS name on Windows, so different
+            // hosts could share it.
+            InstanceId = !string.IsNullOrWhiteSpace(options.InstanceId)
+                ? options.InstanceId.Trim()
+                : variables.Get(InngestSettings.ConnectInstanceIdVariableName) ?? Dns.GetHostName(),
             MaxWorkerConcurrency = options.MaxWorkerConcurrency ?? ReadConcurrency(variables.Get(MaxWorkerConcurrencyVariable)),
             GatewayUrl = options.GatewayUrl is { } url
                 ? RequireWebSocketUrl(url, $"ConnectOptions.{nameof(ConnectOptions.GatewayUrl)}")

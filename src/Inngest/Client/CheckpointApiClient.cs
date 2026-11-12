@@ -12,7 +12,8 @@ namespace Inngest.Client;
 // POST {api}/v1/checkpoint/{runId}/async, retried like inngest-js with up to 5 attempts and backoff from 100 ms. A
 // 409 is never retried: Inngest has dispatched the run again, and the steps belong to that newer call. The runs of
 // durable endpoint requests are created and extended the same way, through POST {api}/v1/checkpoint and
-// {api}/v1/checkpoint/{runId}/steps.
+// {api}/v1/checkpoint/{runId}/steps. All three name the app instance in X-Inngest-Instance-Id when it has an id, as
+// inngest-js does.
 internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointApi
 {
     internal const int MaxAttempts = 5;
@@ -39,16 +40,19 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
     private readonly InngestApiTransport _transport;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<CheckpointApiClient> _logger;
+    private readonly CheckpointInstance _instance;
 
     public CheckpointApiClient(
         IHttpClientFactory httpClientFactory,
         InngestSettings settings,
         TimeProvider timeProvider,
-        ILogger<CheckpointApiClient> logger)
+        ILogger<CheckpointApiClient> logger,
+        CheckpointInstance? instance = null)
     {
         _transport = new InngestApiTransport(httpClientFactory, settings, logger);
         _timeProvider = timeProvider;
         _logger = logger;
+        _instance = instance ?? new CheckpointInstance(settings);
     }
 
     public async Task CheckpointAsync(AsyncCheckpoint checkpoint, CancellationToken cancellationToken)
@@ -209,7 +213,8 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
     {
         try
         {
-            using var response = await _transport.SendAsync(new ApiCall(HttpMethod.Post, url, body), HttpCompletionOption.ResponseContentRead, cancellationToken)
+            var call = new ApiCall(HttpMethod.Post, url, body, InstanceId: _instance.Id);
+            using var response = await _transport.SendAsync(call, HttpCompletionOption.ResponseContentRead, cancellationToken)
                 .ConfigureAwait(false);
             var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)

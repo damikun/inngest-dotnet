@@ -53,6 +53,7 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<RequestSigner>();
         services.TryAddSingleton<IInngestApi, InngestApiClient>();
         services.TryAddSingleton<ISignalApi, SignalApi>();
+        services.TryAddSingleton<CheckpointInstance>();
         services.TryAddSingleton<CheckpointApiClient>();
         services.TryAddSingleton<ICheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());
         services.TryAddSingleton<IEndpointCheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());

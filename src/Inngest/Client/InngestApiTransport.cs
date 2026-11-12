@@ -79,6 +79,11 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
             request.Headers.TryAddWithoutValidation(Headers.ExpectedServerKind, call.ExpectedServerKind);
         }
 
+        if (call.InstanceId is not null)
+        {
+            request.Headers.TryAddWithoutValidation(Headers.InstanceId, call.InstanceId);
+        }
+
         if (call.Token is not null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", call.Token);
@@ -97,7 +102,8 @@ internal readonly record struct KeyedResponse(HttpResponseMessage Response, bool
 
 // One request to the REST API. Environment overrides the app's branch environment for this request only.
 // Content is a body that can be sent once, such as a stream, so a request with it is never repeated with the fallback
-// key. Token authenticates in place of the signing key, as a realtime subscription token does.
+// key. Token authenticates in place of the signing key, as a realtime subscription token does. InstanceId names the
+// app instance that sends a checkpoint.
 internal readonly record struct ApiCall(
     HttpMethod Method,
     Uri Url,
@@ -106,4 +112,5 @@ internal readonly record struct ApiCall(
     string? SyncKind = null,
     string? Environment = null,
     HttpContent? Content = null,
-    string? Token = null);
+    string? Token = null,
+    string? InstanceId = null);

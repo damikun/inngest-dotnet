@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Connect.Protocol;
 using Inngest.Execution;
@@ -38,6 +39,7 @@ internal sealed partial class ConnectWorker : BackgroundService, IGatewayListene
     private readonly InngestConnection _connection;
     private readonly TimeProvider _time;
     private readonly ILogger<ConnectWorker> _logger;
+    private readonly CheckpointInstance _checkpointInstance;
     private readonly WorkerHello _hello;
     private readonly ReplyBuffer _replies;
 
@@ -71,7 +73,8 @@ internal sealed partial class ConnectWorker : BackgroundService, IGatewayListene
         ConnectApi api,
         InngestConnection connection,
         TimeProvider time,
-        ILogger<ConnectWorker> logger)
+        ILogger<ConnectWorker> logger,
+        CheckpointInstance checkpointInstance)
     {
         if (!settings.IsDev && settings.SigningKey is null)
         {
@@ -94,6 +97,7 @@ internal sealed partial class ConnectWorker : BackgroundService, IGatewayListene
         _connection = connection;
         _time = time;
         _logger = logger;
+        _checkpointInstance = checkpointInstance;
         _key = settings.SigningKey;
         _hello = new WorkerHello(settings, connect, registry);
         _replies = new ReplyBuffer(api, () => Volatile.Read(ref _key), time, logger);
@@ -152,6 +156,9 @@ internal sealed partial class ConnectWorker : BackgroundService, IGatewayListene
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Checkpoints from now on name this worker, as inngest-js's do once connect() starts.
+        _checkpointInstance.UseConnectInstanceId(_connect.InstanceId);
+
         var flushing = _replies.RunAsync(_abort.Token);
         using (stoppingToken.Register(static state => ((ConnectWorker)state!).BeginShutdown(), this))
         {

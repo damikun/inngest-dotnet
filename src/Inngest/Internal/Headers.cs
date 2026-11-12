@@ -21,6 +21,7 @@ internal static class Headers
     public const string RequestId = "X-Request-Id";
     public const string JobId = "X-Inngest-Job-Id";
     public const string GenerationId = "X-Inngest-Generation-Id";
+    public const string InstanceId = "X-Inngest-Instance-Id";
     public const string ForwardedProto = "X-Forwarded-Proto";
     public const string TraceParent = "traceparent";
     public const string TraceState = "tracestate";

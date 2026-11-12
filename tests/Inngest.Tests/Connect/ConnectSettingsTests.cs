@@ -23,6 +23,7 @@ public sealed class ConnectSettingsTests
     public void A_blank_instance_id_counts_as_unset(string instanceId)
     {
         ConnectSettings.Create(new ConnectOptions { InstanceId = instanceId }, Read(NoVariables)).InstanceId.ShouldBe(Dns.GetHostName());
+        ConnectSettings.Create(new ConnectOptions(), Read(new() { ["INNGEST_CONNECT_INSTANCE_ID"] = instanceId })).InstanceId.ShouldBe(Dns.GetHostName());
     }
 
     [Fact]
@@ -32,10 +33,12 @@ public sealed class ConnectSettingsTests
             new ConnectOptions(),
             Read(new()
             {
+                ["INNGEST_CONNECT_INSTANCE_ID"] = "worker-from-env",
                 ["INNGEST_CONNECT_MAX_WORKER_CONCURRENCY"] = "25",
                 ["INNGEST_CONNECT_GATEWAY_URL"] = "ws://localhost:8100/v0/connect",
             }));
 
+        settings.InstanceId.ShouldBe("worker-from-env");
         settings.MaxWorkerConcurrency.ShouldBe(25);
         settings.GatewayUrl.ShouldBe(new Uri("ws://localhost:8100/v0/connect"));
     }
@@ -47,6 +50,7 @@ public sealed class ConnectSettingsTests
             new ConnectOptions { InstanceId = " worker-1 ", MaxWorkerConcurrency = 4, GatewayUrl = new Uri("wss://gateway.example.com/v0/connect") },
             Read(new()
             {
+                ["INNGEST_CONNECT_INSTANCE_ID"] = "worker-from-env",
                 ["INNGEST_CONNECT_MAX_WORKER_CONCURRENCY"] = "25",
                 ["INNGEST_CONNECT_GATEWAY_URL"] = "ws://localhost:8100/v0/connect",
             }));
