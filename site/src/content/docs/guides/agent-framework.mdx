@@ -1,0 +1,259 @@
+---
+title: Durable agents with Microsoft Agent Framework
+description: Run a Microsoft Agent Framework agent in an Inngest function, with its model calls and tool calls as steps, approvals as waits for events and its text streamed through realtime.
+sidebar:
+  label: Agent Framework agents
+---
+
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) builds its `ChatClientAgent` on an
+`IChatClient` of Microsoft.Extensions.AI. Give the agent a client whose pipeline has the two stages of
+[`Inngest.Extensions.AI`](/inngest-dotnet/guides/ai/), and every call the agent makes to the model and every tool it
+runs is a step of the Inngest run. The agent itself stays as it is: the same `RunAsync`, sessions and tools. What it
+gains is what any step has:
+
+- A retry or a replay never calls the model or a tool a second time, and never pays for the same completion twice.
+- A run that waits for a person to approve a tool holds no thread or memory, and survives restarts and deploys.
+- The Inngest UI shows each model call and each tool call with its input and output.
+
+There is no package of its own for this. This page is tested with `Microsoft.Agents.AI` 1.28.0; the
+[sample](https://github.com/damikun/inngest-dotnet/tree/main/samples/Inngest.AgentFrameworkSample) runs one agent with
+an approval end to end.
+
+## Setting it up
+
+```bash
+dotnet add package Inngest.Extensions.AI
+dotnet add package Microsoft.Agents.AI
+```
+
+Build the chat client with both stages, then make the agent from it:
+
+{/* check: statements; WebApplicationBuilder builder; IChatClient model; IList<AITool> tools */}
+```csharp
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
+builder.Services
+    .AddChatClient(model)
+    .UseInngestFunctionInvocation() // the tools the agent asks for, each a step
+    .UseInngestSteps();             // each call to the model, a step
+
+builder.Services.AddSingleton<AIAgent>(services => services.GetRequiredService<IChatClient>().AsAIAgent(
+    instructions: "You are a travel agent. Reply briefly.",
+    name: "travel-agent",
+    tools: tools));
+```
+
+`ChatClientAgent` runs tools with a `FunctionInvokingChatClient`, and adds one of its own only when the client it is
+given has none. `UseInngestFunctionInvocation` is one, so the agent uses it and its tools are steps. With
+`UseInngestSteps` alone, the agent adds its own: the model calls are still saved, but the tools run in the function
+itself, and run again on every replay. A tool that books a flight or sends mail then does it again for each step that
+follows it.
+
+## An agent in a function
+
+Run the agent in the function as anywhere else:
+
+{/* check: file */}
+```csharp
+using Inngest;
+
+public sealed record TripRequested(string TripId, string Request) : IInngestEventData
+{
+    public static string EventName => "travel/trip.requested";
+}
+```
+
+{/* check: body TripRequested; AIAgent agent */}
+```csharp
+using Microsoft.Agents.AI;
+
+var reply = await agent.RunAsync(context.Event.Data.Request, cancellationToken: cancellationToken);
+
+return new { answer = reply.Text };
+```
+
+An agent that looks up flights and answers makes these steps:
+
+| Step | What it saved |
+| --- | --- |
+| `chat` | the model's first response, which asked for `find_flights` |
+| `tool find_flights` | the arguments as input, the flights as output |
+| `chat:1` | the answer |
+
+Inngest calls the function again after each step, and each call runs the agent from the start. The calls that already
+happened return their saved results, so the agent comes to the same point and goes on from there. Code of the
+function that is not in a step runs on every call, as it always does; see
+[How it works](/inngest-dotnet/how-it-works/).
+
+The steps are named and numbered as on [AI chat clients](/inngest-dotnet/guides/ai/#naming-a-step). To name them, pass
+the chat options through the run options of the agent:
+
+{/* check: body TripRequested; AIAgent agent */}
+```csharp
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
+var options = new ChatClientAgentRunOptions(new ChatOptions().WithInngestStepId("plan"));
+var reply = await agent.RunAsync(context.Event.Data.Request, options: options, cancellationToken: cancellationToken);
+```
+
+The steps are then `plan`, `plan tool find_flights` and `plan:1`.
+
+## Sessions
+
+Within one run, an `AgentSession` needs no saving. Each call of the function makes it again and the agent fills it
+again from the saved steps, so it holds the same messages on every call.
+
+A conversation that goes on over several runs, one for each message of a user, needs the session of the last run.
+`SerializeSessionAsync` turns it into JSON, and `DeserializeSessionAsync` makes it again in the next run. Write it to
+your store in a step, so that a replay does not write it again:
+
+{/* check: file */}
+```csharp
+using System.Text.Json;
+using Inngest;
+
+public sealed record MessageReceived(string ConversationId, string Text) : IInngestEventData
+{
+    public static string EventName => "chat/message.received";
+}
+
+public interface IConversationStore
+{
+    Task<JsonElement?> LoadAsync(string conversationId, CancellationToken cancellationToken);
+
+    Task SaveAsync(string conversationId, JsonElement session, CancellationToken cancellationToken);
+}
+```
+
+{/* check: body MessageReceived; AIAgent agent; IConversationStore store */}
+```csharp
+using System.Text.Json;
+using Microsoft.Agents.AI;
+
+var message = context.Event.Data;
+var saved = await context.Step.RunAsync("load-session", ct => store.LoadAsync(message.ConversationId, ct));
+var session = saved is { } json
+    ? await agent.DeserializeSessionAsync(json, cancellationToken: cancellationToken)
+    : await agent.CreateSessionAsync(cancellationToken);
+
+var reply = await agent.RunAsync(message.Text, session, cancellationToken: cancellationToken);
+
+var updated = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken);
+await context.Step.RunAsync("save-session", ct => store.SaveAsync(message.ConversationId, updated, ct));
+return new { answer = reply.Text };
+```
+
+The session holds the whole conversation, so it is as sensitive as the messages. Step results are stored by Inngest:
+use the [encryption middleware](/inngest-dotnet/guides/middleware/#encryption) when they should not be readable there.
+
+## Approvals
+
+Wrap a tool that needs a person in `ApprovalRequiredAIFunction`. When the model calls it, the agent does not run it:
+the response holds a `ToolApprovalRequestContent` instead. Wait for the decision as an event, then hand the agent the
+answer in the same session. The tool runs as a step when it is approved, and the model hears why when it is not:
+
+{/* check: file */}
+```csharp
+using Inngest;
+
+public sealed record BookingDecided(string TripId, int Approval, bool Approved, string? Note) : IInngestEventData
+{
+    public static string EventName => "travel/booking.decided";
+}
+```
+
+{/* check: body TripRequested; AIAgent agent */}
+```csharp
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
+var trip = context.Event.Data;
+var session = await agent.CreateSessionAsync(cancellationToken);
+var response = await agent.RunAsync(trip.Request, session, cancellationToken: cancellationToken);
+
+var approvals = 0;
+while (response.Messages.SelectMany(m => m.Contents).OfType<ToolApprovalRequestContent>().ToList() is { Count: > 0 } requests)
+{
+    List<AIContent> answers = [];
+    foreach (var request in requests)
+    {
+        var approval = ++approvals;
+        var decision = await context.Step.WaitForEventAsync<BookingDecided>(
+            $"approval {approval}",
+            TimeSpan.FromDays(1),
+            @if: $"async.data.tripId == event.data.tripId && async.data.approval == {approval}");
+
+        answers.Add(decision is { Data: var decided }
+            ? request.CreateResponse(decided.Approved, decided.Note)
+            : request.CreateResponse(approved: false, "No one answered in time."));
+    }
+
+    response = await agent.RunAsync(new ChatMessage(ChatRole.User, answers), session, cancellationToken: cancellationToken);
+}
+
+return new { answer = response.Text };
+```
+
+The run stops at the wait, and Inngest calls the function again when the `travel/booking.decided` event arrives or the
+day is over. That call runs the agent from the start: the first model call returns its saved response with the same
+approval request, the wait returns the decision, and only then does the agent call the model, and the tool, for the
+first time since the wait. The steps of an approved booking are `chat`, `approval 1`, `tool book_flight` and `chat:1`.
+
+Tell the person what waits for them before the wait, for example with a
+[realtime message](/inngest-dotnet/guides/realtime/) published in a step, or with `context.Logger`, which writes once
+per run and not on every replay.
+
+## Streaming
+
+`RunStreamingAsync` makes the same steps. To show the text in a browser while the model writes it, publish it to a
+realtime topic with the chat options of the run:
+
+{/* check: body TripRequested; AIAgent agent */}
+```csharp
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
+var topic = new RealtimeTopic($"trip:{context.Event.Data.TripId}", "answer");
+var options = new ChatClientAgentRunOptions(new ChatOptions().WithInngestRealtimeStream(topic));
+
+var reply = await agent
+    .RunStreamingAsync(context.Event.Data.Request, options: options, cancellationToken: cancellationToken)
+    .ToAgentResponseAsync(cancellationToken);
+```
+
+Each model call of the agent streams to the topic as it runs, and a replay publishes nothing. A call that only asks for
+tools has no text to send. The updates that `RunStreamingAsync` itself returns arrive when each model call is done,
+as on [AI chat clients](/inngest-dotnet/guides/ai/#streaming). The page subscribes as on
+[Realtime](/inngest-dotnet/guides/realtime/).
+
+## Testing
+
+The [test host](/inngest-dotnet/guides/testing/) runs an agent like any other code of a function. Give the pipeline a
+fake `IChatClient` as the model, and count the calls: each model call and each tool runs once however many times the
+host replays the function. A wait for an approval is answered with `StepMocks.WaitForEvent`:
+
+{/* check: statements; InngestTestHost host; CancellationToken cancellationToken */}
+```csharp
+using Inngest.Testing;
+using Xunit;
+
+var trip = new InngestEvent("travel/trip.requested", new { tripId = "t1", request = "Book OK 704" });
+var mocks = new StepMocks().WaitForEvent("approval 1", new InngestEvent("travel/booking.decided", new { approved = true }));
+var run = await host.RunAsync("plan-trip", trip, mocks, cancellationToken);
+
+string[] steps = ["chat", "approval 1", "tool book_flight", "chat:1"];
+Assert.Equal(steps, run.Steps.Select(step => step.Id));
+```
+
+## What it does not do
+
+- Only agents that call an `IChatClient`, which is `ChatClientAgent` and the agents made from it, have their calls
+  saved. An agent that calls a remote service in another way, such as an A2A agent, does not go through the pipeline;
+  wrap its `RunAsync` in `context.Step.RunAsync`.
+- Agent Framework workflows checkpoint in their own way, and this page does not cover them. Their agents still make
+  their calls through their chat clients.
+- Calls made inside the handler of a step are not steps of their own, as on
+  [AI chat clients](/inngest-dotnet/guides/ai/#what-it-does-not-do): an agent run entirely inside one `RunAsync` is one
+  step.

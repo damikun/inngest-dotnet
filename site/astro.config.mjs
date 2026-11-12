@@ -75,6 +75,7 @@ export default defineConfig({
             'guides/signalr',
             'guides/durable-endpoints',
             'guides/ai',
+            'guides/agent-framework',
           ],
         },
         {
