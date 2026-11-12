@@ -22,6 +22,13 @@ These are on main and not yet on NuGet.
 - **The run's page.** In dev mode, `FunctionContext.RunUrl` links to the run in the dev server's UI.
 - **The app instance in checkpoint requests.** Checkpoint requests send `X-Inngest-Instance-Id`, which is the Connect
   worker's id or `INNGEST_CONNECT_INSTANCE_ID`. See [Connect settings](/inngest-dotnet/guides/configuration/#connect-settings).
+- **Waiting for runs.** `IInngestRunsClient.WaitForRunAsync`, `WaitForEventRunsAsync` and
+  `WaitForEventRunsToSettleAsync` return runs once they have ended. In tests, `SendAndWaitAsync` on the test containers
+  sends an event and returns the runs it started. See [Runs](/inngest-dotnet/reference/api/#runs) and
+  [Sending an event and waiting for its runs](/inngest-dotnet/guides/testing-with-containers/#sending-an-event-and-waiting-for-its-runs).
+- **A management client.** `IInngestManagementClient` uses Inngest's v2 REST API, which Inngest marks Beta, to pause
+  and resume functions, cancel runs in bulk, and list events, runs and app syncs. See
+  [Management](/inngest-dotnet/reference/api/#management).
 - **Microsoft Agent Framework.** A guide and a sample for agents that make their model and tool calls as steps and wait
   for approval. See [Agent Framework](/inngest-dotnet/guides/agent-framework/).
 - **Migration guides** from Durable Functions, Hangfire, MassTransit, Temporal and AWS Lambda durable functions.
