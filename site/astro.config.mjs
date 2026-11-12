@@ -57,6 +57,16 @@ export default defineConfig({
           items: ['how-it-works', 'guides/getting-started', 'guides/templates-and-tools', 'guides/ai-assistants'],
         },
         {
+          label: 'Migrating',
+          items: [
+            'migrating/durable-functions',
+            'migrating/hangfire',
+            'migrating/masstransit',
+            'migrating/temporal',
+            'migrating/aws-lambda-durable-functions',
+          ],
+        },
+        {
           label: 'Writing functions',
           items: [
             'guides/functions-and-triggers',

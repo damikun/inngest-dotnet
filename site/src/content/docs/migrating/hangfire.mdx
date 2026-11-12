@@ -1,0 +1,234 @@
+---
+title: Coming from Hangfire
+description: How Hangfire's fire-and-forget, delayed, continuation and recurring jobs, retries, queues and filters map to Inngest functions, steps and flow control in .NET, with C# side by side.
+sidebar:
+  label: Hangfire
+---
+
+Hangfire runs a method call later. `BackgroundJob.Enqueue` saves the method and its arguments in Hangfire's storage,
+and a server in your process picks the job up and calls the method. Inngest starts from an event instead. Your code
+sends an event, Inngest decides which functions it starts, and it calls those functions over HTTP at the endpoint
+your app serves. A function is a class, and each piece of work in it that should run once is a step.
+
+Three differences shape everything below:
+
+- **No storage and no server of your own.** Inngest keeps the queue, the state of every run and the history. Your app
+  serves an endpoint, or opens a [Connect](/inngest-dotnet/guides/connect/) connection, and does the work when
+  Inngest calls it. There is no worker count to size and no database to clean up.
+- **Events, not method calls.** An event names what happened, such as `user/signed-up`, and carries data. Any number
+  of functions can run on it. What runs is not tied to the code that sent it.
+- **One job can have many steps.** A Hangfire job is one call that succeeds or fails as a whole, and a chain of jobs
+  is how you split work up. An Inngest function is durable: each step's result is saved, a failed step is retried on
+  its own, and the function can sleep for days or wait for another event between steps.
+
+## The names side by side
+
+| Hangfire | inngest-dotnet |
+|---|---|
+| A job method on a class | A function class that derives from `InngestFunction<TEventData>`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| `BackgroundJob.Enqueue(...)` | `IInngestClient.SendAsync(...)` with an event that the function is triggered by. See [Sending events](/inngest-dotnet/guides/sending-events/). |
+| `BackgroundJob.Schedule(..., delay)` | An event with a future `Timestamp`, or `context.Step.SleepAsync` inside the function. |
+| `BackgroundJob.ContinueJobWith(...)` | The next step in the same function. |
+| `RecurringJob.AddOrUpdate(id, ..., cron)` | `[CronTrigger("0 6 * * *")]` on the function. |
+| `[AutomaticRetry(Attempts = 5)]` | `Retries = 5` on `[InngestFunction]`. Each step gets its own attempts. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/). |
+| `AttemptsExceededAction.Fail` and a failed-state filter | `IFailureHandler` on the class, which runs once the function has failed for good. |
+| `[DisableConcurrentExecution]` | `[Concurrency(1)]`, or `[Singleton]` to cover sleeps and waits too. See [Flow control](/inngest-dotnet/guides/flow-control/). |
+| `[Queue("critical")]` and the server's `Queues` | `[Priority]` to start some runs first, and `[Concurrency]` with a key to share capacity. There are no named queues. |
+| `BackgroundJobServerOptions.WorkerCount` | `[Concurrency]` limits. Inngest calls the app as often as the limits allow. |
+| Batches and continuations of batches (Hangfire.Pro) | `MapAsync` or `Task.WhenAll` over steps in one function, or `InvokeAsync` per item. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/). |
+| Throttling, mutexes and semaphores (Hangfire.Throttling, part of Hangfire.Ace) | `[Throttle]`, `[RateLimit]`, `[Concurrency]` with a `Key`, `[Singleton]` and `[Debounce]`. |
+| Job filters (`IServerFilter`, `JobFilterAttribute`) | Middleware: a class that derives from `InngestMiddleware`. See [Middleware](/inngest-dotnet/guides/middleware/). |
+| `BackgroundJob.Delete(jobId)` | `IInngestRunsClient.CancelRunAsync(runId)`, or `[CancelOn]` to cancel on an event. |
+| The Hangfire dashboard | The Inngest dashboard, or the dev server's UI on your machine. |
+| `CancellationToken` in a job method | The `cancellationToken` of `ExecuteAsync`, and the token each step handler receives. |
+
+## Fire and forget
+
+Hangfire serializes the method call. With Inngest you send an event, and the function that runs on it is registered
+once, at startup.
+
+{/* check: skip */}
+```csharp title="Hangfire"
+BackgroundJob.Enqueue<IWelcomeMailer>(mailer => mailer.SendWelcomeAsync(user.Email, CancellationToken.None));
+```
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+public sealed record UserRegistered(string UserId, string Email) : IInngestEventData
+{
+    public static string EventName => "user/registered";
+}
+
+[InngestFunction("send-welcome")]
+[EventTrigger<UserRegistered>]
+public sealed class SendWelcome(IEmailSender email) : InngestFunction<UserRegistered>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<UserRegistered> context, CancellationToken cancellationToken)
+    {
+        var user = context.Event.Data;
+        return await context.Step.RunAsync("send-welcome", ct => email.SendAsync(user.Email, "Welcome!", ct));
+    }
+}
+```
+
+{/* check: statements; IInngestClient inngest; UserRegistered user; CancellationToken cancellationToken */}
+```csharp title="Where Hangfire enqueued the job"
+await inngest.SendAsync(user, cancellationToken);
+```
+
+`AddInngest(...).AddFunction<SendWelcome>()` registers the function and `app.MapInngest("/api/inngest")` serves it.
+[Getting started](/inngest-dotnet/guides/getting-started/) walks through both.
+
+The event carries data, not a method call, so renaming a method or changing its parameters does not break events
+that are already waiting. Changing the event's record does matter; treat it as a contract.
+
+When the event must go out together with a database change, the [transactional outbox](/inngest-dotnet/guides/outbox/) of `Inngest.EntityFrameworkCore` saves
+the event in the same `SaveChangesAsync` and sends it afterwards.
+
+## Delayed jobs
+
+{/* check: skip */}
+```csharp title="Hangfire"
+BackgroundJob.Schedule<ITrialMailer>(mailer => mailer.SendEndingSoonAsync(userId), TimeSpan.FromDays(12));
+```
+
+A future `Timestamp` makes the runs an event starts begin at that time:
+
+{/* check: statements; IInngestClient inngest; string userId; CancellationToken cancellationToken */}
+```csharp title="inngest-dotnet"
+await inngest.SendAsync(new InngestEvent("trial/ending-soon", new { userId })
+{
+    Timestamp = DateTimeOffset.UtcNow.AddDays(12),
+}, cancellationToken);
+```
+
+Often the delay is part of a longer process, such as "send a welcome mail, then a check-in three days later". Then it
+belongs inside one function as a sleep, which holds no worker and no thread while it waits. See
+[Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/).
+
+## Continuations become steps
+
+A chain of continuations passes data from job to job through arguments, and each job is retried on its own.
+Steps do the same inside one function: each step's result is saved, a later step uses it, and a failed step is
+retried without running the steps before it again.
+
+{/* check: skip */}
+```csharp title="Hangfire"
+var chargeId = BackgroundJob.Enqueue<IPayments>(p => p.ChargeAsync(orderId));
+var shipId = BackgroundJob.ContinueJobWith<IShipping>(chargeId, s => s.CreateLabelAsync(orderId));
+BackgroundJob.ContinueJobWith<IMailer>(shipId, m => m.SendShippedAsync(orderId));
+```
+
+{/* check: body OrderPlaced; IPaymentGateway payments; IShipping shipping; IEmailSender email */}
+```csharp title="inngest-dotnet"
+var order = context.Event.Data;
+
+var paymentId = await context.Step.RunAsync("charge",
+    ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+var label = await context.Step.RunAsync("create-label",
+    ct => shipping.CreateLabelAsync(order.OrderId, ct));
+
+await context.Step.RunAsync("send-shipped",
+    ct => email.SendAsync(order.CustomerId, $"Your order is on its way: {label}", ct));
+```
+
+```csharp
+public interface IShipping
+{
+    Task<string> CreateLabelAsync(string orderId, CancellationToken cancellationToken);
+}
+```
+
+In Hangfire the continuation does not see the result of the job before it, so the second job reads it back from
+your database. A step returns its result, and the next step uses it. Inngest calls the function once per step and
+runs it from the top each time, returning saved results for the steps that are done, so code between steps must not
+have side effects. [Steps](/inngest-dotnet/guides/steps/) explains the rules, and the
+[step analyzers](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety) catch the common mistakes.
+
+## Recurring jobs
+
+{/* check: skip */}
+```csharp title="Hangfire"
+RecurringJob.AddOrUpdate<IBillingJobs>(
+    "nightly-billing",
+    jobs => jobs.ChargeOpenInvoicesAsync(),
+    "0 2 * * *",
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Prague") });
+```
+
+{/* check: attributes */}
+```csharp title="inngest-dotnet"
+[InngestFunction("nightly-billing")]
+[CronTrigger("0 2 * * *", Timezone = "Europe/Prague")]
+```
+
+The schedule is part of the function and is sent to Inngest when the app syncs. There is no call at startup that
+adds or updates it, and removing the attribute removes the schedule on the next sync. A function can have more than one
+schedule, and an event trigger next to them, so you can also start it on demand. See
+[Cron triggers](/inngest-dotnet/guides/functions-and-triggers/#cron-triggers).
+
+## Retries and failures
+
+{/* check: skip */}
+```csharp title="Hangfire"
+[AutomaticRetry(Attempts = 5, OnAttemptsExceeded = AttemptsExceededAction.Fail)]
+public async Task ImportAsync(string fileId) { /* ... */ }
+```
+
+{/* check: attributes */}
+```csharp title="inngest-dotnet"
+[InngestFunction("import-catalog", Retries = 5)]
+```
+
+`Retries` counts the retries after the first attempt, as `Attempts` does, but it applies to each step separately: in
+a function with three steps, a failure in the third does not repeat the first two. Throw `NonRetriableException` to
+fail at once, and `RetryAfterException` to retry no sooner than a given time. For what Hangfire does with a state
+filter on the failed state, implement `IFailureHandler`. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/).
+
+## Concurrency, queues and throttling
+
+{/* check: skip */}
+```csharp title="Hangfire"
+[Queue("critical")]
+[DisableConcurrentExecution(timeoutInSeconds: 600)]
+public async Task SyncAccountAsync(string accountId) { /* ... */ }
+```
+
+{/* check: attributes */}
+```csharp title="inngest-dotnet"
+[InngestFunction("sync-account")]
+[Concurrency(1, Key = "event.data.accountId")]
+[Priority("event.data.plan == 'enterprise' ? 120 : 0")]
+```
+
+`DisableConcurrentExecution` takes a distributed lock around the whole method. `[Concurrency(1)]` lets one step of the
+function run at a time, and with a `Key` that is one per account rather than one overall. Inngest enforces it; there
+is no lock in your storage that can be left behind. A run that sleeps or waits holds no slot. To allow one active run
+per key, waits included, use `[Singleton]`.
+
+Hangfire keeps urgent work apart with queues and the servers that process them. Inngest has no named queues. `[Priority]` starts some runs ahead of others in the function's backlog,
+and [`[Throttle]`, `[RateLimit]` and `[Debounce]`](/inngest-dotnet/guides/flow-control/) cover what Hangfire.Throttling
+(Hangfire.Ace) adds.
+
+## Where there is no direct match
+
+- **Running any method later.** `Enqueue(() => service.Method(args))` turns any public method into a job. Inngest
+  runs functions you declare. A one-off task still needs a small function and an event. This keeps what runs
+  independent of the code that asked for it, and it works with Native AOT, which serialized expressions do not.
+- **Job storage you own.** Hangfire's state lives in your SQL Server, PostgreSQL or Redis. Inngest's lives in Inngest:
+  Inngest Cloud, or a [self-hosted](/inngest-dotnet/guides/deploying/#self-hosting-inngest) Inngest server. You do not
+  query it with SQL. The dashboard and [`IInngestRunsClient`](/inngest-dotnet/reference/api/) read runs.
+- **Requeueing from code.** Hangfire can requeue a job by id. The Inngest dashboard can rerun a run, and you can send
+  the event again from code. The SDK's runs client gets and cancels runs; it does not start them again.
+- **In-process execution with no network.** Hangfire works with nothing but your app and its database. Inngest needs
+  the Inngest server, which during development is the
+  [dev server](/inngest-dotnet/guides/getting-started/).
+  Tests run without it: [`InngestTestHost`](/inngest-dotnet/guides/testing/) runs a function in memory.
+
+## Moving over
+
+You do not have to move every job at once. Hangfire and Inngest can run in the same app. A Hangfire job can send an
+event with `IInngestClient`, and an Inngest step can enqueue a Hangfire job, so you can move one chain at a time,
+starting with the ones that pass state between jobs or wait for something outside the app.

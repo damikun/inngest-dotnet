@@ -1,0 +1,260 @@
+---
+title: Coming from Durable Functions
+description: How Azure Durable Functions and the Durable Task SDK map to Inngest in .NET, orchestrators to functions, activities to steps, timers, external events, sub-orchestrations and the client, with C# side by side, and what to use for entities.
+sidebar:
+  label: Durable Functions
+---
+
+Durable Functions and the Durable Task SDK, in the .NET isolated worker or with the Durable Task Scheduler, are the
+closest relatives of Inngest in .NET. Both replay code to make it durable, and most concepts carry over directly.
+This page uses the isolated worker model; the class-based `TaskOrchestrator<TInput, TOutput>` maps the same way.
+
+The main differences:
+
+- **Where state lives.** Durable Task keeps orchestration history in a storage backend, such as Azure Storage, MSSQL or
+  the Durable Task Scheduler, and your worker reads it. Inngest keeps every run's state itself, in
+  Inngest Cloud or a [self-hosted](/inngest-dotnet/guides/deploying/#self-hosting-inngest) server, and calls your
+  app over HTTP when there is work. The app runs anywhere that serves HTTP:
+  [ASP.NET Core](/inngest-dotnet/guides/getting-started/), [Azure Functions](/inngest-dotnet/guides/azure-functions/),
+  [AWS Lambda](/inngest-dotnet/guides/aws-lambda/), or a [Connect](/inngest-dotnet/guides/connect/) worker with no
+  public endpoint.
+- **What starts a run.** An orchestration starts when a client schedules it by name. An Inngest function starts when
+  an event it is triggered by arrives, on a schedule, or when another function invokes it. An event can start several
+  functions.
+- **Where the work runs.** An orchestrator schedules activities, which run as separate functions. An Inngest step is a
+  lambda inside the function: its handler is the activity's body, and it gets the services of the function's class.
+- **What must be deterministic.** Both replay the function. In an orchestrator the whole body must be deterministic
+  and must not do I/O or await anything but the context. In an Inngest function the code between steps runs on every
+  call too, so side effects and values that change go into steps, but ordinary `async` code is fine.
+
+## The names side by side
+
+| Durable Functions / Durable Task | inngest-dotnet |
+|---|---|
+| `[OrchestrationTrigger] TaskOrchestrationContext`, or `TaskOrchestrator<TInput, TOutput>` | A class that derives from `InngestFunction<TEventData>` or `InngestFunction<TEventData, TResult>`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| Orchestrator input, `GetInput<T>()` | The data of the event that started the run, `context.Event.Data`. |
+| `[ActivityTrigger]` and `context.CallActivityAsync(...)` | `context.Step.RunAsync("id", ct => ...)`. See [Steps](/inngest-dotnet/guides/steps/). |
+| `TaskOptions.FromRetryPolicy(new RetryPolicy(...))` | `Retries` on `[InngestFunction]`, which applies to each step. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/). |
+| `context.CreateTimer(...)` | `context.Step.SleepAsync("id", duration)` or `SleepUntilAsync("id", time)`. |
+| `context.WaitForExternalEvent<T>(name, timeout)` | `context.Step.WaitForSignalAsync` or `WaitForEventAsync`; both return `null` at the timeout instead of throwing. See [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/). |
+| `client.RaiseEventAsync(instanceId, name, data)` | `IInngestClient.SendSignalAsync(...)`, or `SendAsync` with an event that the run waits for. |
+| `context.CallSubOrchestratorAsync<T>(...)` | `context.Step.InvokeAsync<TFunction, TResult>(...)`. See [Invoking functions](/inngest-dotnet/guides/invoking-functions/). |
+| `Task.WhenAll` over activity calls | `Task.WhenAll` over steps, or `MapAsync` for a list. See [Parallel steps](/inngest-dotnet/guides/parallel-steps/) and [Fan-out](/inngest-dotnet/guides/fan-out/). |
+| `context.CurrentUtcDateTime`, `context.NewGuid()` | Read the value in a step: `await context.Step.RunAsync("now", () => DateTimeOffset.UtcNow)`. |
+| `context.CreateReplaySafeLogger(...)`, `context.IsReplaying` | `context.Logger`, which stays quiet while the function replays. |
+| `context.SetCustomStatus(...)` | Publish progress with [Realtime](/inngest-dotnet/guides/realtime/), or save it in a step. |
+| `context.ContinueAsNew(...)` | A `[CronTrigger]` for periodic work, or an event sent from a step that starts the next run. |
+| `client.ScheduleNewOrchestrationInstanceAsync(...)` | `IInngestClient.SendAsync(...)` with an event. See [Sending events](/inngest-dotnet/guides/sending-events/). |
+| An instance id you choose | The event's `Id` for deduplication, `Idempotency` on `[InngestFunction]`, or `[Singleton]`. |
+| `client.GetInstanceAsync(...)`, `WaitForInstanceCompletionAsync(...)` | `IInngestRunsClient.GetEventRunsAsync(eventId)` and `GetRunAsync(runId)`. |
+| `client.TerminateInstanceAsync(...)` | `IInngestRunsClient.CancelRunAsync(runId)`, or `[CancelOn]` to cancel on an event. |
+| `CreateCheckStatusResponseAsync(...)` | No built-in status endpoints. Return the event id, and read the run with `IInngestRunsClient`, or stream progress with [Realtime](/inngest-dotnet/guides/realtime/). |
+| A timer-triggered function that starts an orchestration | `[CronTrigger]` on the function. |
+| Durable entities | No direct match; see [Entities](#entities). |
+| The `DURABLE0001`–`DURABLE0011` analyzers | `INNGEST020`–`INNGEST025`, which check how steps are used. See [Check steps for replay safety](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety). |
+| The Durable Task Scheduler dashboard | The Inngest dashboard, or the dev server's UI on your machine. |
+
+## An orchestration and its activities
+
+{/* check: skip */}
+```csharp title="Durable Functions"
+[Function(nameof(ProcessOrder))]
+public static async Task<string> ProcessOrder([OrchestrationTrigger] TaskOrchestrationContext context, Order order)
+{
+    var retry = TaskOptions.FromRetryPolicy(new RetryPolicy(
+        maxNumberOfAttempts: 5, firstRetryInterval: TimeSpan.FromSeconds(5), backoffCoefficient: 2.0));
+
+    var paymentId = await context.CallActivityAsync<string>(nameof(ChargeCard), order, retry);
+
+    await context.CreateTimer(TimeSpan.FromMinutes(10), CancellationToken.None);
+
+    await context.CallActivityAsync(nameof(SendReceipt), new Receipt(order.CustomerId, paymentId), retry);
+    return paymentId;
+}
+
+[Function(nameof(ChargeCard))]
+public async Task<string> ChargeCard([ActivityTrigger] Order order) =>
+    await payments.ChargeAsync(order.CustomerId, order.Total, CancellationToken.None);
+
+[Function(nameof(SendReceipt))]
+public async Task SendReceipt([ActivityTrigger] Receipt receipt) =>
+    await email.SendAsync(receipt.CustomerId, $"Receipt for {receipt.PaymentId}", CancellationToken.None);
+```
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+[InngestFunction("process-order", Retries = 4)]
+[EventTrigger<OrderPlaced>]
+public sealed class ProcessOrder(IPaymentGateway payments, IEmailSender email) : InngestFunction<OrderPlaced, string>
+{
+    public override async Task<string> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var paymentId = await context.Step.RunAsync("charge-card",
+            ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+        await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(10));
+
+        await context.Step.RunAsync("send-receipt",
+            ct => email.SendAsync(order.CustomerId, $"Receipt for {paymentId}", ct));
+
+        return paymentId;
+    }
+}
+```
+
+The activities become steps, and their inputs become the variables they close over: there is no input object to
+serialize for each call. Each step's result is saved with the run under the step's id, which plays the part of the
+activity's place in the history. Keep ids the same between deploys while runs are in flight; the
+[step analyzers](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety) report ids that would change
+between calls.
+
+`Retries = 4` gives each step up to five attempts, as `maxNumberOfAttempts: 5` does. Inngest chooses the backoff.
+Throw `NonRetriableException` to stop at once, or `RetryAfterException` to retry no sooner than a given time.
+
+Register the function with `AddInngest(...).AddFunction<ProcessOrder>()`. In an Azure Functions app,
+`Inngest.AzureFunctions` serves it from one HTTP-triggered function; see
+[Azure Functions](/inngest-dotnet/guides/azure-functions/).
+
+## Starting a run
+
+{/* check: skip */}
+```csharp title="Durable Functions"
+string instanceId = await client.ScheduleNewOrchestrationInstanceAsync(
+    nameof(ProcessOrder), order, new StartOrchestrationOptions($"order-{order.OrderId}"));
+```
+
+{/* check: statements; IInngestClient inngest; OrderPlaced order; CancellationToken cancellationToken */}
+```csharp title="inngest-dotnet"
+var sent = await inngest.SendAsync(new InngestEvent(OrderPlaced.EventName, order)
+{
+    Id = $"order-{order.OrderId}",
+}, cancellationToken);
+```
+
+The event `Id` makes a repeated send start no second run for 24 hours. `sent.Ids[0]` is the event's id, and
+`IInngestRunsClient.GetEventRunsAsync` lists the runs it started.
+
+## External events
+
+{/* check: skip */}
+```csharp title="Durable Functions"
+try
+{
+    var approved = await context.WaitForExternalEvent<bool>("Approval", TimeSpan.FromDays(3));
+}
+catch (TaskCanceledException)
+{
+    return "timed-out";
+}
+
+// Elsewhere:
+await client.RaiseEventAsync(instanceId, "Approval", true);
+```
+
+{/* check: body OrderPlaced */}
+```csharp title="inngest-dotnet"
+var approval = await context.Step.WaitForSignalAsync<bool>("wait-for-approval",
+    new WaitForSignalOptions($"approve-order/{context.Event.Data.OrderId}", TimeSpan.FromDays(3)));
+
+if (approval is null)
+{
+    return "timed-out";
+}
+```
+
+{/* check: statements; IInngestClient inngest; string orderId; CancellationToken cancellationToken */}
+```csharp title="Elsewhere"
+await inngest.SendSignalAsync(new InngestSignal($"approve-order/{orderId}", true), cancellationToken);
+```
+
+A raised event goes to an instance by its id. A signal goes to the run that waits for it by the signal's name, so make
+the name unique, such as one per order. Two things differ:
+
+- **Nothing is buffered.** Durable Task keeps an event raised before the orchestration waits for it. An Inngest signal
+  resumes a run that is waiting at that moment, and `SendSignalAsync` returns `null` when none is.
+- **Events can be the trigger.** `WaitForEventAsync` waits for an event that matches the run, such as the same order
+  id in its data, so the code that sends it does not need to know about the run. It too sees only events that arrive
+  after the wait starts.
+
+## Sub-orchestrations and fan-out
+
+{/* check: skip */}
+```csharp title="Durable Functions"
+var score = await context.CallSubOrchestratorAsync<AccountScore>(nameof(ScoreAccount), new ScoreRequest(accountId));
+
+var tasks = invoices.Select(invoice => context.CallActivityAsync<string>(nameof(Charge), invoice.Id));
+string[] paymentIds = await Task.WhenAll(tasks);
+```
+
+{/* check: body JsonElement; string accountId; IBilling billing; IReadOnlyList<Invoice> invoices */}
+```csharp title="inngest-dotnet"
+var score = await context.Step.InvokeAsync<ScoreAccount, AccountScore>("score-account",
+    new ScoreRequest(accountId), timeout: TimeSpan.FromHours(1));
+
+string[] paymentIds = await context.Step.MapAsync("charge", invoices,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
+    new FanOutOptions { MaxParallelism = 10 });
+```
+
+The invoked function runs as a run of its own with its own history, as a sub-orchestration does. `MapAsync` runs a step
+per item with ids `charge[0]`, `charge[1]` and so on, and `MaxParallelism` bounds how many run at once; `Task.WhenAll`
+over `RunAsync` calls works as well. For more items than one run should hold, `MapInChunksAsync` sends them to
+child runs. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/).
+
+## Determinism
+
+The Durable Task analyzers flag `DateTime.UtcNow`, `Guid.NewGuid()`, `Task.Delay`, `Task.Run`, I/O and environment
+variables in orchestrators. In an Inngest function the same values are fine inside a step and wrong outside one:
+
+{/* check: body JsonElement */}
+```csharp title="inngest-dotnet"
+var now = await context.Step.RunAsync("read-clock", () => DateTimeOffset.UtcNow);
+var correlationId = await context.Step.RunAsync("new-id", () => Guid.NewGuid());
+```
+
+The step saves the value, so every later call reads the same one. The SDK's analyzers check how steps are used: an id
+that changes between calls, a value assigned inside a step and read outside it, a step nested in another, a blocking
+wait on a step. They do not yet flag a clock read or I/O outside a step, so review that by hand.
+
+## Entities
+
+Durable entities are small actors: state per key, with operations that run one at a time. Inngest has no entity
+type and stores no state for you between runs. What an entity did maps to these:
+
+- **Operations that must not overlap per key.** A function with `[Concurrency(1, Key = "event.data.accountId")]`
+  runs one step at a time for each account. With `[Singleton(SingletonMode.Skip, Key = ...)]` there is only one
+  active run per key, sleeps and waits included. Send an event per operation.
+- **The state.** Keep it in your database and change it in a step. With Entity Framework Core,
+  [`RunScopedAsync`](/inngest-dotnet/guides/scoped-steps/) gives the step a `DbContext` of its own.
+- **Counters and aggregates.** `[BatchEvents]` runs once for many events, and `[Debounce]` runs once after events for
+  a key stop arriving. See [Flow control](/inngest-dotnet/guides/flow-control/).
+- **Critical sections** (`LockEntitiesAsync`). A keyed concurrency limit serializes the work, but there is no lock
+  across several keys. Use your database's transactions for that.
+
+{/* check: attributes */}
+```csharp title="inngest-dotnet"
+[InngestFunction("apply-account-change")]
+[EventTrigger("account/change.requested")]
+[Concurrency(1, Key = "event.data.accountId")]
+```
+
+## Where there is no direct match
+
+- **Custom status and status endpoints.** There is no `SetCustomStatus` and no `CreateCheckStatusResponseAsync`.
+  `IInngestRunsClient.GetRunAsync` gives the status and output of a run, and
+  [Realtime](/inngest-dotnet/guides/realtime/) streams progress to a browser as the run goes.
+- **Suspend, resume, rewind and purge.** The SDK's runs client gets runs and cancels them. The Inngest dashboard
+  reruns a run, and Inngest removes old run history itself, after the retention of your plan or server.
+- **Orchestration versioning.** There is no version to compare in code. A run in flight when you deploy continues on
+  the new code: steps it ran return their saved results by id, and steps it has not reached run as the new code says.
+  Adding steps is safe and renaming a step id runs it again. A change that must not reach old runs goes into a new
+  function, with a new id, while the old one drains.
+- **Per-activity retry policies and timeouts.** The number of retries is set per function, and a step has no timeout of
+  its own. Put the timeout in the handler, and limit the whole run with `[Timeouts]`. A step must also finish within
+  one request from Inngest to your app; on Azure Functions that is
+  [230 seconds](/inngest-dotnet/guides/azure-functions/#the-230-second-limit).
+- **Payload sizes.** Inngest has its own [limits](https://www.inngest.com/docs/durable-execution/limits) on step output
+  and run state. Store large data elsewhere and pass its id.

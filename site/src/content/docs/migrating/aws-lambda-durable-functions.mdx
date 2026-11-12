@@ -1,0 +1,256 @@
+---
+title: Coming from AWS Lambda durable functions
+description: How the AWS durable execution SDK for .NET maps to Inngest functions and steps, StepAsync, WaitAsync, callbacks, MapAsync, ParallelAsync and InvokeAsync, with C# side by side, and how Inngest.AwsLambda keeps your functions on Lambda.
+sidebar:
+  label: AWS Lambda durable functions
+---
+
+Lambda durable functions, with the `Amazon.Lambda.DurableExecution` package for .NET, are the closest model to
+Inngest on this list. Both checkpoint each operation, replay the function from the top, return saved results for the
+operations that are done, and suspend without holding compute while the function waits. Most code moves over almost
+line by line.
+
+The differences are about where it runs and what starts it:
+
+- **Who keeps the state.** Lambda checkpoints a durable execution itself, and the function must run on Lambda. Inngest
+  keeps the state of every run and calls your app over HTTP. The same function class runs on Lambda through
+  [`Inngest.AwsLambda`](/inngest-dotnet/guides/aws-lambda/), in an ASP.NET Core app, in a container, in
+  [Azure Functions](/inngest-dotnet/guides/azure-functions/), or in a [Connect](/inngest-dotnet/guides/connect/)
+  worker.
+- **What starts a run.** A durable execution starts when something invokes the function. An Inngest function starts
+  on events, on a cron schedule, or when another function invokes it. One event can start several functions, and a
+  function can be triggered by several events.
+- **Step identity.** The AWS SDK identifies operations by their position in the execution; a step's name is for
+  display. Inngest identifies a step by its id, which you give, so a step keeps its saved result when you add steps
+  before it.
+- **Flow control.** Inngest limits concurrency per key, throttles, rate limits, debounces, batches and prioritizes runs
+  as part of the function's configuration. See [Flow control](/inngest-dotnet/guides/flow-control/).
+
+## The names side by side
+
+| AWS durable execution SDK for .NET | inngest-dotnet |
+|---|---|
+| `DurableFunction.WrapAsync<TInput, TOutput>(workflow, input, context)` and `IDurableContext` | A class that derives from `InngestFunction<TEventData, TResult>`, with `FunctionContext<TEventData>`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| The invocation payload | The data of the event that started the run, `context.Event.Data`. |
+| `ctx.StepAsync(func, name, config)` | `context.Step.RunAsync("id", ct => ...)`. The id is required. See [Steps](/inngest-dotnet/guides/steps/). |
+| `StepConfig.RetryStrategy`, `RetryStrategy.Exponential(...)` | `Retries` on `[InngestFunction]`, which applies to each step. Inngest chooses the backoff. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/). |
+| `RetryDecision.DoNotRetry()` | Throw `NonRetriableException`. `RetryAfterException` sets the time of the next attempt. |
+| `ctx.WaitAsync(duration)` | `context.Step.SleepAsync("id", duration)`, or `SleepUntilAsync` for a point in time. |
+| `ctx.WaitForCallbackAsync<T>(submitter, ...)`, `ctx.CreateCallbackAsync<T>(...)` | `context.Step.WaitForSignalAsync<T>("id", new WaitForSignalOptions(name, timeout))`. See [Callbacks become signals](#callbacks-become-signals). |
+| `SendDurableExecutionCallbackSuccess` | `IInngestClient.SendSignalAsync(new InngestSignal(name, data))`. |
+| `ctx.WaitForConditionAsync(...)` | A loop of a step and a sleep. See [Polling](#polling). |
+| `ctx.MapAsync(items, func, name, config)` | `context.Step.MapAsync("id", items, handler, options)`. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/). |
+| `MapConfig.MaxConcurrency` | `FanOutOptions.MaxParallelism`. |
+| `CompletionConfig.ToleratedFailureCount` and `IBatchResult` | `MapOutcomesAsync`, which returns the outcome of every item. |
+| `ctx.ParallelAsync(branches)` | `Task.WhenAll` over steps, or `ParallelAsync(ParallelMode.Race, ...)`. See [Parallel steps](/inngest-dotnet/guides/parallel-steps/). |
+| `ctx.InvokeAsync<TPayload, TResult>(functionName, payload)` | `context.Step.InvokeAsync<TFunction, TResult>("id", data)`. See [Invoking functions](/inngest-dotnet/guides/invoking-functions/). |
+| `ctx.RunInChildContextAsync(...)` | No direct match. Group the steps in a method, or invoke a function of their own. |
+| `ctx.Logger` | `context.Logger`. Both stay quiet while the function replays. |
+| `DurableExecutionName` as an idempotency key | The event's `Id`, or `Idempotency` on `[InngestFunction]`. |
+| `DurableConfig.ExecutionTimeout` | `[Timeouts(Finish = "...")]`. |
+| `GetDurableExecution`, `ListDurableExecutionsByFunction` | `IInngestRunsClient.GetRunAsync` and `GetEventRunsAsync`, and the Inngest dashboard. |
+| `StopDurableExecution` | `IInngestRunsClient.CancelRunAsync`, or `[CancelOn]` to cancel on an event. |
+| `DurableTestRunner` with time skipping | `InngestTestHost` from `Inngest.Testing`, which runs on a simulated clock. See [Testing](/inngest-dotnet/guides/testing/). |
+| `Amazon.Lambda.DurableExecution.Analyzers` | `INNGEST020`–`INNGEST025`, in the `Inngest` package. See [Check steps for replay safety](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety). |
+| An EventBridge Scheduler rule that invokes the function | `[CronTrigger]` on the function. |
+
+## A durable function
+
+{/* check: skip */}
+```csharp title="AWS durable execution"
+public Task<DurableExecutionInvocationOutput> Handler(DurableExecutionInvocationInput input, ILambdaContext context) =>
+    DurableFunction.WrapAsync<Order, string>(Workflow, input, context);
+
+private async Task<string> Workflow(Order order, IDurableContext ctx)
+{
+    var paymentId = await ctx.StepAsync(
+        async (_, ct) => await payments.ChargeAsync(order.CustomerId, order.Total, ct),
+        name: "charge",
+        config: new StepConfig { RetryStrategy = RetryStrategy.Exponential(maxAttempts: 5) });
+
+    await ctx.WaitAsync(TimeSpan.FromHours(1), name: "cool-off");
+
+    await ctx.StepAsync(
+        async (_, ct) => await email.SendAsync(order.CustomerId, $"Receipt for {paymentId}", ct),
+        name: "send-receipt");
+
+    return paymentId;
+}
+```
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+[InngestFunction("process-order", Retries = 4)]
+[EventTrigger<OrderPlaced>]
+public sealed class ProcessOrder(IPaymentGateway payments, IEmailSender email) : InngestFunction<OrderPlaced, string>
+{
+    public override async Task<string> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var paymentId = await context.Step.RunAsync("charge",
+            ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+        await context.Step.SleepAsync("cool-off", TimeSpan.FromHours(1));
+
+        await context.Step.RunAsync("send-receipt",
+            ct => email.SendAsync(order.CustomerId, $"Receipt for {paymentId}", ct));
+
+        return paymentId;
+    }
+}
+```
+
+The function is a class with its services from dependency injection, not a method that a wrapper calls. `Retries = 4`
+gives every step up to five attempts. The function runs when an `OrderPlaced` event arrives:
+
+{/* check: statements; IInngestClient inngest; OrderPlaced order; CancellationToken cancellationToken */}
+```csharp title="inngest-dotnet"
+await inngest.SendAsync(new InngestEvent(OrderPlaced.EventName, order)
+{
+    Id = $"order-{order.OrderId}",
+}, cancellationToken);
+```
+
+The event `Id` does what a `DurableExecutionName` does: a second send of the same order starts no second run.
+
+## Keeping it on Lambda
+
+`Inngest.AwsLambda` serves the app's functions from one Lambda function behind an API Gateway or a function URL.
+Inngest calls it for each step, or for several steps at once with checkpointing, and a sleeping or waiting run holds
+no invocation, as with durable execution. There is no `DurableConfig` to set and no checkpoint permissions to grant,
+because Inngest keeps the state; the Lambda function needs only its usual role.
+
+What changes is the time limit of a call. A durable execution runs as long as its `ExecutionTimeout`, with each
+invocation within Lambda's 15 minutes. With `Inngest.AwsLambda` each call from Inngest is one invocation, and behind
+API Gateway it must answer within the gateway's 29 or 30 seconds. Keep each step well inside that, or use a function
+URL, where the function's own timeout is the limit. [Running on AWS Lambda](/inngest-dotnet/guides/aws-lambda/) sets
+the handler up for the managed runtime and Native AOT and covers [time and size](/inngest-dotnet/guides/aws-lambda/#time-and-size).
+
+## Callbacks become signals
+
+`WaitForCallbackAsync` creates a callback id and hands it to a submitter, which passes it to the system that will
+answer. With Inngest you choose the signal's name, usually from the data, so there is nothing to hand over: the other
+system only needs to know the order id.
+
+{/* check: skip */}
+```csharp title="AWS durable execution"
+var approval = await ctx.WaitForCallbackAsync<Approval>(
+    async (callbackId, _, ct) => await approvals.RequestAsync(order.OrderId, callbackId, ct),
+    name: "manager-approval",
+    config: new WaitForCallbackConfig { Timeout = TimeSpan.FromDays(3) });
+```
+
+{/* check: body OrderPlaced; IApprovals approvals */}
+```csharp title="inngest-dotnet"
+var order = context.Event.Data;
+
+await context.Step.RunAsync("request-approval", ct => approvals.RequestAsync(order.OrderId, ct));
+
+var approval = await context.Step.WaitForSignalAsync<Approval>("manager-approval",
+    new WaitForSignalOptions($"approve-order/{order.OrderId}", TimeSpan.FromDays(3)));
+
+if (approval is null)
+{
+    return "timed-out";
+}
+```
+
+```csharp
+public sealed record Approval(bool Approved);
+
+public interface IApprovals
+{
+    Task RequestAsync(string orderId, CancellationToken cancellationToken);
+}
+```
+
+{/* check: statements; IInngestClient inngest; string orderId; CancellationToken cancellationToken */}
+```csharp title="The code that answers"
+await inngest.SendSignalAsync(new InngestSignal($"approve-order/{orderId}", new Approval(true)), cancellationToken);
+```
+
+At the timeout, `WaitForSignalAsync` returns `null`; the AWS SDK throws `CallbackTimeoutException`. A signal resumes
+the run that is waiting for it when it is sent, and `SendSignalAsync` returns `null` when no run waits, so request the
+approval right before the wait, as above. To resume on an event that other code sends anyway, such as
+`approval/granted` with the order id in its data, use
+[`WaitForEventAsync`](/inngest-dotnet/guides/sleep-and-wait-for-events/) with a `Match` instead. There is no failure
+callback: send the outcome in the signal's data. There is no heartbeat timeout either.
+
+## Map and parallel
+
+{/* check: skip */}
+```csharp title="AWS durable execution"
+var batch = await ctx.MapAsync(
+    invoices,
+    async (itemCtx, invoice, index, _, ct) =>
+        await itemCtx.StepAsync(async (_, stepCt) => await billing.ChargeAsync(invoice.Id, stepCt), name: "charge"),
+    name: "charge-invoices",
+    config: new MapConfig<Invoice> { MaxConcurrency = 5 });
+```
+
+{/* check: body JsonElement; IBilling billing; IReadOnlyList<Invoice> invoices */}
+```csharp title="inngest-dotnet"
+string[] paymentIds = await context.Step.MapAsync("charge-invoices", invoices,
+    (invoice, ct) => billing.ChargeAsync(invoice.Id, ct),
+    new FanOutOptions { MaxParallelism = 5 });
+```
+
+An AWS map item gets a child context and can run several operations. An Inngest map item is one step. When an item
+needs several steps, invoke a function per item, or send an event per item. `MapAsync` fails the run on the first
+item that fails all its attempts; `MapOutcomesAsync` returns the outcome of every item instead, which covers
+`ToleratedFailureCount`. There is no `MinSuccessful`. The list must come out the same on every call, so take it from
+the event or from a step. See [Fan-out over a list](/inngest-dotnet/guides/fan-out/).
+
+`ParallelAsync` with branches becomes steps started together and awaited with `Task.WhenAll`:
+
+{/* check: body UserSignedUp; IProfiles profiles; IOrderHistory orderHistory */}
+```csharp title="inngest-dotnet"
+var profile = context.Step.RunAsync("load-profile", ct => profiles.LoadAsync(context.Event.Data.UserId, ct));
+var orders = context.Step.RunAsync("load-orders", ct => orderHistory.LoadAsync(context.Event.Data.UserId, ct));
+await Task.WhenAll(profile, orders);
+```
+
+## Polling
+
+`WaitForConditionAsync` checks a condition with a wait strategy between checks. The same is a loop of a step and a
+sleep, with the attempt in the ids:
+
+{/* check: body JsonElement; IExports exports; string exportId */}
+```csharp title="inngest-dotnet"
+for (var attempt = 0; attempt < 20; attempt++)
+{
+    var ready = await context.Step.RunAsync($"check-export-{attempt}", ct => exports.IsReadyAsync(exportId, ct));
+    if (ready)
+    {
+        break;
+    }
+
+    await context.Step.SleepAsync($"wait-{attempt}", TimeSpan.FromMinutes(Math.Min(30, 1 << attempt)));
+}
+```
+
+```csharp
+public interface IExports
+{
+    Task<bool> IsReadyAsync(string exportId, CancellationToken cancellationToken);
+}
+```
+
+When the system you poll can send a webhook instead, [receive it as an event](/inngest-dotnet/guides/webhooks/) and
+wait for that event.
+
+## Where there is no direct match
+
+- **At-most-once steps.** `StepSemantics.AtMostOncePerRetry` does not run a step again after an interrupted attempt.
+  Inngest steps run at least once: an attempt whose result was lost runs again. Make the step idempotent, for example
+  with an idempotency key built from the run and step; see
+  [Idempotency keys](/inngest-dotnet/guides/scoped-steps/#idempotency-keys).
+- **Child contexts.** There is no `RunInChildContextAsync`. A helper method that takes `context.Step` can group steps,
+  with a prefix in their ids. For a group with its own retries and history, invoke a function.
+- **Per-step retry strategies.** The number of retries is set per function, and Inngest chooses the backoff.
+- **Per-operation serializers.** Steps use the app's `System.Text.Json` options, set once in `AddInngest`. See
+  [Configuration](/inngest-dotnet/guides/configuration/#serialization).
+- **Execution limits.** Inngest has its own [limits](https://www.inngest.com/docs/durable-execution/limits) on the steps
+  of a run and the size of their results. Return an id or a link to stored data rather than the data.

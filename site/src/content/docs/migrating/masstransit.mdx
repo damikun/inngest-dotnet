@@ -1,0 +1,331 @@
+---
+title: Coming from MassTransit
+description: How MassTransit's saga state machines, job consumers, consumers, retries, scheduling and routing slips map to Inngest functions, steps and flow control in .NET, with C# side by side, and what has no direct match.
+sidebar:
+  label: MassTransit
+---
+
+MassTransit is a messaging framework: it moves messages between services over a broker such as RabbitMQ or Azure
+Service Bus, and builds sagas, job consumers and routing slips on top. This page is for the parts of MassTransit that
+are about durable work: long-running processes, background jobs and steps that compensate. The names below are the
+same in MassTransit 8 and 9.
+
+Inngest covers that durable part without a broker. Your code sends events to Inngest, and Inngest calls the functions
+that run on them over HTTP, at an endpoint your app serves. A function holds a whole process, with its waits and
+timeouts, as ordinary sequential C#: each step's result is saved, and the function can wait for other events in the
+middle. What a saga keeps in its instance and its current state, the function keeps in local variables and in where
+it is in the code.
+
+## The names side by side
+
+| MassTransit | inngest-dotnet |
+|---|---|
+| `MassTransitStateMachine<TInstance>` and its `SagaStateMachineInstance` | One function class, triggered by the event that starts the process. See [Saga state machines](#saga-state-machines). |
+| `Event<T>` with `CorrelateById(...)` | `context.Step.WaitForEventAsync<T>(...)` with `match: "data.orderId"`. See [Sleep and wait for events](/inngest-dotnet/guides/sleep-and-wait-for-events/). |
+| `State`, `TransitionTo(...)`, `During(...)` | Where the function is in its code. |
+| `Schedule<TInstance, TMessage>` for a timeout | The timeout of the wait, or `context.Step.SleepAsync`. |
+| `CompositeEvent(...)` | `Task.WhenAll` over two waits. |
+| `.Publish(...)` in a state machine | `context.Step.SendEventAsync(...)`. |
+| `Request<TInstance, TRequest, TResponse>` | `context.Step.InvokeAsync<TFunction, TResult>(...)`, or a step that calls the service. See [Invoking functions](/inngest-dotnet/guides/invoking-functions/). |
+| `.Finalize()` and `SetCompletedWhenFinalized()` | Returning from the function. |
+| Saga repositories (`EntityFrameworkRepository`, Redis, MongoDB) | None. Inngest keeps the state of every run. |
+| `IConsumer<T>` and `Consume(ConsumeContext<T>)` | A function class with `[EventTrigger<T>]` and `ExecuteAsync`. See [Functions and triggers](/inngest-dotnet/guides/functions-and-triggers/). |
+| `IPublishEndpoint.Publish(...)`, `context.Publish(...)` | `IInngestClient.SendAsync(...)` from application code, `context.Step.SendEventAsync(...)` from a function. See [Sending events](/inngest-dotnet/guides/sending-events/). |
+| `UseMessageRetry(...)` | `Retries` on `[InngestFunction]`, which applies to each step. See [Errors and retries](/inngest-dotnet/guides/errors-and-retries/). |
+| `UseDelayedRedelivery(...)` | `RetryAfterException`, to retry no sooner than a given time. |
+| `IJobConsumer<TJob>` and `Run(JobContext<TJob>)` | A function class. See [Job consumers](#job-consumers). |
+| `JobOptions<T>.SetConcurrentJobLimit(n)` | `[Concurrency(n)]`. See [Flow control](/inngest-dotnet/guides/flow-control/). |
+| `JobOptions<T>.SetJobTimeout(...)` | `[Timeouts(Finish = "...")]`. |
+| `SubmitJob<T>(...)` | `IInngestClient.SendAsync(...)`; the event id comes back. |
+| `CancelJob(jobId)` | `IInngestRunsClient.CancelRunAsync(runId)`, or `[CancelOn]` to cancel on an event. |
+| `GetJobState` | `IInngestRunsClient.GetEventRunsAsync(eventId)` and `GetRunAsync(runId)`. |
+| `SetJobProgress(...)` | Publish progress with [Realtime](/inngest-dotnet/guides/realtime/). |
+| `AddOrUpdateRecurringJob(...)`, recurring messages | `[CronTrigger]` on the function. |
+| `IMessageScheduler.ScheduleSend(...)` | An event with a future `Timestamp`, or `SleepAsync` inside the function. |
+| Routing slips (`IActivity<TArguments, TLog>`, `Compensate`) | Steps, with compensating steps in a `catch`. See [Routing slips](#routing-slips). |
+| The transactional outbox | The [outbox](/inngest-dotnet/guides/outbox/) of `Inngest.EntityFrameworkCore`. |
+| `AddMassTransitTestHarness(...)` and `ITestHarness` | `InngestTestHost` from `Inngest.Testing`. See [Testing](/inngest-dotnet/guides/testing/). |
+
+## Saga state machines
+
+A saga that waits for a payment and cancels the order after 30 minutes without one:
+
+{/* check: skip */}
+```csharp title="MassTransit"
+public class OrderState : SagaStateMachineInstance
+{
+    public Guid CorrelationId { get; set; }
+    public string CurrentState { get; set; } = null!;
+    public Guid? PaymentTimeoutTokenId { get; set; }
+}
+
+public class OrderStateMachine : MassTransitStateMachine<OrderState>
+{
+    public State AwaitingPayment { get; private set; } = null!;
+    public Event<OrderSubmitted> OrderSubmitted { get; private set; } = null!;
+    public Event<PaymentReceived> PaymentReceived { get; private set; } = null!;
+    public Schedule<OrderState, PaymentTimeoutExpired> PaymentTimeout { get; private set; } = null!;
+
+    public OrderStateMachine()
+    {
+        InstanceState(x => x.CurrentState);
+        Event(() => OrderSubmitted, x => x.CorrelateById(ctx => ctx.Message.OrderId));
+        Event(() => PaymentReceived, x => x.CorrelateById(ctx => ctx.Message.OrderId));
+        Schedule(() => PaymentTimeout, x => x.PaymentTimeoutTokenId, s =>
+        {
+            s.Delay = TimeSpan.FromMinutes(30);
+            s.Received = r => r.CorrelateById(ctx => ctx.Message.OrderId);
+        });
+
+        Initially(
+            When(OrderSubmitted)
+                .Schedule(PaymentTimeout, ctx => ctx.Init<PaymentTimeoutExpired>(new { OrderId = ctx.Saga.CorrelationId }))
+                .TransitionTo(AwaitingPayment));
+
+        During(AwaitingPayment,
+            When(PaymentReceived)
+                .Unschedule(PaymentTimeout)
+                .PublishAsync(ctx => ctx.Init<OrderConfirmed>(new { OrderId = ctx.Saga.CorrelationId }))
+                .Finalize(),
+            When(PaymentTimeout.Received)
+                .PublishAsync(ctx => ctx.Init<OrderCancelled>(new { OrderId = ctx.Saga.CorrelationId }))
+                .Finalize());
+
+        SetCompletedWhenFinalized();
+    }
+}
+```
+
+The same process as a function. The event that starts it triggers it, and the wait for the payment is a step:
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+public sealed record OrderSubmitted(string OrderId) : IInngestEventData
+{
+    public static string EventName => "shop/order.submitted";
+}
+
+public sealed record PaymentReceived(string OrderId, string PaymentId) : IInngestEventData
+{
+    public static string EventName => "shop/payment.received";
+}
+
+public sealed record OrderConfirmed(string OrderId) : IInngestEventData
+{
+    public static string EventName => "shop/order.confirmed";
+}
+
+public sealed record OrderCancelled(string OrderId) : IInngestEventData
+{
+    public static string EventName => "shop/order.cancelled";
+}
+
+[InngestFunction("order-process")]
+[EventTrigger<OrderSubmitted>]
+public sealed class OrderProcess : InngestFunction<OrderSubmitted, string>
+{
+    public override async Task<string> ExecuteAsync(FunctionContext<OrderSubmitted> context, CancellationToken cancellationToken)
+    {
+        var orderId = context.Event.Data.OrderId;
+
+        var payment = await context.Step.WaitForEventAsync<PaymentReceived>("wait-for-payment",
+            TimeSpan.FromMinutes(30), match: "data.orderId");
+
+        if (payment is null)
+        {
+            await context.Step.SendEventAsync("cancel-order", new OrderCancelled(orderId));
+            return "cancelled";
+        }
+
+        await context.Step.SendEventAsync("confirm-order", new OrderConfirmed(orderId));
+        return "confirmed";
+    }
+}
+```
+
+What changed:
+
+- **Correlation** is the `match` of the wait: a `PaymentReceived` whose `orderId` equals the `orderId` of the event that
+  started this run resumes it. `If` takes a full expression when one property is not enough.
+- **The timeout** is part of the wait, which returns `null` when it passes. There is no scheduled message to send and
+  cancel, and no message scheduler to configure.
+- **The state** is the run itself. There is no instance class, no repository and no concurrency mode to choose: one
+  run handles one order.
+- **Events after the end** are not an issue to handle: a `PaymentReceived` that arrives after the run has ended
+  matches no wait.
+
+One difference to plan for: a wait sees only events that arrive after it starts. A saga instance that is in a state
+handles the events of that state as they come; a function must reach the wait before the event is sent. Wait early in
+the function, or check in a step whether the event already happened. See
+[Only events after the wait starts](/inngest-dotnet/guides/sleep-and-wait-for-events/#only-events-after-the-wait-starts).
+
+Two events in any order, as a `CompositeEvent` gathers them, are two waits awaited together:
+
+{/* check: body OrderSubmitted */}
+```csharp title="inngest-dotnet"
+var paid = context.Step.WaitForEventAsync<PaymentReceived>("wait-for-payment", TimeSpan.FromDays(1), match: "data.orderId");
+var packed = context.Step.WaitForEventAsync("wait-for-packing",
+    new WaitForEventOptions("warehouse/order.packed", TimeSpan.FromDays(1)) { Match = "data.orderId" });
+
+await Task.WhenAll(paid, packed);
+```
+
+An event that a saga handles in any state with `DuringAny`, such as a cancellation, is usually `[CancelOn]` on the
+function: it ends the run between steps, and a [cancel handler](/inngest-dotnet/guides/errors-and-retries/#run-code-when-a-run-is-cancelled)
+cleans up.
+
+## Consumers
+
+A consumer that does work and publishes the result becomes a function with steps. The publish is a step too, so a
+retry does not publish twice:
+
+{/* check: skip */}
+```csharp title="MassTransit"
+public class ChargeOrderConsumer(IPaymentGateway payments) : IConsumer<OrderPlaced>
+{
+    public async Task Consume(ConsumeContext<OrderPlaced> context)
+    {
+        var order = context.Message;
+        var paymentId = await payments.ChargeAsync(order.CustomerId, order.Total, context.CancellationToken);
+        await context.Publish(new OrderCharged(order.OrderId, paymentId));
+    }
+}
+```
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+public sealed record OrderCharged(string OrderId, string PaymentId) : IInngestEventData
+{
+    public static string EventName => "shop/order.charged";
+}
+
+[InngestFunction("charge-order", Retries = 5)]
+[EventTrigger<OrderPlaced>]
+public sealed class ChargeOrder(IPaymentGateway payments) : InngestFunction<OrderPlaced>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<OrderPlaced> context, CancellationToken cancellationToken)
+    {
+        var order = context.Event.Data;
+
+        var paymentId = await context.Step.RunAsync("charge",
+            ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+
+        await context.Step.SendEventAsync("announce-charged", new OrderCharged(order.OrderId, paymentId));
+        return paymentId;
+    }
+}
+```
+
+In a consumer, a failure after the charge retries the whole `Consume` and charges again unless the payment call is
+idempotent. Here the charge is saved once it succeeds, and a retry of the publish does not repeat it. `Retries = 5`
+replaces `UseMessageRetry`; throw `NonRetriableException` for what `r.Ignore<T>()` skips, and `RetryAfterException`
+for what delayed redelivery does.
+
+Application code sends the event with `IInngestClient`, where it published the message:
+
+{/* check: statements; IInngestClient inngest; OrderPlaced order; CancellationToken cancellationToken */}
+```csharp title="inngest-dotnet"
+await inngest.SendAsync(order, cancellationToken);
+```
+
+## Job consumers
+
+{/* check: skip */}
+```csharp title="MassTransit"
+public class ConvertVideoJobConsumer : IJobConsumer<ConvertVideo>
+{
+    public async Task Run(JobContext<ConvertVideo> context)
+    {
+        await converter.ConvertAsync(context.Job.VideoId, context.CancellationToken);
+    }
+}
+
+x.AddConsumer<ConvertVideoJobConsumer>(c =>
+    c.Options<JobOptions<ConvertVideo>>(o => o
+        .SetConcurrentJobLimit(10)
+        .SetJobTimeout(TimeSpan.FromMinutes(10))
+        .SetRetry(r => r.Interval(3, TimeSpan.FromSeconds(30)))));
+x.AddJobSagaStateMachines();
+```
+
+```csharp title="inngest-dotnet"
+using Inngest;
+
+public sealed record ConvertVideo(string VideoId) : IInngestEventData
+{
+    public static string EventName => "media/video.uploaded";
+}
+
+[InngestFunction("convert-video", Retries = 3)]
+[EventTrigger<ConvertVideo>]
+[Concurrency(10)]
+[Timeouts(Finish = "10m")]
+public sealed class ConvertVideoFunction(IVideoConverter converter) : InngestFunction<ConvertVideo>
+{
+    public override async Task<object?> ExecuteAsync(FunctionContext<ConvertVideo> context, CancellationToken cancellationToken)
+    {
+        await context.Step.RunAsync("convert", ct => converter.ConvertAsync(context.Event.Data.VideoId, ct));
+        return null;
+    }
+}
+
+public interface IVideoConverter
+{
+    Task ConvertAsync(string videoId, CancellationToken cancellationToken);
+}
+```
+
+There is no job saga to register and no job service to host: Inngest keeps the queue of runs and starts them as the
+concurrency limit allows. The limit counts across every instance of the app, so it plays the part of both
+`SetConcurrentJobLimit` and `SetGlobalConcurrentJobLimit`. With a `Key`, such as
+`[Concurrency(1, Key = "event.data.customerId")]`, it applies per customer. A run that sleeps or waits holds no slot.
+
+A job is usually one long call. A step must finish within one request from Inngest to your app, so split long work
+into steps, each with a result that is saved: a job that fails at 90% then starts again at the last step instead of
+from the start, which is what `SaveJobState` is for. `[Throttle]`, `[RateLimit]`, `[Debounce]`, `[BatchEvents]` and
+`[Priority]` add what the job service does not have. See [Flow control](/inngest-dotnet/guides/flow-control/).
+
+## Routing slips
+
+A routing slip runs activities in order and compensates the ones that completed when a later one fails. In a function
+the activities are steps, and compensation is a `catch`:
+
+{/* check: body OrderPlaced; IInventory inventory; IPaymentGateway payments */}
+```csharp title="inngest-dotnet"
+var order = context.Event.Data;
+
+var reservationId = await context.Step.RunAsync("reserve-stock",
+    ct => inventory.ReserveAsync(order.OrderId, ct));
+
+try
+{
+    await context.Step.RunAsync("charge-card", ct => payments.ChargeAsync(order.CustomerId, order.Total, ct));
+}
+catch (StepFailedException exception)
+{
+    await context.Step.RunAsync("release-stock", ct => inventory.ReleaseAsync(reservationId, ct));
+    throw new NonRetriableException($"Payment failed: {exception.Error.Message}", exception);
+}
+```
+
+`StepFailedException` is thrown once the step has used all its attempts. The compensation is a step as well, so it
+runs once and is retried if it fails. A routing slip's log becomes the results of the earlier steps, such as
+`reservationId`. See [Recover from a failed step](/inngest-dotnet/guides/errors-and-retries/#recover-from-a-failed-step).
+
+## Where there is no direct match
+
+- **Messaging between services.** Inngest is not a message broker. There is no send to a queue, no request and
+  response over the bus, and no consumer outside a function. Events go through Inngest and start functions; a
+  function can call other services over HTTP in steps, or [invoke](/inngest-dotnet/guides/invoking-functions/)
+  functions of other apps by id.
+- **Message headers and envelopes.** An event has a name, data, an id, a timestamp and optional user data. There are
+  no custom headers; put what you need in the data.
+- **Saga instances you query.** A saga's instance is a row you can read. A run's state is in Inngest:
+  `IInngestRunsClient.GetRunAsync` gives its status and output, and the Inngest dashboard shows its steps. When other
+  code needs to read the state as it changes, save it in a step or publish it with
+  [Realtime](/inngest-dotnet/guides/realtime/).
+- **A test harness that waits for consumers.** `InngestTestHost` runs one function in memory with mocked steps. It
+  does not route events between functions or wait for the runs an event starts. To test that, run the app against
+  the dev server with [Testcontainers](/inngest-dotnet/guides/testing-with-containers/).
