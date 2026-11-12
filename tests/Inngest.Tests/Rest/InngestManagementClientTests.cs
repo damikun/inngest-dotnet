@@ -193,7 +193,7 @@ public sealed class InngestManagementClientTests
                  "page":{"hasMore":false,"limit":1}}
                 """);
 
-        var events = await Create().ListEventsAsync(new EventQuery { Names = ["user/signed-up", "user/left"], PageSize = 1 }, Cancellation).ToListAsync(Cancellation);
+        var events = await Create().ListEventsAsync(new EventQuery { Names = ["user/signed-up", "user/left"], PageSize = 1 }, Cancellation).CollectAsync(Cancellation);
 
         events.Select(e => e.Id).ShouldBe(["E2", "E1"]);
         events[0].IdempotencyKey.ShouldBeNull();
@@ -242,7 +242,7 @@ public sealed class InngestManagementClientTests
                 IncludeOutput = true,
                 PageSize = 100,
             },
-            Cancellation).ToListAsync(Cancellation);
+            Cancellation).CollectAsync(Cancellation);
 
         _handler.Single.Uri.PathAndQuery.ShouldBe(
             "/v2/runs?limit=100&from=2026-11-12T08%3A00%3A00Z&until=2026-11-12T09%3A00%3A00.5Z&timeField=endedAt&status=COMPLETED&status=QUEUED" +
@@ -275,7 +275,7 @@ public sealed class InngestManagementClientTests
     {
         _handler.Respond(HttpStatusCode.OK, $$$"""{"data":[{"id":"r1","status":"{{{status}}}","queuedAt":"2026-11-12T09:00:00Z"}],"page":{"limit":20}}""");
 
-        var runs = await Create().ListRunsAsync(cancellationToken: Cancellation).ToListAsync(Cancellation);
+        var runs = await Create().ListRunsAsync(cancellationToken: Cancellation).CollectAsync(Cancellation);
 
         runs.ShouldHaveSingleItem().Status.ShouldBe(expected);
         runs[0].EndedAt.ShouldBeNull();
@@ -289,7 +289,7 @@ public sealed class InngestManagementClientTests
             .Respond(HttpStatusCode.OK, $$$"""{"data":[{{{Run}}}],"page":{"cursor":"c1","hasMore":true,"limit":1}}""")
             .Respond(HttpStatusCode.OK, """{"page":{"limit":1}}""");
 
-        var runs = await Create().ListRunsAsync(new RunQuery { PageSize = 1 }, Cancellation).ToListAsync(Cancellation);
+        var runs = await Create().ListRunsAsync(new RunQuery { PageSize = 1 }, Cancellation).CollectAsync(Cancellation);
 
         runs.Count.ShouldBe(1);
         _handler.Requests.Select(request => request.Uri.PathAndQuery).ShouldBe(["/v2/runs?limit=1", "/v2/runs?cursor=c1&limit=1"]);
@@ -299,7 +299,7 @@ public sealed class InngestManagementClientTests
     public async Task Refuses_a_function_filter_without_an_app()
     {
         await Should.ThrowAsync<ArgumentException>(async () =>
-            await Create().ListRunsAsync(new RunQuery { FunctionIds = ["send-email"] }, Cancellation).ToListAsync(Cancellation));
+            await Create().ListRunsAsync(new RunQuery { FunctionIds = ["send-email"] }, Cancellation).CollectAsync(Cancellation));
     }
 
     [Fact]
@@ -312,7 +312,7 @@ public sealed class InngestManagementClientTests
              "metadata":{"fetchedAt":"2026-11-12T09:00:05Z"},"page":{"hasMore":false,"limit":20}}
             """);
 
-        var syncs = await Create().ListAppSyncsAsync("shop", cancellationToken: Cancellation).ToListAsync(Cancellation);
+        var syncs = await Create().ListAppSyncsAsync("shop", cancellationToken: Cancellation).CollectAsync(Cancellation);
 
         _handler.Single.Uri.PathAndQuery.ShouldBe("/v2/apps/shop/syncs");
         var sync = syncs.ShouldHaveSingleItem();
@@ -327,7 +327,7 @@ public sealed class InngestManagementClientTests
         _handler.Respond(HttpStatusCode.NotImplemented, """{"errors":[{"code":"not_implemented","message":"List app syncs is not yet implemented"}]}""");
 
         var exception = await Should.ThrowAsync<InngestException>(async () =>
-            await Create().ListAppSyncsAsync("shop", cancellationToken: Cancellation).ToListAsync(Cancellation));
+            await Create().ListAppSyncsAsync("shop", cancellationToken: Cancellation).CollectAsync(Cancellation));
 
         exception.Message.ShouldBe("Failed to list the syncs of app shop: List app syncs is not yet implemented (not_implemented)");
         exception.StatusCode.ShouldBe(501);
@@ -364,4 +364,19 @@ public sealed class InngestManagementClientTests
 
     private InngestManagementClient Create(InngestSettings? settings = null) =>
         new(new FakeHttpClientFactory(_handler), settings ?? TestSettings.Create(), new FakeLogger<InngestManagementClient>());
+}
+
+// .NET 8 has no ToListAsync for IAsyncEnumerable.
+file static class AsyncEnumerableExtensions
+{
+    public static async Task<List<T>> CollectAsync<T>(this IAsyncEnumerable<T> source, CancellationToken cancellationToken)
+    {
+        var items = new List<T>();
+        await foreach (var item in source.WithCancellation(cancellationToken))
+        {
+            items.Add(item);
+        }
+
+        return items;
+    }
 }
