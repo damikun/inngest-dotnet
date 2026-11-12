@@ -142,7 +142,8 @@ public sealed class JsonCoverageTests
 
     // The generator of System.Text.Json comes with the targeting pack of each framework, in the folder of the SDK and, once
     // a project has been built for it, in the NuGet cache. Both are searched; an older one is as good as a newer one, and
-    // this should hold for each.
+    // this should hold for each. A generator of a newer framework than the one the tests run on is left out: its code calls
+    // System.Text.Json APIs that this runtime does not have, as the generator of .NET 11 does on .NET 10.
     private static List<string> FindGenerators()
     {
         var found = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -159,6 +160,11 @@ public sealed class JsonCoverageTests
             {
                 var path = Path.Combine(directory, "analyzers", "dotnet", "cs", GeneratorFile);
                 var major = Path.GetFileName(directory).Split('.')[0];
+                if (!int.TryParse(major, out var version) || version > Environment.Version.Major)
+                {
+                    continue;
+                }
+
                 if (File.Exists(path))
                 {
                     found.TryAdd(major, path);
