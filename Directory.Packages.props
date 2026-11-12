@@ -50,7 +50,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
     <!-- The current stable Aspire. Its one build targets net8.0, which every newer AppHost uses as well. -->
-    <PackageVersion Include="Aspire.Hosting" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.5" />
   </ItemGroup>
   <ItemGroup Label="Compiler extensions">
     <!-- Roslyn 4.8 is the compiler of the first .NET 8 SDK and of Visual Studio 17.8, the oldest tooling that builds for
@@ -66,18 +66,18 @@
     <!-- Renders Blazor components in tests. Its 2.x line has builds for net8.0 and net10.0 and works with xunit v3 without an adapter package. -->
     <PackageVersion Include="bunit" Version="2.13.3" />
     <!-- The SignalR client, its MessagePack protocol and the Redis backplane are versioned with ASP.NET Core, as TestHost is below. -->
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.34" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.34" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.34" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
     <!-- TestHost is versioned with ASP.NET Core and its 10.0 packages have no net8.0 build. -->
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.34" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.15" Condition="'$(TargetFramework)' == 'net10.0'" />
     <!-- Only the .NET 10 package has WebApplicationFactory.UseKestrel, which Inngest.Testing.Containers.AspNetCore needs, so
          unlike TestHost there is no net8.0 version. -->
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.15" />
     <!-- Only for a unit test that checks, against the worker's own code, the key under which its ASP.NET Core integration keeps the HttpContext. -->
     <PackageVersion Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.1" />
     <!-- The SQLite provider of the EF Core line that Inngest.EntityFrameworkCore is built on, for each runtime. -->
@@ -104,8 +104,8 @@
     <!-- The AppHost projects (tests/Inngest.Aspire.Hosting.Tests and samples/Inngest.Sample.AppHost) get Aspire.AppHost.Sdk
          at the version in global.json, which adds the orchestrator and dashboard packages of the version of
          Aspire.Hosting.AppHost for the machine's runtime. Raise all of these together; a test checks that they agree. -->
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.4" />
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.5" />
   </ItemGroup>
   <ItemGroup Label="Samples">
     <!-- The Native AOT Lambda sample: the loop that takes events from Lambda, the source-generated serializer that reads

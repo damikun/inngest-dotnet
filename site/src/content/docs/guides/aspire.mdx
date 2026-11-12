@@ -21,7 +21,7 @@ Add the package to the AppHost project, not to the apps:
 dotnet add package Inngest.Aspire.Hosting
 ```
 
-The package needs Aspire 13.6.4 or later. It depends on `Aspire.Hosting` 13.6.4, so an AppHost on an older 13.x is
+The package needs Aspire 13.6.5 or later. It depends on `Aspire.Hosting` 13.6.5, so an AppHost on an older 13.x is
 raised to that version. It targets `net8.0` and `net10.0`, and it has no dependency on the `Inngest` package, because
 the AppHost only has to know the names of the settings, not the SDK. It runs in the AppHost, which is never trimmed or
 published as a native binary, so unlike the other packages it is not marked as trim or Native AOT compatible;
