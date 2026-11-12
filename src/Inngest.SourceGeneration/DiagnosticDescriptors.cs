@@ -152,4 +152,34 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "A send that nothing awaits may not have reached Inngest when the function or step returns, and its errors go unseen. A step that nothing awaits lets the code after it go on before the step has run. The compiler warns about such calls in async methods (CS4014); this covers methods and lambdas that are not async, such as a handler written as an Action.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.StepNotAwaited.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor InvalidCronSchedule = new(
+        DiagnosticIds.InvalidCronSchedule,
+        title: "A cron schedule that Inngest does not accept",
+        messageFormat: "The cron schedule \"{0}\" is not valid: {1}",
+        category: FunctionsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Inngest reads a schedule with five fields, minute, hour, day of month, month and day of week, and no descriptors such as @daily, and refuses to sync the app when one of its functions has a schedule it cannot read. The SDK checks schedules the same way at startup.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.InvalidCronSchedule.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor InvalidTimeString = new(
+        DiagnosticIds.InvalidTimeString,
+        title: "A time string in a function attribute is not valid",
+        messageFormat: "{0} of [{1}] is \"{2}\", which {3}",
+        category: FunctionsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The attributes take durations as time strings: whole numbers followed by w, d, h, m or s, such as \"30s\" or \"1h30m\". The SDK fails at startup on a string it cannot read, and on a duration outside what Inngest allows for the setting, such as a rate limit period over 24 hours.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.InvalidTimeString.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor EventNameMismatch = new(
+        DiagnosticIds.EventNameMismatch,
+        title: "A function is triggered by an event other than the one its event data is for",
+        messageFormat: "'{0}' reads its events as {1}, whose EventName is \"{2}\", but is triggered by \"{3}\"",
+        category: FunctionsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The type argument of InngestFunction<TEventData> says what the data of the function's events looks like, and a type that implements IInngestEventData names its event. A function that none of its event triggers runs for that event reads the data of other events as that type. Use [EventTrigger<T>], or the event data type of the event the function is for. It is reported only when no event trigger of the function matches.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.EventNameMismatch.ToLowerInvariant());
 }

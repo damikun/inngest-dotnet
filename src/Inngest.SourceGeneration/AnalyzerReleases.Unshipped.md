@@ -19,3 +19,6 @@ INNGEST022 | Inngest.Steps | Warning | A step id changes from one call to the ne
 INNGEST023 | Inngest.Steps | Warning | Blocking on the task of a step
 INNGEST024 | Inngest.Steps | Warning | A step is called inside the handler of another step
 INNGEST025 | Inngest.Steps | Warning | The task of a step or of SendAsync is dropped
+INNGEST030 | Inngest.Functions | Warning | A cron schedule that Inngest does not accept
+INNGEST031 | Inngest.Functions | Warning | A time string in a function attribute is not valid
+INNGEST033 | Inngest.Functions | Warning | A function is triggered by an event other than the one its event data is for

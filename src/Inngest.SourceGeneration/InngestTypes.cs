@@ -26,6 +26,8 @@ internal static class InngestTypes
 
     public static bool IsClientInterface(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "IInngestClient");
 
+    public static bool IsEventDataInterface(INamedTypeSymbol? type) => IsInngestType(type, "IInngestEventData");
+
     public static bool IsStepOptions(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "StepOptions");
 
     public static bool IsBuilderExtensions(INamedTypeSymbol? type) => IsInngestType(type, "InngestBuilderExtensions");
