@@ -7,6 +7,25 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
 .NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
+## Coming in the next release
+
+These are on main and not yet on NuGet.
+
+- **Analyzers for replay safety and options.** INNGEST026 to INNGEST033 report code outside steps that reads the clock,
+  a GUID or a random number, delays instead of sleeping, or uses a step id twice. They also report cron schedules,
+  time strings and event triggers that the SDK or Inngest would refuse. Code fixes move a value into a step and turn a
+  delay into a sleep. See [Check steps for replay safety](/inngest-dotnet/guides/source-generator/#check-steps-for-replay-safety)
+  and [Check function options](/inngest-dotnet/guides/source-generator/#check-function-options).
+- **Cron schedules checked at startup**, with the same rules Inngest uses to parse them.
+- **A log scope for every call and step.** Logs written by services that a step calls carry the function, the run, the
+  attempt and the step. `InngestOptions.LogScopes` turns it off. See [Logging](/inngest-dotnet/guides/functions-and-triggers/#logging).
+- **The run's page.** In dev mode, `FunctionContext.RunUrl` links to the run in the dev server's UI.
+- **The app instance in checkpoint requests.** Checkpoint requests send `X-Inngest-Instance-Id`, which is the Connect
+  worker's id or `INNGEST_CONNECT_INSTANCE_ID`. See [Connect settings](/inngest-dotnet/guides/configuration/#connect-settings).
+- **Microsoft Agent Framework.** A guide and a sample for agents that make their model and tool calls as steps and wait
+  for approval. See [Agent Framework](/inngest-dotnet/guides/agent-framework/).
+- **Migration guides** from Durable Functions, Hangfire, MassTransit, Temporal and AWS Lambda durable functions.
+
 ## New in 1.1.0
 
 New features, all compatible with code built against 1.0.0, and the changes in behaviour listed at the end.
