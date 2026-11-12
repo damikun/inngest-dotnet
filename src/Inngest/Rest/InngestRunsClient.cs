@@ -17,12 +17,19 @@ internal sealed class InngestRunsClient : IInngestRunsClient
 
     // A run's output sits two levels down in the reply, so replies are read with room for whatever the serializer wrote.
     private readonly RestJsonContext _json;
+    private readonly RunWaiter _waiter;
 
-    public InngestRunsClient(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<InngestRunsClient> logger)
+    public InngestRunsClient(
+        IHttpClientFactory httpClientFactory,
+        InngestSettings settings,
+        ILogger<InngestRunsClient> logger,
+        TimeProvider? time = null,
+        RunPolling? polling = null)
     {
         _transport = new InngestApiTransport(httpClientFactory, settings, logger);
         _serializerOptions = settings.SerializerOptions;
         _json = new RestJsonContext(new JsonSerializerOptions { MaxDepth = JsonPayload.DocumentOptions(settings.SerializerOptions).MaxDepth });
+        _waiter = new RunWaiter(GetRunAsync, GetEventRunsReadAsync, time ?? TimeProvider.System, polling ?? RunPolling.Default);
     }
 
     public async Task<FunctionRun> GetRunAsync(string runId, CancellationToken cancellationToken = default)
@@ -35,17 +42,17 @@ internal sealed class InngestRunsClient : IInngestRunsClient
         return reply.Data is { } run ? ToRun(run) : throw new InngestException($"Failed to {action}: Inngest's reply has no run.");
     }
 
-    public async Task<IReadOnlyList<FunctionRun>> GetEventRunsAsync(string eventId, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(eventId);
+    public async Task<IReadOnlyList<FunctionRun>> GetEventRunsAsync(string eventId, CancellationToken cancellationToken = default) =>
+        (await GetEventRunsReadAsync(eventId, cancellationToken).ConfigureAwait(false)).Runs;
 
-        var reply = await GetAsync(
-            $"/v1/events/{Uri.EscapeDataString(eventId)}/runs",
-            _json.RunListReply,
-            $"list the runs of event {eventId}",
-            cancellationToken).ConfigureAwait(false);
-        return reply.Data is { Length: > 0 } runs ? Array.ConvertAll(runs, ToRun) : [];
-    }
+    public Task<FunctionRun> WaitForRunAsync(string runId, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        _waiter.WaitForRunAsync(runId, timeout, cancellationToken);
+
+    public Task<IReadOnlyList<FunctionRun>> WaitForEventRunsAsync(string eventId, int expectedRuns, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        _waiter.WaitForEventRunsAsync(eventId, expectedRuns, timeout, cancellationToken);
+
+    public Task<IReadOnlyList<FunctionRun>> WaitForEventRunsToSettleAsync(string eventId, TimeSpan settleTime, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        _waiter.WaitForEventRunsToSettleAsync(eventId, settleTime, timeout, cancellationToken);
 
     public async Task CancelRunAsync(string runId, CancellationToken cancellationToken = default)
     {
@@ -54,6 +61,21 @@ internal sealed class InngestRunsClient : IInngestRunsClient
         // Inngest answers 200 or 204, with nothing in the body that is needed.
         using var response = await SendAsync(HttpMethod.Delete, $"/v1/runs/{Uri.EscapeDataString(runId)}", $"cancel run {runId}", cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    // The runs with the time Inngest read them, which a cached answer repeats, so that a wait for the list to settle
+    // can tell a new read from a cached one.
+    private async Task<EventRunsRead> GetEventRunsReadAsync(string eventId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(eventId);
+
+        var reply = await GetAsync(
+            $"/v1/events/{Uri.EscapeDataString(eventId)}/runs",
+            _json.RunListReply,
+            $"list the runs of event {eventId}",
+            cancellationToken).ConfigureAwait(false);
+        var runs = reply.Data is { Length: > 0 } data ? Array.ConvertAll(data, ToRun) : [];
+        return new EventRunsRead(runs, reply.Metadata?.FetchedAt);
     }
 
     private static FunctionRunStatus ParseStatus(string? status) => status switch

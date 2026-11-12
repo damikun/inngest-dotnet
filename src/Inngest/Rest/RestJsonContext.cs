@@ -23,6 +23,16 @@ internal sealed class RunListReply
 {
     [JsonPropertyName("data")]
     public RunData[]? Data { get; init; }
+
+    [JsonPropertyName("metadata")]
+    public ReplyMetadata? Metadata { get; init; }
+}
+
+// When Inngest read the answer; a cached answer repeats the time of the read it repeats.
+internal sealed class ReplyMetadata
+{
+    [JsonPropertyName("fetched_at")]
+    public DateTimeOffset? FetchedAt { get; init; }
 }
 
 // The status stays a string so that a status Inngest adds later reads as Unknown instead of failing the call.

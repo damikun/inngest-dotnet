@@ -66,6 +66,42 @@ public sealed class RunsClientTests(EvaluationEnvironment environment) : Evaluat
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task Waits_for_a_run_to_end()
+    {
+        var eventId = await SendAsync(RunsFunctions.Greet, new RunEvent(TestId));
+        var started = await WaitForRunAsync(eventId);
+
+        var run = await Runs.WaitForRunAsync(started.RunId, TimeSpan.FromSeconds(30), Cancellation);
+
+        run.Status.ShouldBe(FunctionRunStatus.Completed);
+        run.EndedAt.ShouldNotBeNull();
+        run.GetOutput<Greeting>().ShouldBe(new Greeting("hi dalibor", TestId));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task Waits_for_the_runs_an_event_starts_to_show_up_and_end()
+    {
+        // Read at once, before the runs exist: the empty list is cached for 15 s, and the wait outlasts it.
+        var eventId = await SendAsync(RunsFunctions.FanOut, new RunEvent(TestId));
+
+        var runs = await Runs.WaitForEventRunsAsync(eventId, 2, TimeSpan.FromSeconds(45), Cancellation);
+
+        runs.Count.ShouldBe(2);
+        runs.ShouldAllBe(run => run.Status == FunctionRunStatus.Completed && run.EndedAt != null);
+        runs.Select(run => run.GetOutput<Branch>()).ShouldBe([new Branch("a", TestId), new Branch("b", TestId)], ignoreOrder: true);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task Settles_on_no_runs_for_an_event_that_starts_none()
+    {
+        var eventId = await SendAsync("itests/rest.nobody-listens", new RunEvent(TestId));
+
+        var runs = await Runs.WaitForEventRunsToSettleAsync(eventId, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(45), Cancellation);
+
+        runs.ShouldBeEmpty();
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task Fails_with_the_reason_inngest_gives_for_a_run_it_does_not_have()
     {
         var get = await Should.ThrowAsync<InngestException>(Runs.GetRunAsync(UnknownRunId, Cancellation));

@@ -742,7 +742,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | `wrapRequest` | Not implemented; ASP.NET Core middleware or an endpoint filter on `MapInngest` wraps a request |
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |
 | Fan-out over a list: a step per item with stable ids, a window of parallel items, fail-fast or collected outcomes, chunks in child runs for lists beyond the 1,000 steps of a run | Supported (.NET only): `MapAsync`, `ForEachAsync`, `MapOutcomesAsync`, `MapInChunksAsync` and `MapOutcomesInChunksAsync` over `IStepTools`, and `FanOutFunction` for the function of a chunk |
-| REST API for runs: get a run, list the runs of an event, cancel a run | Supported (`IInngestRunsClient`) |
+| REST API for runs: get a run, list the runs of an event, cancel a run, wait for runs to end | Supported (`IInngestRunsClient`) |
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
 | Extended traces: the app's spans in the run's trace in Inngest (`extendedTracesMiddleware`, experimental upstream) | Supported and marked experimental (`INNGESTEXP002`): `AddExtendedTraces` in `Inngest.OpenTelemetry` sends every span under a call's span, from any `ActivitySource`, as OTLP/HTTP JSON to `/v1/traces/userland` at the end of the call, tagged as inngest-js tags them. It listens to activities itself, so no OpenTelemetry SDK is needed. Checked against the dev server (`inngest/inngest:v1.49.0`), which shows the spans under their steps. The trace context comes from the host's span for the request, which ASP.NET Core and Connect start; Lambda and Azure Functions were not checked |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them. The data of `step.invoke` is encrypted in the event field, as the package does with `transformStepInput`; it leaves the request of inference steps in the clear, as the package does, and the chat client steps of `Inngest.Extensions.AI` record no input while it runs. |
@@ -912,6 +912,33 @@ deadline covers both requests of a check.
 **What the result holds.** `signingKeyFallback`, `signingKey` and `eventKey` are `set`, `not set` or `missing`, never
 values. The address is shown as scheme, host and port. The tests look for the keys, the hashed token and the event
 key in the description, the data and the log of every kind of answer.
+
+## Runs client
+
+`IInngestRunsClient` reads and cancels runs through the v1 REST API (`GET /v1/runs/{id}`, `GET /v1/events/{id}/runs`,
+`DELETE /v1/runs/{id}`) with `InngestApiTransport`, so its requests carry the SDK headers and the hashed signing key. The
+replies are read with a source-generated context, whose depth limit follows the app's serializer so that any output a
+function returned can be read back.
+
+**Waiting.** `WaitForRunAsync`, `WaitForEventRunsAsync` and `WaitForEventRunsToSettleAsync` are the polling loop of
+Durable Task's `WaitForInstanceCompletionAsync` and Temporal's `GetResultAsync` over these reads, in `RunWaiter`:
+
+- A run has ended when it has an end time. The status alone does not say it: the runs of an event can read `Completed`
+  while a sleep of the run is pending.
+- Reads start 250 ms apart and grow by half each time to 2 s, with `Task.Delay` and a deadline on the registered
+  `TimeProvider`, so tests run on a fake clock. Inngest caches a run for 3 s and the runs of an event for 15 s, keyed
+  on the URL and the `Authorization` header, so reading more often only returns the cached answer.
+- A 404 (a run Inngest cannot read yet), a 429, a 5xx and a failed connection count as not ended yet; anything else,
+  such as a refused key, ends the wait. A wait that runs out throws `TimeoutException` with the last run or list it saw
+  and the last error it let pass.
+- An event's runs are found in its list and then read one by one until they end, since a run is cached for less time
+  than the list. The list is read on every round, so a run that starts late is still found.
+- Callers say what they expect: a number of runs, or a settle time when the number is unknown or may be zero. A cached
+  answer repeats the `fetched_at` of the read it repeats, so the settle time is measured between those times and a list
+  only counts as unchanged once Inngest read it again. That makes a settle wait take at least one cache period, 15 s,
+  which is why the number is the first choice. A reader that has no `fetched_at` falls back to the local clock.
+- The waits are default interface methods that build a `RunWaiter` over `GetRunAsync` and `GetEventRunsAsync`, so
+  existing implementations of the interface, such as fakes in tests, keep compiling and get the waits.
 
 ## Test containers
 

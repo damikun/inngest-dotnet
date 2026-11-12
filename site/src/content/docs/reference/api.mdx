@@ -268,6 +268,9 @@ chunks refuse a list of 1,000 items or more, and the chunked methods a `chunkSiz
 | `GetRunAsync(string runId, CancellationToken)` | `Task<FunctionRun>`: the run's status and, once it has ended, its output |
 | `GetEventRunsAsync(string eventId, CancellationToken)` | `Task<IReadOnlyList<FunctionRun>>`: the runs an event started, by the event id that sending it returned |
 | `CancelRunAsync(string runId, CancellationToken)` | `Task`; a step that is running finishes, and no further steps run |
+| `WaitForRunAsync(string runId, TimeSpan timeout, CancellationToken)` | `Task<FunctionRun>`: the run once it has ended, completed, failed or cancelled |
+| `WaitForEventRunsAsync(string eventId, int expectedRuns, TimeSpan timeout, CancellationToken)` | `Task<IReadOnlyList<FunctionRun>>`: the runs the event started, once at least `expectedRuns` of them are listed and all have ended |
+| `WaitForEventRunsToSettleAsync(string eventId, TimeSpan settleTime, TimeSpan timeout, CancellationToken)` | `Task<IReadOnlyList<FunctionRun>>`: the runs the event started, once all have ended and the list has stayed the same for `settleTime`; empty for an event that started none |
 
 **`FunctionRun`**, a record: `RunId`, `Status`, `FunctionId` (Inngest's own id of the function, a UUID),
 `FunctionVersion`, `StartedAt`, `EndedAt`, `EventId`, `BatchId`, `OriginalRunId`, `Cron`, `EnvironmentId`, `Output`
@@ -276,6 +279,33 @@ and `GetOutput<T>()`, which reads the output with the app's serializer options. 
 
 Inngest caches these answers for a few seconds, a run for 3 and the runs of an event for 15, and only `EndedAt` says
 for sure that a run is over. Failures throw `InngestException` with Inngest's message.
+
+The waits read the API until the runs have ended, a quarter of a second apart at first and up to 2 s apart. A run has
+ended once it has an `EndedAt`. A 404 (a run that is not readable yet), a 429, a server error and a failed connection
+count as not ended yet, and any other failure is thrown. A wait that runs out throws `TimeoutException` with what it
+last saw; `Timeout.InfiniteTimeSpan` waits until the token is cancelled. The delays use the `TimeProvider` registered
+in the container, so a test can move a fake clock on.
+
+An event starts one run for each function it triggers, a moment after it arrives, and none at all when no function
+listens to it. When you know how many runs to expect, say so with `WaitForEventRunsAsync`. When you do not, or the
+answer may be none, `WaitForEventRunsToSettleAsync` returns once the list has not changed for the settle time. Because
+Inngest caches the list for 15 s, that time is measured between Inngest's own reads of it (the `fetched_at` of each
+answer), and a run that starts after the first read can take up to 15 s to show up in either wait:
+
+{/* check: statements; IInngestRunsClient runsClient, IInngestClient inngest, CancellationToken cancellationToken */}
+```csharp
+var sent = await inngest.SendAsync(new InngestEvent("order/placed", new { orderId = "o-1" }), cancellationToken);
+
+// Two functions listen to order/placed.
+var runs = await runsClient.WaitForEventRunsAsync(sent.Ids[0], expectedRuns: 2, TimeSpan.FromMinutes(1), cancellationToken);
+foreach (var run in runs)
+{
+    Console.WriteLine($"{run.RunId}: {run.Status}");
+}
+```
+
+`IInngestRunsClient` implementations of your own, such as fakes, get the waits from default interface methods that
+call their `GetRunAsync` and `GetEventRunsAsync`.
 
 ## Realtime
 
