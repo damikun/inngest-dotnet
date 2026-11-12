@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,7 +49,7 @@ public sealed class AzureFunctionsStreamingFixture : InngestFixture
 {
     public override string AppId => AzureFunctionsFunctions.AppId;
 
-    public override IReadOnlyCollection<string> ExpectedFunctions => [$"{AppId}-greet", $"{AppId}-slow"];
+    public override IReadOnlyCollection<string> ExpectedFunctions => [$"{AppId}-greet", $"{AppId}-slow", $"{AppId}-log-scope"];
 
     // The dev server accepts any non-empty event key.
     protected override string EventKey => "azfn";
@@ -68,6 +69,7 @@ public sealed class AzureFunctionsStreamingFixture : InngestFixture
         inngest.Services.AddSingleton<IStartupFilter>(new FunctionsHostFilter(FunctionsHttpModel.AspNetCore));
         AzureFunctionsFunctions.AddGreeting(inngest);
         AzureFunctionsFunctions.AddSlow(inngest);
+        inngest.AddLogScopeFunction("log-scope", AzureFunctionsFunctions.LogScope);
     }
 }
 

@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.IntegrationTests.DurableEndpoints;
 
@@ -33,9 +35,7 @@ public sealed class DurableEndpointFixture : InngestFixture
         options.ServeOrigin = new Uri($"http://host.docker.internal:{AppPort}");
     }
 
-    protected override void AddFunctions(IInngestBuilder inngest)
-    {
-    }
+    protected override void AddFunctions(IInngestBuilder inngest) => inngest.Services.AddSingleton<LogScopeService>();
 
     protected override void ConfigureApp(WebApplication app)
     {
@@ -107,6 +107,15 @@ public sealed class DurableEndpointFixture : InngestFixture
                 return Results.Conflict(new { error = exception.Error.Message });
             }
         }).WithDurableEndpoint(new DurableEndpointOptions { Id = "refused", Retries = 0 });
+
+        // Logs through an app service in a step, on the request that starts the run, and after a sleep, on the call from
+        // Inngest that resumes it.
+        app.MapPost("/log-scope/{testId}", async (string testId, IStepTools step, LogScopeService service) =>
+        {
+            await step.RunAsync(LogScopeFunctions.StepId, () => service.Log(testId, "step"));
+            await step.SleepAsync("pause", TimeSpan.FromSeconds(1));
+            return Results.Ok(new { logged = service.Log(testId, "body") });
+        }).WithDurableEndpoint("log-scope");
 
         // Waits for an approval event that carries the test's id.
         app.MapPost("/approve/{testId}", async (string testId, IStepTools step) =>

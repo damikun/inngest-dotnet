@@ -1,4 +1,5 @@
 using Inngest.IntegrationTests.Evaluation.Functions;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.Checkpointing;
@@ -17,6 +18,7 @@ internal static class CheckpointingFunctions
     public const string Sleep = "ckpt/sleep";
     public const string Retry = "ckpt/retry";
     public const string Parallel = "ckpt/parallel";
+    public const string LogScope = "ckpt/log-scope";
 
     public static readonly TimeSpan Nap = TimeSpan.FromSeconds(2);
 
@@ -81,6 +83,8 @@ internal static class CheckpointingFunctions
                 var d = await context.Step.RunAsync("d", () => Ran(observed, "d"));
                 return new StepsResult([a, .. parts, d]);
             });
+
+        inngest.AddLogScopeFunction("ckpt-log-scope", LogScope);
     }
 
     // Code outside the steps runs once per call, so "call" counts the calls of the run.

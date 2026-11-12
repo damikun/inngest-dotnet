@@ -70,6 +70,19 @@ public sealed class ConnectTests(ConnectFixture fixture) : IAsyncLifetime
         Observed.Values<int>("flaky").ShouldBe([0, 1]);
     }
 
+    [Theory(Timeout = 60_000)]
+    [InlineData("log-scope", ConnectFunctions.LogScope)]
+    [InlineData("log-scope-checkpointed", ConnectFunctions.CheckpointedLogScope)]
+    public async Task A_service_logs_with_the_runs_context_in_a_step_and_after_it(string functionId, string eventName)
+    {
+        var eventId = await fixture.Api.SendEventAsync(eventName, new TestEvent(_testId), Cancellation);
+
+        var run = await fixture.Api.WaitForRunEndAsync(eventId, Cancellation, TimeSpan.FromSeconds(30));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        fixture.Worker.Logs.ShouldHaveLoggedWithRunScopes(_testId, functionId, run.RunId, eventName, fixture.ServerUrl);
+    }
+
     private sealed class ConnectStepsResultComparer : IEqualityComparer<ConnectStepsResult>
     {
         public bool Equals(ConnectStepsResult? x, ConnectStepsResult? y) =>

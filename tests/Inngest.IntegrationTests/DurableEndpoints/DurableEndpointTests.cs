@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.DurableEndpoints;
@@ -137,6 +138,17 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync(Cancellation)).ShouldBe("""{"error":"Missing runId or token query parameter"}""");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_service_logs_with_the_runs_context_in_a_step_and_in_the_endpoint_after_it()
+    {
+        using var response = await PostAsync($"/log-scope/{TestId}", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+        (await FollowAsync(response)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        Fixture.App.Logs.ShouldHaveLoggedWithRunScopes(TestId, "log-scope", runId, "inngest/http.request", Api.BaseUrl);
     }
 
     private Task<HttpResponseMessage> PostAsync(string pathAndQuery, string body) =>

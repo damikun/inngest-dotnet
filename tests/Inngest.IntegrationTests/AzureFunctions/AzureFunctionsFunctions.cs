@@ -10,6 +10,7 @@ internal static class AzureFunctionsFunctions
     public const string AppId = "azfn";
     public const string Greet = "azfn/greet";
     public const string Slow = "azfn/slow";
+    public const string LogScope = "azfn/log-scope";
 
     // Longer than the three seconds after which a streamed call starts writing to the connection.
     public static readonly TimeSpan SlowStep = TimeSpan.FromSeconds(5);

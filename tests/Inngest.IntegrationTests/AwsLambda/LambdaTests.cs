@@ -20,9 +20,8 @@ public sealed class LambdaTests(LambdaFixture fixture) : IntegrationTest<LambdaF
         app.Framework.ShouldBe("aws-lambda");
         app.SdkLanguage.ShouldBe("dotnet");
         app.Url.ShouldBe(Fixture.App.ServerFacingUrl.AbsoluteUri);
-        app.FunctionCount.ShouldBe(1);
-        var function = functions.ShouldHaveSingleItem();
-        function.Slug.ShouldBe(LambdaStepsFunction.Slug);
+        app.FunctionCount.ShouldBe(2);
+        var function = functions.Single(function => function.Slug == LambdaStepsFunction.Slug);
         function.StepUrl.ShouldBe($"{Fixture.App.ServerFacingUrl}?fnId={LambdaStepsFunction.Slug}&stepId=step");
         Fixture.Gateway.Calls.ShouldContain(call => call.Method == "PUT" && call.Payload == GatewayPayload.HttpApi);
     }
@@ -84,7 +83,7 @@ public sealed class LambdaTests(LambdaFixture fixture) : IntegrationTest<LambdaF
             var app = (await Api.GetAppsAsync(Cancellation)).Where(app => app.ExternalId == Fixture.AppId).ShouldHaveSingleItem();
             app.Url.ShouldBe(Fixture.App.ServerFacingUrl.AbsoluteUri);
             app.Framework.ShouldBe("aws-lambda");
-            var function = (await Api.GetAppFunctionsAsync(Fixture.AppId, Cancellation)).ShouldHaveSingleItem();
+            var function = (await Api.GetAppFunctionsAsync(Fixture.AppId, Cancellation)).Single(function => function.Slug == LambdaStepsFunction.Slug);
             function.StepUrl.ShouldBe($"{Fixture.App.ServerFacingUrl}?fnId={LambdaStepsFunction.Slug}&stepId=step");
 
             var calls = Fixture.Gateway.Calls.Count;
@@ -100,5 +99,14 @@ public sealed class LambdaTests(LambdaFixture fixture) : IntegrationTest<LambdaF
         {
             Fixture.Gateway.Payload = GatewayPayload.HttpApi;
         }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_service_logs_with_the_runs_context_in_a_step_and_after_it()
+    {
+        var run = await RunToEndAsync(LambdaFixture.LogScope, new TestEvent(TestId));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        Fixture.App.Logs.ShouldHaveLoggedWithRunScopes(TestId, "log-scope", run.RunId, LambdaFixture.LogScope, Api.BaseUrl);
     }
 }

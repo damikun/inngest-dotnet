@@ -9,12 +9,23 @@ internal static class ConnectFunctions
 {
     public const string AppId = "itests-connect";
 
-    public static IReadOnlyList<string> Slugs { get; } = ["itests-connect-steps", "itests-connect-retry"];
+    public const string LogScope = "itests/connect.log-scope";
+    public const string CheckpointedLogScope = "itests/connect.log-scope-checkpointed";
+
+    public static IReadOnlyList<string> Slugs { get; } =
+    [
+        "itests-connect-steps",
+        "itests-connect-retry",
+        "itests-connect-log-scope",
+        "itests-connect-log-scope-checkpointed",
+    ];
 
     public static IInngestBuilder AddConnectFunctions(this IInngestBuilder inngest)
     {
         inngest.AddFunction<ConnectStepsFunction>(ConnectStepsFunction.Options);
         inngest.AddFunction<ConnectRetryFunction>(ConnectRetryFunction.Options);
+        inngest.AddLogScopeFunction("log-scope", LogScope);
+        inngest.AddLogScopeFunction("log-scope-checkpointed", CheckpointedLogScope, new CheckpointingOptions());
         return inngest;
     }
 }

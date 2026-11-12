@@ -1,3 +1,4 @@
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.AwsLambda;
@@ -7,7 +8,9 @@ public sealed class LambdaFixture : InngestFixture
 {
     public override string AppId => "lambda-itests";
 
-    public override IReadOnlyCollection<string> ExpectedFunctions => [LambdaStepsFunction.Slug];
+    public const string LogScope = "itests/lambda.log-scope";
+
+    public override IReadOnlyCollection<string> ExpectedFunctions => [LambdaStepsFunction.Slug, "lambda-itests-log-scope"];
 
     // What the fake gateway turns requests into, which tests switch.
     public GatewaySettings Gateway { get; } = new();
@@ -24,5 +27,9 @@ public sealed class LambdaFixture : InngestFixture
         options.DevServerUrl = serverUrl;
     }
 
-    protected override void AddFunctions(IInngestBuilder inngest) => LambdaApp.Add(inngest, Gateway);
+    protected override void AddFunctions(IInngestBuilder inngest)
+    {
+        LambdaApp.Add(inngest, Gateway);
+        inngest.AddLogScopeFunction("log-scope", LogScope);
+    }
 }

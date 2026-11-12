@@ -40,6 +40,7 @@ internal static class TestFunctions
         "itests-typed-order",
         "itests-typed-pricing",
         "itests-typed-confirmation",
+        "itests-log-scope",
     ];
 
     public static IInngestBuilder AddTestFunctions(this IInngestBuilder inngest)
@@ -73,6 +74,8 @@ internal static class TestFunctions
         inngest.AddFunction<TypedOrderFunction>();
         inngest.AddFunction<TypedPricingFunction>();
         inngest.AddFunction<TypedConfirmationFunction>();
+
+        inngest.AddLogScopeFunction("log-scope", "itests/log.scope");
         return inngest;
     }
 }

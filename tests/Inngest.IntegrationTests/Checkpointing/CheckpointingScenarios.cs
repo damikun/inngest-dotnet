@@ -1,5 +1,6 @@
 using Inngest.IntegrationTests.Evaluation.Functions;
 using Inngest.IntegrationTests.Evaluation.Harness;
+using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.Checkpointing;
@@ -79,5 +80,15 @@ public sealed class CheckpointingScenarios(EvaluationEnvironment environment) : 
         calls.Count.ShouldBe(4);
         calls.Select(call => (call.Target.EndsWith("stepId=step", StringComparison.Ordinal), call.StatusCode))
             .ShouldBe([(true, 206), (false, 206), (false, 206), (true, 200)]);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_service_logs_with_the_runs_context_in_a_checkpointed_step_and_after_it()
+    {
+        var run = await RunToEndAsync(CheckpointingFunctions.LogScope, new TestEvent(TestId));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        Fixture.CallsOf("ckpt-log-scope").ShouldHaveSingleItem().StatusCode.ShouldBe(200);
+        Fixture.App.Logs.ShouldHaveLoggedWithRunScopes(TestId, "ckpt-log-scope", run.RunId, CheckpointingFunctions.LogScope, Api.BaseUrl);
     }
 }

@@ -78,7 +78,7 @@ public sealed class AzureFunctionsStreamingTests(AzureFunctionsStreamingFixture 
 
         app.Error.ShouldBeNull();
         app.Framework.ShouldBe("azure-functions");
-        app.FunctionCount.ShouldBe(2);
+        app.FunctionCount.ShouldBe(3);
     }
 
     [Fact(Timeout = 90_000)]
@@ -112,5 +112,14 @@ public sealed class AzureFunctionsStreamingTests(AzureFunctionsStreamingFixture 
             .ToList();
         statuses.ShouldNotContain(201);
         statuses.ShouldAllBe(status => status == 200 || status == 206);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_service_logs_with_the_runs_context_in_a_step_and_after_it()
+    {
+        var run = await RunToEndAsync(AzureFunctionsFunctions.LogScope, new TestEvent(TestId));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        Fixture.App.Logs.ShouldHaveLoggedWithRunScopes(TestId, "log-scope", run.RunId, AzureFunctionsFunctions.LogScope, Api.BaseUrl);
     }
 }
