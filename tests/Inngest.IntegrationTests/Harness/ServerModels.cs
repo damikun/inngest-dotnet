@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 
 namespace Inngest.IntegrationTests.Harness;
@@ -13,8 +12,8 @@ public enum RunStatus
     Cancelled,
 }
 
-// A function run as the REST API reports it (GET /v1/runs/{id} and /v1/events/{id}/runs). The status is only final
-// once EndedAt is set: mid-run the event's run list can already say Completed while a sleep is still pending.
+// A function run as the SDK's runs client reads it (GET /v1/runs/{id} and /v1/events/{id}/runs). The status is only
+// final once EndedAt is set: mid-run the event's run list can already say Completed while a sleep is still pending.
 public sealed record RunInfo(
     string RunId,
     string? EventId,
@@ -34,14 +33,14 @@ public sealed record RunInfo(
             ? output.Deserialize<T>(JsonSerializerOptions.Web) ?? throw new InvalidOperationException($"The output of run {RunId} is null.")
             : throw new InvalidOperationException($"Run {RunId} has no output.");
 
-    public static RunInfo FromJson(JsonElement run) => new(
-        run.GetProperty("run_id").GetString()!,
-        ServerJson.String(run, "event_id"),
-        ServerJson.String(run, "function_id"),
-        Enum.TryParse<RunStatus>(ServerJson.String(run, "status"), ignoreCase: true, out var status) ? status : RunStatus.Unknown,
-        ServerJson.Time(run, "run_started_at"),
-        ServerJson.Time(run, "ended_at"),
-        run.TryGetProperty("output", out var output) && output.ValueKind != JsonValueKind.Null ? output.Clone() : null);
+    public static RunInfo From(FunctionRun run) => new(
+        run.RunId,
+        run.EventId,
+        run.FunctionId,
+        Enum.TryParse<RunStatus>(run.Status.ToString(), out var status) ? status : RunStatus.Unknown,
+        run.StartedAt,
+        run.EndedAt,
+        run.Output.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? null : run.Output);
 
     public override string ToString() =>
         $"run {RunId} {Status}{(HasEnded ? " (ended)" : string.Empty)} with output {Output?.GetRawText() ?? "null"}";
@@ -149,9 +148,4 @@ internal static class ServerJson
     public static string? String(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    // The server writes nanosecond fractions, which DateTimeOffset parses down to its 100 ns resolution.
-    public static DateTimeOffset? Time(JsonElement element, string property) =>
-        String(element, property) is { Length: > 0 } text
-            ? DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal)
-            : null;
 }

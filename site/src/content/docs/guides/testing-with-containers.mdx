@@ -91,6 +91,57 @@ the container has started, since the port is only known then. The container publ
 machine, so parallel test runs never collide. `GetBaseAddress()` is that address, for a test that talks to the server
 itself, for instance to send an event or read a run over its [REST API](https://www.inngest.com/docs/reference/rest-api).
 
+### Sending an event and waiting for its runs
+
+`SendAndWaitAsync` sends an event to the server, waits until the runs it started have ended, and returns them with their
+status and output. It takes the number of runs the event starts, one for each function it triggers, which is 1 unless
+you say otherwise:
+
+{/* check: statements; InngestServerContainer server, CancellationToken cancellationToken */}
+```csharp
+using Inngest;
+using Inngest.Testing.Containers;
+using Xunit;
+
+var runs = await server.SendAndWaitAsync(
+    new InngestEvent("user/signed-up", new { userId = "u-1", email = "ada@example.com" }),
+    cancellationToken: cancellationToken);
+
+var run = runs.Single();
+Assert.Equal(FunctionRunStatus.Completed, run.Status);
+Assert.Equal("welcome-sent", run.GetOutput<string>());
+```
+
+A run of a function that failed is returned too, with the status `Failed` and the error as its output. When fewer runs
+start, or they do not end within the timeout, 30 s unless you pass another, it throws `TimeoutException` with what it
+last saw. A typed event, an `IInngestEventData`, can be passed as it is.
+
+`CreateClient()` gives an `InngestServerClient` for the same server, which you dispose. Its `Events` is an
+`IInngestClient` that sends to the server, and its `Runs` an `IInngestRunsClient`, whose waits the
+[API reference](/inngest-dotnet/reference/api/#runs) describes. For an event that may start no run, wait for its runs to
+settle:
+
+{/* check: statements; InngestServerContainer server, CancellationToken cancellationToken */}
+```csharp
+using Inngest;
+using Inngest.Testing.Containers;
+using Xunit;
+
+await using var client = server.CreateClient();
+var sent = await client.Events.SendAsync(new InngestEvent("user/visited", new { userId = "u-1" }), cancellationToken);
+
+// No function listens to user/visited yet.
+var runs = await client.Runs.WaitForEventRunsToSettleAsync(sent.Ids[0], TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(30), cancellationToken);
+Assert.Empty(runs);
+```
+
+The server caches its answers about runs, those about an event's runs for 15 s even while there are none, so the client
+adds a query parameter of its own to every read of the v1 REST API, which the server ignores. Its waits read a tenth of
+a second apart at first and at most half a second apart, so a test gets a run back moments after it ends. The SDK's own
+`IInngestRunsClient` in an app sends plain requests, and its waits can take up to 15 s longer to see a run that started
+after the first read. `new InngestServerClient(baseAddress, signingKey, eventKey)` makes the same client for a server
+the test did not start with this module.
+
 ### How the server finds the app
 
 `SyncAsync` sends the app's Inngest endpoint a `PUT`, which an SDK answers by registering its functions with the
@@ -375,6 +426,8 @@ conditions of its own replaces that.
 | `Configure(options)` | Sets an app's `InngestOptions` to use the server. |
 | `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables, with the ones an inherited variable could outrank. |
 | `SyncAsync(appUrl)` | Has the server register the app that listens at this address. |
+| `SendAndWaitAsync(event, expectedRuns = 1, timeout = null)` | Sends the event and returns the runs it started, once they have ended. |
+| `CreateClient()` | An `InngestServerClient` for the server, with `Events`, `Runs` and `SendAndWaitAsync`. |
 | `IsDevServer`, `SigningKey`, `EventKey` | Which server it is, and the keys of the self-hosted one; both keys are null for the dev server, which takes any event key. |
 | `ConnectGatewayPort` | The gateway's port, or null. |
 
@@ -390,6 +443,6 @@ start. The builder reserves the ports in the container, so the kernel never hand
   tests that share a container share its apps and events, so give each test its own event data to tell them apart.
 - It talks to Docker on the machine that runs the tests. A container reaches the app on that machine as
   `host.docker.internal`, which does not hold for a remote Docker host.
-- It waits for nothing the server does. A test that follows a run polls the REST or GraphQL API, or has the function
-  signal the test as above; the server caches some REST answers for a number of seconds, so a poll that must be quick
-  adds a unique query parameter to each request.
+- It knows when runs end, but not when the server has done anything else, such as reached a step or stored a wait for
+  an event. A test that follows a run that far polls the GraphQL API that the Dev UI uses, or has the function signal
+  the test as above.

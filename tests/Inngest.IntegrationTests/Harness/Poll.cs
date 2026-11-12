@@ -7,8 +7,8 @@ public static class Poll
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(100);
 
     // Calls read until done accepts what it returned. A timeout fails with what was awaited, the last value seen and
-    // whatever describe adds (server log, sync state), so the failure explains itself. Connection errors count as
-    // "not yet"; any other exception from read fails at once.
+    // whatever describe adds (server log, sync state), so the failure explains itself. Connection errors, also when the
+    // SDK's runs client wraps them, count as "not yet"; any other exception from read fails at once.
     public static async Task<T> UntilAsync<T>(
         string what,
         Func<CancellationToken, Task<T>> read,
@@ -34,7 +34,7 @@ public static class Poll
                 lastSeen = value;
                 await Task.Delay(Interval, deadline.Token);
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception) when (exception is HttpRequestException or InngestException { InnerException: HttpRequestException })
             {
                 lastSeen = exception;
                 if (!await DelayAsync(deadline.Token))

@@ -983,6 +983,14 @@ with, is kept.
   the dev server's address, the event API address from `INNGEST_EVENT_API_BASE_URL` first, and `INNGEST_DEV` picks the
   mode, where only an explicit `0` keeps an inherited `INNGEST_DEV=1` from switching the signature checks off. Variables
   the list leaves out, such as `INNGEST_SERVE_ORIGIN`, still apply, and the guide says so.
+- **Runs.** `SendAndWaitAsync` is Wolverine's `ExecuteAndWaitAsync` and the MassTransit test harness for Inngest: it
+  sends the event and returns the runs it started once they have ended, with `IInngestRunsClient.WaitForEventRunsAsync`
+  doing the waiting. `InngestServerClient` builds the SDK's own clients in a service provider of its own (`AddInngest`
+  with the container's settings), so events and reads go out as an app's would. Two things differ from an app: each GET
+  of the v1 REST API gets a `cb` query parameter of its own, which the server ignores and which keeps its cache (15 s
+  for an event's runs, even when there are none) from answering a poll; and the waits read every 0.1 s, growing to
+  0.5 s, through the internal `RunPolling`. The v2 API is left without the parameter, because it caches nothing and
+  refuses parameters it does not know. The integration tests' own harness reads and waits for runs through this client.
 - **WebApplicationFactory.** The server needs a real socket, which `TestServer` does not have. .NET 10 added
   `UseKestrel`; earlier versions can only get one with a second host built beside the in-memory one, which runs hosted
   services twice and splits the app's state, so `InngestWebApplicationFactory` targets net10.0 and lives in a package of

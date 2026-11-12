@@ -869,7 +869,21 @@ builder.
 | `GetSdkEnvironment()` | The same settings as `INNGEST_*` variables, for a process that inherits others: `INNGEST_DEV` (the dev server's address, or `0` for the self-hosted server), `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL`, and `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` for the self-hosted one. |
 | `SyncAsync(Uri appUrl, CancellationToken)` | Has the server register the app that listens at this address. A loopback address, or `0.0.0.0` or `[::]`, goes out as `host.docker.internal`; any other address as given. The request names the kind of server (`dev` or `cloud`) and is signed for the self-hosted server. Throws when the app does not register. |
 | `IsDevServer`, `SigningKey`, `EventKey`, `ConnectGatewayPort` | Which server it is, the keys of the self-hosted server (null for the dev server) and the gateway's port (null without one). |
+| `SendAndWaitAsync(InngestEvent, int expectedRuns = 1, TimeSpan? timeout = null, CancellationToken)` | `Task<IReadOnlyList<FunctionRun>>`: sends the event and returns the runs it started, once at least `expectedRuns` are listed and all have ended. Also `SendAndWaitAsync<TEvent>(TEvent data, ...)` for an `IInngestEventData`. Throws `TimeoutException` after 30 s unless told otherwise. |
+| `CreateClient(TimeProvider? timeProvider = null)` | A new `InngestServerClient` for the server, which the caller disposes. |
 | `StartAsync(CancellationToken)` | Starts the container. A server that does not become ready fails with its log in the exception. |
+
+**`InngestServerClient(Uri baseAddress, string? signingKey = null, string? eventKey = null, TimeProvider? timeProvider = null)`**
+sends events to a server and follows the runs they start, with the dev server's settings when `signingKey` is null and
+the self-hosted server's keys otherwise. It adds a query parameter of its own to every read of the v1 REST API, so the
+server's cache never answers it, and its waits read 0.1 to 0.5 s apart. `IDisposable` and `IAsyncDisposable`.
+
+| Member | Purpose |
+|---|---|
+| `Events` | An `IInngestClient` that sends to the server. |
+| `Runs` | An `IInngestRunsClient` for the server's runs, with the waits of [Runs](#runs). |
+| `SendAndWaitAsync(...)` | As on `InngestServerContainer`. |
+| `BaseAddress`, `DefaultTimeout` | The server's address, and the 30 s that `SendAndWaitAsync` waits unless told otherwise. |
 
 **`InngestServerConfiguration`** holds what the builder keeps for the container: `SelfHosted`, `SigningKey`, `EventKey`,
 `AppUrls`, `ConnectGateway`, `ConnectGatewayPort` and `FastTiming`, next to the settings of any container.

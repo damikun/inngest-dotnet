@@ -1,13 +1,15 @@
-using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Inngest.Testing.Containers;
 
 namespace Inngest.IntegrationTests.Harness;
 
-// What tests need from the Inngest server's own API, independent of the SDK under test: sending events, following the
-// runs they start and reading back the apps and functions the server knows.
+// What tests need from the Inngest server's own API: sending events, following the runs they start and reading back the
+// apps and functions the server knows. Events go out on a plain HttpClient, independent of the SDK under test; runs are
+// read and waited for with InngestServerClient of Inngest.Testing.Containers, the SDK's own runs client with a fresh
+// read every time.
 //
 // The REST GETs are cached on the server per URL (an event's runs for 15 s, even when there are none yet), so every
 // GET carries a unique query parameter. Waits fail with the server's log and sync state attached.
@@ -33,6 +35,7 @@ public sealed class DevServerClient : IDisposable
         """;
 
     private readonly HttpClient _http;
+    private readonly InngestServerClient _server;
     private readonly string _eventKey;
     private readonly Func<CancellationToken, Task<string>> _describe;
     private long _requestCounter;
@@ -45,11 +48,15 @@ public sealed class DevServerClient : IDisposable
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         }
 
+        _server = new InngestServerClient(baseUrl, apiKey, eventKey);
         _eventKey = eventKey;
         _describe = describe;
     }
 
     public Uri BaseUrl => _http.BaseAddress!;
+
+    // The SDK's runs client for this server, reading around the server's cache.
+    public IInngestRunsClient Runs => _server.Runs;
 
     // Returns the id the server gave the event, which is what its runs are looked up by.
     public async Task<string> SendEventAsync(string name, object data, CancellationToken cancellationToken)
@@ -65,19 +72,11 @@ public sealed class DevServerClient : IDisposable
         return [.. body.RootElement.GetProperty("ids").EnumerateArray().Select(id => id.GetString() ?? string.Empty)];
     }
 
-    public async Task<IReadOnlyList<RunInfo>> GetEventRunsAsync(string eventId, CancellationToken cancellationToken)
-    {
-        using var body = await GetJsonAsync($"v1/events/{eventId}/runs", cancellationToken);
-        return body.RootElement.TryGetProperty("data", out var runs) && runs.ValueKind == JsonValueKind.Array
-            ? [.. runs.EnumerateArray().Select(RunInfo.FromJson)]
-            : [];
-    }
+    public async Task<IReadOnlyList<RunInfo>> GetEventRunsAsync(string eventId, CancellationToken cancellationToken) =>
+        [.. (await Runs.GetEventRunsAsync(eventId, cancellationToken)).Select(RunInfo.From)];
 
-    public async Task<RunInfo> GetRunAsync(string runId, CancellationToken cancellationToken)
-    {
-        using var body = await GetJsonAsync($"v1/runs/{runId}", cancellationToken);
-        return RunInfo.FromJson(body.RootElement.GetProperty("data"));
-    }
+    public async Task<RunInfo> GetRunAsync(string runId, CancellationToken cancellationToken) =>
+        RunInfo.From(await Runs.GetRunAsync(runId, cancellationToken));
 
     // Waits for the event to start exactly one run; more than one means the test's event matched several functions.
     public async Task<RunInfo> WaitForRunAsync(string eventId, CancellationToken cancellationToken, TimeSpan? timeout = null)
@@ -99,23 +98,29 @@ public sealed class DevServerClient : IDisposable
         return run!;
     }
 
-    // Waits until the run the event started has ended, whether it completed, failed or was cancelled. The timeout
-    // covers both finding the run and waiting for its end.
+    // Waits until the run the event started has ended, whether it completed, failed or was cancelled. More than one run
+    // means the test's event matched several functions.
     public async Task<RunInfo> WaitForRunEndAsync(string eventId, CancellationToken cancellationToken, TimeSpan? timeout = null)
     {
-        var budget = timeout ?? DefaultTimeout;
-        var elapsed = Stopwatch.StartNew();
-        var started = await WaitForRunAsync(eventId, cancellationToken, budget);
+        var runs = await WaitForRunsToEndAsync(eventId, 1, cancellationToken, timeout);
+        return runs is [var single]
+            ? single
+            : throw new InvalidOperationException($"Event {eventId} started {runs.Count} runs, expected one: {string.Join(", ", runs)}");
+    }
 
-        // What finding the run left of the budget, but at least a second.
-        var remaining = TimeSpan.FromTicks(Math.Max((budget - elapsed.Elapsed).Ticks, TimeSpan.TicksPerSecond));
-        return await Poll.UntilAsync(
-            $"run {started.RunId} (event {eventId}) to end",
-            token => GetRunAsync(started.RunId, token),
-            run => run.HasEnded,
-            remaining,
-            _describe,
-            cancellationToken);
+    // Waits until the event has started at least count runs and all of them have ended. A wait that runs out fails with
+    // the server's log and sync state.
+    public async Task<IReadOnlyList<RunInfo>> WaitForRunsToEndAsync(string eventId, int count, CancellationToken cancellationToken, TimeSpan? timeout = null)
+    {
+        try
+        {
+            var runs = await Runs.WaitForEventRunsAsync(eventId, count, timeout ?? DefaultTimeout, cancellationToken);
+            return [.. runs.Select(RunInfo.From)];
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"{exception.Message}\n{await _describe(CancellationToken.None)}", exception);
+        }
     }
 
     // Null until GraphQL can read the run, which is a moment after the REST API already lists it.
@@ -219,7 +224,11 @@ public sealed class DevServerClient : IDisposable
         return body;
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+        _server.Dispose();
+    }
 
     private async Task<JsonDocument> GetJsonAsync(string path, CancellationToken cancellationToken)
     {

@@ -15,7 +15,9 @@ namespace Inngest.Testing.Containers;
 public sealed class InngestServerContainer : DockerContainer
 {
     private readonly InngestServerConfiguration _configuration;
+    private readonly object _clientLock = new();
     private PortReservation? _reservation;
+    private InngestServerClient? _client;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="InngestServerContainer" /> class.
@@ -131,6 +133,64 @@ public sealed class InngestServerContainer : DockerContainer
     }
 
     /// <summary>
+    /// Creates a client that sends events to this server and follows the runs they start, with the server's keys when it
+    /// is self-hosted. The caller disposes it. The container must be running.
+    /// </summary>
+    /// <param name="timeProvider">The clock of the waits' delays and deadlines; the system's when null.</param>
+    /// <returns>A client of this server.</returns>
+    public InngestServerClient CreateClient(TimeProvider? timeProvider = null) =>
+        new(GetBaseAddress(), SigningKey, EventKey, timeProvider);
+
+    /// <summary>
+    /// Sends the event to this server, waits until it has started <paramref name="expectedRuns"/> runs and they have all
+    /// ended, and returns them with their status and output, as <see cref="InngestServerClient.SendAndWaitAsync(InngestEvent, int, TimeSpan?, CancellationToken)"/>
+    /// does with a client that the container keeps until it is disposed. The container must be running.
+    /// </summary>
+    /// <param name="event">The event to send.</param>
+    /// <param name="expectedRuns">How many runs the event starts, at least 1.</param>
+    /// <param name="timeout">How long to wait for the runs; <see cref="InngestServerClient.DefaultTimeout"/> when null.</param>
+    /// <param name="cancellationToken">Cancels the send and the wait.</param>
+    /// <returns>The runs the event started, in the order the server listed them.</returns>
+    /// <exception cref="TimeoutException">Fewer runs started, or not all of them ended, in time.</exception>
+    public Task<IReadOnlyList<FunctionRun>> SendAndWaitAsync(
+        InngestEvent @event,
+        int expectedRuns = 1,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default) =>
+        Client.SendAndWaitAsync(@event, expectedRuns, timeout, cancellationToken);
+
+    /// <summary>
+    /// Sends the event data, named by its type, to this server and waits for the runs it starts, as
+    /// <see cref="SendAndWaitAsync(InngestEvent, int, TimeSpan?, CancellationToken)"/> does.
+    /// </summary>
+    /// <typeparam name="TEvent">The type of the event data, which names the event.</typeparam>
+    /// <param name="data">The data of the event.</param>
+    /// <param name="expectedRuns">How many runs the event starts, at least 1.</param>
+    /// <param name="timeout">How long to wait for the runs; <see cref="InngestServerClient.DefaultTimeout"/> when null.</param>
+    /// <param name="cancellationToken">Cancels the send and the wait.</param>
+    /// <returns>The runs the event started, in the order the server listed them.</returns>
+    /// <exception cref="TimeoutException">Fewer runs started, or not all of them ended, in time.</exception>
+    public Task<IReadOnlyList<FunctionRun>> SendAndWaitAsync<TEvent>(
+        TEvent data,
+        int expectedRuns = 1,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        where TEvent : IInngestEventData =>
+        Client.SendAndWaitAsync(data, expectedRuns, timeout, cancellationToken);
+
+    // The client SendAndWaitAsync uses, made on first use because the address is known only once the container runs.
+    private InngestServerClient Client
+    {
+        get
+        {
+            lock (_clientLock)
+            {
+                return _client ??= CreateClient();
+            }
+        }
+    }
+
+    /// <summary>
     /// Starts the container. When the server does not become ready, the exception carries the server's log.
     /// </summary>
     /// <param name="ct">A token that cancels the start.</param>
@@ -166,6 +226,11 @@ public sealed class InngestServerContainer : DockerContainer
     {
         // A container that was built and never started still holds its gateway port.
         _reservation?.Release();
+        if (_client is { } client)
+        {
+            await client.DisposeAsync().ConfigureAwait(false);
+        }
+
         await base.DisposeAsyncCore().ConfigureAwait(false);
     }
 

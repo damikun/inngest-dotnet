@@ -69,14 +69,7 @@ public abstract class EvaluationScenario<TFixture>(EvaluationEnvironment environ
     // Waits for every run the event starts to end, for events that trigger several functions.
     protected async Task<IReadOnlyList<RunInfo>> WaitForRunsToEndAsync(string eventId, int count, TimeSpan? timeout = null)
     {
-        var runs = await Poll.UntilAsync(
-            $"event {eventId} to start {count} runs that end",
-            async token => await Api.GetEventRunsAsync(eventId, token),
-            found => found.Count >= count && found.All(run => run.HasEnded),
-            timeout ?? DevServerClient.DefaultTimeout,
-            Fixture.DescribeAsync,
-            Cancellation);
-
+        var runs = await Api.WaitForRunsToEndAsync(eventId, count, Cancellation, timeout);
         runs.Count.ShouldBe(count, $"event {eventId} started {runs.Count} runs: {string.Join(", ", runs)}");
         return runs;
     }
