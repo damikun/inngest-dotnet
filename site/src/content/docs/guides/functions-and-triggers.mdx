@@ -218,6 +218,31 @@ which is the scope of the current call, or use a class.
 | `FunctionId` | The function's id as registered, without the app id. |
 | `CancellationToken` | Canceled when Inngest abandons the call or the app shuts down. Functions also receive it as a parameter. |
 
+### Logging
+
+Every call from Inngest runs inside a logging scope with the properties `functionID`, `runID`, `attempt` and
+`eventName`, and every step handler inside a second one with `stepID`. Any `ILogger` used during the call writes
+within them, not only `context.Logger`. A service the function or a step resolves logs with the run's context as
+well:
+
+{/* check: file */}
+```csharp
+public sealed class EmailSender(ILogger<EmailSender> logger)
+{
+    public Task SendAsync(string to)
+    {
+        // Carries functionID, runID, attempt, eventName and the step's stepID.
+        logger.LogInformation("Sending to {To}", to);
+        return Task.CompletedTask;
+    }
+}
+```
+
+Serilog, Seq, Application Insights, OpenTelemetry logs and the other structured providers record the scopes as
+properties. The console logger shows them when `IncludeScopes` is on. The scopes cost one small object per call
+and one per step; set `InngestOptions.LogScopes` to `false` to leave them out. `context.Logger` then opens a scope of
+its own for each message, with `runID` and `eventName`.
+
 ## Event data
 
 The SDK deserializes `data` with `InngestOptions.SerializerOptions`, which default to

@@ -95,6 +95,12 @@ internal sealed class ExecutionEngine : IExecutionEngine
                 run.LoadEvents(events.RootElement);
             }
 
+            // Everything the call logs from here on, through any logger, carries the run's context. Steps run in the
+            // execution context of the function, so the scope reaches their handlers too.
+            using var scope = Settings.LogScopes
+                ? Logger.BeginScope(new CallScope(request.Function.Id, run.RunId, run.Attempt, run.EventName))
+                : null;
+
             Invocation invocation;
             try
             {

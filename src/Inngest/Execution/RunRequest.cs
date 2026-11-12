@@ -16,6 +16,7 @@ internal sealed class RunRequest
     private JsonElement _stack;
     private JsonElement _internalFunctionId;
     private JsonElement _queueItemId;
+    private string? _eventName;
 
     public JsonElement Event { get; private set; } = EmptyObject;
 
@@ -45,7 +46,7 @@ internal sealed class RunRequest
     public string? QueueItemId => NonEmptyString(_queueItemId);
 
     public string EventName =>
-        Event.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : string.Empty;
+        _eventName ??= Event.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : string.Empty;
 
     public static RunRequest Parse(JsonElement root)
     {
@@ -99,6 +100,7 @@ internal sealed class RunRequest
         if (count > 0)
         {
             Event = list[0];
+            _eventName = null;
         }
     }
 

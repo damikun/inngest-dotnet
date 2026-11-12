@@ -94,6 +94,13 @@ public sealed class InngestOptions
     public bool? AIMetadata { get; set; }
 
     /// <summary>
+    /// Opens a logging scope around every call from Inngest, with functionID, runID, attempt and eventName, and another
+    /// around every step handler, with stepID. Any ILogger used in the call then logs with the run's context, including
+    /// the loggers of services that steps use. Null leaves it on.
+    /// </summary>
+    public bool? LogScopes { get; set; }
+
+    /// <summary>
     /// Used for event data, step results and function output. Add source-generated contexts to its
     /// TypeInfoResolverChain to run without reflection, for example under Native AOT.
     /// </summary>

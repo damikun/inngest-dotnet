@@ -73,6 +73,8 @@ internal sealed record InngestSettings
 
     public bool AIMetadata { get; init; } = true;
 
+    public bool LogScopes { get; init; } = true;
+
     public required JsonSerializerOptions SerializerOptions { get; init; }
 
     public bool IsDev => Mode == InngestMode.Dev;
@@ -170,6 +172,7 @@ internal sealed record InngestSettings
                 ?? true,
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
             AIMetadata = options.AIMetadata ?? section?.AIMetadata ?? true,
+            LogScopes = options.LogScopes ?? section?.LogScopes ?? true,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
     }

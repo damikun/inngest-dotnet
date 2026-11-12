@@ -8,10 +8,11 @@ namespace Inngest.Execution;
 
 // The logger a function sees. Every request replays the function from the top, so messages are dropped until
 // memoization ends; code before that point already logged in an earlier request. Each message carries the run
-// id and event name in a scope.
-internal sealed class ReplaySafeLogger(ILogger inner, string runId, string eventName) : ILogger
+// id and event name in a scope: the call's own scope when InngestOptions.LogScopes is on, and one of its own
+// otherwise.
+internal sealed class ReplaySafeLogger(ILogger inner, string runId, string eventName, bool callScoped = false) : ILogger
 {
-    private readonly RunScope _scope = new(runId, eventName);
+    private readonly RunScope? _scope = callScoped ? null : new(runId, eventName);
     private volatile bool _enabled;
 
     public void Enable() => _enabled = true;
@@ -26,6 +27,12 @@ internal sealed class ReplaySafeLogger(ILogger inner, string runId, string event
     {
         if (!IsEnabled(logLevel))
         {
+            return;
+        }
+
+        if (_scope is null)
+        {
+            inner.Log(logLevel, eventId, state, exception, formatter);
             return;
         }
 

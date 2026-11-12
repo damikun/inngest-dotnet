@@ -595,6 +595,25 @@ project turns reflection-based JSON off, and then it reports types that would fa
 the function replays memoized steps, so a message written between two steps appears once per run rather than once
 per call.
 
+`ExecutionEngine` opens a logging scope around every call, with `functionID`, `runID`, `attempt` and `eventName`, and
+the invocation opens another around every step handler, with `stepID`. The names are those `FunctionContext.Logger`
+has used for its own scope since the start. Scopes in `Microsoft.Extensions.Logging` live in an `AsyncLocal` that every
+logger of the factory shares, so a service a step calls logs within them without knowing about Inngest. That is
+the reason for scopes rather than a logger of our own: inngest-js passes its logger to the function, and code that
+does not get it has no context. Every host goes through `ExecutionEngine.ExecuteAsync`, so serve, Connect, durable
+endpoints, AWS Lambda, Azure Functions and the test host all get the scopes in the same place.
+
+- **The call scope reaches the steps.** The function starts inside the scope, and a step handler runs in the
+  execution context of the code that called the step, so it inherits the call scope from there.
+- **The step scope is disposed when the handler completes**, not when it first yields, so the handler runs inside an
+  async method of its own that holds the scope. Logs the function writes between two steps of a checkpointed call
+  have no `stepID`.
+- **One scope, not two.** With the call scope on, `FunctionContext.Logger` adds none of its own, so `runID` and
+  `eventName` appear once. With `InngestOptions.LogScopes = false` it opens its own scope for each message, as before.
+- **Cost.** The scopes are lists of key/value pairs that structured providers read as properties without formatting
+  a string; the attempt is boxed once. A call that runs one step allocates about 200 bytes more with them
+  (`StepExecutionBenchmarks`, `LogScopes` true and false).
+
 ### Webhooks
 
 `MapInngestWebhook` turns a provider's webhooks into events. The work is split so that nothing but the last step knows

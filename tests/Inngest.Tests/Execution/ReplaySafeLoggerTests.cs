@@ -62,8 +62,8 @@ public sealed class ReplaySafeLoggerTests : IDisposable
         var record = _host.LogsOf(Category).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Warning);
         var scope = record.Scopes.OfType<IEnumerable<KeyValuePair<string, object?>>>().ShouldHaveSingleItem();
-        scope.ShouldBe([new("runID", "01JRUN"), new("eventName", "test/event")]);
-        record.Scopes.Single()!.ToString().ShouldBe("runID:01JRUN eventName:test/event");
+        scope.ShouldContain(new KeyValuePair<string, object?>("runID", "01JRUN"));
+        scope.ShouldContain(new KeyValuePair<string, object?>("eventName", "test/event"));
     }
 
     [Fact]

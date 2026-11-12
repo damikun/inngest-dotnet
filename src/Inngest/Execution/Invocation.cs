@@ -128,7 +128,7 @@ internal sealed partial class Invocation
         _unseen = run.Order.Count;
         _function = request.Function.Resolve(request.Services);
         _runLogger = engine.GetFunctionLogger(_functionId);
-        _functionLogger = new ReplaySafeLogger(_runLogger, run.RunId, run.EventName);
+        _functionLogger = new ReplaySafeLogger(_runLogger, run.RunId, run.EventName, callScoped: _settings.LogScopes);
 
         // Resolved before the context, because the events pass through the middleware's payload transforms.
         var middleware = MiddlewarePipeline.Resolve(request.Services, request.Function.Options.Middleware);

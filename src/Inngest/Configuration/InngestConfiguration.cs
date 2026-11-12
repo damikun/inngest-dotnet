@@ -39,6 +39,7 @@ internal static class InngestConfiguration
             SessionPropagation = ReadBoolean(section, nameof(InngestOptions.SessionPropagation)),
             Checkpointing = ReadCheckpointing(section),
             AIMetadata = ReadBoolean(section, nameof(InngestOptions.AIMetadata)),
+            LogScopes = ReadBoolean(section, nameof(InngestOptions.LogScopes)),
         };
     }
 

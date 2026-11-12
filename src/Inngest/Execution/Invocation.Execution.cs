@@ -433,6 +433,11 @@ internal sealed partial class Invocation
         ai?.Enter();
         try
         {
+            if (_settings.LogScopes)
+            {
+                return RunInStepScopeAsync(step, info);
+            }
+
             return _pipeline is null
                 ? step.ExecuteAsync(_context, _services, _cancellationToken)
                 : _pipeline.WrapStepHandlerAsync(info!, () => step.ExecuteAsync(_context, _services, _cancellationToken));
@@ -450,6 +455,18 @@ internal sealed partial class Invocation
             }
 
             SynchronizationContext.SetSynchronizationContext(synchronizationContext);
+        }
+    }
+
+    // The handler, and the middleware that wraps it, in a logging scope with the step's id. The scope is disposed when
+    // the handler completes rather than when it first yields, so it is an async method of its own.
+    private async Task<object?> RunInStepScopeAsync(FoundStep step, StepInfo? info)
+    {
+        using (_logger.BeginScope(new StepScope(step.FinalId)))
+        {
+            return await (_pipeline is null
+                ? step.ExecuteAsync(_context, _services, _cancellationToken)
+                : _pipeline.WrapStepHandlerAsync(info!, () => step.ExecuteAsync(_context, _services, _cancellationToken))).ConfigureAwait(false);
         }
     }
 

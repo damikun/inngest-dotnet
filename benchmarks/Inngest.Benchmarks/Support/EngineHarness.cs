@@ -32,7 +32,7 @@ internal sealed class EngineHarness : IDisposable
 
     public int MiddlewareCount => _scope.ServiceProvider.GetServices<InngestMiddleware>().Count();
 
-    public static EngineHarness For<TFunction>(StepPlan plan, byte[] body, int expectedStatus, bool noOpMiddleware = false)
+    public static EngineHarness For<TFunction>(StepPlan plan, byte[] body, int expectedStatus, bool noOpMiddleware = false, bool logScopes = true)
         where TFunction : InngestFunction
     {
         var services = new ServiceCollection();
@@ -45,6 +45,7 @@ internal sealed class EngineHarness : IDisposable
         {
             options.AppId = AppId;
             options.IsDev = true;
+            options.LogScopes = logScopes;
         });
         services.AddHttpClient("Inngest").ConfigurePrimaryHttpMessageHandler(static () => new NoOpHttpHandler());
         builder.AddFunction<TFunction>(new FunctionOptions { Id = FunctionId, Triggers = [Trigger.Event(Samples.EventName)] });

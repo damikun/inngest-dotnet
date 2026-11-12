@@ -9,11 +9,15 @@ public class StepExecutionBenchmarks
 {
     private EngineHarness _harness = null!;
 
+    // What the scopes around the call and the step handler cost.
+    [Params(true, false)]
+    public bool LogScopes { get; set; }
+
     [GlobalSetup]
     public async Task Setup()
     {
         var plan = StepPlan.Of(1);
-        _harness = EngineHarness.For<SingleStepFunction>(plan, CallBody.First(), expectedStatus: 206);
+        _harness = EngineHarness.For<SingleStepFunction>(plan, CallBody.First(), expectedStatus: 206, logScopes: LogScopes);
 
         var op = await _harness.ExpectOpAsync("StepRun", plan.Ids[0]);
         Expect.Equal(Samples.ResultJson(0), Expect.Property(op, "data").GetRawText(), "the step output");
