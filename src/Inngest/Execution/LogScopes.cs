@@ -15,14 +15,16 @@ internal static class LogScopes
     public const string Attempt = "attempt";
     public const string EventName = "eventName";
     public const string StepId = "stepID";
+    public const string RunUrl = "runURL";
 }
 
-internal sealed class CallScope(string functionId, string runId, int attempt, string eventName) : IReadOnlyList<KeyValuePair<string, object?>>
+// runURL comes last and only where the run has a page the SDK knows of.
+internal sealed class CallScope(string functionId, string runId, int attempt, string eventName, Uri? runUrl) : IReadOnlyList<KeyValuePair<string, object?>>
 {
     private object? _attempt;
     private string? _text;
 
-    public int Count => 4;
+    public int Count => runUrl is null ? 4 : 5;
 
     public KeyValuePair<string, object?> this[int index] => index switch
     {
@@ -32,6 +34,7 @@ internal sealed class CallScope(string functionId, string runId, int attempt, st
         // Boxed once, however many providers read the scope.
         2 => new KeyValuePair<string, object?>(LogScopes.Attempt, _attempt ??= attempt),
         3 => new KeyValuePair<string, object?>(LogScopes.EventName, eventName),
+        4 when runUrl is not null => new KeyValuePair<string, object?>(LogScopes.RunUrl, runUrl.AbsoluteUri),
         _ => throw new ArgumentOutOfRangeException(nameof(index)),
     };
 
@@ -45,8 +48,9 @@ internal sealed class CallScope(string functionId, string runId, int attempt, st
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    public override string ToString() =>
-        _text ??= $"{LogScopes.FunctionId}:{functionId} {LogScopes.RunId}:{runId} {LogScopes.Attempt}:{attempt} {LogScopes.EventName}:{eventName}";
+    public override string ToString() => _text ??= runUrl is null
+        ? $"{LogScopes.FunctionId}:{functionId} {LogScopes.RunId}:{runId} {LogScopes.Attempt}:{attempt} {LogScopes.EventName}:{eventName}"
+        : $"{LogScopes.FunctionId}:{functionId} {LogScopes.RunId}:{runId} {LogScopes.Attempt}:{attempt} {LogScopes.EventName}:{eventName} {LogScopes.RunUrl}:{runUrl.AbsoluteUri}";
 }
 
 internal sealed class StepScope(string stepId) : IReadOnlyList<KeyValuePair<string, object?>>

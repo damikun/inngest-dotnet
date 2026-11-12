@@ -610,6 +610,14 @@ endpoints, AWS Lambda, Azure Functions and the test host all get the scopes in t
   have no `stepID`.
 - **One scope, not two.** With the call scope on, `FunctionContext.Logger` adds none of its own, so `runID` and
   `eventName` appear once. With `InngestOptions.LogScopes = false` it opens its own scope for each message, as before.
+- **Run links in dev mode only.** `FunctionContext.RunUrl` and the scope's `runURL` are the run's page on the dev
+  server, `/run?runID=`, the route of its UI at v1.52.0, on the address the SDK reaches the dev server at: the UI
+  and the API share a port. The SDK's entries for a step or run that fails for good carry it through the scope;
+  their messages stay as they are, because a second message under a new event id would slip past the Sentry log
+  filter the middleware guide suggests for event ids 107 and 109. In cloud mode both are null. The dashboard's page is `app.inngest.com/env/<slug>/runs/<id>`, and the SDK does not know the slug:
+  the keys of a custom environment such as staging say nothing about its name, and no API the SDK calls returns it.
+  inngest-js's CI package builds the URL from `INNGEST_ENV` or else `production`, which points a custom environment's
+  runs at production, so the SDK leaves it out rather than guess. The test host has no run pages either.
 - **Cost.** The scopes are lists of key/value pairs that structured providers read as properties without formatting
   a string; the attempt is boxed once. A call that runs one step allocates about 200 bytes more with them
   (`StepExecutionBenchmarks`, `LogScopes` true and false).

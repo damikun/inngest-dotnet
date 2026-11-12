@@ -45,7 +45,7 @@ running.
 
 **`InngestOptions`**: `AppId`, `AppVersion`, `EventKey`, `SigningKey`, `SigningKeyFallback`, `Environment`,
 `IsDev`, `DevServerUrl`, `BaseUrl`, `ApiBaseUrl`, `EventApiBaseUrl`, `ServeOrigin`, `ServePath`, `AllowInBandSync`,
-`AllowUnsignedSync`, `Streaming`, `SessionPropagation`, `Checkpointing`, `AIMetadata`, `SerializerOptions`. See
+`AllowUnsignedSync`, `Streaming`, `SessionPropagation`, `Checkpointing`, `AIMetadata`, `LogScopes`, `SerializerOptions`. See
 [Configuration](/inngest-dotnet/guides/configuration/).
 
 **`ConnectOptions`**: `InstanceId`, `MaxWorkerConcurrency`, `GatewayUrl`. See [Connect](/inngest-dotnet/guides/connect/).
@@ -134,7 +134,7 @@ The generic forms take the event's name from `T`, which implements `IInngestEven
 | `InngestFunction<TEventData, TResult>` | Base class of class functions with a result type: `ExecuteAsync` returns `Task<TResult>`. `InngestFunction<TEventData>` derives from it with `object?`. |
 | `InngestFunction` | The base of both, which the methods that take a function class require. A class cannot derive from it directly. |
 | `IReturns<TResult>` | Implemented by `InngestFunction<TEventData, TResult>`, so that `InvokeAsync<TFunction, TResult>` can require the result type. |
-| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`, `RequestId`, `JobId` and `Sessions`, the run's sessions that what it sends inherits. For code that does not know the event type, such as middleware: `EventName`, `EventId` and `RawEvent`, the triggering event as JSON. |
+| `FunctionContext` | What every call has: `FunctionId`, `RunId`, `Attempt`, `MaxAttempts`, `Step`, `Logger`, `Services`, `CancellationToken`, `RequestId`, `JobId`, `RunUrl`, the run's page on the dev server, and `Sessions`, the run's sessions that what it sends inherits. For code that does not know the event type, such as middleware: `EventName`, `EventId` and `RawEvent`, the triggering event as JSON. |
 | `FunctionContext<TEventData>` | Adds `Event` and `Events`. |
 | `IFailureHandler` | Implement `OnFailureAsync(FunctionContext<FunctionFailure>, CancellationToken)` to handle final failures. |
 | `FunctionFailure` | The failure handler's event data: `FunctionId`, `RunId`, `Error`, `Event`. |

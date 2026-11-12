@@ -58,6 +58,13 @@ public abstract class FunctionContext
     public string? JobId { get; init; }
 
     /// <summary>
+    /// The run's page in the dev server's UI, such as http://localhost:8288/run?runID=01J..., for logs and error
+    /// messages. Null in cloud mode, where the dashboard's URL names the environment by a slug the SDK does not know,
+    /// and in the test host.
+    /// </summary>
+    public Uri? RunUrl { get; init; }
+
+    /// <summary>
     /// The run's sessions: those every triggering event belongs to, at most five, ordered by key. Events the run
     /// sends and functions it invokes inherit them unless InngestOptions.SessionPropagation is off; empty then.
     /// </summary>

@@ -201,7 +201,7 @@ public sealed class PayloadTransformTests
         using var document = JsonDocument.Parse(Call.New().ToBytes());
         var request = new ExecutionRequest { Function = TestFunction.Define(_ => Task.FromResult<object?>(null)), Body = Call.New().ToBytes(), Services = host.Services };
 
-        var invocation = new Invocation(host.Engine, request, RunRequest.Parse(document.RootElement), CancellationToken.None);
+        var invocation = new Invocation(host.Engine, request, RunRequest.Parse(document.RootElement), runUrl: null, CancellationToken.None);
 
         invocation.Transforms.ShouldBeNull();
     }

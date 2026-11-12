@@ -25,6 +25,8 @@ internal sealed record FunctionContextSeed(
 
     public string? JobId { get; init; }
 
+    public Uri? RunUrl { get; init; }
+
     // Whether the run's sessions pass on to what it sends; FunctionContext.Sessions stays empty otherwise.
     public bool PropagateSessions { get; init; }
 

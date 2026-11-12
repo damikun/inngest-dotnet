@@ -49,6 +49,7 @@ public abstract class InngestFunction<TEventData, TResult> : InngestFunction, IR
             CancellationToken = seed.CancellationToken,
             RequestId = seed.RequestId,
             JobId = seed.JobId,
+            RunUrl = seed.RunUrl,
             Sessions = seed.PropagateSessions ? EventSessions.OfRun(events) : EventSessions.None,
             Middleware = seed.Middleware,
             EventSource = seed.Events.Count > 0 ? seed.Events[0] : seed.Event,

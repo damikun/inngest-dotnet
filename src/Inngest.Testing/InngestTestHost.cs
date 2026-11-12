@@ -70,8 +70,9 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
                 options.EventKey = "test";
             }
         });
+        // The runs exist on no server, so they have no page to link to.
         copy.Replace(ServiceDescriptor.Singleton(static provider =>
-            InngestSettings.Create(provider.GetRequiredService<IOptions<InngestOptions>>().Value, static _ => null)));
+            InngestSettings.Create(provider.GetRequiredService<IOptions<InngestOptions>>().Value, static _ => null) with { RunUiUrl = null }));
         copy.AddHttpClient(InngestServiceCollectionExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(static () => new OfflineHandler());
         copy.Replace(ServiceDescriptor.Singleton<ISignalApi>(new RecordingSignalApi(this)));
         copy.Replace(ServiceDescriptor.Singleton<IRealtimeApi>(new RecordingRealtimeApi(this)));

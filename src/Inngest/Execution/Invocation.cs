@@ -104,7 +104,7 @@ internal sealed partial class Invocation
     // Results the run completed first that had not been reached when later ones were handed back.
     private HashSet<string>? _skipped;
 
-    public Invocation(ExecutionEngine engine, ExecutionRequest request, RunRequest run, CancellationToken cancellationToken)
+    public Invocation(ExecutionEngine engine, ExecutionRequest request, RunRequest run, Uri? runUrl, CancellationToken cancellationToken)
     {
         _settings = engine.Settings;
         _time = engine.TimeProvider;
@@ -148,6 +148,7 @@ internal sealed partial class Invocation
         {
             RequestId = request.RequestId,
             JobId = request.JobId,
+            RunUrl = runUrl,
             PropagateSessions = _settings.SessionPropagation,
             Middleware = middleware,
             Transforms = transforms,

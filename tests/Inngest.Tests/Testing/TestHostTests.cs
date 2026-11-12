@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Inngest.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using static Inngest.Tests.Testing.TestHosts;
 
 namespace Inngest.Tests.Testing;
@@ -528,5 +529,34 @@ public sealed class TestHostTests
             Func<IReadOnlyList<InngestEvent>, Task<SendEventsResult>> next,
             CancellationToken cancellationToken) =>
             next([.. events.Select(@event => @event with { Version = "2026-10" })]);
+    }
+
+    // The engine opens the log scopes in the test host as in the app, but its runs have no page anywhere.
+    [Fact]
+    public async Task Runs_log_with_their_context_and_have_no_run_url()
+    {
+        Uri? runUrl = new("http://unset");
+        var services = Services(async context =>
+        {
+            runUrl = context.RunUrl;
+            await context.Step.RunAsync("a", () =>
+            {
+                context.Services.GetRequiredService<ILoggerFactory>().CreateLogger("app").LogInformation("in a");
+                return 1;
+            });
+            return null;
+        });
+        services.AddFakeLogging();
+        await using var host = new InngestTestHost(services);
+
+        var run = await host.RunAsync("fn", Event(), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        runUrl.ShouldBeNull();
+        var record = host.Services.GetFakeLogCollector().GetSnapshot().Single(record => record.Message == "in a");
+        var properties = record.Scopes.OfType<IEnumerable<KeyValuePair<string, object?>>>().SelectMany(scope => scope).ToDictionary();
+        properties["runID"].ShouldBe(run.RunId);
+        properties["stepID"].ShouldBe("a");
+        properties.ShouldNotContainKey("runURL");
     }
 }

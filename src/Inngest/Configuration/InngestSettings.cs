@@ -75,9 +75,17 @@ internal sealed record InngestSettings
 
     public bool LogScopes { get; init; } = true;
 
+    // Where the UI that shows a run lives: the dev server in dev mode. Null in cloud mode, where the dashboard's URL
+    // names the environment by a slug the SDK is not told, and in the test host, whose runs no server has.
+    public Uri? RunUiUrl { get; init; }
+
     public required JsonSerializerOptions SerializerOptions { get; init; }
 
     public bool IsDev => Mode == InngestMode.Dev;
+
+    // The page of a run in the dev server's UI, which serves it at /run?runID= next to its API.
+    public Uri? RunUrl(string runId) =>
+        RunUiUrl is { } ui && runId.Length > 0 ? new Uri(ui, "/run?runID=" + Uri.EscapeDataString(runId)) : null;
 
     // Applies the INNGEST_* variables from getVariable (normally IConfiguration or the process environment) to
     // whatever the options leave unset, and then the section in options.Configuration to what is still unset.
@@ -173,6 +181,9 @@ internal sealed record InngestSettings
             Checkpointing = RequireValid(options.Checkpointing) ?? section?.Checkpointing,
             AIMetadata = options.AIMetadata ?? section?.AIMetadata ?? true,
             LogScopes = options.LogScopes ?? section?.LogScopes ?? true,
+
+            // The dev server serves its UI next to its API, which is where the SDK reaches it.
+            RunUiUrl = isDev ? apiBaseUrl : null,
             SerializerOptions = SerializerOptionsSetup.Prepare(options.SerializerOptions),
         };
     }

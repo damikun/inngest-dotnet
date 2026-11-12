@@ -97,14 +97,15 @@ internal sealed class ExecutionEngine : IExecutionEngine
 
             // Everything the call logs from here on, through any logger, carries the run's context. Steps run in the
             // execution context of the function, so the scope reaches their handlers too.
+            var runUrl = Settings.RunUrl(run.RunId);
             using var scope = Settings.LogScopes
-                ? Logger.BeginScope(new CallScope(request.Function.Id, run.RunId, run.Attempt, run.EventName))
+                ? Logger.BeginScope(new CallScope(request.Function.Id, run.RunId, run.Attempt, run.EventName, runUrl))
                 : null;
 
             Invocation invocation;
             try
             {
-                invocation = new Invocation(this, request, run, cancellationToken);
+                invocation = new Invocation(this, request, run, runUrl, cancellationToken);
             }
             catch (Exception exception) when (exception is JsonException or NonRetriableException)
             {
