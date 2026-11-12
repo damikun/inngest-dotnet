@@ -153,6 +153,46 @@ internal static class DiagnosticDescriptors
         description: "A send that nothing awaits may not have reached Inngest when the function or step returns, and its errors go unseen. A step that nothing awaits lets the code after it go on before the step has run. The compiler warns about such calls in async methods (CS4014); this covers methods and lambdas that are not async, such as a handler written as an Action.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.StepNotAwaited.ToLowerInvariant());
 
+    public static readonly DiagnosticDescriptor NondeterministicValue = new(
+        DiagnosticIds.NondeterministicValue,
+        title: "A function reads the clock or a random value outside a step",
+        messageFormat: "{0} gives a different value in every call of the function; get it in a step, so that every call uses the value of the first",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Inngest calls a function again for every step and runs its code from the top each time, handing the steps that ran before their saved results. Code outside a step runs in every call, so the time, a new Guid or a random number read there changes from call to call, and a decision made from it can go one way in one call and another way in the next. A value made inside a step is saved with the step's result and is the same in every call.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.NondeterministicValue.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor DelayInFunction = new(
+        DiagnosticIds.DelayInFunction,
+        title: "A function waits with Task.Delay or Thread.Sleep",
+        messageFormat: "{0} waits in every call of the function and holds the request open; use context.Step.SleepAsync, which waits in Inngest without running anything",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A function is called again for every step, so a wait outside a step happens in each of those calls, and while it waits the request stays open, which serverless hosts bill for and time out. SleepAsync is a step: Inngest waits, with no request open, and calls the function when the time is up, once.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.DelayInFunction.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor AwaitOutsideStep = new(
+        DiagnosticIds.AwaitOutsideStep,
+        title: "A function awaits a call that is not a step",
+        messageFormat: "{0} is awaited outside a step, so it runs again in every call of the function that reaches it; if it writes anything or reads what can change, call it in context.Step.RunAsync",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "Inngest calls a function again for every step, and code outside a step runs in each of those calls: an email sent there goes out again, and a row read there can differ from the one an earlier call read. Inside a step, the call runs until it succeeds once and its result is saved. Calls that take the function's context or its step tools are not reported, since they can run steps, and neither are the SDK's own calls. It is information only, because a service can be safe to call again, or run steps of its own, as a chat client does with UseInngestSteps and an HttpClient does through the SDK's fetch handler, which this analyzer cannot see.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.AwaitOutsideStep.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor UnorderedLoopOverSteps = new(
+        DiagnosticIds.UnorderedLoopOverSteps,
+        title: "A loop calls a step with the same id for each item of an unordered collection",
+        messageFormat: "This loop over a {0} calls {1} with an id that does not depend on the item, and the order of a {0} is not defined, so a later call can hand one item's result to another; put the item's key in the id, or sort the items first",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "A step id used again gets a number in the order of the calls, so its results are matched to the items by their order. The order of a dictionary or a set is not part of its contract, and with string keys, whose hash codes change from process to process, it can differ between the calls of one run. An id made from the item finds the item's own result in any order.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.UnorderedLoopOverSteps.ToLowerInvariant());
+
     public static readonly DiagnosticDescriptor InvalidCronSchedule = new(
         DiagnosticIds.InvalidCronSchedule,
         title: "A cron schedule that Inngest does not accept",
@@ -172,6 +212,16 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "The attributes take durations as time strings: whole numbers followed by w, d, h, m or s, such as \"30s\" or \"1h30m\". The SDK fails at startup on a string it cannot read, and on a duration outside what Inngest allows for the setting, such as a rate limit period over 24 hours.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.InvalidTimeString.ToLowerInvariant());
+
+    public static readonly DiagnosticDescriptor RepeatedStepId = new(
+        DiagnosticIds.RepeatedStepId,
+        title: "Two steps of a function have the same id",
+        messageFormat: "The step id \"{0}\" is also used by {1} on line {2}; give each step an id of its own",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Inngest saves a step's result under its id. The SDK numbers an id that is used again, in the order of the calls, which is right for a step called in a loop, but two different steps with one id are matched to their results by order alone: steps that run in parallel, or one that is skipped in a later call, get each other's results. Steps in different branches of an if or a switch are not reported.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.RepeatedStepId.ToLowerInvariant());
 
     public static readonly DiagnosticDescriptor EventNameMismatch = new(
         DiagnosticIds.EventNameMismatch,

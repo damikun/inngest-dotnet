@@ -41,6 +41,22 @@ internal static class Nondeterminism
         return null;
     }
 
+    // The value an operation reads that differs in every call, for the code of a function outside its steps: what Find
+    // looks for, except that a method of Random is not reported, but the instance it is called on: Random.Shared, or a
+    // new Random without a seed. A Random made from a seed gives the same numbers in every call.
+    public static string? DescribeValue(IOperation operation) => operation switch
+    {
+        IPropertyReferenceOperation { Property: var property } when IsSystemType(property.ContainingType, "Random") =>
+            property.Name == "Shared" && property.IsStatic ? "Random.Shared" : null,
+        IPropertyReferenceOperation property => Describe(property.Property),
+        IInvocationOperation invocation when IsSystemType(invocation.TargetMethod.ContainingType, "Random") => null,
+        IInvocationOperation { TargetMethod: { Name: "StartNew" } method } when IsType(method.ContainingType, "Stopwatch", "System", "Diagnostics") =>
+            "Stopwatch.StartNew()",
+        IInvocationOperation invocation => Describe(invocation),
+        IObjectCreationOperation { Arguments.Length: 0, Type: INamedTypeSymbol type } when IsSystemType(type, "Random") => "new Random()",
+        _ => null,
+    };
+
     private static string? FindInStepOptions(IObjectCreationOperation creation, bool followLocals)
     {
         foreach (var argument in creation.Arguments)

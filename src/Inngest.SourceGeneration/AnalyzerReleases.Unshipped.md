@@ -19,6 +19,11 @@ INNGEST022 | Inngest.Steps | Warning | A step id changes from one call to the ne
 INNGEST023 | Inngest.Steps | Warning | Blocking on the task of a step
 INNGEST024 | Inngest.Steps | Warning | A step is called inside the handler of another step
 INNGEST025 | Inngest.Steps | Warning | The task of a step or of SendAsync is dropped
+INNGEST026 | Inngest.Steps | Warning | A function reads the clock or a random value outside a step
+INNGEST027 | Inngest.Steps | Warning | A function waits with Task.Delay or Thread.Sleep
+INNGEST028 | Inngest.Steps | Info | A function awaits a call that is not a step
+INNGEST029 | Inngest.Steps | Info | A loop calls a step with the same id for each item of an unordered collection
 INNGEST030 | Inngest.Functions | Warning | A cron schedule that Inngest does not accept
 INNGEST031 | Inngest.Functions | Warning | A time string in a function attribute is not valid
+INNGEST032 | Inngest.Steps | Warning | Two steps of a function have the same id
 INNGEST033 | Inngest.Functions | Warning | A function is triggered by an event other than the one its event data is for

@@ -28,6 +28,10 @@ internal static class InngestTypes
 
     public static bool IsEventDataInterface(INamedTypeSymbol? type) => IsInngestType(type, "IInngestEventData");
 
+    // FunctionContext<TEventData>, which a function's handler takes. Middleware takes the base class, FunctionContext.
+    public static bool IsFunctionContextOfT(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { IsGenericType: true } named && IsInngestType(named.OriginalDefinition, "FunctionContext");
+
     public static bool IsStepOptions(ITypeSymbol? type) => IsInngestType(type as INamedTypeSymbol, "StepOptions");
 
     public static bool IsBuilderExtensions(INamedTypeSymbol? type) => IsInngestType(type, "InngestBuilderExtensions");

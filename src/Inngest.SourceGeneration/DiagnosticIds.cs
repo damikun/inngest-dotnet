@@ -18,7 +18,12 @@ internal static class DiagnosticIds
     public const string BlockingOnStep = "INNGEST023";
     public const string NestedStep = "INNGEST024";
     public const string StepNotAwaited = "INNGEST025";
+    public const string NondeterministicValue = "INNGEST026";
+    public const string DelayInFunction = "INNGEST027";
+    public const string AwaitOutsideStep = "INNGEST028";
+    public const string UnorderedLoopOverSteps = "INNGEST029";
     public const string InvalidCronSchedule = "INNGEST030";
     public const string InvalidTimeString = "INNGEST031";
+    public const string RepeatedStepId = "INNGEST032";
     public const string EventNameMismatch = "INNGEST033";
 }
