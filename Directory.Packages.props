@@ -35,6 +35,9 @@
     <!-- The model clients of the AI agent sample. -->
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
     <PackageVersion Include="Anthropic" Version="13.6.0" />
+    <!-- Microsoft Agent Framework, for the tests and the sample that run its agents in a function. No shipped package depends
+         on it. 1.28.0 is built on Microsoft.Extensions.AI 10.11.0, the version above. -->
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.28.0" />
     <!-- XSalsa20, Poly1305 and BLAKE2b for Inngest.Encryption. -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- The first line built on System.Diagnostics.DiagnosticSource 10, which the SDK already depends on. -->
