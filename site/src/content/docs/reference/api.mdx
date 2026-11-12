@@ -307,6 +307,72 @@ foreach (var run in runs)
 `IInngestRunsClient` implementations of your own, such as fakes, get the waits from default interface methods that
 call their `GetRunAsync` and `GetEventRunsAsync`.
 
+## Management
+
+**`IInngestManagementClient`** manages functions, runs and events through the Inngest v2 REST API, with the app's
+signing key and in the app's environment. `AddInngest` registers it. Inngest marks these endpoints Beta; they came with Inngest v1.50 to
+v1.52. Apps and functions are named by the ids the app registered them with: `AppId`, and the function's `Id` without
+the app id in front, such as `send-email`.
+
+| Method | Returns |
+|---|---|
+| `PauseFunctionAsync(string appId, string functionId, CancellationToken)` | `Task<FunctionInfo>`; the function's new runs wait until it is resumed (dev server) or are skipped (Inngest Cloud, where the change takes up to a minute) |
+| `ResumeFunctionAsync(string appId, string functionId, CancellationToken)` | `Task<FunctionInfo>` |
+| `PauseFunctionsAsync(string appId, IReadOnlyList<string> functionIds, CancellationToken)`, `ResumeFunctionsAsync(...)` | `Task<IReadOnlyList<FunctionPauseResult>>` for up to 500 functions, one outcome each, in order: the function, or an `Error` such as `not_found` |
+| `CancelRunsAsync(string appId, string functionId, CancelRunsRequest request, CancellationToken)` | `Task<RunCancellation>`; cancels, in the background, the runs queued between `From` and `Until` whose triggering event matches `If` |
+| `ListEventsAsync(EventQuery? query, CancellationToken)` | `IAsyncEnumerable<EventInfo>`, newest first, by time range, names and with or without payloads |
+| `GetEventAsync(string eventId, bool includePayload, CancellationToken)` | `Task<EventInfo>`; a 404 for a moment after the event was sent, until Inngest has stored it |
+| `ListRunsAsync(RunQuery? query, CancellationToken)` | `IAsyncEnumerable<RunSummary>`, by time range, status, app, function and an expression, with or without output |
+| `ListAppSyncsAsync(string appId, int? pageSize, CancellationToken)` | `IAsyncEnumerable<AppSync>`, newest first. Inngest Cloud only: the dev server and the self-hosted server answer 501. |
+
+The lists read a page at a time as you enumerate them, and stop when you do:
+
+{/* check: statements; IInngestManagementClient management, CancellationToken cancellationToken */}
+```csharp
+// Pause the function, cancel what queued up for one customer, and resume it.
+await management.PauseFunctionAsync("shop", "send-invoice", cancellationToken);
+await management.CancelRunsAsync(
+    "shop",
+    "send-invoice",
+    new CancelRunsRequest(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow) { If = "event.data.customerId == 'c-42'" },
+    cancellationToken);
+await management.ResumeFunctionAsync("shop", "send-invoice", cancellationToken);
+
+await foreach (var run in management.ListRunsAsync(
+    new RunQuery { AppIds = ["shop"], Statuses = [FunctionRunStatus.Failed], From = DateTimeOffset.UtcNow.AddDays(-1) },
+    cancellationToken))
+{
+    Console.WriteLine($"{run.RunId} of {run.FunctionId} failed at {run.EndedAt}");
+}
+```
+
+**`FunctionInfo`**: `Id`, `Name`, `AppId`, `IsPaused`, `IsArchived` and `Triggers` (`FunctionTriggerInfo(Type, Value,
+If)`, with `Type` `EVENT` or `CRON`). **`CancelRunsRequest(From, Until)`** with `If`, an expression over `event`, and
+`Name`; `Until` must not be in the future. **`RunCancellation`**: `Id`, `AppId`, `FunctionId`, `Name`, `From`, `Until`,
+`If`, `CreatedAt`. Each call creates another cancellation; runs that have not started never start, running ones stop
+before their next step, and sleeping or waiting ones when they would resume.
+
+**`EventQuery`**: `From` and `Until` (the last hour by default; every page keeps the range of the first), `Names` (up
+to 20), `IncludePayload` and `PageSize` (up to 50, or 5 with payloads). **`EventInfo`**: `Id`, `Name`, `ReceivedAt`,
+`OccurredAt`, `IdempotencyKey`, `Version` and `Payload`, the stored event as a `JsonElement` when asked for.
+
+**`RunQuery`**: `From`, `Until` and `TimeField` (`QueuedAt`, `StartedAt` or `EndedAt`), `Statuses`, `AppIds`,
+`FunctionIds` (which need `AppIds`), `Query` (an expression over `event`, `output` and `error`), `Ascending`,
+`IncludeOutput` and `PageSize` (up to 100). **`RunSummary`**: `RunId`, `Status`, `FunctionId`, `FunctionName`, `AppId`,
+`QueuedAt`, `StartedAt`, `EndedAt`, `EventIds`, `EventName`, `BatchId`, `Cron` and `Output`. Inngest wraps output that is
+not a JSON object as `{"data": ...}`. The v2 API reports `Skipped` runs, which flow control skipped, and `Paused` ones,
+whose function is paused; a queued run reads `Scheduled`. The dev server and the self-hosted server answer 501 to a
+filter on `Paused`.
+
+**`AppSync`**: `Id`, `AppId`, `Status` (`pending`, `success`, `error` or `duplicate`), `Url`, `SdkLanguage`,
+`SdkVersion`, `Framework`, `AppVersion`, `Error` and `CreatedAt`.
+
+Failures throw `InngestException` with Inngest's message and code, as in `Function not found (not_found)`, and the HTTP
+status in `StatusCode`. A `501` with the code `not_implemented` means the server does not have the endpoint.
+
+The client leaves out what `IInngestRunsClient` already does (reading a run and the runs of an event, and cancelling
+one run), and the v2 endpoints that change apps, environments and keys.
+
 ## Realtime
 
 **`IInngestRealtime`** publishes, streams and receives realtime messages and mints subscription tokens through the

@@ -743,6 +743,7 @@ Kestrel -> MapInngestWebhook -> WebhookEndpoint (bounded, pooled body) -> Webhoo
 | `group.parallel` race mode | Supported (`ParallelAsync(ParallelMode.Race, ...)`, or `StepOptions.ParallelMode` for one step) |
 | Fan-out over a list: a step per item with stable ids, a window of parallel items, fail-fast or collected outcomes, chunks in child runs for lists beyond the 1,000 steps of a run | Supported (.NET only): `MapAsync`, `ForEachAsync`, `MapOutcomesAsync`, `MapInChunksAsync` and `MapOutcomesInChunksAsync` over `IStepTools`, and `FanOutFunction` for the function of a chunk |
 | REST API for runs: get a run, list the runs of an event, cancel a run, wait for runs to end | Supported (`IInngestRunsClient`) |
+| v2 REST API: pause and resume functions, cancel runs in bulk, list and get events, list runs, list app syncs | Supported (`IInngestManagementClient`), Beta in Inngest |
 | OpenTelemetry spans and metrics | Supported (`Inngest.OpenTelemetry`) |
 | Extended traces: the app's spans in the run's trace in Inngest (`extendedTracesMiddleware`, experimental upstream) | Supported and marked experimental (`INNGESTEXP002`): `AddExtendedTraces` in `Inngest.OpenTelemetry` sends every span under a call's span, from any `ActivitySource`, as OTLP/HTTP JSON to `/v1/traces/userland` at the end of the call, tagged as inngest-js tags them. It listens to activities itself, so no OpenTelemetry SDK is needed. Checked against the dev server (`inngest/inngest:v1.49.0`), which shows the spans under their steps. The trace context comes from the host's span for the request, which ASP.NET Core and Connect start; Lambda and Azure Functions were not checked |
 | Encryption middleware (`@inngest/middleware-encryption`): default strategy, fallback keys, decrypt-only mode, the event field, custom services | Supported (`Inngest.Encryption`), readable by the TypeScript package and the reverse. It reads the AES envelopes of the package's first versions and never writes them. The data of `step.invoke` is encrypted in the event field, as the package does with `transformStepInput`; it leaves the request of inference steps in the clear, as the package does, and the chat client steps of `Inngest.Extensions.AI` record no input while it runs. |
@@ -913,7 +914,7 @@ deadline covers both requests of a check.
 values. The address is shown as scheme, host and port. The tests look for the keys, the hashed token and the event
 key in the description, the data and the log of every kind of answer.
 
-## Runs client
+## Runs and management clients
 
 `IInngestRunsClient` reads and cancels runs through the v1 REST API (`GET /v1/runs/{id}`, `GET /v1/events/{id}/runs`,
 `DELETE /v1/runs/{id}`) with `InngestApiTransport`, so its requests carry the SDK headers and the hashed signing key. The
@@ -939,6 +940,37 @@ Durable Task's `WaitForInstanceCompletionAsync` and Temporal's `GetResultAsync` 
   which is why the number is the first choice. A reader that has no `fetched_at` falls back to the local clock.
 - The waits are default interface methods that build a `RunWaiter` over `GetRunAsync` and `GetEventRunsAsync`, so
   existing implementations of the interface, such as fakes in tests, keep compiling and get the waits.
+
+**Management.** `IInngestManagementClient` covers the v2 REST API (`/v2/...`, Beta in Inngest, from server v1.50 to
+v1.52) for what the runs client does not: pausing and resuming functions, one at a time
+(`POST /v2/apps/{app}/functions/{fn}/pause` and `/resume`) or up to 500 at once (`POST /v2/apps/{app}/functions/pause`
+and `/resume`, an outcome per function); bulk cancellation (`POST /v2/apps/{app}/functions/{fn}/cancellations`, by the
+time a run was queued and a CEL expression over the event); events (`GET /v2/events`, `GET /v2/events/{id}`); runs
+(`GET /v2/runs`); and app syncs (`GET /v2/apps/{app}/syncs`). The shapes come from the server's
+`proto/api/v2/service.proto` and `pkg/api/v2` at v1.52.0, and every method was run against `inngest/inngest:v1.52.0`.
+
+- **Wire format.** Replies are protojson through grpc-gateway: camelCase names, false, zero and empty values left out
+  (except in the event and sync replies), 64-bit numbers as strings, timestamps in RFC 3339, and enums by their short
+  names (`COMPLETED`). The context reads with `AllowReadingFromString`, keeps enums as strings and maps them, so an
+  unknown status reads `Unknown`. `QUEUED` maps to `Scheduled`, which the v1 API calls the same state, and
+  `FunctionRunStatus` gained `Skipped` and `Paused`, which only v2 reports. Errors are `{"errors":[{code, message}]}`;
+  the message and code go into `InngestException`. A self-hosted server that refuses the key answers in plain text.
+- **Requests.** Unknown query parameters and a body on an endpoint without one are 400s, so a single pause or resume
+  sends no content and the lists send only what the query sets. Times go out in UTC. Apps and functions are named by
+  their SDK ids (the function's without the app prefix). Authentication is the transport's hashed signing key, which
+  the self-hosted server accepts as well as the raw one; the dev server checks nothing. `X-Inngest-Env` goes along as on
+  every request.
+- **Paging.** The lists are `IAsyncEnumerable<T>` that request the next page with the reply's cursor while `hasMore` is
+  set. The event list keeps the time range the first reply reports, since Inngest fills in the last hour when the query
+  leaves it open and later pages must use the same window.
+- **No cache.** The v2 API caches nothing, unlike v1. The test containers' fresh-read parameter is only added to v1
+  requests, because v2 refuses parameters it does not know.
+- **Left out.** `GET /v2/runs/{id}` and `GET /v2/events/{id}/runs` repeat what `IInngestRunsClient` reads over v1,
+  which also older servers have, and `/v2/apps/{app}/functions/{fn}/runs` is `GET /v2/runs` with an app and a function
+  filter. `GET /v2/apps/{app}/syncs/{id}` would need a sync id that only the list gives. The dev server and the
+  self-hosted server answer 501 to the syncs list and to a run filter on `PAUSED`; the client passes the 501 on, and the
+  docs say so. Endpoints that change apps, environments, keys and webhooks, replays, reruns and invocations are not part
+  of this change.
 
 ## Test containers
 

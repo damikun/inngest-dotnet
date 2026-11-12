@@ -66,6 +66,7 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<InngestClient>();
         services.TryAddSingleton<IInngestClient>(static provider => provider.GetRequiredService<InngestClient>());
         services.TryAddSingleton<IInngestRunsClient, InngestRunsClient>();
+        services.TryAddSingleton<IInngestManagementClient, InngestManagementClient>();
         services.TryAddSingleton<IRealtimeApi, RealtimeApi>();
         services.TryAddSingleton<RealtimeSubscriber>();
         services.TryAddSingleton<IInngestRealtime, InngestRealtime>();

@@ -1,5 +1,6 @@
 using System.Net;
 using Inngest.IntegrationTests.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.IntegrationTests.Containers;
 
@@ -24,6 +25,22 @@ public sealed class SelfHostedContainerTests(SelfHostedContainerFixture fixture)
 
         calls.ShouldNotBeEmpty();
         calls.ShouldAllBe(request => request.Signed && request.ResponseSigned);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task The_app_s_management_client_reaches_the_v2_api_with_the_hashed_signing_key()
+    {
+        var management = Fixture.App.Services.GetRequiredService<IInngestManagementClient>();
+        var runs = await Fixture.Server.SendAndWaitAsync(new InngestEvent("containers/hello", new { name = "Margaret" }), cancellationToken: Cancellation);
+
+        var paused = await management.PauseFunctionAsync(ContainerApp.AppId, "hello", Cancellation);
+        var resumed = await management.ResumeFunctionAsync(ContainerApp.AppId, "hello", Cancellation);
+        var listed = await management.ListRunsAsync(new RunQuery { AppIds = [ContainerApp.AppId], FunctionIds = ["hello"] }, Cancellation)
+            .FirstOrDefaultAsync(run => run.RunId == runs[0].RunId, Cancellation);
+
+        paused.IsPaused.ShouldBeTrue();
+        resumed.IsPaused.ShouldBeFalse();
+        listed.ShouldNotBeNull().Status.ShouldBe(FunctionRunStatus.Completed);
     }
 
     [Fact(Timeout = 60_000)]
