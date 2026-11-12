@@ -22,6 +22,13 @@
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The parsers of the SDK's attributes, compiled here too, so that the analyzers accept what the SDK accepts at
+         startup and nothing else. -->
+    <Compile Include="../Inngest/Internal/CronExpression.cs" Link="Shared/CronExpression.cs" />
+    <Compile Include="../Inngest/Internal/DurationLimits.cs" Link="Shared/DurationLimits.cs" />
+    <Compile Include="../Inngest/Internal/TimeString.Parsing.cs" Link="Shared/TimeString.Parsing.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
     <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
   </ItemGroup>

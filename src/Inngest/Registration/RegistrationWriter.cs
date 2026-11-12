@@ -117,15 +117,7 @@ internal static class RegistrationWriter
     }
 
     // Inngest reads the time zone from a "TZ=" or "CRON_TZ=" prefix. A prefix the schedule already has wins.
-    internal static string CronSchedule(CronTrigger trigger)
-    {
-        var hasTimezone = trigger.Schedule.StartsWith("TZ=", StringComparison.Ordinal)
-            || trigger.Schedule.StartsWith("CRON_TZ=", StringComparison.Ordinal);
-
-        return string.IsNullOrWhiteSpace(trigger.Timezone) || hasTimezone
-            ? trigger.Schedule
-            : $"TZ={trigger.Timezone} {trigger.Schedule}";
-    }
+    internal static string CronSchedule(CronTrigger trigger) => CronExpression.WithTimezone(trigger.Schedule, trigger.Timezone);
 
     // Every function registers one step, whose call starts a run. The steps in the function's code are found while
     // it runs.

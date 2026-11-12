@@ -73,6 +73,27 @@ public sealed class FunctionOptionsValidatorTests
     public void Rejects_a_cron_trigger_without_a_schedule(string schedule) =>
         ShouldReject(Valid with { Triggers = [new CronTrigger(schedule)] }, "A cron trigger needs a schedule.");
 
+    // Inngest parses the schedule with five fields and refuses the sync when it cannot (pkg/inngest/trigger.go).
+    [Theory]
+    [InlineData("0 9 * * MON-FRI")]
+    [InlineData("*/15 0-6,22-23 1,15 jan-jun ?")]
+    [InlineData("TZ=Europe/Prague 30 7 * * *")]
+    public void Accepts_a_valid_cron_schedule(string schedule) => ShouldAccept(Valid with { Triggers = [new CronTrigger(schedule)] });
+
+    [Theory]
+    [InlineData("0 0 9 * * *", "it has 6 fields, and Inngest expects 5: minute, hour, day of month, month and day of week")]
+    [InlineData("@daily", "Inngest does not accept descriptors such as @daily; write the five fields instead")]
+    [InlineData("0 24 * * *", "the hour 24 is above 23")]
+    [InlineData("0 9 * * 7", "the day of week 7 is above 6")]
+    public void Rejects_an_invalid_cron_schedule(string schedule, string problem) =>
+        ShouldReject(Valid with { Triggers = [new CronTrigger(schedule)] }, $"The cron schedule \"{schedule}\" is not valid: {problem}.");
+
+    [Fact]
+    public void Checks_the_cron_schedule_with_its_time_zone_in_front() =>
+        ShouldReject(
+            Valid with { Triggers = [new CronTrigger("0 9 * * *") { Timezone = new string('x', 250) }] },
+            "The cron schedule \"0 9 * * *\" is not valid: it is longer than 255 characters.");
+
     // Inngest refuses the whole sync for these, as pkg/inngest/trigger.go does.
     [Fact]
     public void Rejects_the_same_event_trigger_twice() =>

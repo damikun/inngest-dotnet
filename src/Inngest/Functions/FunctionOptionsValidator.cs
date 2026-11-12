@@ -17,11 +17,6 @@ internal static class FunctionOptionsValidator
     private const int MaxCancellations = 5;
     private const int MinBatchSize = 2;
 
-    private static readonly TimeSpan MinPeriod = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan MaxDebouncePeriod = TimeSpan.FromDays(7);
-    private static readonly TimeSpan MaxRateLimitPeriod = TimeSpan.FromHours(24);
-    private static readonly TimeSpan MaxCronJitter = TimeSpan.FromMinutes(5);
-
     public static void Validate(FunctionOptions options)
     {
         var problems = new ConfigurationProblems();
@@ -81,8 +76,8 @@ internal static class FunctionOptionsValidator
                 case CronTrigger { Schedule: var schedule } when string.IsNullOrWhiteSpace(schedule):
                     problems.Add(options, "A cron trigger needs a schedule.");
                     break;
-                case CronTrigger { Jitter: { } jitter } cron when jitter < MinPeriod || jitter > MaxCronJitter:
-                    problems.Add(options, $"The jitter of cron trigger \"{cron.Schedule}\" must be between 1s and 5m, but was {Describe(jitter)}.");
+                case CronTrigger cron:
+                    ValidateCron(options, cron, problems);
                     break;
             }
 
@@ -98,6 +93,20 @@ internal static class FunctionOptionsValidator
             {
                 problems.Add(options, $"The cron schedule \"{cronTrigger.Schedule}\" is given twice, which Inngest refuses even with different jitter.");
             }
+        }
+    }
+
+    // The schedule is checked as Inngest parses it, with the time zone in front as the SDK sends it.
+    private static void ValidateCron(FunctionOptions options, CronTrigger cron, ConfigurationProblems problems)
+    {
+        if (CronExpression.FindProblem(RegistrationWriter.CronSchedule(cron)) is { } problem)
+        {
+            problems.Add(options, $"The cron schedule \"{cron.Schedule}\" is not valid: {problem}.");
+        }
+
+        if (cron.Jitter is { } jitter && DurationLimits.FindProblem(DurationLimits.CronJitter, jitter) is { } jitterProblem)
+        {
+            problems.Add(options, $"The jitter of cron trigger \"{cron.Schedule}\" {jitterProblem}, but was {Describe(jitter)}.");
         }
     }
 
@@ -144,10 +153,7 @@ internal static class FunctionOptionsValidator
             problems.Add(options, $"Throttle.Limit must be greater than 0, but was {throttle.Limit}.");
         }
 
-        if (throttle.Period < MinPeriod)
-        {
-            problems.Add(options, $"Throttle.Period must be at least 1s, but was {Describe(throttle.Period)}.");
-        }
+        AddIfOutOfRange(options, problems, DurationLimits.ThrottlePeriod, throttle.Period);
 
         if (throttle.Burst < 0)
         {
@@ -167,10 +173,7 @@ internal static class FunctionOptionsValidator
             problems.Add(options, $"RateLimit.Limit must be greater than 0, but was {rateLimit.Limit}.");
         }
 
-        if (rateLimit.Period < MinPeriod || rateLimit.Period > MaxRateLimitPeriod)
-        {
-            problems.Add(options, $"RateLimit.Period must be between 1s and 24h, but was {Describe(rateLimit.Period)}.");
-        }
+        AddIfOutOfRange(options, problems, DurationLimits.RateLimitPeriod, rateLimit.Period);
     }
 
     private static void ValidateDebounce(FunctionOptions options, ConfigurationProblems problems)
@@ -180,15 +183,8 @@ internal static class FunctionOptionsValidator
             return;
         }
 
-        if (debounce.Period < MinPeriod || debounce.Period > MaxDebouncePeriod)
-        {
-            problems.Add(options, $"Debounce.Period must be between 1s and 7d, but was {Describe(debounce.Period)}.");
-        }
-
-        if (debounce.Timeout is { } timeout && timeout <= TimeSpan.Zero)
-        {
-            problems.Add(options, $"Debounce.Timeout must be greater than zero, but was {Describe(timeout)}.");
-        }
+        AddIfOutOfRange(options, problems, DurationLimits.DebouncePeriod, debounce.Period);
+        AddIfOutOfRange(options, problems, DurationLimits.DebounceTimeout, debounce.Timeout);
     }
 
     private static void ValidateBatchEvents(FunctionOptions options, ConfigurationProblems problems)
@@ -203,11 +199,7 @@ internal static class FunctionOptionsValidator
             problems.Add(options, $"BatchEvents.MaxSize must be at least {MinBatchSize}, but was {batch.MaxSize}.");
         }
 
-        // The upper limit depends on the Inngest plan, so it is left to the server.
-        if (batch.Timeout < MinPeriod)
-        {
-            problems.Add(options, $"BatchEvents.Timeout must be at least 1s, but was {Describe(batch.Timeout)}.");
-        }
+        AddIfOutOfRange(options, problems, DurationLimits.BatchEventsTimeout, batch.Timeout);
 
         // Inngest rejects a sync that combines batching with any of these.
         if (options.CancelOn is { Count: > 0 })
@@ -260,9 +252,9 @@ internal static class FunctionOptionsValidator
                 continue;
             }
 
-            if (cancellation.Timeout is { } timeout && timeout <= TimeSpan.Zero)
+            if (cancellation.Timeout is { } timeout && DurationLimits.FindProblem(DurationLimits.CancelOnTimeout, timeout) is { } problem)
             {
-                problems.Add(options, $"The CancelOn timeout for \"{cancellation.Event}\" must be greater than zero, but was {Describe(timeout)}.");
+                problems.Add(options, $"The CancelOn timeout for \"{cancellation.Event}\" {problem}, but was {Describe(timeout)}.");
             }
         }
     }
@@ -274,15 +266,8 @@ internal static class FunctionOptionsValidator
             return;
         }
 
-        if (timeouts.Start is { } start && start <= TimeSpan.Zero)
-        {
-            problems.Add(options, $"Timeouts.Start must be greater than zero, but was {Describe(start)}.");
-        }
-
-        if (timeouts.Finish is { } finish && finish <= TimeSpan.Zero)
-        {
-            problems.Add(options, $"Timeouts.Finish must be greater than zero, but was {Describe(finish)}.");
-        }
+        AddIfOutOfRange(options, problems, DurationLimits.TimeoutsStart, timeouts.Start);
+        AddIfOutOfRange(options, problems, DurationLimits.TimeoutsFinish, timeouts.Finish);
     }
 
     private static void ValidateSingleton(FunctionOptions options, ConfigurationProblems problems)
@@ -324,7 +309,15 @@ internal static class FunctionOptionsValidator
         }
     }
 
+    private static void AddIfOutOfRange(FunctionOptions options, ConfigurationProblems problems, string setting, TimeSpan? value)
+    {
+        if (value is { } duration && DurationLimits.FindProblem(setting, duration) is { } problem)
+        {
+            problems.Add(options, $"{setting} {problem}, but was {Describe(duration)}.");
+        }
+    }
+
     // TimeString would round a sub-second value up and reject a negative one, hiding what was actually given.
     private static string Describe(TimeSpan duration) =>
-        duration >= MinPeriod ? TimeString.Format(duration) : $"{duration.TotalSeconds.ToString(CultureInfo.InvariantCulture)}s";
+        duration >= DurationLimits.MinPeriod ? TimeString.Format(duration) : $"{duration.TotalSeconds.ToString(CultureInfo.InvariantCulture)}s";
 }
