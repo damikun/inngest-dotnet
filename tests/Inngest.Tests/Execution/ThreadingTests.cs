@@ -315,6 +315,55 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_step_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
+    {
+        var message = "late failure " + Guid.NewGuid();
+        var unobserved = await CountUnobservedAsync(message, async () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource();
+            var function = TestFunction.Define(async context => await context.Step.RunAsync<string>("late", async () =>
+            {
+                started.SetResult();
+                await release.Task;
+                throw new InvalidOperationException(message);
+            }));
+
+            var pending = Execute(_host, function, cancellation.Token);
+            await started.Task;
+            await CancelPastGraceAsync(cancellation, pending);
+            await Should.ThrowAsync<OperationCanceledException>(() => pending);
+            release.SetResult();
+        });
+
+        unobserved.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_function_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
+    {
+        var message = "late failure " + Guid.NewGuid();
+        var unobserved = await CountUnobservedAsync(message, async () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var release = new TaskCompletionSource();
+            var function = TestFunction.Define(async _ =>
+            {
+                await release.Task.ConfigureAwait(false);
+                throw new InvalidOperationException(message);
+            });
+
+            var pending = Execute(_host, function, cancellation.Token);
+            await CancelPastGraceAsync(cancellation, pending);
+            await Should.ThrowAsync<OperationCanceledException>(() => pending);
+            release.SetResult();
+        });
+
+        unobserved.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Work_the_function_started_still_finishes_after_the_call_answered()
     {
         var release = new TaskCompletionSource();
@@ -353,6 +402,47 @@ public sealed class ThreadingTests : IDisposable
         using var result = await host.Engine.ExecuteAsync(
             new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = scope.ServiceProvider },
             cancellationToken);
+    }
+
+    // Cancels the call and lets the grace period run out, if the call waits for one.
+    private async Task CancelPastGraceAsync(CancellationTokenSource cancellation, Task pending)
+    {
+        var timers = _host.Time.Created;
+        await cancellation.CancelAsync();
+        await Task.WhenAny(pending, _host.Time.TimersCreated(timers + 1));
+        _host.Time.Advance(Invocation.CancelledCallGrace);
+    }
+
+    // How many tasks failed with the message without anyone observing it, once the scenario has run and the garbage
+    // collector has finalized what it left behind.
+    private static async Task<int> CountUnobservedAsync(string message, Func<Task> scenario)
+    {
+        var count = 0;
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs args)
+        {
+            if (args.Exception.Flatten().InnerExceptions.Any(exception => exception.Message == message))
+            {
+                Interlocked.Increment(ref count);
+            }
+        }
+
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            await scenario();
+            for (var i = 0; i < 20 && Volatile.Read(ref count) == 0; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+
+            return Volatile.Read(ref count);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
     }
 
     private sealed class ScopedResource : IDisposable

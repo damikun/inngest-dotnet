@@ -206,6 +206,7 @@ internal sealed partial class Invocation
     {
         _cancellationToken = cancellationToken;
         Running.Value = this;
+        Task<object?>? function = null;
         try
         {
             if (_unseen == 0)
@@ -221,7 +222,7 @@ internal sealed partial class Invocation
             }
 
             _waitingSince = _time.GetTimestamp();
-            var function = _scheduler.Run(StartFunction);
+            function = _scheduler.Run(StartFunction);
             var result = await LoopAsync(function).ConfigureAwait(false);
             WarnIfStepsWereMissed();
 
@@ -234,7 +235,30 @@ internal sealed partial class Invocation
             _finished = true;
             _scheduler.Close();
             _checkpoint?.Dispose();
+
+            // The function can still fail once the work it waits on ends, with no one left to see it.
+            if (function is not null)
+            {
+                ObserveFailure(function);
+            }
         }
+    }
+
+    // A task the call no longer waits for may still fail. Its exception is observed, so that it is not reported as an
+    // unobserved task exception, which apps and error trackers log as an error of their own.
+    private static void ObserveFailure(Task task)
+    {
+        if (task.IsCompleted)
+        {
+            _ = task.Exception;
+            return;
+        }
+
+        _ = task.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async Task<ExecutionResult> LoopAsync(Task<object?> function)

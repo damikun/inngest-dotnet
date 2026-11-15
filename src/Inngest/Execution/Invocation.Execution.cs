@@ -166,6 +166,7 @@ internal sealed partial class Invocation
             }
         }
 
+        ObserveFailure(code);
         _cancellationToken.ThrowIfCancellationRequested();
     }
 
