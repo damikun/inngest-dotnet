@@ -45,7 +45,7 @@ internal sealed partial class ConnectWorker
         connection.Send(_inFlight.IsShuttingDown ? GatewayMessageType.WorkerPause : GatewayMessageType.WorkerReady);
         _connection.MoveTo(InngestConnectionState.Active);
         Log.Connected(_logger, connection.Id, connection.GatewayGroup);
-        _replies.RequestFlush();
+        _replies.FlushNow();
     }
 
     private async Task HandleAsync(WorkerEvent next)

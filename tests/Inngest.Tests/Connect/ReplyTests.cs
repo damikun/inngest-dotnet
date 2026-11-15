@@ -175,6 +175,50 @@ public sealed class ReplyTests : IAsyncLifetime
         flushed.Reply.RequestId.ShouldBe("req-1");
     }
 
+    // Trying again for every reply that comes in would only add to the load on an Inngest that is failing.
+    [Fact]
+    public async Task A_reply_buffered_during_a_backoff_waits_for_the_next_round()
+    {
+        var attempts = 0;
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = _ => Interlocked.Increment(ref attempts) <= 4 ? HttpStatusCode.ServiceUnavailable : null;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+
+        var backoff = worker.Time.NextTimerAsync(TimeSpan.FromSeconds(1));
+        worker.Time.Advance(Deadline);
+        await backoff;
+        TimeSpan[] backoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
+        for (var i = 0; i < backoffs.Length - 1; i++)
+        {
+            backoff = worker.Time.NextTimerAsync(backoffs[i + 1]);
+            worker.Time.Advance(backoffs[i]);
+            await backoff;
+        }
+
+        for (var i = 0; i < 4; i++)
+        {
+            (await _gateway.NextFlushAsync()).Status.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        }
+
+        // Five seconds into the ten-second backoff, the reply to req-2 is not acknowledged either.
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-2"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+        worker.Time.Advance(Deadline);
+        await Poll.UntilAsync(() => worker.LogsWithId(521).Any(record => record.Message.Contains("req-2")));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        _gateway.TryTakeFlush(out _).ShouldBeFalse();
+
+        worker.Time.Advance(TimeSpan.FromSeconds(5));
+
+        (await _gateway.NextFlushAsync()).Reply.RequestId.ShouldBe("req-1");
+        var next = await _gateway.NextFlushAsync();
+        next.Reply.RequestId.ShouldBe("req-2");
+        next.Status.ShouldBe(HttpStatusCode.OK);
+    }
+
     [Fact]
     public async Task A_worker_that_stops_gives_up_on_replies_Inngest_does_not_take()
     {

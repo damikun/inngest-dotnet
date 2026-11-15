@@ -31,6 +31,12 @@ internal sealed class ReplyBuffer
     private readonly Channel<bool> _flushRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
 
+    // Requests to end a backoff early, which only a new connection and the worker stopping make. A reply buffered
+    // during a backoff waits for the next round: trying again at the rate replies come in would only add to the load
+    // on an Inngest that is already failing.
+    private readonly Channel<bool> _retryRequests = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
+
     private readonly ConnectApi _api;
     private readonly Func<SigningKey?> _currentKey;
     private readonly TimeProvider _time;
@@ -96,7 +102,7 @@ internal sealed class ReplyBuffer
     public void Buffer(Reply reply)
     {
         _unacknowledged.Enqueue(reply);
-        RequestFlush();
+        _flushRequests.Writer.TryWrite(true);
     }
 
     // Replies still waiting for an acknowledgement when the last connection has closed can only go over HTTP.
@@ -111,7 +117,12 @@ internal sealed class ReplyBuffer
         }
     }
 
-    public void RequestFlush() => _flushRequests.Writer.TryWrite(true);
+    // For a new connection, a sign that Inngest can be reached again: a flush waiting out its backoff tries again at once.
+    public void FlushNow()
+    {
+        _flushRequests.Writer.TryWrite(true);
+        _retryRequests.Writer.TryWrite(true);
+    }
 
     // Flushes whenever asked to until Complete, then flushes once more and returns.
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -120,7 +131,9 @@ internal sealed class ReplyBuffer
         {
             while (await _flushRequests.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                // This flush answers the requests made so far, so an earlier connection does not cut its backoff short.
                 _flushRequests.Reader.TryRead(out _);
+                _retryRequests.Reader.TryRead(out _);
                 await FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
@@ -141,7 +154,7 @@ internal sealed class ReplyBuffer
     public void Complete()
     {
         Volatile.Write(ref _stopping, true);
-        RequestFlush();
+        FlushNow();
         _flushRequests.Writer.TryComplete();
     }
 
@@ -166,8 +179,8 @@ internal sealed class ReplyBuffer
         }
     }
 
-    // Waits out the backoff, but only until the next request to flush, such as a new connection, another reply or the
-    // worker stopping, each a reason to try again at once. Once the worker is stopping, the rounds left wait in full.
+    // Waits out the backoff, but only until a new connection or the worker stopping, each a reason to try again at once.
+    // Once the worker is stopping, the rounds left wait in full.
     private async Task WaitToRetryAsync(TimeSpan backoff, CancellationToken cancellationToken)
     {
         using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -175,16 +188,18 @@ internal sealed class ReplyBuffer
         if (Volatile.Read(ref _stopping))
         {
             await delay.ConfigureAwait(false);
-            return;
+        }
+        else
+        {
+            var retry = _retryRequests.Reader.WaitToReadAsync(wait.Token).AsTask();
+            await Task.WhenAny(delay, retry).ConfigureAwait(false);
+            await wait.CancelAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
-        var requested = _flushRequests.Reader.WaitToReadAsync(wait.Token).AsTask();
-        await Task.WhenAny(delay, requested).ConfigureAwait(false);
-        await wait.CancelAsync().ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // This round covers what the request asked for.
+        // The next round covers the replies buffered so far and any request to flush, the last one Complete asks for too.
         _flushRequests.Reader.TryRead(out _);
+        _retryRequests.Reader.TryRead(out _);
     }
 
     // Returns false at the first reply that does not get through, which stays first in line for the next round. A reply
