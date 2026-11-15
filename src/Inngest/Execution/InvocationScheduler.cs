@@ -23,9 +23,15 @@ internal sealed class InvocationScheduler : SynchronizationContext
     // thread reads it to tell when that code holds the thread.
     private long _runningSince;
 
-    // The items in the queue, counted apart from it for the watchdog on another thread, since only the engine's thread may
-    // read a single-reader channel.
+    // What waits for the thread, counted for the watchdog on another thread. The queue's items are counted apart from it,
+    // since only the engine's thread may read a single-reader channel. A step the code finds waits for the engine to hand
+    // back its result or decide on it, which it does only once it has the thread again: _found counts the steps found and
+    // _foundBefore the count when the engine last handed the thread to the code. _owed counts memoized results the engine
+    // has yet to hand back, one per turn, some of them of steps found in an earlier turn.
     private int _queued;
+    private int _found;
+    private int _foundBefore;
+    private int _owed;
 
     public bool IsCurrent => Current == this;
 
@@ -54,6 +60,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
     {
         var previous = Current;
         SetSynchronizationContext(this);
+        Volatile.Write(ref _foundBefore, _found);
         Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
         try
         {
@@ -72,6 +79,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
     {
         var previous = Current;
         SetSynchronizationContext(this);
+        Volatile.Write(ref _foundBefore, _found);
         var count = 0;
         try
         {
@@ -101,13 +109,30 @@ internal sealed class InvocationScheduler : SynchronizationContext
         return count;
     }
 
-    // Whether code on this context has run for at least the given time while work waits for it. Nothing else runs that
-    // work, so the code is most likely blocked on a task that needs it, which then never completes. Called from another
-    // thread, so it reads only the count.
+    // Called by the engine, on its thread, for each step the code finds; owed when the engine has its memoized result to
+    // hand back.
+    public void StepFound(bool owed)
+    {
+        Volatile.Write(ref _found, _found + 1);
+        if (owed)
+        {
+            Interlocked.Increment(ref _owed);
+        }
+    }
+
+    // Called by the engine, on its thread, as it hands back a memoized result that StepFound counted as owed.
+    public void ResultHandedBack() => Interlocked.Decrement(ref _owed);
+
+    // Whether code on this context has run for at least the given time while work waits for it: queued continuations,
+    // steps it found since the engine last had the thread, or memoized results the engine has yet to hand back. Nothing
+    // else does that work, so the code is most likely blocked on a task that needs it, such as a step's, which then never
+    // completes. Called from another thread, so it reads only the counts.
     public bool IsHeldFor(TimeSpan time)
     {
         var since = Volatile.Read(ref _runningSince);
-        return since != 0 && Stopwatch.GetElapsedTime(since) >= time && Volatile.Read(ref _queued) > 0;
+        return since != 0
+            && Stopwatch.GetElapsedTime(since) >= time
+            && (Volatile.Read(ref _queued) > 0 || Volatile.Read(ref _owed) > 0 || Volatile.Read(ref _found) != Volatile.Read(ref _foundBefore));
     }
 
     // Completes when more work is queued, for example when awaited I/O finishes.

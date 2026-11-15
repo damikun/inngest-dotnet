@@ -397,6 +397,76 @@ public sealed class ThreadingTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Code_that_blocks_on_a_step_it_found_is_logged(bool memoized)
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        bool? completedWhileHeld = null;
+        var function = TestFunction.Define(async context =>
+        {
+            var step = context.Step.RunAsync("A", () => "A");
+
+            // Holds the thread as step.Result would, which would never return, until the watchdog has spoken.
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            completedWhileHeld = step.IsCompleted;
+            return await step;
+        });
+
+        var result = await host.CallAsync(function, memoized ? Call.New().Data("A", "\"A\"") : Call.New());
+
+        completedWhileHeld.ShouldBe(false);
+        if (memoized)
+        {
+            result.Body.ShouldBe("\"A\"");
+        }
+        else
+        {
+            result.OpCodes.ShouldBe(["StepRun"]);
+        }
+
+        host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Code_that_blocks_on_a_step_whose_result_is_handed_back_later_is_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var function = TestFunction.Define(async context =>
+        {
+            var a = context.Step.RunAsync("A", () => "A");
+            var b = context.Step.RunAsync("B", () => "B");
+
+            // B completed first, so A's result is handed back only once this code lets go of the thread.
+            var first = await b;
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            return first + await a;
+        });
+
+        var result = await host.CallAsync(function, Call.New().Data("B", "\"B\"").Data("A", "\"A\""));
+
+        result.Body.ShouldBe("\"BA\"");
+        host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Code_that_holds_the_function_thread_after_its_steps_were_handed_back_is_not_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(20));
+        var function = TestFunction.Define(async context =>
+        {
+            var a = await context.Step.RunAsync("A", () => "A");
+            Thread.Sleep(200);
+            return a;
+        });
+
+        var result = await host.CallAsync(function, Call.New().Data("A", "\"A\""));
+
+        result.Body.ShouldBe("\"A\"");
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 112);
+    }
+
     [Fact]
     public async Task Code_that_holds_the_function_thread_while_nothing_waits_for_it_is_not_logged()
     {

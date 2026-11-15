@@ -75,8 +75,8 @@ is answered with a `201` at once, and the same answer follows inside the stream 
   the thread to complete, as a step's task does and so does any code that awaits without `ConfigureAwait(false)`. The
   call then never answers. Await the task instead. The
   [`INNGEST023`](/inngest-dotnet/guides/source-generator/#inngest023) analyzer reports such waits, and the SDK logs an
-  error, event id 112, when the function's code holds the thread for five seconds while work waits for it. Step
-  handlers run on the thread pool, as other .NET code does, and a
+  error, event id 112, when the function's code holds the thread for five seconds while work waits for it, such as
+  the result of a step it called. Step handlers run on the thread pool, as other .NET code does, and a
   [durable endpoint](/inngest-dotnet/guides/durable-endpoints/#limitations) runs like a function.
 
 ## Going deeper

@@ -433,9 +433,11 @@ buffered included: it holds every decision of the call until the body has been r
 steps found with it. Blocking on a step task (`.Result`), or on any task whose code resumes on the scheduler, deadlocks
 the invocation, as it would on any single-threaded context. `INNGEST023` reports the common cases at compile time. At
 run time a watchdog timer logs an error (event id 112), once, when a callback on the scheduler has run for five seconds
-while work waits in its queue. It measures real time, whatever `TimeProvider` the engine has, since the thread is
-blocked in real time, and stays quiet while a debugger is attached. The thread cannot be freed, but the hang is no
-longer silent.
+while work waits for the thread: a continuation in its queue, a step the user code found since the engine last had the
+thread, whose result the engine hands back or decides on only once it has it again, or a memoized result the engine has
+yet to hand back. The timer reads counts the scheduler keeps for it, since only the engine's thread may read the queue.
+It measures real time, whatever `TimeProvider` the engine has, since the thread is blocked in real time, and stays
+quiet while a debugger is attached. The thread cannot be freed, but the hang is no longer silent.
 
 A step's handler runs in the execution context captured where the step was called, not in the engine's, as a plain
 method call would. An `AsyncLocal` the function set, the current `Activity`, baggage and logging scopes are there in the
