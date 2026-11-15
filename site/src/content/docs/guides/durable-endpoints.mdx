@@ -477,7 +477,8 @@ and the SDK verifies the calls from Inngest with it. See [Configuration](/innges
   The SDK logs an error, event id 112, when the thread is held for five seconds while work waits for it. See
   [How it works](/inngest-dotnet/how-it-works/#what-it-means-for-your-code). The
   [`INNGEST023`](/inngest-dotnet/guides/source-generator/#inngest023) analyzer reports such a wait in an endpoint's
-  handler only on the task of a step, not yet on other tasks.
+  handler only when it is made on a step call itself, such as `step.RunAsync(...).Result`. It does not yet report one
+  on the task of a step kept in a local or waited for through `WaitAsync` or `ContinueWith`, or on other tasks.
 - **Code that outlives the call must not use `HttpContext`.** When a run is handed over, the handler is abandoned at
   its step, and ASP.NET Core reuses the `HttpContext` once the request is over. Code the handler started that goes on
   running, such as a task that is not awaited, must not touch it.

@@ -95,11 +95,13 @@ cancelled call still waits up to 30 seconds, of real time whatever `TimeProvider
 that is running, so that the services the call resolved, such as a `DbContext`, are not disposed under it. A handler
 still running after that is logged as a warning, event id 110, and the call ends; pass the token on to the work the
 handler does. The call waits the same way for a middleware hook that is running, and for work of the function's own
-outside steps, such as a query on the call's `DbContext`, until the function reaches its next step or returns. That
-work still running after 30 seconds is logged as a warning, event id 111. A call that Inngest makes for one of several
-steps started together cannot tell that work from the other steps, which run in calls of their own, so it stops
-waiting sooner, without a warning, when it would have given up on its step uncancelled: 10 seconds after the function
-last reached a step.
+outside steps, such as a query on the call's `DbContext`, until the function reaches its next step or returns. A step
+hook still running after 30 seconds, `OnStepStartAsync`, `OnStepCompleteAsync` or `OnStepErrorAsync`, is logged as a
+handler is, event id 110 with the step's id. `OnMemoizationEndAsync`, `OnRunCompleteAsync` and `OnRunErrorAsync`, which
+are not about a step, and the function's own work are logged as a warning, event id 111. A call that Inngest makes for
+one of several steps started together cannot tell that work from the other steps, which run in calls of their own, so
+it stops waiting sooner, without a warning, when it would have given up on its step uncancelled: 10 seconds after the
+function last reached a step.
 
 A handler that returns a `ValueTask` is rejected with an `ArgumentException`, because the SDK would otherwise save
 the `ValueTask` itself instead of waiting for it. Make the lambda `async` or call `AsTask()`.
