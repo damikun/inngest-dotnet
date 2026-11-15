@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Inngest.Client;
@@ -31,6 +32,7 @@ public sealed class HttpContextSourceTests
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        builder.Logging.AddFakeLogging();
         builder.Services.AddSingleton(keys);
         builder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(UserContextApp.Now));
         var inngest = builder.Services.AddInngest(options =>
@@ -286,6 +288,125 @@ public sealed class HttpContextSourceTests
     }
 
     private static string Name(ICurrentUser user) => user.Principal.FindFirst("sub")?.Value ?? "anonymous";
+
+    // The user is taken before the endpoint runs, for every request. A failure there is the app's setup, not the
+    // request's, so the request is served and its run has no user, as for claims that are too large.
+    [Fact]
+    public async Task A_durable_endpoint_whose_user_source_throws_runs_without_a_user()
+    {
+        var (app, checkpoints) = await StartCheckoutAsync(
+            new EphemeralDataProtectionProvider(),
+            inngest => inngest.Services.AddSingleton<IUserContextSource>(new ThrowingSource()));
+        await using var _ = app;
+
+        await ShouldRunWithoutAUserAsync(app, checkpoints, "the identity provider is down");
+    }
+
+    [Fact]
+    public async Task A_durable_endpoint_whose_key_ring_is_broken_runs_without_a_user()
+    {
+        var (app, checkpoints) = await StartCheckoutAsync(new BrokenKeyRing(), inngest => inngest.AddUserContextFromHttpContext());
+        await using var _ = app;
+
+        await ShouldRunWithoutAUserAsync(app, checkpoints, "the key ring cannot be read");
+    }
+
+    [Fact]
+    public async Task A_durable_endpoint_whose_event_filter_throws_runs_without_a_user()
+    {
+        var (app, checkpoints) = await StartCheckoutAsync(
+            new EphemeralDataProtectionProvider(),
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.Configure<UserContextOptions>(options => options.EventFilter = _ => throw new InvalidOperationException("the filter is broken"));
+            });
+        await using var _ = app;
+
+        await ShouldRunWithoutAUserAsync(app, checkpoints, "the filter is broken");
+    }
+
+    [Fact]
+    public async Task The_event_filter_sees_the_request_of_a_durable_endpoint_as_the_events_data()
+    {
+        var seen = new List<string>();
+        var (app, checkpoints) = await StartCheckoutAsync(
+            new EphemeralDataProtectionProvider(),
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.Configure<UserContextOptions>(options => options.EventFilter = @event =>
+                {
+                    var data = (JsonElement)@event.Data!;
+                    seen.Add($"{@event.Name} {data.GetProperty("method").GetString()} {data.GetProperty("path").GetString()} {data.GetProperty("fn").GetString()}");
+                    return data.GetProperty("path").GetString() == "/checkout";
+                });
+            });
+        await using var _ = app;
+
+        using var response = await PostAsync(app, "/checkout", signedIn: true);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe("u-42");
+        seen.ShouldHaveSingleItem().ShouldBe("inngest/http.request POST /checkout POST /checkout");
+    }
+
+    private static async Task<(WebApplication App, FakeEndpointCheckpointApi Checkpoints)> StartCheckoutAsync(
+        IDataProtectionProvider keys,
+        Action<IInngestBuilder> configure)
+    {
+        var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        var checkpoints = new FakeEndpointCheckpointApi();
+        var app = await StartAsync(
+            keys,
+            http,
+            inngest =>
+            {
+                configure(inngest);
+                inngest.Services.AddSingleton<IEndpointCheckpointApi>(checkpoints);
+            },
+            web =>
+            {
+                web.UseInngestDurableEndpoints();
+                web.MapPost("/checkout", async (ICurrentUser user, IStepTools step) =>
+                {
+                    await step.RunAsync("reserve", () => 1);
+                    return Results.Ok(Name(user));
+                }).WithDurableEndpoint();
+            });
+        return (app, checkpoints);
+    }
+
+    private static async Task ShouldRunWithoutAUserAsync(WebApplication app, FakeEndpointCheckpointApi checkpoints, string reason)
+    {
+        using var response = await PostAsync(app, "/checkout", signedIn: true);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe("anonymous");
+        await checkpoints.WaitForSavesAsync(1);
+        using var run = JsonDocument.Parse(checkpoints.Saves[0].Event!);
+        run.RootElement.TryGetProperty("user", out _).ShouldBeFalse();
+        var warning = app.Services.GetFakeLogCollector().GetSnapshot().Where(record => record.Id.Id == 155).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain("POST /checkout");
+        warning.Exception!.Message.ShouldContain(reason);
+    }
+
+    private sealed class ThrowingSource : IUserContextSource
+    {
+        public ValueTask<ClaimsPrincipal?> GetUserAsync(CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("the identity provider is down");
+    }
+
+    // Data Protection that cannot read its keys, as with a key store it has no access to.
+    private sealed class BrokenKeyRing : IDataProtectionProvider, IDataProtector
+    {
+        public IDataProtector CreateProtector(string purpose) => this;
+
+        public byte[] Protect(byte[] plaintext) => throw new CryptographicException("the key ring cannot be read");
+
+        public byte[] Unprotect(byte[] protectedData) => throw new CryptographicException("the key ring cannot be read");
+    }
 
     [Fact]
     public async Task An_app_that_registered_its_own_source_keeps_it()

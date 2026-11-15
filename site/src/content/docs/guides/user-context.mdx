@@ -302,8 +302,12 @@ does not keep the user of the run's `inngest/http.request` event, so a call with
 user. The handler's code outside steps runs again on every call: it sees the user on the first call and none after a
 wait, and the events it sends after a wait carry no user. It must not choose its steps by `ICurrentUser`, since a
 resumed call would take another branch than the request did. Read the user in a step before the first wait, as
-[Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#limitations) shows. `EventFilter` sees that event too,
-and returning false for it leaves the run without a user.
+[Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#limitations) shows. The source is asked when
+`UseInngestDurableEndpoints` runs, so with `AddUserContextFromHttpContext` that middleware goes after
+`UseAuthentication` and `UseAuthorization`; before them, `HttpContext.User` is nobody yet and the run has no user.
+`EventFilter` sees that event too, with the request as its data, and returning false for it leaves the run without a
+user. So does a source, filter or protector that throws, such as with a key ring that cannot be read: the request is
+served, and a warning with event id 155 has the exception.
 
 There is no single user where there is no single event. A function that batches events has none, and neither have the
 failure and cancel handlers of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not

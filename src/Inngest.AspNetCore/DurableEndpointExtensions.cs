@@ -64,7 +64,8 @@ public static class DurableEndpointExtensions
 
     /// <summary>
     /// Runs the endpoints marked with WithDurableEndpoint() or [DurableEndpoint] as durable endpoints. Add it after
-    /// routing, which WebApplication adds on its own. Everything after it in the pipeline runs inside the run, again
+    /// routing, which WebApplication adds on its own, and after authentication and authorization, since a run takes the
+    /// user from HttpContext.User as it is here. Everything after it in the pipeline runs inside the run, again
     /// for each call with which Inngest resumes it; those calls carry the original body and query, but not the
     /// original headers or user. Requires services.AddInngest().
     /// </summary>

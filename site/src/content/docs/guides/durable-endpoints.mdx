@@ -130,7 +130,11 @@ public sealed record CheckoutRequest(string OrderId, string CustomerId, decimal 
 `UseInngestDurableEndpoints` goes after routing, because it looks for the endpoint the request was routed to. A
 `WebApplication` adds routing on its own; with another host, call `UseRouting` first. Everything after it in the
 pipeline runs inside the run. Put exception handling, such as `UseExceptionHandler`, before it, so that the SDK sees an
-exception first and can have it retried.
+exception first and can have it retried. If the app calls `UseAuthentication` and `UseAuthorization`, put them before
+it too: with the [user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the run gets the user that
+`HttpContext.User` holds when the middleware runs, which is nobody before authentication, and a request that
+authorization refuses then starts no run. A `WebApplication` that does not call them adds both ahead of the app's own
+middleware.
 
 `MapInngest` is not needed. Inngest calls a durable endpoint at its own URL and learns of it when the first run is
 saved, so there is nothing to sync. An app that has functions as well maps `MapInngest` as usual.
@@ -164,8 +168,8 @@ of a call. A request that ran no steps leaves no run, and its response has no `X
 
 The recording runs in the background, so neither the response nor the next request on the connection waits for
 Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has its response already. When the app
-stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, and logs each run it
-could not record in that time.
+stops, it waits for recordings still under way for as long as the host's shutdown timeout allows. It then cancels the
+rest and logs each run whose recording ended that way, since Inngest may not have it.
 
 Because the run is recorded after the response, a host that freezes or ends the process as soon as a response is out,
 as serverless hosts do, can record it late or lose it. Each recording keeps the run's steps in memory until Inngest

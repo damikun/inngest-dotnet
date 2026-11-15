@@ -56,13 +56,63 @@ public sealed class EndpointCheckpointApiTests
     [Fact]
     public async Task A_run_whose_first_call_is_larger_than_Inngest_reads_fails_before_it_is_sent()
     {
-        var steps = Encoding.UTF8.GetBytes($$"""[{"id":"a","op":"StepRun","data":"{{new string('x', CheckpointApiClient.MaxNewRunLength)}}"}]""");
+        var steps = Ops($$"""{"id":"a","op":"StepRun","displayName":"price","data":"{{new string('x', CheckpointApiClient.MaxNewRunLength)}}"}""");
 
         var exception = await Should.ThrowAsync<InngestException>(Create().CheckpointNewRunAsync(NewRun with { Steps = steps }, CancellationToken));
 
-        exception.Message.ShouldStartWith("Run 01JRUN was not created: the request's body and the first step's output come to");
-        exception.Message.ShouldContain("more than the 4194304 bytes Inngest reads");
+        exception.Message.ShouldStartWith("Run 01JRUN was not created: the call that creates it comes to");
+        exception.Message.ShouldContain("more than the 4194304 bytes Inngest reads of it");
+        exception.Message.ShouldContain($"The request's event takes {Event.Length} bytes of it, and the op StepRun \"price\" {steps.Length}.");
         _handler.Requests.ShouldBeEmpty();
+    }
+
+    // What makes the call too large need not be the op: here the request's body leaves no room for a sleep.
+    [Fact]
+    public async Task A_first_call_that_is_too_large_names_the_op_that_goes_with_the_event()
+    {
+        var @event = LargeEvent(CheckpointApiClient.MaxNewRunLength - 100);
+        var steps = Ops("""{"id":"6dcd4ce23d88e2ee9568ba546c007c63d9131c1b","op":"Sleep","displayName":"cool-off","opts":{"duration":"5m"}}""",
+            """{"id":"7dcd4ce23d88e2ee9568ba546c007c63d9131c1b","op":"StepRun","displayName":"price","data":42}""");
+
+        var exception = await Should.ThrowAsync<InngestException>(
+            Create().CheckpointNewRunAsync(NewRun with { Event = @event, Steps = steps }, CancellationToken));
+
+        exception.Message.ShouldContain($"The request's event takes {@event.Length} bytes of it, and the ops Sleep \"cool-off\", StepRun \"price\" {steps.Length}.");
+        exception.Message.ShouldNotContain("step's output");
+    }
+
+    [Fact]
+    public async Task A_first_call_that_is_too_large_with_the_endpoints_own_error_says_so()
+    {
+        var steps = Ops($$$"""{"id":"8dcd4ce23d88e2ee9568ba546c007c63d9131c1b","op":"StepError","error":{"name":"Error","message":"{{{new string('x', CheckpointApiClient.MaxNewRunLength)}}}"}}""");
+
+        var exception = await Should.ThrowAsync<InngestException>(Create().CheckpointNewRunAsync(NewRun with { Steps = steps }, CancellationToken));
+
+        exception.Message.ShouldContain($"and the op StepError (the endpoint's own error) {steps.Length}.");
+    }
+
+    [Fact]
+    public async Task A_request_whose_event_alone_is_larger_than_Inngest_reads_says_so()
+    {
+        var @event = LargeEvent(CheckpointApiClient.MaxNewRunLength + 10);
+
+        var exception = await Should.ThrowAsync<InngestException>(
+            Create().CheckpointNewRunAsync(NewRun with { Event = @event }, CancellationToken));
+
+        exception.Message.ShouldStartWith($"Run 01JRUN was not created: the request's event alone is {@event.Length} bytes, more than the 4194304 bytes");
+        exception.Message.ShouldContain("Lower DurableEndpointOptions.MaxRequestBodySize");
+        exception.Message.ShouldNotContain("StepRun");
+        _handler.Requests.ShouldBeEmpty();
+    }
+
+    private static byte[] Ops(params string[] ops) => Encoding.UTF8.GetBytes($"[{string.Join(',', ops)}]");
+
+    // An inngest/http.request event of the given length, its body padded out.
+    private static byte[] LargeEvent(int length)
+    {
+        const string Start = "{\"name\":\"inngest/http.request\",\"data\":{\"body\":\"";
+        const string End = "\"}}";
+        return Encoding.UTF8.GetBytes(Start + new string('A', length - Start.Length - End.Length) + End);
     }
 
     [Fact]

@@ -215,7 +215,7 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_run_still_being_recorded_when_the_shutdown_timeout_ends_is_logged_as_not_recorded()
+    public async Task A_run_still_being_recorded_when_the_shutdown_timeout_ends_is_logged_as_maybe_not_recorded()
     {
         var client = await StartAsync(shutdownTimeout: TimeSpan.FromMilliseconds(200));
         var (reached, _) = _checkpoints.HoldNext();
@@ -226,7 +226,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         await _app!.StopAsync(CancellationToken);
 
         _checkpoints.Saves.ShouldBeEmpty();
-        var warning = _app.Services.GetFakeLogCollector().GetSnapshot().Where(record => record.Id.Id == 153).ShouldHaveSingleItem();
+        var warning = _app.Services.GetFakeLogCollector().GetSnapshot().Where(record => record.Id.Id is 153 or 156).ShouldHaveSingleItem();
+        warning.Id.Id.ShouldBe(156);
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.Message.ShouldContain(runId);
         warning.Message.ShouldContain("POST /orders/{id}");

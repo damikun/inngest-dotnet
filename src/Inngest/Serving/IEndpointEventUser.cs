@@ -9,6 +9,6 @@ namespace Inngest.Serving;
 // the call made in that request. The user context provides it; without the user context the event has no user.
 internal interface IEndpointEventUser
 {
-    // The "user" of the event that starts a run at timestamp, or null for none.
-    ValueTask<JsonElement?> GetAsync(DateTimeOffset timestamp, CancellationToken cancellationToken);
+    // The "user" of the event that starts a run for the request at timestamp, or null for none.
+    ValueTask<JsonElement?> GetAsync(EndpointRequest request, DateTimeOffset timestamp, CancellationToken cancellationToken);
 }

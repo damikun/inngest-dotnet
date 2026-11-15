@@ -35,16 +35,8 @@ internal static class EndpointCalls
         {
             writer.WriteStartObject();
             writer.WriteString("name"u8, EventName);
-            writer.WriteStartObject("data"u8);
-            writer.WriteString("domain"u8, request.Domain);
-            writer.WriteString("method"u8, request.Method);
-            writer.WriteString("path"u8, request.Path);
-            writer.WriteString("ip"u8, request.Ip);
-            writer.WriteString("content_type"u8, request.ContentType);
-            writer.WriteString("query_params"u8, request.Query);
-            writer.WriteBase64String("body"u8, request.Body.Span);
-            writer.WriteString("fn"u8, request.FunctionId);
-            writer.WriteEndObject();
+            writer.WritePropertyName("data"u8);
+            WriteData(writer, request);
             if (user is { } value)
             {
                 writer.WritePropertyName("user"u8);
@@ -56,6 +48,33 @@ internal static class EndpointCalls
         }
 
         return buffer.WrittenSpan.ToArray();
+    }
+
+    // The data of the event, as the run reads it.
+    public static JsonElement Data(EndpointRequest request)
+    {
+        using var buffer = new PooledBufferWriter(request.Body.Length * 4 / 3 + 512);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            WriteData(writer, request);
+        }
+
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
+    }
+
+    private static void WriteData(Utf8JsonWriter writer, EndpointRequest request)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("domain"u8, request.Domain);
+        writer.WriteString("method"u8, request.Method);
+        writer.WriteString("path"u8, request.Path);
+        writer.WriteString("ip"u8, request.Ip);
+        writer.WriteString("content_type"u8, request.ContentType);
+        writer.WriteString("query_params"u8, request.Query);
+        writer.WriteBase64String("body"u8, request.Body.Span);
+        writer.WriteString("fn"u8, request.FunctionId);
+        writer.WriteEndObject();
     }
 
     // The first call of the run: the request's event, no memoized steps, and the attempts the retries allow.
