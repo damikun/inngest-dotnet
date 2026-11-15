@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Primitives;
@@ -44,7 +43,7 @@ internal sealed class DurableEndpointMiddleware
     private readonly InngestCommHandler _handler;
     private readonly InngestSettings _settings;
     private readonly TimeProvider _time;
-    private readonly CancellationToken _stopping;
+    private readonly EndpointRunSaves _saves;
     private readonly ILogger _logger;
 
     public DurableEndpointMiddleware(RequestDelegate next, IServiceProvider services)
@@ -64,8 +63,8 @@ internal sealed class DurableEndpointMiddleware
                 "Durable endpoints need ServeOrigin (INNGEST_SERVE_ORIGIN) outside dev mode: the origin at which Inngest resumes their runs, such as https://api.example.com.");
         }
 
-        _time =services.GetService<TimeProvider>() ?? TimeProvider.System;
-        _stopping = services.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None;
+        _time = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        _saves = services.GetRequiredService<EndpointRunSaves>();
         _logger = (services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance).CreateLogger("Inngest.AspNetCore.DurableEndpoints");
     }
 
@@ -139,22 +138,17 @@ internal sealed class DurableEndpointMiddleware
             switch (outcome.Kind)
             {
                 case EndpointOutcomeKind.Completed:
-                    if (outcome.Finish is not null)
+                    if (outcome.Finish is { } finish)
                     {
+                        // Recorded in the background, also when the client has gone before it has the body.
                         response.Headers[EndpointCalls.RunIdHeader] = outcome.RunId;
+                        _saves.Start(outcome.RunId, functionId, finish);
                     }
 
                     if (!capture.Body.IsEmpty)
                     {
                         response.ContentLength ??= capture.Body.Length;
                         await response.Body.WriteAsync(capture.Body, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    if (outcome.Finish is { } finish)
-                    {
-                        // The client has everything before the run is recorded.
-                        await response.CompleteAsync().ConfigureAwait(false);
-                        await finish(_stopping).ConfigureAwait(false);
                     }
 
                     break;
@@ -169,7 +163,7 @@ internal sealed class DurableEndpointMiddleware
                     Reset(response, earlierHeaders);
                     if (outcome.Finish is { } finishFailed)
                     {
-                        await finishFailed(_stopping).ConfigureAwait(false);
+                        _saves.Start(outcome.RunId, functionId, finishFailed);
                     }
 
                     // The app's own error handling answers the client, as it would without Inngest.

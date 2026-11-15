@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using FakeInngestApi = Inngest.Tests.Execution.FakeInngestApi;
 
 namespace Inngest.Tests.AspNetCore;
@@ -177,6 +179,60 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_apps_error_handling_answers_before_the_failed_run_is_recorded()
+    {
+        var client = await StartAsync();
+        var (reached, release) = _checkpoints.HoldNext();
+
+        using var response = await client.PostAsync("/closed", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+
+        (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe("handled: the order is closed");
+        await reached;
+        _checkpoints.Saves.ShouldBeEmpty();
+        release.SetResult();
+        await _checkpoints.WaitForSavesAsync(1);
+    }
+
+    [Fact]
+    public async Task A_run_still_being_recorded_when_the_app_stops_is_recorded_before_it_stops()
+    {
+        var client = await StartAsync();
+        var (reached, release) = _checkpoints.HoldNext();
+        using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+        await reached;
+
+        // The host cancels ApplicationStopping before it stops its services.
+        var stoppingSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = _app!.Lifetime.ApplicationStopping.Register(() => stoppingSignal.TrySetResult());
+        var stopping = _app.StopAsync(CancellationToken);
+        await stoppingSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        stopping.IsCompleted.ShouldBeFalse();
+        release.SetResult();
+        await stopping;
+
+        _checkpoints.Saves.ShouldHaveSingleItem().RunId.ShouldBe(runId);
+    }
+
+    [Fact]
+    public async Task A_run_still_being_recorded_when_the_shutdown_timeout_ends_is_logged_as_not_recorded()
+    {
+        var client = await StartAsync(shutdownTimeout: TimeSpan.FromMilliseconds(200));
+        var (reached, _) = _checkpoints.HoldNext();
+        using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+        await reached;
+
+        await _app!.StopAsync(CancellationToken);
+
+        _checkpoints.Saves.ShouldBeEmpty();
+        var warning = _app.Services.GetFakeLogCollector().GetSnapshot().Where(record => record.Id.Id == 153).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain(runId);
+        warning.Message.ShouldContain("POST /orders/{id}");
+    }
+
+    [Fact]
     public async Task A_body_larger_than_the_run_may_store_is_refused()
     {
         var client = await StartAsync();
@@ -289,10 +345,20 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         }
     }
 
-    private async Task<HttpClient> StartAsync(bool cloud = false, string? serveOrigin = "https://api.example.com", bool encrypt = false)
+    private async Task<HttpClient> StartAsync(
+        bool cloud = false,
+        string? serveOrigin = "https://api.example.com",
+        bool encrypt = false,
+        TimeSpan? shutdownTimeout = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
+        builder.Logging.AddFakeLogging();
+        if (shutdownTimeout is { } timeout)
+        {
+            builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = timeout);
+        }
+
         var inngest = builder.Services.AddInngest(options =>
         {
             options.AppId = "shop";

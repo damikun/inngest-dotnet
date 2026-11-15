@@ -162,7 +162,10 @@ The client gets the response, with the run's id in an `X-Run-ID` header. After t
 in Inngest, with the steps that ran and the response, in one call unless they come to more than the 4 MiB Inngest reads
 of a call. A request that ran no steps leaves no run, and its response has no `X-Run-ID`.
 
-If Inngest cannot be reached for the recording, the SDK logs it. The client has its response already.
+The recording runs in the background, so neither the response nor the next request on the connection waits for
+Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has its response already. When the app
+stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, and logs each run it
+could not record in that time.
 
 ### A step has to wait
 
@@ -252,8 +255,8 @@ endpoint again, and the client waits as above. The steps that ran return their s
 
 When the request itself is the last attempt, because `Retries` is 0 or the exception is a `NonRetriableException`, the
 exception goes to the app's own error handling, which answers the client as it would without Inngest. If the request
-ran steps, the SDK records the run as failed, with the error. A call from Inngest that throws on the last attempt
-fails the run.
+ran steps, the SDK records the run as failed, with the error, in the background as for a request that finished. A call
+from Inngest that throws on the last attempt fails the run.
 
 Only an exception makes Inngest retry. A handler that returns a 500 response has finished, and the run records that
 response.

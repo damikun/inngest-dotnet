@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using Google.Protobuf.WellKnownTypes;
+using Inngest.Connect;
 using Inngest.Connect.Protocol;
 using Inngest.Internal;
 using Inngest.Signing;
@@ -214,6 +215,6 @@ public sealed class HandshakeTests : IAsyncLifetime
 
         services.AddInngest(options => options.AppId = "shop").AddConnect().AddConnect();
 
-        services.Count(descriptor => descriptor.ServiceType == typeof(IHostedService)).ShouldBe(1);
+        services.Count(descriptor => descriptor.ServiceType == typeof(IHostedService) && descriptor.ImplementationType == typeof(ConnectWorker)).ShouldBe(1);
     }
 }
