@@ -119,6 +119,18 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : FakeTimeProvider(
         return timer;
     }
 
+    // How many timers have been created so far.
+    public int Created
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers;
+            }
+        }
+    }
+
     // Completes once this many timers have been created in total.
     public Task TimersCreated(int count)
     {

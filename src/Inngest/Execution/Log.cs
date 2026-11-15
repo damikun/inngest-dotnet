@@ -42,6 +42,16 @@ internal static partial class Log
     [LoggerMessage(109, LogLevel.Error, "Step {StepId} of run {RunId} of function {FunctionId} failed on attempt {Attempt} and is not retried.")]
     public static partial void StepFailed(ILogger logger, string stepId, string runId, string functionId, int attempt, Exception exception);
 
+    [LoggerMessage(110, LogLevel.Warning,
+        "Step {StepId} of run {RunId} of function {FunctionId} was still running {Grace} after the call was cancelled, so the call " +
+        "ended and its services were disposed while the step may still use them. Pass the step's cancellation token on to the work it does.")]
+    public static partial void StepOutlivedCall(ILogger logger, string stepId, string runId, string functionId, TimeSpan grace);
+
+    [LoggerMessage(111, LogLevel.Warning,
+        "Run {RunId} of function {FunctionId} was still waiting on work of its own {Grace} after the call was cancelled, so the call " +
+        "ended and its services were disposed while the function may still use them. Pass the function's cancellation token on to that work.")]
+    public static partial void FunctionOutlivedCall(ILogger logger, string runId, string functionId, TimeSpan grace);
+
     [LoggerMessage(140, LogLevel.Debug, "Saved {Count} step(s) of run {RunId} of function {FunctionId} to Inngest; the call goes on.")]
     public static partial void Checkpointed(ILogger logger, int count, string runId, string functionId);
 

@@ -25,6 +25,10 @@ internal sealed partial class Invocation
     // Inngest has no op for a step that is not found, so a targeted call fails with a 500 after this long.
     public static readonly TimeSpan StepNotFoundTimeout = TimeSpan.FromSeconds(10);
 
+    // How long a cancelled call still waits for user code it started, such as a step handler that ignores the token,
+    // before it ends and its services are disposed under that code.
+    public static readonly TimeSpan CancelledCallGrace = TimeSpan.FromSeconds(30);
+
     // The longest Task.Delay waits; it throws for anything longer.
     private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
