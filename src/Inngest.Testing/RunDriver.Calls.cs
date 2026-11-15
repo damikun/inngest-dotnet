@@ -6,6 +6,7 @@ using System.Text.Json;
 using Inngest.Errors;
 using Inngest.Execution;
 using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Testing;
 
@@ -53,8 +54,7 @@ internal sealed partial class RunDriver
         _stepErrors.Clear();
         _mocked.Clear();
 
-        using var body = new PooledBufferWriter();
-        WriteBody(body, attempt);
+        using var body = Canonical(attempt);
 
         var scope = _host.CreateScope();
         await using (scope.ConfigureAwait(false))
@@ -73,6 +73,28 @@ internal sealed partial class RunDriver
             using var result = await _host.Engine.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
             return new Answer(result.StatusCode, result.Body.WrittenSpan.ToArray(), result.NoRetry);
         }
+    }
+
+    // The call body in the canonical form Inngest sends: the keys of every object sorted, and every number gone through
+    // a double, so that events and step results read the way they do in production. A lone surrogate, which Inngest
+    // could not canonicalize either, leaves the body as it was written.
+    private PooledBufferWriter Canonical(int attempt)
+    {
+        using var written = new PooledBufferWriter();
+        WriteBody(written, attempt);
+        var body = new PooledBufferWriter(written.WrittenCount);
+        try
+        {
+            using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
+            JsonCanonicalizer.Write(document.RootElement, body);
+        }
+        catch (InvalidOperationException)
+        {
+            body.Clear();
+            body.Write(written.WrittenSpan);
+        }
+
+        return body;
     }
 
     // A call body as Inngest sends it: keys sorted, and the stack listing results in the order they completed.
