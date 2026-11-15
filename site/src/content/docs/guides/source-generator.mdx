@@ -606,3 +606,5 @@ Warning. The type argument of `InngestFunction<TEventData>` implements `IInngest
 event, and none of the function's event triggers runs for that event. The function would read the data of other events
 as that type. Trigger it with `[EventTrigger<TEventData>]`, or use the event data type of the event it is for. A
 function with one matching trigger and others besides, or a trigger whose wildcard covers the name, is not reported.
+A trigger on `inngest/function.invoked` counts as no trigger, as it does at the sync, so a function that only runs when
+it is invoked is not reported either.

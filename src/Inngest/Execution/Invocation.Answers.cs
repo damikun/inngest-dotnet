@@ -67,9 +67,8 @@ internal sealed partial class Invocation
     {
         if (bytes > MaxStepOutputBytes)
         {
-            var mebibytes = (bytes / 1024.0 / 1024.0).ToString("0.0", CultureInfo.InvariantCulture);
             throw new NonRetriableException(
-                $"The output of step \"{step.FinalId}\" is {mebibytes} MiB, more than the 4 MiB Inngest keeps for a step. " +
+                $"The output of step \"{step.FinalId}\" is {Mebibytes.Format(bytes)} MiB, more than the 4 MiB Inngest keeps for a step. " +
                 "Keep large data outside the run and return a reference to it.");
         }
 

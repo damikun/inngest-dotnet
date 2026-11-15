@@ -241,6 +241,6 @@ internal static class DiagnosticDescriptors
         category: FunctionsCategory,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "The type argument of InngestFunction<TEventData> says what the data of the function's events looks like, and a type that implements IInngestEventData names its event. A function that none of its event triggers runs for that event reads the data of other events as that type. Use [EventTrigger<T>], or the event data type of the event the function is for. It is reported only when no event trigger of the function matches.",
+        description: "The type argument of InngestFunction<TEventData> says what the data of the function's events looks like, and a type that implements IInngestEventData names its event. A function that none of its event triggers runs for that event reads the data of other events as that type. Use [EventTrigger<T>], or the event data type of the event the function is for. It is reported only when no event trigger of the function matches. A trigger on inngest/function.invoked counts as no trigger.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.EventNameMismatch.ToLowerInvariant());
 }

@@ -235,6 +235,50 @@ public sealed class FunctionOptionsAnalyzerTests
         await Verify(source);
     }
 
+    [Fact]
+    public async Task A_trigger_on_the_invoke_event_counts_as_no_trigger()
+    {
+        const string source = """
+            public sealed record ScoreRequest(string AccountId) : IInngestEventData
+            {
+                public static string EventName => "score/requested";
+            }
+
+            public sealed record Invoked : IInngestEventData
+            {
+                public static string EventName => "inngest/function.invoked";
+            }
+
+            [InngestFunction("score-account")]
+            [EventTrigger(SystemEvents.FunctionInvoked)]
+            public sealed class ScoreAccount : InngestFunction<ScoreRequest>
+            {
+                public override Task<object?> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
+            }
+
+            [InngestFunction("score-typed")]
+            [EventTrigger<Invoked>]
+            [EventTrigger("inngest/function.invoked", If = "event.data.accountId == 'acme'")]
+            public sealed class ScoreTyped : InngestFunction<ScoreRequest>
+            {
+                public override Task<object?> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
+            }
+
+            [InngestFunction("score-other")]
+            [EventTrigger(SystemEvents.FunctionInvoked)]
+            [EventTrigger({|#0:"account/deleted"|})]
+            public sealed class ScoreOther : InngestFunction<ScoreRequest>
+            {
+                public override Task<object?> ExecuteAsync(FunctionContext<ScoreRequest> context, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
+            }
+            """;
+
+        await Verify(
+            source,
+            new DiagnosticResult(DiagnosticDescriptors.EventNameMismatch).WithLocation(0)
+                .WithArguments("ScoreOther", "ScoreRequest", "score/requested", "account/deleted"));
+    }
+
     private const string Events = """
         public sealed record UserSignedUp(string Email) : IInngestEventData
         {
