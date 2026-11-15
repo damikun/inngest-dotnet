@@ -364,6 +364,51 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
+    public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var function = TestFunction.Define(async _ =>
+        {
+            var loading = LoadAsync();
+
+            // Holds the thread as loading.Result would, which would never return, until the watchdog has spoken.
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            return await loading;
+        });
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.Body.ShouldBe("\"loaded\"");
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Error);
+        record.Category.ShouldBe("Inngest.Function.fn");
+        record.Message.ShouldStartWith("Run 01JRUN of function fn has held its thread for 00:00:00.0500000 while work for it waits.");
+
+        // Resumes on the invocation's scheduler, as app code without ConfigureAwait(false) does.
+        static async Task<string> LoadAsync()
+        {
+            await Task.Delay(1);
+            return "loaded";
+        }
+    }
+
+    [Fact]
+    public async Task Code_that_holds_the_function_thread_while_nothing_waits_for_it_is_not_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(20));
+        var function = TestFunction.Define(_ =>
+        {
+            Thread.Sleep(200);
+            return Task.FromResult<object?>("done");
+        });
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.Body.ShouldBe("\"done\"");
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 112);
+    }
+
+    [Fact]
     public async Task Work_the_function_started_still_finishes_after_the_call_answered()
     {
         var release = new TaskCompletionSource();

@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 
@@ -17,6 +18,10 @@ internal sealed class InvocationScheduler : SynchronizationContext
         new UnboundedChannelOptions { SingleReader = true, AllowSynchronousContinuations = false });
 
     private ExceptionDispatchInfo? _unhandled;
+
+    // When the user code running on this context now started, as a Stopwatch timestamp, or 0 while none runs. Another
+    // thread reads it to tell when that code holds the thread.
+    private long _runningSince;
 
     public bool IsCurrent => Current == this;
 
@@ -42,12 +47,14 @@ internal sealed class InvocationScheduler : SynchronizationContext
     {
         var previous = Current;
         SetSynchronizationContext(this);
+        Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
         try
         {
             return start();
         }
         finally
         {
+            Volatile.Write(ref _runningSince, 0);
             SetSynchronizationContext(previous);
         }
     }
@@ -64,6 +71,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
             while (count < limit && _queue.Reader.TryRead(out var item))
             {
                 count++;
+                Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
                 try
                 {
                     item.Callback(item.State);
@@ -77,11 +85,21 @@ internal sealed class InvocationScheduler : SynchronizationContext
         }
         finally
         {
+            Volatile.Write(ref _runningSince, 0);
             SetSynchronizationContext(previous);
         }
 
         _unhandled?.Throw();
         return count;
+    }
+
+    // Whether code on this context has run for at least the given time while work waits for it. Nothing else runs that
+    // work, so the code is most likely blocked on a task that needs it, which then never completes. Called from another
+    // thread: peeking is safe there, since the channel keeps its items in a ConcurrentQueue.
+    public bool IsHeldFor(TimeSpan time)
+    {
+        var since = Volatile.Read(ref _runningSince);
+        return since != 0 && Stopwatch.GetElapsedTime(since) >= time && _queue.Reader.TryPeek(out _);
     }
 
     // Completes when more work is queued, for example when awaited I/O finishes.

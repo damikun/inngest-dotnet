@@ -51,6 +51,9 @@ internal sealed class ExecutionEngine : IExecutionEngine
     // Where durable endpoint requests create their runs. Without it such a request cannot run.
     public IEndpointCheckpointApi? EndpointCheckpoints { get; }
 
+    // How long the code of a function may hold its thread while work waits for it before the call logs an error.
+    public TimeSpan HeldThreadTimeout { get; init; } = TimeSpan.FromSeconds(5);
+
     public async Task<ExecutionResult> ExecuteAsync(ExecutionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

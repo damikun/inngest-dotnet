@@ -24,14 +24,17 @@ internal sealed class EngineHost : IDisposable
 
     private readonly ServiceProvider _provider;
 
-    public EngineHost(Action<IServiceCollection>? configure = null, InngestSettings? settings = null)
+    public EngineHost(Action<IServiceCollection>? configure = null, InngestSettings? settings = null, TimeSpan? heldThreadTimeout = null)
     {
         var services = new ServiceCollection();
         services.AddFakeLogging();
         configure?.Invoke(services);
         _provider = services.BuildServiceProvider();
         Logs = _provider.GetFakeLogCollector();
-        Engine = new ExecutionEngine(settings ?? Settings, _provider.GetRequiredService<ILoggerFactory>(), Time, Api, Checkpoints, EndpointCheckpoints);
+        var loggerFactory = _provider.GetRequiredService<ILoggerFactory>();
+        Engine = heldThreadTimeout is { } timeout
+            ? new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints) { HeldThreadTimeout = timeout }
+            : new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints);
     }
 
     public static InngestSettings Settings { get; } = new()

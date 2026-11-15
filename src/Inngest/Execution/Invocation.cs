@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Diagnostics;
 using System.Text.Json;
 using Inngest.Configuration;
 using Inngest.Functions;
@@ -76,6 +77,10 @@ internal sealed partial class Invocation
     private readonly ILogger _runLogger;
     private readonly ReplaySafeLogger _functionLogger;
     private readonly MiddlewarePipeline? _pipeline;
+    private readonly TimeSpan _heldThreadTimeout;
+
+    // Runs while the function runs, to notice code that holds the function's thread; see StartWatchdog.
+    private ITimer? _watchdog;
 
     // Set when this call runs consecutive steps itself and saves them to Inngest as it goes.
     private readonly Checkpointer? _checkpoint;
@@ -113,6 +118,7 @@ internal sealed partial class Invocation
         _settings = engine.Settings;
         _time = engine.TimeProvider;
         _logger = engine.Logger;
+        _heldThreadTimeout = engine.HeldThreadTimeout;
         _run = run;
         _requestBytes = request.Body.Length;
         _services = request.Services;
@@ -222,6 +228,7 @@ internal sealed partial class Invocation
             }
 
             _waitingSince = _time.GetTimestamp();
+            StartWatchdog();
             function = _scheduler.Run(StartFunction);
             var result = await LoopAsync(function).ConfigureAwait(false);
             WarnIfStepsWereMissed();
@@ -233,6 +240,7 @@ internal sealed partial class Invocation
         {
             // Steps the abandoned function calls from now on are ignored and never complete.
             _finished = true;
+            Interlocked.Exchange(ref _watchdog, null)?.Dispose();
             _scheduler.Close();
             _checkpoint?.Dispose();
 
@@ -242,6 +250,29 @@ internal sealed partial class Invocation
                 ObserveFailure(function);
             }
         }
+    }
+
+    // A blocking wait on a task in the function's code, such as .Result on an app helper that awaits without
+    // ConfigureAwait(false), deadlocks the call: the task completes only through the scheduler, whose one thread is the
+    // one blocked. Nothing can free that thread, but this logs it, once. Real time, whatever clock the engine is given,
+    // since the thread is blocked in real time.
+    private void StartWatchdog() =>
+        _watchdog = TimeProvider.System.CreateTimer(
+            static state => ((Invocation)state!).CheckHeld(),
+            this,
+            _heldThreadTimeout,
+            _heldThreadTimeout / 5);
+
+    // A debugger stopped at a breakpoint holds the thread too, so nothing is logged while one is attached.
+    private void CheckHeld()
+    {
+        if (Debugger.IsAttached || !_scheduler.IsHeldFor(_heldThreadTimeout) || Interlocked.Exchange(ref _watchdog, null) is not { } watchdog)
+        {
+            return;
+        }
+
+        watchdog.Dispose();
+        Log.ThreadHeld(_runLogger, _run.RunId, _functionId, _heldThreadTimeout);
     }
 
     // A task the call no longer waits for may still fail. Its exception is observed, so that it is not reported as an
