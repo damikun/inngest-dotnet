@@ -470,6 +470,72 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_function_that_fails_in_work_still_queued_when_its_call_ended_is_logged_at_debug_level()
+    {
+        // The work is queued as the call gives up on it, and runs on the thread pool once the call has ended.
+        var resume = new TaskCompletionSource();
+        using var host = new EngineHost(
+            services => services.AddLogging(logging => logging
+                .SetMinimumLevel(LogLevel.Debug)
+                .AddProvider(new LogCallback(eventId =>
+                {
+                    if (eventId.Id == 111)
+                    {
+                        resume.SetResult();
+                    }
+                }))),
+            cancelledCallGrace: Grace);
+        using var cancellation = new CancellationTokenSource();
+        var function = TestFunction.Define(async _ =>
+        {
+            await resume.Task;
+            throw new InvalidOperationException("late failure");
+        });
+
+        var pending = Execute(host, function, cancellation.Token);
+        await cancellation.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 113), TimeSpan.FromSeconds(10));
+
+        host.Logs.GetSnapshot().Where(record => record.Id.Id == 113).ShouldHaveSingleItem()
+            .Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("late failure");
+    }
+
+    [Fact]
+    public async Task A_logger_that_throws_for_a_function_that_fails_after_its_call_ended_is_not_reported_as_unobserved()
+    {
+        var message = "logger failure " + Guid.NewGuid();
+        using var host = new EngineHost(
+            services => services.AddLogging(logging => logging
+                .SetMinimumLevel(LogLevel.Debug)
+                .AddProvider(new LogCallback(eventId =>
+                {
+                    if (eventId.Id == 113)
+                    {
+                        throw new InvalidOperationException(message);
+                    }
+                }))),
+            cancelledCallGrace: Grace);
+        var unobserved = await CountUnobservedAsync(message, async () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var release = new TaskCompletionSource();
+            var function = TestFunction.Define(async _ =>
+            {
+                await release.Task.ConfigureAwait(false);
+                throw new InvalidOperationException("late failure");
+            });
+
+            var pending = Execute(host, function, cancellation.Token);
+            await cancellation.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            release.SetResult();
+        });
+
+        unobserved.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
     {
         using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
@@ -658,6 +724,24 @@ public sealed class ThreadingTests : IDisposable
         finally
         {
             TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
+    }
+
+    // A logging provider that calls back on every entry, as it is written.
+    private sealed class LogCallback(Action<EventId> onEntry) : ILoggerProvider, ILogger
+    {
+        public ILogger CreateLogger(string categoryName) => this;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            onEntry(eventId);
+
+        public void Dispose()
+        {
         }
     }
 

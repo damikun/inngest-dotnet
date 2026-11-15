@@ -249,13 +249,16 @@ internal sealed partial class Invocation
             // Steps the abandoned function calls from now on are ignored and never complete.
             _finished = true;
             Interlocked.Exchange(ref _watchdog, null)?.Dispose();
-            _scheduler.Close();
-            _checkpoint?.Dispose();
 
+            // Before the scheduler hands its queued work to the thread pool, where the function could fail before this
+            // looks at it.
             if (function is not null)
             {
                 ObserveFunction(function);
             }
+
+            _scheduler.Close();
+            _checkpoint?.Dispose();
         }
     }
 
@@ -300,7 +303,8 @@ internal sealed partial class Invocation
     }
 
     // The function can still fail once the work it waits on ends, with no one left to act on it. That is observed as
-    // above, and logged at Debug for whoever wonders where the function went.
+    // above, and logged at Debug for whoever wonders where the function went. The log must not fail the continuation,
+    // which no one observes either.
     private void ObserveFunction(Task function)
     {
         if (function.IsCompleted)
@@ -314,7 +318,14 @@ internal sealed partial class Invocation
             {
                 var (logger, runId, functionId) = ((ILogger, string, string))state!;
                 var exception = task.Exception!;
-                Log.FunctionFailedAfterCall(logger, runId, functionId, exception.InnerExceptions.Count == 1 ? exception.InnerException! : exception);
+                try
+                {
+                    Log.FunctionFailedAfterCall(logger, runId, functionId, exception.InnerExceptions.Count == 1 ? exception.InnerException! : exception);
+                }
+                catch (Exception)
+                {
+                    // A logging provider threw, as some do once the host is shutting down.
+                }
             },
             (_runLogger, _run.RunId, _functionId),
             CancellationToken.None,
