@@ -38,22 +38,24 @@ public sealed class SyncTests
         _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Debug);
     }
 
-    // The dev server keeps the reason a 400 gives and shows any 500 as internal_server_error (pkg/deploy/deploy.go), as
-    // the TypeScript SDK expects it to.
+    // The dev server reads the reason only from a 400 (pkg/deploy/deploy.go). It takes a 401, 403 or 404 for a problem
+    // with the app's URL and any status but 400 and 500 for success, so every refusal is answered with a 400.
     [Theory]
-    [InlineData(400)]
-    [InlineData(401)]
-    [InlineData(403)]
-    [InlineData(404)]
-    [InlineData(422)]
-    public async Task A_sync_Inngest_refuses_answers_with_its_status_and_reason(int status)
+    [InlineData(400, "At least one function is invalid")]
+    [InlineData(401, "Inngest answered 401: At least one function is invalid")]
+    [InlineData(403, "Inngest answered 403: At least one function is invalid")]
+    [InlineData(404, "Inngest answered 404: At least one function is invalid")]
+    [InlineData(413, "Inngest answered 413: At least one function is invalid")]
+    [InlineData(422, "Inngest answered 422: At least one function is invalid")]
+    [InlineData(429, "Inngest answered 429: At least one function is invalid")]
+    public async Task A_sync_Inngest_refuses_answers_400_with_the_reason(int status, string message)
     {
         _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: true, Error: "At least one function is invalid");
 
         using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
 
-        response.StatusCode.ShouldBe(status);
-        response.BodyText().ShouldBe("""{"message":"At least one function is invalid","modified":false}""");
+        response.StatusCode.ShouldBe(400);
+        response.BodyText().ShouldBe($$"""{"message":"{{message}}","modified":false}""");
         response.Header("X-Inngest-Sync-Kind").ShouldBe("out_of_band");
         _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
     }

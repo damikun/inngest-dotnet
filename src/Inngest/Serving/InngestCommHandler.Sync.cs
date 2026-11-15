@@ -94,17 +94,26 @@ public sealed partial class InngestCommHandler
             }
         }
 
-        // A refusal goes back with Inngest's status, as in the TypeScript SDK: the dev server shows the reason a 400
-        // gives, while it shows any 500 as an internal error of the app. Anything else is a failure to register. A
-        // caller that failed authentication only learns that the sync failed.
+        // The dev server and self-hosted Inngest read the reason only from a 400 (deploy.GetDeployError). They take a
+        // 401, 403 or 404 for a problem with the app's own URL, show a 500 as an internal error of the app and any other
+        // status as success. So a refusal goes back as a 400 with Inngest's reason, naming Inngest's status when that is
+        // another one; anything else is a failure to register. A caller that failed authentication only learns that the
+        // sync failed.
         if (!result.Success)
         {
             Log.SyncRejected(_logger, result.StatusCode, result.Error);
-            var refused = caller.IsValid && result.StatusCode is >= 400 and < 500;
-            return SyncResult(
-                refused ? result.StatusCode : 500,
-                string.IsNullOrEmpty(result.Error) || !caller.IsValid ? "Failed to register" : result.Error,
-                modified: false);
+            if (!caller.IsValid)
+            {
+                return SyncResult(500, "Failed to register", modified: false);
+            }
+
+            var reason = string.IsNullOrEmpty(result.Error) ? "Failed to register" : result.Error;
+            return result.StatusCode switch
+            {
+                400 => SyncResult(400, reason, modified: false),
+                > 400 and < 500 => SyncResult(400, $"Inngest answered {result.StatusCode}: {reason}", modified: false),
+                _ => SyncResult(500, reason, modified: false),
+            };
         }
 
         if (result.Modified)

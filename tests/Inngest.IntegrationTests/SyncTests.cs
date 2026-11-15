@@ -119,10 +119,10 @@ public sealed class SyncTests(DevServerFixture fixture) : IntegrationTest<DevSer
             """);
     }
 
-    // The dev server refuses a register call that expects another kind of server with a 400, and shows the reason it
-    // gives when the app answers its sync with that status.
+    // The dev server refuses a register call that expects another kind of server, and shows the reason it gives when
+    // the app answers its sync with a 400.
     [Fact(Timeout = 30_000)]
-    public async Task A_sync_the_server_refuses_is_answered_with_its_status_and_reason()
+    public async Task A_sync_the_server_refuses_is_answered_with_400_and_its_reason()
     {
         using var http = new HttpClient();
         using var sync = new HttpRequestMessage(HttpMethod.Put, Fixture.App.LocalUrl);
