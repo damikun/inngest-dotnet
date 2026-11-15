@@ -99,6 +99,22 @@ public sealed class DiscriminatorOrderTests
         moved.Deserialize<Boxed>(Options)!.Item.ShouldBe(new BankTransfer("DE89"));
     }
 
+    // The lines can never hold a discriminator, so they are copied without a walk, which would write the escaped
+    // property name again as "qty".
+    [Fact]
+    public void A_member_whose_type_meets_no_discriminator_is_copied_as_it_is()
+    {
+        const string Sorted = """{"lines":[{"q\u0074y":1,"sku":"A-1"},{"qty":2,"sku":"B-2"}],"payment":{"expYear":2030,"last4":"4242","type":"card"}}""";
+
+        var moved = MoveFirst<Checkout>(Sorted);
+
+        moved.GetRawText().ShouldBe(
+            """{"lines":[{"q\u0074y":1,"sku":"A-1"},{"qty":2,"sku":"B-2"}],"payment":{"type":"card","expYear":2030,"last4":"4242"}}""");
+        var checkout = moved.Deserialize<Checkout>(Options)!;
+        checkout.Lines.ShouldBe([new Line("A-1", 1), new Line("B-2", 2)]);
+        checkout.Payment.ShouldBe(new Card("4242", 2030));
+    }
+
     [Fact]
     public void Sorted_keys_are_what_System_Text_Json_8_cannot_read()
     {
@@ -162,6 +178,10 @@ public sealed class DiscriminatorOrderTests
     public sealed record Wallet(string Id, List<PaymentMethod> Methods, Dictionary<string, PaymentMethod> ByName, Node Nested);
 
     public sealed record Invoice(string Type, int Total);
+
+    public sealed record Line(string Sku, int Qty);
+
+    public sealed record Checkout(List<Line> Lines, PaymentMethod Payment);
 
     [JsonPolymorphic]
     [JsonDerivedType(typeof(Circle), "circle")]

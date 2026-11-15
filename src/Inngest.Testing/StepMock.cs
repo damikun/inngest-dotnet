@@ -79,11 +79,28 @@ internal sealed class InvokeMock : StepMock
         writer.WriteEndObject();
     });
 
-    public byte[] ToMemo(JsonSerializerOptions options) => Memo.Write(options, writer => _write(writer, options));
+    // Inngest decodes an output that is an object into Go values, as it does an error, so a lone surrogate in one
+    // becomes U+FFFD. Any other output it keeps as it was written.
+    public byte[] ToMemo(JsonSerializerOptions options)
+    {
+        var memo = Memo.Write(options, writer => _write(writer, options));
+        if (HoldsObject(memo))
+        {
+            EventJson.ReplaceLoneSurrogates(memo);
+        }
+
+        return memo;
+    }
+
+    private static bool HoldsObject(ReadOnlySpan<byte> memo)
+    {
+        var reader = new Utf8JsonReader(memo);
+        return reader.Read() && reader.Read() && reader.Read() && reader.TokenType == JsonTokenType.StartObject;
+    }
 }
 
-// Writes what Inngest memoizes when a signal arrives: {"signal": <name>, "data": <data>}. A mock without data
-// times the wait out.
+// Writes what Inngest memoizes when a signal arrives: {"signal": <name>, "data": <data>}, with the data as the sender
+// wrote it. A mock without data times the wait out.
 internal sealed class SignalMock(Action<Utf8JsonWriter, JsonSerializerOptions>? writeData) : StepMock
 {
     public override StepType Answers => StepType.WaitForSignal;

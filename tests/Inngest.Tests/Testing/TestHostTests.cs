@@ -108,7 +108,7 @@ public sealed class TestHostTests
         run.Output!.Value.GetProperty("raw").GetString().ShouldBe("{\"n\":1,\"text\":\"a\uFFFDb\uFFFD\U0001F600\"}");
     }
 
-    // Inngest keeps step data as the SDK wrote it, and cannot canonicalize a lone surrogate in it.
+    // Inngest keeps step data as the SDK wrote it, and cannot canonicalize a lone surrogate that no \u escape follows.
     [Fact]
     public async Task A_lone_surrogate_in_step_data_leaves_the_call_as_it_was_written()
     {
@@ -122,6 +122,39 @@ public sealed class TestHostTests
 
         run.Status.ShouldBe(TestRunStatus.Completed);
         run.GetOutput<string>().ShouldBe("""{"b":1.0,"a":2}""");
+    }
+
+    // Inngest reads an invoked function's output into Go values when it is an object, as it reads events.
+    [Fact]
+    public async Task A_lone_surrogate_in_an_object_an_invoke_returns_reaches_the_function_as_the_replacement_character()
+    {
+        await using var host = For(async context =>
+            (await context.Step.InvokeAsync<JsonElement>("tax", new InvokeOptions("tax-calculator"))).GetRawText());
+
+        var run = await host.RunAsync("fn", Event(), new StepMocks().Invoke("tax", new RawJson("""{"text":"a\ud800b","n":1.0}""")), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        run.GetOutput<string>().ShouldBe("{\"n\":1,\"text\":\"a\uFFFDb\"}");
+    }
+
+    // Any other output, and signal data, Inngest keeps as it was written, like step data.
+    [Fact]
+    public async Task A_lone_surrogate_in_other_invoke_results_and_in_signal_data_leaves_the_call_as_it_was_written()
+    {
+        await using var host = For(async context =>
+        {
+            await context.Step.InvokeAsync<JsonElement>("tax", new InvokeOptions("tax-calculator"));
+            await context.Step.WaitForSignalAsync<JsonElement>("approval", new WaitForSignalOptions("approval/order-1", TimeSpan.FromHours(1)));
+            return context.Event.Data.GetRawText();
+        });
+
+        var invoke = await host.RunAsync(
+            "fn", Event(new { b = 1.0m, a = 2 }), new StepMocks().Invoke("tax", new RawJson("""["\ud800"]""")).WaitForSignal("approval", 1), Cancel);
+        var signal = await host.RunAsync(
+            "fn", Event(new { b = 1.0m, a = 2 }), new StepMocks().Invoke("tax", 1).WaitForSignal("approval", new RawJson("""{"text":"\ud800"}""")), Cancel);
+
+        invoke.GetOutput<string>().ShouldBe("""{"b":1.0,"a":2}""");
+        signal.GetOutput<string>().ShouldBe("""{"b":1.0,"a":2}""");
     }
 
     [Fact]
