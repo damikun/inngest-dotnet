@@ -277,6 +277,61 @@ public sealed class FunctionBodyAnalyzerTests
         await Verify(source);
     }
 
+    [Fact]
+    public async Task Blocking_through_WaitAsync_or_ContinueWith_is_reported_on_the_task_they_wait_for()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var page = {|#0:LoadAsync().WaitAsync(TimeSpan.FromSeconds(5)).Result|};
+                    var shouted = {|#1:LoadAsync().ContinueWith(task => task.Result + "!").Result|};
+                    var loading = LoadAsync();
+                    var loaded = {|#2:loading.WaitAsync(cancellationToken).ConfigureAwait(false).GetAwaiter().GetResult()|};
+                    var charged = {|#3:context.Step.RunAsync("charge", () => 1).WaitAsync(cancellationToken).Result|};
+                    var doubled = {|#4:context.Step.RunAsync("double", () => 2).ContinueWith(task => task.Result * 2).Result|};
+                    return page + shouted + loaded + charged + doubled;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+            }
+            """;
+
+        await Verify(
+            source,
+            Blocked(0, ".Result", "LoadAsync()"),
+            Blocked(1, ".Result", "LoadAsync()"),
+            Blocked(2, ".GetAwaiter().GetResult()", "LoadAsync()"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(3).WithArguments(".Result", "RunAsync(\"charge\")"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(4).WithArguments(".Result", "RunAsync(\"double\")"));
+    }
+
+    [Fact]
+    public async Task Blocking_through_WaitAsync_or_ContinueWith_on_a_task_that_runs_elsewhere_or_is_done_is_fine()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var continued = Task.Run(() => 1).ContinueWith(task => task.Result + 1).Result;
+                    var bounded = Task.Run(() => "x").WaitAsync(TimeSpan.FromSeconds(5)).Result;
+                    var loading = LoadAsync();
+                    await loading.WaitAsync(cancellationToken);
+                    var loaded = loading.Result;
+                    return continued + bounded + loaded;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+            }
+            """;
+
+        await Verify(source);
+    }
+
     // INNGEST029
 
     [Fact]
