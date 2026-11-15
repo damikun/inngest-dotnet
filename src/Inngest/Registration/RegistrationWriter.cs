@@ -91,6 +91,13 @@ internal static class RegistrationWriter
         json.WriteStartArray("triggers");
         foreach (var trigger in triggers)
         {
+            // Inngest would start the function on every invoke of any function, so it never sees this trigger, as with
+            // the TypeScript SDK. The validator refuses it at startup as well.
+            if (trigger is EventTrigger { Event: SystemEvents.FunctionInvoked })
+            {
+                continue;
+            }
+
             json.WriteStartObject();
             switch (trigger)
             {

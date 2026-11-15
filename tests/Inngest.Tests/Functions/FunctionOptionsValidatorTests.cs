@@ -101,6 +101,16 @@ public sealed class FunctionOptionsValidatorTests
             Valid with { Triggers = [Trigger.Event("order/created", "event.data.total > 100"), Trigger.Event("order/created", "event.data.total > 100")] },
             "The event trigger \"order/created\" is given twice.");
 
+    // Inngest starts every function triggered by inngest/function.invoked on every invoke in the environment, besides
+    // the function invoked, and the parent gets whichever result comes first (pkg/execution/runner/runner.go).
+    [Theory]
+    [InlineData(null)]
+    [InlineData("event.data.accountId == 'acme'")]
+    public void Rejects_a_trigger_on_the_invoke_event(string? @if) =>
+        ShouldReject(
+            Valid with { Triggers = [Trigger.Event(SystemEvents.FunctionInvoked, @if)] },
+            "A trigger on \"inngest/function.invoked\" would run the function for every invoke of any function in the environment. Use Triggers = [] for a function that only runs when it is invoked.");
+
     [Fact]
     public void Accepts_one_event_under_different_conditions() =>
         ShouldAccept(Valid with { Triggers = [Trigger.Event("order/created"), Trigger.Event("order/created", "event.data.total > 100")] });
