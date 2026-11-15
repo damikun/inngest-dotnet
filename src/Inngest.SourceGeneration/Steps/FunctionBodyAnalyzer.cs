@@ -23,6 +23,10 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
     // The id the code fix of INNGEST026 gives the step, before it makes it unique in the method.
     internal const string StepIdProperty = "StepId";
 
+    // Set to TaskKind on an INNGEST023 about a task that is not a step's, which shares its id with the one about a step.
+    internal const string KindProperty = "Kind";
+    internal const string TaskKind = "Task";
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
         DiagnosticDescriptors.NondeterministicValue,
         DiagnosticDescriptors.DelayInFunction,
@@ -200,26 +204,28 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 _ => (null, null),
             };
 
-            if (task is null)
+            if (task is null || StartedBy(task, operation, depth: 0) is not { } call)
             {
                 return;
             }
 
-            task = Unwrapped(task);
-            if (StartedBy(task, operation, depth: 0) is not { } call)
-            {
-                return;
-            }
-
+            // StepCallAnalyzer reports the step call itself, with or without ConfigureAwait.
             var step = StepCalls.IsOnStepTools(call.TargetMethod);
-            if (step && task == call)
+            if (step && Unwrapped(task, throughWaits: false) == call)
             {
                 return;
             }
 
-            var properties = StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation)
-                ? ImmutableDictionary<string, string?>.Empty.Add(StepCallAnalyzer.CanAwaitProperty, "true")
-                : ImmutableDictionary<string, string?>.Empty;
+            var properties = ImmutableDictionary<string, string?>.Empty;
+            if (StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation))
+            {
+                properties = properties.Add(StepCallAnalyzer.CanAwaitProperty, "true");
+            }
+
+            if (!step)
+            {
+                properties = properties.Add(KindProperty, TaskKind);
+            }
 
             context.ReportDiagnostic(step
                 ? Diagnostic.Create(DiagnosticDescriptors.BlockingOnStep, operation.Syntax.GetLocation(), properties, how, StepCalls.Describe(call))
@@ -228,11 +234,14 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
 
         // The call that started the task, when it is one the code starts here and may not have finished by the blocking
         // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll and
-        // WhenAny are looked into, for the tasks they are given one by one.
+        // WhenAny are looked into, for the tasks they are given one by one, and ContinueWith for the task it continues:
+        // the continuation runs on the thread pool unless told otherwise, once that task is done.
         private IInvocationOperation? StartedBy(IOperation task, IOperation blocking, int depth)
         {
             switch (Unwrapped(task))
             {
+                case IInvocationOperation { TargetMethod.Name: "ContinueWith", Instance: { } continued } call when IsTask(call.TargetMethod.ContainingType):
+                    return depth < 4 ? StartedBy(continued, blocking, depth + 1) : null;
                 case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod):
                     foreach (var argument in call.Arguments)
                     {
@@ -303,12 +312,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                         _initializers[declarator.Symbol] = value;
                         break;
                     case IAwaitOperation awaitOperation:
-                        var awaited = Unconverted(awaitOperation.Operation);
-                        if (awaited is IInvocationOperation { TargetMethod.Name: "ConfigureAwait", Instance: { } configured })
-                        {
-                            awaited = Unconverted(configured);
-                        }
-
+                        var awaited = Unwrapped(awaitOperation.Operation);
                         Settle(awaited, operation);
                         if (awaited is IInvocationOperation whenAll && IsWhenAllOrAny(whenAll.TargetMethod))
                         {
@@ -658,11 +662,13 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
     private static bool IsTask(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "Task" or "ValueTask" } named && IsType(named, named.Name, "System", "Threading", "Tasks");
 
-    // The task itself, past conversions, ConfigureAwait and AsTask.
-    private static IOperation Unwrapped(IOperation task)
+    // The task itself, past conversions, ConfigureAwait, AsTask and, through waits, WaitAsync, whose task completes with
+    // it or gives up waiting for it.
+    private static IOperation Unwrapped(IOperation task, bool throughWaits = true)
     {
         task = Unconverted(task);
-        while (task is IInvocationOperation { TargetMethod.Name: "ConfigureAwait" or "AsTask", Instance: { } inner })
+        while (task is IInvocationOperation { Instance: { } inner } call
+            && (call.TargetMethod.Name is "ConfigureAwait" or "AsTask" || (throughWaits && call.TargetMethod.Name == "WaitAsync" && IsTask(inner.Type))))
         {
             task = Unconverted(inner);
         }

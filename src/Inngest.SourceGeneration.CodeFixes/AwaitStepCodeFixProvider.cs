@@ -44,7 +44,9 @@ public sealed class AwaitStepCodeFixProvider : CodeFixProvider
             return;
         }
 
-        var title = diagnostic.Descriptor.Title.ToString() == DiagnosticDescriptors.BlockingOnTask.Title.ToString() ? TaskTitle : StepTitle;
+        var title = diagnostic.Properties.TryGetValue(FunctionBodyAnalyzer.KindProperty, out var kind) && kind == FunctionBodyAnalyzer.TaskKind
+            ? TaskTitle
+            : StepTitle;
         context.RegisterCodeFix(
             CodeAction.Create(title, cancellationToken => AwaitAsync(context.Document, root, blocking, task, cancellationToken), equivalenceKey: title),
             diagnostic);

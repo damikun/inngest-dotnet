@@ -58,6 +58,9 @@ internal static partial class Log
         "GetAwaiter().GetResult() deadlocks the call when the task needs that thread to complete. Await the task instead.")]
     public static partial void ThreadHeld(ILogger logger, string runId, string functionId, TimeSpan timeout);
 
+    [LoggerMessage(113, LogLevel.Debug, "Run {RunId} of function {FunctionId} failed after its call had ended; the failure does not change the run.")]
+    public static partial void FunctionFailedAfterCall(ILogger logger, string runId, string functionId, Exception exception);
+
     [LoggerMessage(140, LogLevel.Debug, "Saved {Count} step(s) of run {RunId} of function {FunctionId} to Inngest; the call goes on.")]
     public static partial void Checkpointed(ILogger logger, int count, string runId, string functionId);
 

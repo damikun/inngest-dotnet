@@ -252,10 +252,9 @@ internal sealed partial class Invocation
             _scheduler.Close();
             _checkpoint?.Dispose();
 
-            // The function can still fail once the work it waits on ends, with no one left to see it.
             if (function is not null)
             {
-                ObserveFailure(function);
+                ObserveFunction(function);
             }
         }
     }
@@ -295,6 +294,29 @@ internal sealed partial class Invocation
 
         _ = task.ContinueWith(
             static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    // The function can still fail once the work it waits on ends, with no one left to act on it. That is observed as
+    // above, and logged at Debug for whoever wonders where the function went.
+    private void ObserveFunction(Task function)
+    {
+        if (function.IsCompleted)
+        {
+            _ = function.Exception;
+            return;
+        }
+
+        _ = function.ContinueWith(
+            static (task, state) =>
+            {
+                var (logger, runId, functionId) = ((ILogger, string, string))state!;
+                var exception = task.Exception!;
+                Log.FunctionFailedAfterCall(logger, runId, functionId, exception.InnerExceptions.Count == 1 ? exception.InnerException! : exception);
+            },
+            (_runLogger, _run.RunId, _functionId),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);

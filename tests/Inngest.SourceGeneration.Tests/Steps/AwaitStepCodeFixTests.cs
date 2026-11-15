@@ -1,6 +1,7 @@
 using Inngest.SourceGeneration.Steps;
 using Inngest.SourceGeneration.Tests.Support;
 using Microsoft.CodeAnalysis.CSharp.Testing;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Testing;
 
 namespace Inngest.SourceGeneration.Tests.Steps;
@@ -87,7 +88,7 @@ public sealed class AwaitStepCodeFixTests
             }
             """;
 
-        var test = new CSharpCodeFixTest<FunctionBodyAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier>();
+        var test = new CSharpCodeFixTest<FunctionBodyAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier> { CodeActionEquivalenceKey = "Await the task" };
         ProjectSetup.Configure(test, properties: null);
         test.TestState.Sources.Add(Sources.Usings + source);
         test.TestState.ExpectedDiagnostics.Add(new DiagnosticResult(DiagnosticDescriptors.BlockingOnTask).WithLocation(0).WithArguments(".Result", "LoadAsync()"));
@@ -95,6 +96,68 @@ public sealed class AwaitStepCodeFixTests
             new DiagnosticResult(DiagnosticDescriptors.BlockingOnTask).WithLocation(1).WithArguments(".GetAwaiter().GetResult()", "SaveAsync()"));
         test.FixedState.Sources.Add(Sources.Usings + fixedSource);
         await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Awaits_the_task_of_a_step_kept_in_a_local()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    return {|#0:charging.Result|};
+                }
+            }
+            """;
+        const string fixedSource = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    return await charging;
+                }
+            }
+            """;
+
+        var test = new CSharpCodeFixTest<FunctionBodyAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier> { CodeActionEquivalenceKey = "Await the step" };
+        ProjectSetup.Configure(test, properties: null);
+        test.TestState.Sources.Add(Sources.Usings + source);
+        test.TestState.ExpectedDiagnostics.Add(new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(0).WithArguments(".Result", "RunAsync(\"charge\")"));
+        test.FixedState.Sources.Add(Sources.Usings + fixedSource);
+        await test.RunAsync();
+    }
+
+    // Both kinds share an id, so the analyzer tells the fix which one it reported.
+    [Fact]
+    public async Task The_analyzer_tells_the_fix_whether_the_task_is_a_step()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    return charging.Result + LoadAsync().Result;
+                }
+
+                private static Task<int> LoadAsync() => Task.FromResult(1);
+            }
+            """;
+        var compilation = Generation.Compile("App", Sources.Usings + source);
+
+        var diagnostics = await compilation.WithAnalyzers([new FunctionBodyAnalyzer()]).GetAnalyzerDiagnosticsAsync(TestContext.Current.CancellationToken);
+
+        var kinds = diagnostics
+            .Where(diagnostic => diagnostic.Id == DiagnosticIds.BlockingOnStep)
+            .OrderBy(diagnostic => diagnostic.Location.SourceSpan.Start)
+            .Select(diagnostic => diagnostic.Properties.TryGetValue("Kind", out var kind) ? kind : null);
+        kinds.ShouldBe([null, "Task"]);
     }
 
     private static async Task Run(string source, string fixedSource)
