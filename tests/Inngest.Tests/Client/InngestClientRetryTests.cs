@@ -168,7 +168,7 @@ public sealed class InngestClientRetryTests
 
         var exception = await Should.ThrowAsync<InngestException>(fixture.Time.AdvanceUntilCompletedAsync(SendOne(fixture)));
 
-        exception.Message.ShouldBe("Inngest API error: 200 partial (Inngest accepted 1 of 1 event)");
+        exception.Message.ShouldBe("Inngest API error: 200 partial (Inngest still accepted the event)");
     }
 
     [Theory]

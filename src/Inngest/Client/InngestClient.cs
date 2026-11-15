@@ -338,9 +338,12 @@ internal sealed class InngestClient : IInngestClient
             accepted += ids[i].Length > 0 ? 1 : 0;
         }
 
-        var events = count == 1 ? "event" : "events";
+        // An error with an id for every event refused none of them.
+        var outcome = accepted == count
+            ? count == 1 ? "Inngest still accepted the event" : string.Create(CultureInfo.InvariantCulture, $"Inngest still accepted all {count} events")
+            : string.Create(CultureInfo.InvariantCulture, $"Inngest accepted {accepted} of {count} {(count == 1 ? "event" : "events")}");
         return new SendEventsException(
-            string.Create(CultureInfo.InvariantCulture, $"Inngest API error: {status} {message} (Inngest accepted {accepted} of {count} {events})"),
+            string.Create(CultureInfo.InvariantCulture, $"Inngest API error: {status} {message} ({outcome})"),
             status,
             ids);
     }

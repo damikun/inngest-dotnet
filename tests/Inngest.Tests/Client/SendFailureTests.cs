@@ -48,6 +48,18 @@ public sealed class SendFailureTests
     }
 
     [Fact]
+    public async Task An_error_with_an_id_for_every_event_says_that_Inngest_still_accepted_them()
+    {
+        var fixture = new ClientFixture();
+        fixture.Handler.RespondAlways(HttpStatusCode.OK, """{"ids":["01HQ0000000000000000000001","01HQ0000000000000000000002","01HQ0000000000000000000003"],"status":200,"error":"partial"}""");
+
+        var exception = await Should.ThrowAsync<SendEventsException>(
+            fixture.Time.AdvanceUntilCompletedAsync(fixture.Client.SendAsync(Three(), TestContext.Current.CancellationToken)));
+
+        exception.Message.ShouldBe("Inngest API error: 200 partial (Inngest still accepted all 3 events)");
+    }
+
+    [Fact]
     public async Task A_refusal_that_names_no_events_throws_a_plain_InngestException()
     {
         var fixture = new ClientFixture();
