@@ -167,6 +167,11 @@ Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has it
 stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, and logs each run it
 could not record in that time.
 
+Because the run is recorded after the response, a host that freezes or ends the process as soon as a response is out,
+as serverless hosts do, can record it late or lose it. Each recording keeps the run's steps in memory until Inngest
+has them. While Inngest is slow or cannot be reached and more than 100 recordings are under way, a connection takes
+its next request only once the run of its last one is recorded.
+
 ### A step has to wait
 
 A sleep, a wait for an event or a signal, an invoke, a fetch or inference step, and steps in parallel do not run in

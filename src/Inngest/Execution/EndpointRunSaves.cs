@@ -13,6 +13,11 @@ namespace Inngest.Execution;
 // are waited for, as the Go SDK waits for its checkpoints, for as long as the shutdown timeout allows. They are waited
 // for once more after every other service has stopped, the server with its requests included, and whatever is left
 // then is cancelled and logged.
+//
+// A save starts after the response, so a host that freezes or ends the process once a response is out, as serverless
+// hosts do, can delay it or lose it. Each save holds the ops of its run until Inngest has them. While Inngest is slow
+// or cannot be reached, past MaxRunning saves the request waits for its own after its response, so that saves cannot
+// pile up without end.
 internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHostedLifecycleService
 {
     private readonly CancellationTokenSource _cancelled = new();
@@ -23,10 +28,15 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
     // its client left, which the server waits for as a request.
     public CancellationToken Stopped => _cancelled.Token;
 
-    // Starts recording a run. The save logs its own failure.
-    public void Start(string runId, string functionId, Func<CancellationToken, Task> save)
+    // How many saves may be under way before a request waits for its own.
+    public int MaxRunning { get; init; } = 100;
+
+    // Starts recording a run. The save logs its own failure and never throws. The task returned is the save when more
+    // than MaxRunning are under way, which the request then waits for, and a completed one otherwise.
+    public Task Start(string runId, string functionId, Func<CancellationToken, Task> save)
     {
         Task? task = null;
+        var behind = false;
         lock (_running)
         {
             if (!_stopped)
@@ -34,13 +44,14 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
                 var token = _cancelled.Token;
                 task = Task.Run(() => RunAsync(save, token), CancellationToken.None);
                 _running.Add(task, (runId, functionId));
+                behind = _running.Count > MaxRunning;
             }
         }
 
         if (task is null)
         {
             Log.EndpointRunNotRecordedStopping(logger, runId, functionId);
-            return;
+            return Task.CompletedTask;
         }
 
         _ = task.ContinueWith(
@@ -49,6 +60,7 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+        return behind ? task : Task.CompletedTask;
     }
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;

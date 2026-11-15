@@ -148,7 +148,7 @@ internal sealed class DurableEndpointMiddleware
                     {
                         // Recorded in the background, also when the client has gone before it has the body.
                         response.Headers[EndpointCalls.RunIdHeader] = outcome.RunId;
-                        _saves.Start(outcome.RunId, functionId, finish);
+                        Record(response, outcome.RunId, functionId, finish);
                     }
 
                     if (!capture.Body.IsEmpty)
@@ -169,13 +169,24 @@ internal sealed class DurableEndpointMiddleware
                     Reset(response, earlierHeaders);
                     if (outcome.Finish is { } finishFailed)
                     {
-                        _saves.Start(outcome.RunId, functionId, finishFailed);
+                        Record(response, outcome.RunId, functionId, finishFailed);
                     }
 
                     // The app's own error handling answers the client, as it would without Inngest.
                     ExceptionDispatchInfo.Capture(outcome.Error!).Throw();
                     break;
             }
+        }
+    }
+
+    // Records the run once the endpoint has answered. While Inngest is behind, the connection takes its next request
+    // only once this run is recorded, which slows clients down rather than keeping ever more runs in memory.
+    private void Record(HttpResponse response, string runId, string functionId, Func<CancellationToken, Task> save)
+    {
+        var recording = _saves.Start(runId, functionId, save);
+        if (!recording.IsCompleted)
+        {
+            response.OnCompleted(static recording => (Task)recording, recording);
         }
     }
 

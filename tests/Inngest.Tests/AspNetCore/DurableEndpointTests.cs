@@ -232,6 +232,25 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         warning.Message.ShouldContain("POST /orders/{id}");
     }
 
+    // Past the most saves under way, the connection waits for the run to be recorded once the client has its response.
+    [Fact]
+    public async Task While_Inngest_is_behind_the_client_still_gets_its_response_and_the_run_is_recorded()
+    {
+        var client = await StartAsync(maxRunningSaves: 0);
+        var (reached, release) = _checkpoints.HoldNext();
+
+        using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var order = await response.Content.ReadFromJsonAsync<JsonElement>(CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        order.GetProperty("total").GetInt32().ShouldBe(42);
+        await reached;
+        _checkpoints.Saves.ShouldBeEmpty();
+        release.SetResult();
+        await _checkpoints.WaitForSavesAsync(1);
+        _checkpoints.Saves.ShouldHaveSingleItem().RunId.ShouldBe(response.Headers.GetValues("X-Run-ID").Single());
+    }
+
     [Fact]
     public async Task A_body_larger_than_the_run_may_store_is_refused()
     {
@@ -349,7 +368,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         bool cloud = false,
         string? serveOrigin = "https://api.example.com",
         bool encrypt = false,
-        TimeSpan? shutdownTimeout = null)
+        TimeSpan? shutdownTimeout = null,
+        int? maxRunningSaves = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -376,6 +396,10 @@ public sealed class DurableEndpointTests : IAsyncDisposable
 
         builder.Services.AddSingleton<IEndpointCheckpointApi>(_checkpoints);
         builder.Services.AddSingleton<IInngestApi>(_api);
+        if (maxRunningSaves is { } maxRunning)
+        {
+            builder.Services.AddSingleton(provider => new EndpointRunSaves(provider.GetRequiredService<ILogger<EndpointRunSaves>>()) { MaxRunning = maxRunning });
+        }
 
         var app = _app = builder.Build();
         app.UseExceptionHandler(errors => errors.Run(context =>
