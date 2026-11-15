@@ -241,24 +241,74 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
-    public async Task A_cancelled_call_for_a_step_the_function_does_not_reach_ends_at_once()
+    public async Task A_cancelled_call_for_one_step_waits_for_work_of_the_function_beside_a_step_of_another_call()
+    {
+        var timeline = new Timeline();
+        using var host = new EngineHost(services => services.AddScoped(_ => new ScopedResource(timeline)));
+        using var cancellation = new CancellationTokenSource();
+        var release = new TaskCompletionSource();
+        var function = TestFunction.Define(async context =>
+        {
+            // Steps Inngest planned together: this call is for email, while charge runs in a call of its own.
+            var charge = context.Step.RunAsync("charge", () => "charged");
+            context.Services.GetRequiredService<ScopedResource>();
+            _ = timeline.ProbeAsync();
+            await release.Task;
+            timeline.Add("work done");
+            var email = context.Step.RunAsync("email", () => "sent");
+            await Task.WhenAll(charge, email);
+            return null;
+        });
+
+        var pending = ExecuteInScopeAsync(host, function, cancellation.Token, Call.Hash("email"));
+        await host.Time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+        await timeline.CallWaitsOrEndedAsync();
+        release.SetResult();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        timeline.Events.ShouldBe(["work done", "disposed"]);
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 111);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_cancelled_call_for_a_step_the_function_does_not_reach_ends_when_it_would_have_given_up_on_the_step(bool ownWorkBetween)
     {
         using var host = new EngineHost();
         using var cancellation = new CancellationTokenSource();
+        var own = new TaskCompletionSource();
         var function = TestFunction.Define(async context =>
         {
-            await context.Step.RunAsync("A", () => "A");
+            var a = context.Step.RunAsync("A", () => "A");
+            if (ownWorkBetween)
+            {
+                await own.Task;
+            }
+
+            await a;
             return await context.Step.RunAsync("B", () => "B");
         });
 
+        // Timers in order: the deadline for B after each decision, then the end of the cancelled call's wait.
         var pending = host.Engine.ExecuteAsync(
             new() { Function = function, Body = Call.New().ToBytes(), StepId = Call.Hash("B"), Services = host.Services },
             cancellation.Token);
         await host.Time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        await cancellation.CancelAsync();
+        if (ownWorkBetween)
+        {
+            own.SetResult();
+            await host.Time.TimersCreated(2).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        }
 
-        // The function waits on A, which runs in a call of its own, so none of its code runs in this call any more.
-        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        await cancellation.CancelAsync();
+        await host.Time.TimersCreated(ownWorkBetween ? 3 : 2).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        pending.IsCompleted.ShouldBeFalse();
+
+        // The function waits on A, which runs in a call of its own. Uncancelled, the call would give up on B now.
+        host.Time.Advance(Invocation.StepNotFoundTimeout);
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
         host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 111);
     }
 

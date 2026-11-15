@@ -33,9 +33,7 @@ internal sealed partial class Invocation
                 return await ExecuteAsync(target).ConfigureAwait(false);
             }
 
-            // Other new steps are ignored: Inngest has planned them already and runs each in a call of its own. A function
-            // that is idle right after finding some most likely waits on them, and they never complete in this call.
-            _waitsOnOtherCalls = _window.Exists(static step => step.IsNew);
+            // Other new steps are ignored: Inngest has planned them already and runs each in a call of its own.
             ClearWindow();
             _waitingSince = _time.GetTimestamp();
             return null;
@@ -143,26 +141,23 @@ internal sealed partial class Invocation
     }
 
     // The call was cancelled while the function waits on work of its own, such as a query on a DbContext of the call.
-    // Its code goes on when that work ends, so the call waits until the function ends or waits on a step it found. A
-    // function that waits on steps of other calls runs no code here any more, so there is nothing to wait for.
+    // Its code goes on when that work ends, so the call waits until the function ends or waits on a step it found. In a
+    // call for one step the function may instead wait on steps that other calls run, which the call cannot tell apart,
+    // so that call waits no longer than it would have waited for its step uncancelled.
     private Task FunctionCancelledAsync(Task function)
     {
-        if (_waitsOnOtherCalls)
-        {
-            return Task.FromCanceled(_cancellationToken);
-        }
-
         var found = _found.Count;
-        return CancelledAsync(function, () => function.IsCompleted || _found.Count > found, stepId: null);
+        var givesUpIn = _target is null ? (TimeSpan?)null : StepNotFoundTimeout - _time.GetElapsedTime(_waitingSince);
+        return CancelledAsync(function, () => function.IsCompleted || _found.Count > found, stepId: null, givesUpIn);
     }
 
     // A cancelled call still waits for the user code it started, since the call's services are disposed once it ends:
     // a step handler or a hook that ignores the token, or the function's own work. The function's continuations keep
     // running meanwhile, as that code may wait on them. Code still running after the grace period is logged and left to
     // finish on its own. Either way the call ends as cancelled.
-    private async Task CancelledAsync(Task code, Func<bool> settled, string? stepId)
+    private async Task CancelledAsync(Task code, Func<bool> settled, string? stepId, TimeSpan? givesUpIn = null)
     {
-        if (!await SettleAsync(code, settled).ConfigureAwait(false))
+        if (!await SettleAsync(code, settled, givesUpIn).ConfigureAwait(false))
         {
             if (stepId is null)
             {
@@ -178,25 +173,29 @@ internal sealed partial class Invocation
         _cancellationToken.ThrowIfCancellationRequested();
     }
 
-    // True when the code settled within the grace period. Real time, whatever clock the engine is given: the grace bounds
-    // how long the call's services stay alive, and a test clock that nothing moves would keep a call cancelled at shutdown
-    // open until the host gives up.
-    private async Task<bool> SettleAsync(Task code, Func<bool> settled)
+    // False when the grace period ran out first. Real time, whatever clock the engine is given: the grace bounds how long
+    // the call's services stay alive, and a test clock that nothing moves would keep a call cancelled at shutdown open
+    // until the host gives up. A call that gives up sooner, on the engine's clock as it would uncancelled, logs nothing.
+    private async Task<bool> SettleAsync(Task code, Func<bool> settled, TimeSpan? givesUpIn)
     {
         using var grace = new CancellationTokenSource();
         var deadline = Task.Delay(_cancelledCallGrace, TimeProvider.System, grace.Token);
+        var givenUp = givesUpIn is { } delay ? Task.Delay(delay > TimeSpan.Zero ? delay : TimeSpan.Zero, _time, grace.Token) : null;
         try
         {
             while (true)
             {
                 RunPendingQuietly();
-                if (settled())
+                if (settled() || givenUp is { IsCompleted: true })
                 {
                     return true;
                 }
 
                 var work = _scheduler.WaitForWorkAsync(grace.Token).AsTask();
-                if (await Task.WhenAny(code, work, deadline).ConfigureAwait(false) == deadline)
+                var completed = givenUp is null
+                    ? await Task.WhenAny(code, work, deadline).ConfigureAwait(false)
+                    : await Task.WhenAny(code, work, deadline, givenUp).ConfigureAwait(false);
+                if (completed == deadline)
                 {
                     return false;
                 }
