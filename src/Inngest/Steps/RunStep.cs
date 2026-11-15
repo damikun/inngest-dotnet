@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Inngest.Json;
 
 namespace Inngest.Steps;
 
@@ -40,7 +41,7 @@ internal sealed class RunStep<T>(string id, Func<CancellationToken, Task<T>> han
         }
     }
 
-    protected override T Read(JsonElement value, JsonSerializerOptions options) => value.Deserialize(TypeInfo(options))!;
+    protected override T Read(JsonElement value, JsonSerializerOptions options) => JsonPayload.Read(value, TypeInfo(options));
 
     private static JsonTypeInfo<T> TypeInfo(JsonSerializerOptions options) => (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
 }

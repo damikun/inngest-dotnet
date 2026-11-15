@@ -6,6 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
 using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Steps;
 
@@ -43,7 +44,7 @@ internal sealed class WaitForSignalStep<TData>(string id, WaitForSignalOptions w
             : wait.Signal;
 
         var data = value.TryGetProperty("data", out var element)
-            ? element.Deserialize((JsonTypeInfo<TData>)options.GetTypeInfo(typeof(TData)))
+            ? JsonPayload.Read(element, (JsonTypeInfo<TData>)options.GetTypeInfo(typeof(TData)))
             : default;
 
         return new InngestSignal<TData>(name, data!);

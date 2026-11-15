@@ -102,12 +102,14 @@ internal sealed class Checkpointer : IDisposable
     public static Checkpointer ForEndpoint(EndpointSaver saver, TimeProvider time, JsonSerializerOptions serializerOptions) =>
         new(saver.SaveAsync, time, int.MaxValue, Timeout.InfiniteTimeSpan, maxInterval: null, serializerOptions);
 
-    // Buffers a StepRun op and returns its data as a later call reads it from Inngest, so the function sees the same
-    // value now as on every replay. The copy outlives the buffer, which is reused once the op is sent.
+    // Buffers a StepRun op and returns its data as a later call reads it from Inngest: canonicalized, with sorted keys
+    // and numbers that went through a double. So the function sees the same value now as on every replay, and a step
+    // id built from it stays the same. The copy outlives the buffer, which is reused once the op is sent.
     public JsonElement Add(ReadOnlySpan<byte> op)
     {
         var reader = new Utf8JsonReader(op, _readerOptions);
-        var data = JsonElement.ParseValue(ref reader).GetProperty("data");
+        using var document = JsonDocument.ParseValue(ref reader);
+        var data = JsonCanonicalizer.Canonicalize(document.RootElement.GetProperty("data"), _readerOptions);
         AddOp(op);
         return data;
     }

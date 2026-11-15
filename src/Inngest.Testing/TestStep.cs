@@ -71,7 +71,8 @@ public sealed class TestStep
 
     /// <summary>
     /// The result the function receives, as the JSON Inngest stores: the value of a run step or an invoke, the
-    /// event a wait received or null when it timed out, null for a sleep. Null unless the step completed.
+    /// event a wait received or null when it timed out, null for a sleep. Null unless the step completed. Later calls
+    /// get it the way Inngest sends it, with the keys of every object sorted and every number read as a double.
     /// </summary>
     public JsonElement? Output { get; }
 

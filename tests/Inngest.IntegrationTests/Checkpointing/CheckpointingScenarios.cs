@@ -83,6 +83,17 @@ public sealed class CheckpointingScenarios(EvaluationEnvironment environment) : 
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task A_step_named_after_a_number_Inngest_rounds_runs_once()
+    {
+        var run = await RunToEndAsync(CheckpointingFunctions.BigNumber, new RunEvent(TestId), TimeSpan.FromSeconds(20));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        run.OutputAs<StepsResult>().Steps.ShouldBe(["ship-1234567890123456800"]);
+        Observed.Names.Where(name => name.StartsWith("ship-", StringComparison.Ordinal)).ShouldBe(["ship-1234567890123456800"]);
+        Fixture.CallsOf("ckpt-big-number").Select(call => call.StatusCode).ShouldBe([206, 200]);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task A_service_logs_with_the_runs_context_in_a_checkpointed_step_and_after_it()
     {
         var run = await RunToEndAsync(CheckpointingFunctions.LogScope, new TestEvent(TestId));

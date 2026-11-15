@@ -19,6 +19,7 @@ internal static class CheckpointingFunctions
     public const string Retry = "ckpt/retry";
     public const string Parallel = "ckpt/parallel";
     public const string LogScope = "ckpt/log-scope";
+    public const string BigNumber = "ckpt/big-number";
 
     public static readonly TimeSpan Nap = TimeSpan.FromSeconds(2);
 
@@ -85,6 +86,25 @@ internal static class CheckpointingFunctions
             });
 
         inngest.AddLogScopeFunction("ckpt-log-scope", LogScope);
+
+        // Inngest hands the id back as a double, 1234567890123456800, on the call after the sleep. The ship step is
+        // named after it, so the call that ran the step has to see the same id, or the step runs again.
+        inngest.AddFunction<RunEvent>(
+            new FunctionOptions { Id = "ckpt-big-number", Triggers = [Trigger.Event(BigNumber)] },
+            static async (context, _) =>
+            {
+                var observed = context.Observed();
+                var ids = await context.Step.RunAsync("load", () => new[] { 1234567890123456789L });
+                var shipped = new List<string>();
+                foreach (var id in ids)
+                {
+                    var step = $"ship-{id}";
+                    shipped.Add(await context.Step.RunAsync(step, () => Ran(observed, step)));
+                }
+
+                await context.Step.SleepAsync("nap", Nap);
+                return new StepsResult(shipped);
+            });
     }
 
     // Code outside the steps runs once per call, so "call" counts the calls of the run.

@@ -68,6 +68,11 @@ internal sealed partial class Invocation
                 using var writer = WireWriter.Create(op, _settings.SerializerOptions);
                 step.WriteOpStart(writer, step.Op, _settings);
                 writer.WriteEndObject();
+                if (step.Type == StepType.Invoke)
+                {
+                    writer.Flush();
+                    CheckInvokePayload(step, op.WrittenSpan);
+                }
             }
 
             // Buffered only once all of them could be written.

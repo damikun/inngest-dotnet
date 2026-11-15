@@ -21,6 +21,17 @@ internal static class JsonPayload
     public static JsonDocumentOptions DocumentOptions(JsonSerializerOptions options) =>
         new() { MaxDepth = Math.Max(MinDocumentDepth, (options.MaxDepth == 0 ? DefaultMaxDepth : options.MaxDepth) + Nesting) };
 
+    // Reads a value Inngest sent, such as event data or a step's result. Inngest sorts the keys of every object, and
+    // System.Text.Json 8 reads a type discriminator only as the first property, so on .NET 8 the discriminators are
+    // moved there first. Later versions read them anywhere, as SerializerOptionsSetup allows.
+    public static T Read<T>(JsonElement value, JsonTypeInfo<T> typeInfo)
+    {
+#if !NET9_0_OR_GREATER
+        value = DiscriminatorOrder.MoveFirst(value, typeInfo);
+#endif
+        return value.Deserialize(typeInfo)!;
+    }
+
     // Inngest decodes event data, event user and invoke data as JSON objects, and rejects anything else far from
     // the code that sent it. Values with custom converters are given the benefit of the doubt.
     // Throws "<part> of <owner> "<name>" must serialize to a JSON object", for example the data of event "shop/order".

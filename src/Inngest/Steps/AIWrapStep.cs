@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Inngest.Json;
 
 namespace Inngest.Steps;
 
@@ -59,11 +60,11 @@ internal sealed class AIWrapStep<TInput, TResult>(string id, TInput input, Func<
         }
     }
 
-    protected override TResult Read(JsonElement value, JsonSerializerOptions options) => value.Deserialize(ResultInfo(options))!;
+    protected override TResult Read(JsonElement value, JsonSerializerOptions options) => JsonPayload.Read(value, ResultInfo(options));
 
     private TInput ReadInput() =>
         EditedInput is { } edited && edited.GetArrayLength() > 0
-            ? edited[0].Deserialize(InputInfo(Owner.SerializerOptions))!
+            ? JsonPayload.Read(edited[0], InputInfo(Owner.SerializerOptions))
             : input;
 
     private static JsonTypeInfo<TInput> InputInfo(JsonSerializerOptions options) => (JsonTypeInfo<TInput>)options.GetTypeInfo(typeof(TInput));

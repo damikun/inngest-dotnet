@@ -115,6 +115,36 @@ is larger than 4 MiB fails without retries, with a `StepFailedException` where i
 run past 32 MiB is logged as a warning (event id 171), since Inngest then fails the run. Store large data elsewhere
 and return a reference to it.
 
+## Numbers
+
+Inngest keeps every number in a step's result, an event or an invoke payload as a 64-bit floating point value, as
+JavaScript does, and hands it back with the fewest digits that read back as that value. It also sorts the keys of
+every JSON object (RFC 8785). Most numbers come back unchanged. These do not:
+
+- Integers beyond ±2^53 (9,007,199,254,740,992), such as Snowflake ids, `DateTime.Ticks` and `ulong` hashes:
+  1234567890123456789 comes back as 1234567890123456800.
+- Decimals with more than 15 significant digits: `0.1234567890123456789m` comes back as `0.12345678901234568`.
+- The trailing zeros of a decimal: `19.90m` comes back as `19.9m`, the same value, which prints differently.
+
+The next call reads the changed value without an error, and so does every call after it. Keep values that must stay
+exact in strings, for example with `JsonNumberHandling` on the property:
+
+```csharp
+using System.Text.Json.Serialization;
+
+public sealed record Shipment(
+    string OrderId,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)]
+    long TrackingId);
+```
+
+The SDK logs a warning when a step returns a number whose value changes (event id 172) or an invoke sends one (event
+id 173), in a function or a durable endpoint, with the step and where the number is, such as `$.trackingId`. A decimal
+that only loses its trailing zeros keeps its value, so it is logged at debug level instead (event ids 174 and 175).
+Event data is not checked. With checkpointing, the call that ran the step reads its result back in the form Inngest
+stores, so every call sees the same value. The [test host](/inngest-dotnet/guides/testing/) sends results and events
+in that form too.
+
 ## Keep side effects in steps
 
 Code outside steps runs on every call. That is fine for reading the event, computing values from step results and

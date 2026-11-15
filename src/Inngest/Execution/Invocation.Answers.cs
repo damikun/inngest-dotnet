@@ -7,7 +7,9 @@ using System.Text;
 using System.Text.Json;
 using Inngest.Errors;
 using Inngest.Internal;
+using Inngest.Json;
 using Inngest.Middleware;
+using Microsoft.Extensions.Logging;
 
 namespace Inngest.Execution;
 
@@ -21,7 +23,7 @@ internal sealed partial class Invocation
         {
             using var writer = WireWriter.Create(body, _settings.SerializerOptions);
             writer.WriteStartArray();
-            WriteStepRunOp(writer, step, output, timing);
+            WriteStepRunOp(writer, body, step, output, timing);
             writer.WriteEndArray();
             return null;
         }
@@ -33,14 +35,27 @@ internal sealed partial class Invocation
     }
 
     // The one place a StepRun op is written, for the classic answer and the checkpoint alike, so the payload
-    // transforms of the call's middleware apply to both.
-    private void WriteStepRunOp(Utf8JsonWriter writer, FoundStep step, object? output, Timing timing)
+    // transforms of the call's middleware apply to both. The writer writes to body, where the output is checked.
+    private void WriteStepRunOp(Utf8JsonWriter writer, PooledBufferWriter body, FoundStep step, object? output, Timing timing)
     {
         step.WriteOpStart(writer, Ops.StepRun, _settings);
         writer.WritePropertyName(DataProperty);
-        var start = writer.BytesCommitted + writer.BytesPending;
+        writer.Flush();
+        var start = body.WrittenCount;
         step.WriteData(writer, output, _settings.SerializerOptions);
-        CheckOutputSize(step, writer.BytesCommitted + writer.BytesPending - start);
+        writer.Flush();
+        var data = body.WrittenSpan[start..];
+        CheckOutputSize(step, data.Length);
+        switch (FindChangedNumber(data))
+        {
+            case ({ } path, NumberChange.Value):
+                Log.StepOutputNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+            case ({ } path, NumberChange.TrailingZeros):
+                Log.StepOutputTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+        }
+
         timing.Write(writer);
         step.Metadata?.Write(writer);
         writer.WriteEndObject();
@@ -132,10 +147,24 @@ internal sealed partial class Invocation
                 writer.WriteStartArray();
                 foreach (var step in steps)
                 {
-                    if (step.IsNew)
+                    if (!step.IsNew)
                     {
-                        step.WriteOpStart(writer, step.Op, _settings);
-                        writer.WriteEndObject();
+                        continue;
+                    }
+
+                    var invoke = step.Type == StepType.Invoke;
+                    if (invoke)
+                    {
+                        writer.Flush();
+                    }
+
+                    var start = body.WrittenCount;
+                    step.WriteOpStart(writer, step.Op, _settings);
+                    writer.WriteEndObject();
+                    if (invoke)
+                    {
+                        writer.Flush();
+                        CheckInvokePayload(step, body.WrittenSpan[start..]);
                     }
                 }
 
@@ -151,6 +180,30 @@ internal sealed partial class Invocation
             return await RejectAsync(exception).ConfigureAwait(false);
         }
     }
+
+    // The payload of an invoke becomes the event of the invoked run, which reads its numbers as Inngest hands them back.
+    private void CheckInvokePayload(FoundStep step, ReadOnlySpan<byte> op)
+    {
+        // The writer puts the comma between ops before the op that follows it.
+        if (!op.IsEmpty && op[0] == ',')
+        {
+            op = op[1..];
+        }
+
+        switch (FindChangedNumber(op))
+        {
+            case ({ } path, NumberChange.Value):
+                Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+            case ({ } path, NumberChange.TrailingZeros):
+                Log.InvokePayloadTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+        }
+    }
+
+    // Trailing zeros only change how a decimal prints, so they are looked for only when they would be logged.
+    private (string Path, NumberChange Change)? FindChangedNumber(ReadOnlySpan<byte> json) =>
+        NumberPrecision.FindChanged(json, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth, _runLogger.IsEnabled(LogLevel.Debug));
 
     private async ValueTask<ExecutionResult> CompleteAsync(Task<object?> function)
     {

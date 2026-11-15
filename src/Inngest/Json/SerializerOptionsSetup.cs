@@ -29,6 +29,12 @@ internal static class SerializerOptionsSetup
     {
         var prepared = new JsonSerializerOptions(options);
 
+#if NET9_0_OR_GREATER
+        // Inngest sends every object with its keys sorted, so a type discriminator such as "type" usually comes after
+        // other properties. .NET 8 has no such option; JsonPayload.Read moves the discriminators first there instead.
+        prepared.AllowOutOfOrderMetadataProperties = true;
+#endif
+
         // Added last, so a converter of the app's own for FunctionError still wins.
         prepared.Converters.Add(new FunctionErrorConverter());
 

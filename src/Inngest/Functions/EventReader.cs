@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Events;
+using Inngest.Json;
 using Inngest.Middleware;
 
 namespace Inngest.Functions;
@@ -37,7 +38,7 @@ internal static class EventReader
         return new InngestEvent<TData>
         {
             Name = element.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
-            Data = data.Deserialize(typeInfo)!,
+            Data = JsonPayload.Read(data, typeInfo),
             Id = element.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null,
             User = element.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object && user.EnumerateObject().MoveNext()
                 ? user.Clone()

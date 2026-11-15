@@ -59,6 +59,37 @@ public sealed class TestHostTests
         run.GetStep("load").Output!.Value.GetProperty("id").GetString().ShouldBe("o_1");
     }
 
+    // Inngest canonicalizes every call body: numbers go through a double and the keys of every object are sorted.
+    [Fact]
+    public async Task Step_results_and_events_reach_the_function_as_Inngest_sends_them()
+    {
+        await using var host = For(async context =>
+        {
+            var id = await context.Step.RunAsync("load", () => 1234567890123456789L);
+            var amount = await context.Step.RunAsync("amount", () => 19.90m);
+            var raw = await context.Step.RunAsync("raw", () => JsonDocument.Parse("""{"b":1,"a":2}""").RootElement.Clone());
+            return new
+            {
+                id,
+                amount = amount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                raw = raw.GetRawText(),
+                eventId = context.Event.Data.GetProperty("orderId").GetRawText(),
+            };
+        });
+
+        var run = await host.RunAsync("fn", Event(new { orderId = 1234567890123456789L }), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        var output = run.Output!.Value;
+        output.GetProperty("id").GetInt64().ShouldBe(1234567890123456800L);
+        output.GetProperty("amount").GetString().ShouldBe("19.9");
+        output.GetProperty("raw").GetString().ShouldBe("""{"a":2,"b":1}""");
+        output.GetProperty("eventId").GetString().ShouldBe("1234567890123456800");
+
+        // The step's own output is what it returned.
+        run.GetStep("load").GetOutput<long>().ShouldBe(1234567890123456789L);
+    }
+
     [Fact]
     public async Task Parallel_steps_run_in_targeted_calls_and_the_function_resumes_when_all_are_done()
     {

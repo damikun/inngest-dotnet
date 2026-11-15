@@ -170,7 +170,9 @@ once.
 ### What the host does
 
 - It calls the function again after every step, as Inngest does, so code outside steps runs once per call, and every
-  step result reaches the function through JSON written with the app's serializer options.
+  step result reaches the function through JSON written with the app's serializer options. Like Inngest, it sends
+  results and events with the keys of every object sorted and every number read as a double, so a 64-bit id or a
+  decimal's trailing zeros change in a test as they do in production (see [numbers](/inngest-dotnet/guides/steps/#numbers)).
 - It resolves the function, its middleware and the services they use from a new scope for every call, and the app's
   middleware runs around every call and step. A [scoped step](/inngest-dotnet/guides/scoped-steps/) runs its handler
   in a scope of its own on top of that.
