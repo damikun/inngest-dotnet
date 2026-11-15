@@ -72,7 +72,7 @@ public sealed class InvokeScenarios(EvaluationEnvironment environment) : Evaluat
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task The_invoked_function_gets_the_data_in_a_function_invoked_event()
+    public async Task The_invoked_function_gets_the_data_and_the_version_in_a_function_invoked_event()
     {
         var payload = new NestedPayload(TestId, "Ada", [1, 2, 3], new Dictionary<string, bool> { ["vip"] = true });
 
@@ -81,6 +81,7 @@ public sealed class InvokeScenarios(EvaluationEnvironment environment) : Evaluat
         run.Status.ShouldBe(RunStatus.Completed);
         var child = run.OutputAs<ChildView>();
         child.Name.ShouldBe("inngest/function.invoked");
+        child.Version.ShouldBe("2024-06-01");
         child.Data.ShouldContainJson($$"""{ "testId": "{{TestId}}", "customer": "Ada", "items": [1, 2, 3], "flags": { "vip": true } }""");
     }
 

@@ -4,7 +4,7 @@ namespace Inngest.IntegrationTests.Evaluation.Functions;
 
 internal sealed record InvokeFailure(bool Caught, string? StepId, string? ErrorName, string? Message);
 
-internal sealed record ChildView(string Name, JsonElement Data);
+internal sealed record ChildView(string Name, JsonElement Data, string? Version);
 
 internal sealed record NestedPayload(string TestId, string Customer, IReadOnlyList<int> Items, IReadOnlyDictionary<string, bool> Flags) : IScenarioEvent;
 
@@ -146,11 +146,11 @@ internal static class InvokeFunctions
         inngest.AddFunction<NestedPayload>(
             new FunctionOptions { Id = "inv-data", Triggers = [Trigger.Event(Data)] },
             static async (context, _) =>
-                await context.Step.InvokeAsync<ChildView>("call-echo", new InvokeOptions("inv-echo-child") { Data = context.Event.Data }));
+                await context.Step.InvokeAsync<ChildView>("call-echo", new InvokeOptions("inv-echo-child") { Data = context.Event.Data, Version = "2024-06-01" }));
 
         inngest.AddFunction<JsonElement>(
             new FunctionOptions { Id = "inv-echo-child", Triggers = [] },
-            static (context, _) => Task.FromResult<object?>(new ChildView(context.Event.Name, context.Event.Data)));
+            static (context, _) => Task.FromResult<object?>(new ChildView(context.Event.Name, context.Event.Data, context.Event.Version)));
 
         // The timeout only bounds the scenario in case the server never answers for a function it does not know.
         inngest.AddFunction<RunEvent>(

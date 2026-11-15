@@ -187,7 +187,7 @@ the `TService` that the SDK resolves from the step's scope with `GetRequiredServ
 |---|---|---|
 | `StepOptions` | `(string Id)` | `Name`, shown in the Inngest UI; `ParallelMode`, for this step instead of the mode of an enclosing `ParallelAsync`. A `string` converts to it implicitly. |
 | `WaitForEventOptions` | `(string Event, TimeSpan Timeout)` | `Match`, `If` |
-| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout`, `Meta`, the sessions of the invoked run |
+| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Version`, the version of the invoked run's event; `Timeout`; `Meta`, the sessions of the invoked run |
 | `WaitForSignalOptions` | `(string Signal, TimeSpan Timeout)` | `OnConflict`: `SignalConflict.Fail`, the default, fails the run when another run already waits for the signal; `Replace` takes the signal over |
 | `InngestSignal` | `(string Name, object? Data = null)` | A signal to send. |
 | `InngestSignal<TData>` | `(string Name, TData Data)` | A signal as the waiting run receives it. |
