@@ -14,13 +14,24 @@ public sealed class NumberPrecisionTests
     [InlineData("18446744073709551615")]
     [InlineData("0.1234567890123456789")]
     [InlineData("79228162514264337593543950335")]
+    [InlineData("0.12345678901234567890")]
+    [InlineData("1234567890123456789.00")]
+    [InlineData("1e400")]
+    public void Numbers_Inngest_hands_back_with_another_value_are_found(string number)
+    {
+        NumberPrecision.Change(Encoding.UTF8.GetBytes(number)).ShouldBe(NumberChange.Value);
+    }
+
+    [Theory]
     [InlineData("19.90")]
     [InlineData("100.00")]
     [InlineData("1.0")]
-    [InlineData("1e400")]
-    public void Numbers_Inngest_hands_back_changed_are_found(string number)
+    [InlineData("-0.0")]
+    [InlineData("0.0000001000")]
+    [InlineData("1234567890123456.000000000000000000")]
+    public void Numbers_that_only_lose_the_trailing_zeros_of_their_fraction_are_found_apart(string number)
     {
-        NumberPrecision.Changes(Encoding.UTF8.GetBytes(number)).ShouldBeTrue();
+        NumberPrecision.Change(Encoding.UTF8.GetBytes(number)).ShouldBe(NumberChange.TrailingZeros);
     }
 
     [Theory]
@@ -39,20 +50,36 @@ public sealed class NumberPrecisionTests
     [InlineData("1.5e3")]
     [InlineData("100000000000000000000")]
     [InlineData("1.7976931348623157E+308")]
+    [InlineData("1.50e3")]
     public void Numbers_Inngest_hands_back_with_the_same_value_are_not(string number)
     {
-        NumberPrecision.Changes(Encoding.UTF8.GetBytes(number)).ShouldBeFalse();
+        NumberPrecision.Change(Encoding.UTF8.GetBytes(number)).ShouldBe(NumberChange.None);
     }
 
     [Theory]
     [InlineData("1234567890123456789", "$")]
     [InlineData("""{"orders":[{"id":1},{"id":1234567890123456789}]}""", "$.orders[1].id")]
-    [InlineData("""{"a":{"b":[[1,2],[3,19.90]]}}""", "$.a.b[1][1]")]
-    [InlineData("""{"line items":[{"price":1.50}]}""", "$['line items'][0].price")]
+    [InlineData("""{"a":{"b":[[1,2],[3,0.12345678901234567890]]}}""", "$.a.b[1][1]")]
+    [InlineData("""{"line items":[{"price":1.5,"sku":1234567890123456789}]}""", "$['line items'][0].sku")]
     [InlineData("""[{"x":"1234567890123456789"},{"$id":7,"y":[{},1234567890123456789]}]""", "$[1].y[1]")]
-    public void The_path_of_the_first_changed_number_is_given(string json, string path)
+    [InlineData("""{"price":19.90,"id":1234567890123456789}""", "$.id")]
+    public void The_path_of_the_first_number_whose_value_changes_is_given(string json, string path)
     {
-        NumberPrecision.FindChanged(Encoding.UTF8.GetBytes(json), 64).ShouldBe(path);
+        NumberPrecision.FindChanged(Encoding.UTF8.GetBytes(json), 64, trailingZeros: true).ShouldBe((path, NumberChange.Value));
+    }
+
+    [Theory]
+    [InlineData("""{"a":{"b":[[1,2],[3,19.90]]}}""", "$.a.b[1][1]")]
+    [InlineData("""{"line items":[{"price":1.50},{"price":2.0}]}""", "$['line items'][0].price")]
+    public void Without_such_a_number_the_path_of_the_first_that_loses_trailing_zeros_is_given(string json, string path)
+    {
+        NumberPrecision.FindChanged(Encoding.UTF8.GetBytes(json), 64, trailingZeros: true).ShouldBe((path, NumberChange.TrailingZeros));
+    }
+
+    [Fact]
+    public void Trailing_zeros_are_only_looked_for_when_asked()
+    {
+        NumberPrecision.FindChanged("""{"price":19.90}"""u8, 64, trailingZeros: false).ShouldBeNull();
     }
 
     [Theory]
@@ -61,6 +88,6 @@ public sealed class NumberPrecisionTests
     [InlineData("null")]
     public void Json_without_such_numbers_has_no_path(string json)
     {
-        NumberPrecision.FindChanged(Encoding.UTF8.GetBytes(json), 64).ShouldBeNull();
+        NumberPrecision.FindChanged(Encoding.UTF8.GetBytes(json), 64, trailingZeros: true).ShouldBeNull();
     }
 }

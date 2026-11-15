@@ -8,38 +8,54 @@ using System.Text.Json;
 namespace Inngest.Json;
 
 // Numbers that Inngest does not hand back as they were written. It keeps every number as a 64-bit double and prints
-// it with the fewest digits that read back as that double, so a long beyond 2^53, a decimal with more than 15 to 17
-// significant digits, and the trailing zeros of a decimal (19.90 comes back as 19.9) all change between calls.
+// it with the fewest digits that read back as that double, so a long beyond 2^53 and a decimal with more than 15 to 17
+// significant digits come back with another value, and a decimal with trailing zeros comes back without them (19.90
+// as 19.9): the same value, which only prints differently.
 internal static class NumberPrecision
 {
     // Up to this many digits, a number without an exponent comes back with the same value.
     private const int ExactDigits = 15;
 
-    // The JSON path of the first number in the value that Inngest hands back changed, or null when there is none.
-    public static string? FindChanged(ReadOnlySpan<byte> json, int maxDepth)
+    // Where the first number whose value changes is, else the first that only loses its trailing zeros when those are
+    // asked for, or null when every number comes back as written.
+    public static (string Path, NumberChange Change)? FindChanged(ReadOnlySpan<byte> json, int maxDepth, bool trailingZeros)
     {
         var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
+        long firstTrailingZeros = -1;
         try
         {
             while (reader.Read())
             {
-                if (reader.TokenType == JsonTokenType.Number && Changes(reader.ValueSpan))
+                if (reader.TokenType != JsonTokenType.Number)
                 {
-                    return PathTo(json, reader.TokenStartIndex, maxDepth);
+                    continue;
+                }
+
+                var change = Change(reader.ValueSpan);
+                if (change == NumberChange.Value)
+                {
+                    return (PathTo(json, reader.TokenStartIndex, maxDepth), change);
+                }
+
+                if (change == NumberChange.TrailingZeros && trailingZeros && firstTrailingZeros < 0)
+                {
+                    firstTrailingZeros = reader.TokenStartIndex;
                 }
             }
         }
         catch (JsonException)
         {
             // Not JSON this reader takes, which the caller wrote with its own limits; there is nothing to warn about.
+            return null;
         }
 
-        return null;
+        return firstTrailingZeros < 0 ? null : (PathTo(json, firstTrailingZeros, maxDepth), NumberChange.TrailingZeros);
     }
 
-    public static bool Changes(ReadOnlySpan<byte> number)
+    public static NumberChange Change(ReadOnlySpan<byte> number)
     {
         var digits = 0;
+        var zeros = 0;
         var fraction = false;
         var exponent = false;
         foreach (var c in number)
@@ -47,6 +63,7 @@ internal static class NumberPrecision
             if (c is >= (byte)'0' and <= (byte)'9')
             {
                 digits++;
+                zeros = fraction && !exponent && c == '0' ? zeros + 1 : 0;
             }
             else if (c == '.')
             {
@@ -58,25 +75,22 @@ internal static class NumberPrecision
             }
         }
 
-        // Trailing zeros after the decimal point are dropped, so a decimal reads back with a smaller scale.
-        if (fraction && !exponent && number[^1] == '0')
+        // Trailing zeros after the decimal point are dropped, so a decimal reads back with a smaller scale. They do not
+        // count as digits a double has to hold.
+        var same = zeros > 0 && !exponent ? NumberChange.TrailingZeros : NumberChange.None;
+        if (!exponent && digits - zeros <= ExactDigits)
         {
-            return true;
-        }
-
-        if (!exponent && digits <= ExactDigits)
-        {
-            return false;
+            return same;
         }
 
         if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
         {
-            return true;
+            return NumberChange.Value;
         }
 
         Span<byte> canonical = stackalloc byte[32];
         var length = JsonCanonicalizer.FormatNumber(value, canonical);
-        return !SameValue(number, canonical[..length]);
+        return SameValue(number, canonical[..length]) ? same : NumberChange.Value;
     }
 
     // Compares the decimal values the two numbers write, not their text: 1e21 and 1E+21 are the same number.
@@ -175,4 +189,16 @@ internal static class NumberPrecision
 
         return true;
     }
+}
+
+// How a number comes back from Inngest.
+internal enum NumberChange
+{
+    None,
+
+    // The same value without the trailing zeros of its fraction: 19.90 comes back as 19.9.
+    TrailingZeros,
+
+    // Another value: the nearest double to what was written.
+    Value,
 }

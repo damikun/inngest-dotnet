@@ -9,6 +9,7 @@ using Inngest.Errors;
 using Inngest.Internal;
 using Inngest.Json;
 using Inngest.Middleware;
+using Microsoft.Extensions.Logging;
 
 namespace Inngest.Execution;
 
@@ -45,9 +46,14 @@ internal sealed partial class Invocation
         writer.Flush();
         var data = body.WrittenSpan[start..];
         CheckOutputSize(step, data.Length);
-        if (NumberPrecision.FindChanged(data, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth) is { } path)
+        switch (FindChangedNumber(data))
         {
-            Log.StepOutputNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+            case ({ } path, NumberChange.Value):
+                Log.StepOutputNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+            case ({ } path, NumberChange.TrailingZeros):
+                Log.StepOutputTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
         }
 
         timing.Write(writer);
@@ -184,11 +190,20 @@ internal sealed partial class Invocation
             op = op[1..];
         }
 
-        if (NumberPrecision.FindChanged(op, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth) is { } path)
+        switch (FindChangedNumber(op))
         {
-            Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+            case ({ } path, NumberChange.Value):
+                Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
+            case ({ } path, NumberChange.TrailingZeros):
+                Log.InvokePayloadTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+                break;
         }
     }
+
+    // Trailing zeros only change how a decimal prints, so they are looked for only when they would be logged.
+    private (string Path, NumberChange Change)? FindChangedNumber(ReadOnlySpan<byte> json) =>
+        NumberPrecision.FindChanged(json, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth, _runLogger.IsEnabled(LogLevel.Debug));
 
     private async ValueTask<ExecutionResult> CompleteAsync(Task<object?> function)
     {

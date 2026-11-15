@@ -79,13 +79,23 @@ internal static partial class Log
 
     [LoggerMessage(172, LogLevel.Warning,
         "Step {StepId} of run {RunId} of function {FunctionId} returned a number at {Path} that Inngest does not keep as written: " +
-        "Inngest stores every number as a 64-bit floating point value, so later calls read it rounded or without its trailing " +
-        "zeros. Return 64-bit ids, ticks and decimals that must stay exact as strings.")]
+        "Inngest stores every number as a 64-bit floating point value, so later calls read it rounded. Return 64-bit ids, " +
+        "ticks and decimals that must stay exact as strings.")]
     public static partial void StepOutputNumberChanged(ILogger logger, string stepId, string runId, string functionId, string path);
 
     [LoggerMessage(173, LogLevel.Warning,
         "Invoke step {StepId} of run {RunId} of function {FunctionId} sends a number at {Path} that Inngest does not keep as written: " +
-        "Inngest stores every number as a 64-bit floating point value, so the invoked function reads it rounded or without its " +
-        "trailing zeros. Send 64-bit ids, ticks and decimals that must stay exact as strings.")]
+        "Inngest stores every number as a 64-bit floating point value, so the invoked function reads it rounded. Send 64-bit " +
+        "ids, ticks and decimals that must stay exact as strings.")]
     public static partial void InvokePayloadNumberChanged(ILogger logger, string stepId, string runId, string functionId, string path);
+
+    [LoggerMessage(174, LogLevel.Debug,
+        "Step {StepId} of run {RunId} of function {FunctionId} returned a number at {Path} that comes back without its trailing " +
+        "zeros, such as 19.9 for 19.90: the same value, which prints differently.")]
+    public static partial void StepOutputTrailingZerosDropped(ILogger logger, string stepId, string runId, string functionId, string path);
+
+    [LoggerMessage(175, LogLevel.Debug,
+        "Invoke step {StepId} of run {RunId} of function {FunctionId} sends a number at {Path} that comes back without its trailing " +
+        "zeros, such as 19.9 for 19.90: the same value, which prints differently.")]
+    public static partial void InvokePayloadTrailingZerosDropped(ILogger logger, string stepId, string runId, string functionId, string path);
 }
