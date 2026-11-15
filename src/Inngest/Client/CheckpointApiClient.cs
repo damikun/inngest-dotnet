@@ -130,15 +130,17 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
     }
 
     // Names what makes the call that creates a run larger than Inngest reads: the request's event, or the ops that go
-    // with it, which can be a step's output, an error or the endpoint's response.
+    // with it, which can be a step's output, an error or the endpoint's response. The rest of the call takes about a
+    // hundred bytes, so an event just under the limit can be too large without its ops.
     private static InngestException TooLarge(NewEndpointRun run, int length)
     {
         var opsLength = run.Steps.IsEmpty ? 2 : run.Steps.Length;
         if (length - opsLength > MaxNewRunLength)
         {
             return new InngestException(
-                $"Run {run.RunId} was not created: the request's event alone is {run.Event.Length} bytes, more than the {MaxNewRunLength} " +
-                "bytes Inngest reads of the call that creates a run. Lower DurableEndpointOptions.MaxRequestBodySize.");
+                $"Run {run.RunId} was not created: without its ops, the call that creates it comes to {length - opsLength} bytes, more than " +
+                $"the {MaxNewRunLength} bytes Inngest reads of it, and the request's event takes {run.Event.Length} of them. " +
+                "Lower DurableEndpointOptions.MaxRequestBodySize.");
         }
 
         var ops = DescribeOps(run.Steps);

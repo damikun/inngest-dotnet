@@ -131,10 +131,12 @@ public sealed record CheckoutRequest(string OrderId, string CustomerId, decimal 
 `WebApplication` adds routing on its own; with another host, call `UseRouting` first. Everything after it in the
 pipeline runs inside the run. Put exception handling, such as `UseExceptionHandler`, before it, so that the SDK sees an
 exception first and can have it retried. If the app calls `UseAuthentication` and `UseAuthorization`, put them before
-it too: with the [user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the run gets the user that
-`HttpContext.User` holds when the middleware runs, which is nobody before authentication, and a request that
-authorization refuses then starts no run. A `WebApplication` that does not call them adds both ahead of the app's own
-middleware.
+it too, so that a request that authorization refuses starts no run. With the
+[user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the source of the user is asked when the
+middleware runs: with `AddUserContextFromHttpContext` the run gets the user that `HttpContext.User` holds then, which is
+nobody before authentication, and a source of your own gives what it returns at that point. A `WebApplication` adds
+each of the two that the app does not call ahead of the app's own middleware, but only when its services are
+registered: authentication after `AddAuthentication`, and authorization after `AddAuthorization`.
 
 `MapInngest` is not needed. Inngest calls a durable endpoint at its own URL and learns of it when the first run is
 saved, so there is nothing to sync. An app that has functions as well maps `MapInngest` as usual.
@@ -169,7 +171,7 @@ of a call. A request that ran no steps leaves no run, and its response has no `X
 The recording runs in the background, so neither the response nor the next request on the connection waits for
 Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has its response already. When the app
 stops, it waits for recordings still under way for as long as the host's shutdown timeout allows. It then cancels the
-rest and logs each run whose recording ended that way, since Inngest may not have it.
+rest and logs each run whose recording did not finish, since Inngest may not have it.
 
 Because the run is recorded after the response, a host that freezes or ends the process as soon as a response is out,
 as serverless hosts do, can record it late or lose it. Each recording keeps the run's steps in memory until Inngest
@@ -408,9 +410,11 @@ SDK reads the whole body into memory before the handler runs, and refuses one la
 413. This holds for every request to the endpoint, whether or not it ends up waiting. Inngest accepts about 3 MiB at
 most.
 
-The call that creates the run carries the body, in base64, and the output of the first step, and Inngest reads 4 MiB
-of it at most. When the two come to more, the run is not created: a request that hands its run over fails, and one
-that finished logs it.
+The call that creates the run carries the body, in base64, and the run's first op, and Inngest reads 4 MiB of it at
+most. That op is the output of the first step that ran or, when none ran, what hands the run over, such as a sleep, a
+step's error or the endpoint's own error. A run that ended in the request also sends as many of its other ops as fit
+in that call, and the rest in later ones. When the body and the first op come to more, the run is not created: a
+request that hands its run over fails, and one that ended in the request logs it.
 
 ## Configuration
 

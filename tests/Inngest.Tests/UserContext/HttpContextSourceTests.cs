@@ -330,6 +330,7 @@ public sealed class HttpContextSourceTests
     public async Task The_event_filter_sees_the_request_of_a_durable_endpoint_as_the_events_data()
     {
         var seen = new List<string>();
+        string[] fields = [];
         var (app, checkpoints) = await StartCheckoutAsync(
             new EphemeralDataProtectionProvider(),
             inngest =>
@@ -339,6 +340,7 @@ public sealed class HttpContextSourceTests
                 {
                     var data = (JsonElement)@event.Data!;
                     seen.Add($"{@event.Name} {data.GetProperty("method").GetString()} {data.GetProperty("path").GetString()} {data.GetProperty("fn").GetString()}");
+                    fields = [.. data.EnumerateObject().Select(field => field.Name)];
                     return data.GetProperty("path").GetString() == "/checkout";
                 });
             });
@@ -349,6 +351,55 @@ public sealed class HttpContextSourceTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe("u-42");
         seen.ShouldHaveSingleItem().ShouldBe("inngest/http.request POST /checkout POST /checkout");
+        fields.ShouldBe(["domain", "method", "path", "ip", "content_type", "query_params", "body", "fn"]);
+    }
+
+    // As for a send, the filter is asked only about a user that could be attached.
+    [Fact]
+    public async Task The_event_filter_is_not_asked_about_an_anonymous_request_to_a_durable_endpoint()
+    {
+        var asked = 0;
+        var (app, _) = await StartCheckoutAsync(
+            new EphemeralDataProtectionProvider(),
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.Configure<UserContextOptions>(options => options.EventFilter = _ =>
+                {
+                    asked++;
+                    return true;
+                });
+            });
+        await using var _ = app;
+
+        using var response = await PostAsync(app, "/checkout", signedIn: false);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe("anonymous");
+        asked.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_durable_endpoint_whose_event_filter_leaves_its_event_out_still_asks_the_source()
+    {
+        var source = new SendTests.FixedSource(UserContextApp.Ada());
+        var (app, checkpoints) = await StartCheckoutAsync(
+            new EphemeralDataProtectionProvider(),
+            inngest =>
+            {
+                inngest.Services.AddSingleton<IUserContextSource>(source);
+                inngest.Services.Configure<UserContextOptions>(options => options.EventFilter = @event => @event.Name != "inngest/http.request");
+            });
+        await using var started = app;
+
+        using var response = await PostAsync(app, "/checkout", signedIn: true);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe("anonymous");
+        source.Calls.ShouldBe(1);
+        await checkpoints.WaitForSavesAsync(1);
+        using var run = JsonDocument.Parse(checkpoints.Saves[0].Event!);
+        run.RootElement.TryGetProperty("user", out _).ShouldBeFalse();
     }
 
     private static async Task<(WebApplication App, FakeEndpointCheckpointApi Checkpoints)> StartCheckoutAsync(
