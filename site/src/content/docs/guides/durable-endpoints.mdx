@@ -443,8 +443,11 @@ and the SDK verifies the calls from Inngest with it. See [Configuration](/innges
 - **A call that resumes a run has no original headers and no user.** It carries the method, the body and the query,
   and nothing else of the request. With the [user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the
   request that starts the run gives it the user, for `ICurrentUser` and the events it sends, but Inngest does not keep
-  it for the calls that resume the run. A handler that needs the user, or a header, after a wait reads it in a step
-  before its first wait. The saved result then comes back on every call:
+  it for the calls that resume the run. The code outside steps runs again on every call, so it sees the user on the
+  first call and none after a wait, and the events it sends after a wait carry no user. That code must not choose its
+  steps by the user or a header: a resumed call would take another branch than the request did, and its steps would
+  no longer match the ones that ran. A handler that needs the user, or a header, reads it in a step before its first
+  wait. The saved result then comes back on every call:
 
   {/* check: statements; WebApplication app */}
   ```csharp
