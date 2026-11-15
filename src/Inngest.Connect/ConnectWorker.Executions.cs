@@ -14,6 +14,10 @@ namespace Inngest.Connect;
 // The executions the gateway sends: acknowledging and running them, extending their leases and replying.
 internal sealed partial class ConnectWorker
 {
+    // The gateway reads at most this much in one message and closes the connection on a larger one, which loses the
+    // acknowledgements and lease extensions queued behind it too. It is Inngest's limit on a response over HTTP as well.
+    private const long MaxReplyFrameBytes = 8 * 1024 * 1024;
+
     private void OnExecutorRequest(GatewayConnection connection, GatewayExecutorRequestData data)
     {
         Log.RequestReceived(_logger, data.RequestId, data.FunctionSlug, data.RunId);
@@ -266,10 +270,6 @@ internal sealed partial class ConnectWorker
             _replies.Unsent(reply);
         }
     }
-
-    // The gateway reads at most this much in one message and closes the connection on a larger one, which loses the
-    // acknowledgements and lease extensions queued behind it too. It is Inngest's limit on a response over HTTP as well.
-    private const long MaxReplyFrameBytes = 8 * 1024 * 1024;
 
     // Over HTTP, Inngest fails a response over its limit (output_too_large). Here it never goes out, and the call fails
     // without retries instead, as a step whose output is too large does, since the function would answer the same again.

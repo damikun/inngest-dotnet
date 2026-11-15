@@ -82,7 +82,7 @@ internal static partial class Log
     [LoggerMessage(EventId = 523, Level = LogLevel.Warning, Message = "Could not send the reply to request {RequestId} over HTTP: {Reason}.")]
     public static partial void FlushFailed(ILogger logger, string requestId, string reason);
 
-    [LoggerMessage(EventId = 524, Level = LogLevel.Error, Message = "Gave up sending {Count} replies over HTTP after {Rounds} rounds; they are tried again on the next connection.")]
+    [LoggerMessage(EventId = 524, Level = LogLevel.Error, Message = "Gave up sending {Count} replies over HTTP after {Rounds} rounds, as the worker is stopping.")]
     public static partial void FlushGaveUp(ILogger logger, int count, int rounds);
 
     [LoggerMessage(EventId = 525, Level = LogLevel.Warning, Message = "Dropped the reply to request {RequestId}, which could not be delivered before the worker stopped.")]
@@ -94,6 +94,10 @@ internal static partial class Log
     [LoggerMessage(EventId = 527, Level = LogLevel.Error,
         Message = "The reply to request {RequestId} of function {FunctionSlug} is {Size} bytes, more than the gateway accepts; the call fails without retries instead.")]
     public static partial void ReplyTooLarge(ILogger logger, string requestId, string functionSlug, long size);
+
+    [LoggerMessage(EventId = 528, Level = LogLevel.Error,
+        Message = "Sending {Count} replies over HTTP has failed {Rounds} rounds in a row; the worker keeps trying until Inngest takes them or the worker stops.")]
+    public static partial void FlushStillFailing(ILogger logger, int count, int rounds);
 
     [LoggerMessage(EventId = 530, Level = LogLevel.Warning, Message = "Ignored a message of {Length} bytes on connection {ConnectionId} that is not a ConnectMessage.")]
     public static partial void InvalidMessage(ILogger logger, string connectionId, int length);
