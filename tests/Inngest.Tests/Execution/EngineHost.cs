@@ -73,8 +73,13 @@ internal sealed class EngineHost : IDisposable
             new ExecutionRequest { Function = function, Body = call.ToBytes(), StepId = stepId ?? "step", Services = _provider },
             TestContext.Current.CancellationToken);
 
-    // A durable endpoint request that starts a run, as the ASP.NET Core middleware makes it.
-    public async Task<EndpointOutcome> EndpointAsync(FunctionDefinition function, int retries = 3, string runId = "01JENDPOINTRUN00000000000000")
+    // A durable endpoint request that starts a run, as the ASP.NET Core middleware makes it. requestAborted stands in for
+    // the client leaving.
+    public async Task<EndpointOutcome> EndpointAsync(
+        FunctionDefinition function,
+        int retries = 3,
+        string runId = "01JENDPOINTRUN00000000000000",
+        CancellationToken? requestAborted = null)
     {
         var @event = EndpointCalls.WriteEvent(
             new EndpointRequest("https://api.example.com", "POST", "/orders", "203.0.113.7", "application/json", "", "{}"u8.ToArray(), function.Id),
@@ -87,7 +92,7 @@ internal sealed class EngineHost : IDisposable
                 Services = _provider,
                 Endpoint = new EndpointCall(@event, retries),
             },
-            TestContext.Current.CancellationToken);
+            requestAborted ?? TestContext.Current.CancellationToken);
         return result.Endpoint ?? throw new InvalidOperationException(Encoding.UTF8.GetString(result.Body.WrittenSpan));
     }
 
@@ -275,6 +280,9 @@ internal sealed class FakeInngestApi : IInngestApi
 
     public Exception? Failure { get; set; }
 
+    // Called on every request, such as to move a fake clock on while the run's state loads.
+    public Action? OnRequest { get; set; }
+
     public List<string> Requests { get; } = [];
 
     public Task<RegisterResult> RegisterAsync(ReadOnlyMemory<byte> payload, string? deployId, string? serverKind, CancellationToken cancellationToken) =>
@@ -291,6 +299,7 @@ internal sealed class FakeInngestApi : IInngestApi
             Requests.Add(request);
         }
 
+        OnRequest?.Invoke();
         await Task.Yield();
         if (Failure is not null)
         {

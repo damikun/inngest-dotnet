@@ -26,8 +26,9 @@ internal static class EndpointCalls
         request.GetHeader(RunIdHeader) is { Length: > 0 } && (isDev || request.GetHeader(Headers.Signature) is { Length: > 0 });
 
     // The fields of inngest-js. Inngest reads the body as bytes, so it goes in base64, and sends it back unchanged
-    // when it resumes the run, together with the method, the content type and the query.
-    public static byte[] WriteEvent(EndpointRequest request, DateTimeOffset now)
+    // when it resumes the run, together with the method, the content type and the query. The user is for the call made
+    // in the request only: Inngest leaves it out of the event it keeps.
+    public static byte[] WriteEvent(EndpointRequest request, DateTimeOffset now, JsonElement? user = null)
     {
         using var buffer = new PooledBufferWriter(request.Body.Length * 4 / 3 + 512);
         using (var writer = new Utf8JsonWriter(buffer))
@@ -44,6 +45,12 @@ internal static class EndpointCalls
             writer.WriteBase64String("body"u8, request.Body.Span);
             writer.WriteString("fn"u8, request.FunctionId);
             writer.WriteEndObject();
+            if (user is { } value)
+            {
+                writer.WritePropertyName("user"u8);
+                value.WriteTo(writer);
+            }
+
             writer.WriteNumber("ts"u8, now.ToUnixTimeMilliseconds());
             writer.WriteEndObject();
         }

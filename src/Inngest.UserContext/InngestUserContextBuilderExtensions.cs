@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 
 using System.Security.Claims;
+using Inngest.Serving;
 using Inngest.UserContext;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,8 @@ public static class InngestUserContextBuilderExtensions
     /// Carries the user who caused a run into it. The middleware restores the user of the triggering event as
     /// <see cref="ICurrentUser"/> and as a scoped ClaimsPrincipal, and attaches the user to the events that an app
     /// sends: the user a <see cref="IUserContextSource"/> names for sends outside a run (Inngest.UserContext.AspNetCore
-    /// reads HttpContext.User), and the run's own for the events a run sends. Only the claims of
+    /// reads HttpContext.User), and the run's own for the events a run sends. The run of a durable endpoint gets the user
+    /// the source names for the request that starts it. Only the claims of
     /// <see cref="UserContextOptions.Claims"/> are attached, protected so that nobody can read or forge them: with ASP.NET
     /// Core Data Protection unless an <see cref="IUserContextProtector"/> is registered. Data Protection has to be set
     /// up by the app with <c>AddDataProtection</c>, and every app that sends or restores users needs the same key ring and
@@ -49,6 +51,9 @@ public static class InngestUserContextBuilderExtensions
         // of a scoped step included.
         services.TryAddSingleton<ICurrentUser, CurrentUser>();
         services.TryAddSingleton<InvocationUsers>();
+
+        // Scoped like the middleware, so that the source is the one of the request.
+        services.TryAddScoped<IEndpointEventUser, EndpointEventUser>();
 
         // Resolves to the user as it is when the service is created, which is anonymous before the function starts.
         services.TryAddScoped<ClaimsPrincipal>(static provider => provider.GetRequiredService<ICurrentUser>().Principal);

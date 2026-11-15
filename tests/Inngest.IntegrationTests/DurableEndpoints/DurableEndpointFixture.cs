@@ -108,6 +108,49 @@ public sealed class DurableEndpointFixture : InngestFixture
             }
         }).WithDurableEndpoint(new DurableEndpointOptions { Id = "refused", Retries = 0 });
 
+        // Two steps run in the request before the third fails on every attempt, which Inngest retries as often as the
+        // endpoint allows and no more.
+        app.MapPost("/charge/{testId}", async (string testId, IStepTools step) =>
+        {
+            await step.RunAsync("load", () => Count(testId, "load"));
+            await step.RunAsync("reserve", () => Count(testId, "reserve"));
+            Func<string> charge = () =>
+            {
+                Count(testId, "charge");
+                throw new InvalidOperationException("card declined");
+            };
+            try
+            {
+                await step.RunAsync("charge", charge);
+                return Results.Ok();
+            }
+            catch (StepFailedException exception)
+            {
+                return Results.Conflict(new { error = exception.Error.Message });
+            }
+        }).WithDurableEndpoint(new DurableEndpointOptions { Id = "charge", Retries = 1 });
+
+        // Steps whose outputs come to more than Inngest reads of the call that creates a run, before a sleep or not.
+        app.MapPost("/large/{testId}", async (string testId, bool? sleep, IStepTools step) =>
+        {
+            var length = 0;
+            foreach (var id in new[] { "a", "b", "c" })
+            {
+                length += (await step.RunAsync(id, () =>
+                {
+                    Count(testId, id);
+                    return new string('x', 1_500_000);
+                })).Length;
+            }
+
+            if (sleep == true)
+            {
+                await step.SleepAsync("cool-off", TimeSpan.FromSeconds(1));
+            }
+
+            return Results.Ok(new { length });
+        }).WithDurableEndpoint("large");
+
         // Logs through an app service in a step, on the request that starts the run, and after a sleep, on the call from
         // Inngest that resumes it.
         app.MapPost("/log-scope/{testId}", async (string testId, IStepTools step, LogScopeService service) =>

@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Primitives;
@@ -44,7 +43,7 @@ internal sealed class DurableEndpointMiddleware
     private readonly InngestCommHandler _handler;
     private readonly InngestSettings _settings;
     private readonly TimeProvider _time;
-    private readonly CancellationToken _stopping;
+    private readonly EndpointRunSaves _saves;
     private readonly ILogger _logger;
 
     public DurableEndpointMiddleware(RequestDelegate next, IServiceProvider services)
@@ -64,8 +63,8 @@ internal sealed class DurableEndpointMiddleware
                 "Durable endpoints need ServeOrigin (INNGEST_SERVE_ORIGIN) outside dev mode: the origin at which Inngest resumes their runs, such as https://api.example.com.");
         }
 
-        _time =services.GetService<TimeProvider>() ?? TimeProvider.System;
-        _stopping = services.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None;
+        _time = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        _saves = services.GetRequiredService<EndpointRunSaves>();
         _logger = (services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance).CreateLogger("Inngest.AspNetCore.DurableEndpoints");
     }
 
@@ -107,7 +106,13 @@ internal sealed class DurableEndpointMiddleware
         var now = _time.GetUtcNow();
         var runId = Ulid.New(now);
         var retries = options.RetriesOrDefault;
-        var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now);
+
+        // The user of the request, when the app uses the user context, so that the endpoint's code and the events it
+        // sends have the user they would have without the run.
+        var user = context.RequestServices.GetService<IEndpointEventUser>() is { } users
+            ? await users.GetAsync(now, cancellationToken).ConfigureAwait(false)
+            : null;
+        var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now, user);
 
         // What middleware before this one has set, such as security headers. An answer that replaces the endpoint's
         // response keeps them and drops what the endpoint set.
@@ -122,7 +127,7 @@ internal sealed class DurableEndpointMiddleware
                     Function = Function(functionId, context, capture, resumed: false),
                     Body = EndpointCalls.WriteStartCall(@event, runId, retries),
                     Services = context.RequestServices,
-                    Endpoint = new EndpointCall(@event, retries),
+                    Endpoint = new EndpointCall(@event, retries, _saves.Stopped),
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -139,22 +144,17 @@ internal sealed class DurableEndpointMiddleware
             switch (outcome.Kind)
             {
                 case EndpointOutcomeKind.Completed:
-                    if (outcome.Finish is not null)
+                    if (outcome.Finish is { } finish)
                     {
+                        // Recorded in the background, also when the client has gone before it has the body.
                         response.Headers[EndpointCalls.RunIdHeader] = outcome.RunId;
+                        Record(response, outcome.RunId, functionId, finish);
                     }
 
                     if (!capture.Body.IsEmpty)
                     {
                         response.ContentLength ??= capture.Body.Length;
                         await response.Body.WriteAsync(capture.Body, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    if (outcome.Finish is { } finish)
-                    {
-                        // The client has everything before the run is recorded.
-                        await response.CompleteAsync().ConfigureAwait(false);
-                        await finish(_stopping).ConfigureAwait(false);
                     }
 
                     break;
@@ -169,13 +169,24 @@ internal sealed class DurableEndpointMiddleware
                     Reset(response, earlierHeaders);
                     if (outcome.Finish is { } finishFailed)
                     {
-                        await finishFailed(_stopping).ConfigureAwait(false);
+                        Record(response, outcome.RunId, functionId, finishFailed);
                     }
 
                     // The app's own error handling answers the client, as it would without Inngest.
                     ExceptionDispatchInfo.Capture(outcome.Error!).Throw();
                     break;
             }
+        }
+    }
+
+    // Records the run once the endpoint has answered. While Inngest is behind, the connection takes its next request
+    // only once this run is recorded, which slows clients down rather than keeping ever more runs in memory.
+    private void Record(HttpResponse response, string runId, string functionId, Func<CancellationToken, Task> save)
+    {
+        var recording = _saves.Start(runId, functionId, save);
+        if (!recording.IsCompleted)
+        {
+            response.OnCompleted(static recording => (Task)recording, recording);
         }
     }
 

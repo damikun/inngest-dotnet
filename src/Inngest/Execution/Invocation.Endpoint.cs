@@ -47,13 +47,14 @@ internal sealed partial class Invocation
             _checkpoint!.AddOp(op.WrittenSpan);
         }
 
-        return await HandOverAsync().ConfigureAwait(false);
+        return await HandOverAsync(last: 1).ConfigureAwait(false);
     }
 
     // Steps the endpoint found that do not run in this call, such as a sleep or steps in parallel.
     private async ValueTask<ExecutionResult> HandOverStepsAsync(List<FoundStep> steps)
     {
         var ops = new List<PooledBufferWriter>();
+        int last;
         try
         {
             foreach (var step in steps)
@@ -80,6 +81,8 @@ internal sealed partial class Invocation
             {
                 _checkpoint!.AddOp(op.WrittenSpan);
             }
+
+            last = ops.Count;
         }
         catch (Exception exception)
         {
@@ -94,7 +97,7 @@ internal sealed partial class Invocation
             }
         }
 
-        return await HandOverAsync().ConfigureAwait(false);
+        return await HandOverAsync(last).ConfigureAwait(false);
     }
 
     // The endpoint threw. While attempts remain, Inngest retries it from its last saved step, as inngest-js has it.
@@ -127,15 +130,21 @@ internal sealed partial class Invocation
             _checkpoint!.AddOp(op.WrittenSpan);
         }
 
-        return await HandOverAsync().ConfigureAwait(false);
+        return await HandOverAsync(last: 1).ConfigureAwait(false);
     }
 
-    // Saves the buffered ops, which creates the run, and leaves the rest of it to Inngest.
-    private async Task<ExecutionResult> HandOverAsync()
+    // Saves the buffered ops, which creates the run, and leaves the rest of it to Inngest. The last ops are those that
+    // hand the run over, which go to Inngest together.
+    private async Task<ExecutionResult> HandOverAsync(int last)
     {
         try
         {
-            await _checkpoint!.SaveAsync(_cancellationToken).ConfigureAwait(false);
+            await _endpoint!.HandOverAsync(_checkpoint!.TakeOps(), last, _cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (_endpoint!.Run is not null)
+        {
+            Log.EndpointHandOverIncomplete(_logger, _run.RunId, _functionId, exception);
+            return ExecutionResult.ForEndpoint(EndpointOutcome.Failed(_run.RunId, exception));
         }
         catch (Exception exception) when (!_cancellationToken.IsCancellationRequested)
         {
@@ -231,7 +240,7 @@ internal sealed partial class Invocation
     // the client has its response, and the run is just not recorded.
     private Func<CancellationToken, Task> DeferSave()
     {
-        var steps = _checkpoint!.TakeSteps();
+        var ops = _checkpoint!.TakeOps();
         var saver = _endpoint!;
         var logger = _logger;
         var runId = _run.RunId;
@@ -240,7 +249,7 @@ internal sealed partial class Invocation
         {
             try
             {
-                await saver.SaveAsync(steps, cancellationToken).ConfigureAwait(false);
+                await saver.FinishAsync(ops, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {

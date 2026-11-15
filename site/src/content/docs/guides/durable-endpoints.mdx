@@ -159,17 +159,30 @@ over, or when the endpoint is done.
 ### The endpoint finishes
 
 The client gets the response, with the run's id in an `X-Run-ID` header. After the response, the SDK records the run
-in Inngest, with the steps that ran and the response. A request that ran no steps leaves no run, and its response has
-no `X-Run-ID`.
+in Inngest, with the steps that ran and the response, in one call unless they come to more than the 4 MiB Inngest reads
+of a call. A request that ran no steps leaves no run, and its response has no `X-Run-ID`.
 
-If Inngest cannot be reached for the recording, the SDK logs it. The client has its response already.
+The recording runs in the background, so neither the response nor the next request on the connection waits for
+Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has its response already. When the app
+stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, and logs each run it
+could not record in that time.
+
+Because the run is recorded after the response, a host that freezes or ends the process as soon as a response is out,
+as serverless hosts do, can record it late or lose it. Each recording keeps the run's steps in memory until Inngest
+has them. While Inngest is slow or cannot be reached and more than 100 recordings are under way, a connection takes
+its next request only once the run of its last one is recorded.
 
 ### A step has to wait
 
 A sleep, a wait for an event or a signal, an invoke, a fetch or inference step, and steps in parallel do not run in
 the request: Inngest carries them out. The SDK saves the steps so far, which creates the run in Inngest, and the
 client gets a 303 See Other to a URL that answers with the final response. That URL waits up to five minutes for the
-run to finish.
+run to finish. As in the TypeScript SDK, the steps go to Inngest one to a call: Inngest takes several in one call for
+steps in parallel, and would then plan each later step of the run before running it.
+
+Once the first call has created the run, the SDK sends the rest even if the client disconnects: without them, Inngest
+would have the run but nothing that resumes it. If one of them fails for good, the request fails, and the SDK logs
+that the run may be left in Inngest with nothing to resume it.
 
 This handler runs `reserve-stock` in the request and then waits for a person to approve a large order. The body of
 the handler:
@@ -251,8 +264,8 @@ endpoint again, and the client waits as above. The steps that ran return their s
 
 When the request itself is the last attempt, because `Retries` is 0 or the exception is a `NonRetriableException`, the
 exception goes to the app's own error handling, which answers the client as it would without Inngest. If the request
-ran steps, the SDK records the run as failed, with the error. A call from Inngest that throws on the last attempt
-fails the run.
+ran steps, the SDK records the run as failed, with the error, in the background as for a request that finished. A call
+from Inngest that throws on the last attempt fails the run.
 
 Only an exception makes Inngest retry. A handler that returns a 500 response has finished, and the run records that
 response.
@@ -391,6 +404,10 @@ SDK reads the whole body into memory before the handler runs, and refuses one la
 413. This holds for every request to the endpoint, whether or not it ends up waiting. Inngest accepts about 3 MiB at
 most.
 
+The call that creates the run carries the body, in base64, and the output of the first step, and Inngest reads 4 MiB
+of it at most. When the two come to more, the run is not created: a request that hands its run over fails, and one
+that finished logs it.
+
 ## Configuration
 
 The run records the origin that Inngest calls the endpoint back on, with the original body, signed. Outside dev mode
@@ -424,7 +441,12 @@ and the SDK verifies the calls from Inngest with it. See [Configuration](/innges
   finished, so streaming responses, such as server-sent events, do not work. Inngest records the body as text, so do
   not return binary content from a durable endpoint.
 - **A call that resumes a run has no original headers and no user.** It carries the method, the body and the query,
-  and nothing else of the request. A handler that needs the user, or a header, reads it in a step before its first
+  and nothing else of the request. With the [user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the
+  request that starts the run gives it the user, for `ICurrentUser` and the events it sends, but Inngest does not keep
+  it for the calls that resume the run. The code outside steps runs again on every call, so it sees the user on the
+  first call and none after a wait, and the events it sends after a wait carry no user. That code must not choose its
+  steps by the user or a header: a resumed call would take another branch than the request did, and its steps would
+  no longer match the ones that ran. A handler that needs the user, or a header, reads it in a step before its first
   wait. The saved result then comes back on every call:
 
   {/* check: statements; WebApplication app */}

@@ -63,6 +63,14 @@ internal static partial class Log
         "Could not record run {RunId} of durable endpoint {FunctionId} in Inngest after its response; the client has the response.")]
     public static partial void EndpointRunNotRecorded(ILogger logger, string runId, string functionId, Exception exception);
 
+    [LoggerMessage(153, LogLevel.Warning,
+        "Run {RunId} of durable endpoint {FunctionId} was not recorded in Inngest: the app stopped before Inngest saved it. The client has the response.")]
+    public static partial void EndpointRunNotRecordedStopping(ILogger logger, string runId, string functionId);
+
+    [LoggerMessage(154, LogLevel.Error,
+        "Inngest created run {RunId} of durable endpoint {FunctionId}, but the rest of its hand-over failed, which can leave the run in Inngest with nothing to resume it. The request fails.")]
+    public static partial void EndpointHandOverIncomplete(ILogger logger, string runId, string functionId, Exception exception);
+
     [LoggerMessage(160, LogLevel.Error,
         "Disposing the services of step {StepId} of run {RunId} of function {FunctionId} failed; the step's outcome stands.")]
     public static partial void StepScopeDisposalFailed(ILogger logger, string stepId, string runId, string functionId, Exception exception);

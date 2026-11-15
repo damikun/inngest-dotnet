@@ -1,7 +1,11 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Inngest.Client;
 using Inngest.Execution;
+using Inngest.Tests.Checkpointing;
 using Inngest.Tests.Client;
 using Inngest.Tests.Execution;
 using Inngest.UserContext;
@@ -187,6 +191,101 @@ public sealed class HttpContextSourceTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         Sent(http).Single().TryGetProperty("user", out _).ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_durable_endpoint_gives_its_run_and_the_events_it_sends_the_user_of_the_request(bool signedIn)
+    {
+        var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        var checkpoints = new FakeEndpointCheckpointApi();
+        await using var app = await StartAsync(
+            new EphemeralDataProtectionProvider(),
+            http,
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.AddSingleton<IEndpointCheckpointApi>(checkpoints);
+            },
+            web =>
+            {
+                web.UseInngestDurableEndpoints();
+                web.MapPost("/checkout", async (IInngestClient client, ICurrentUser user, IStepTools step, CancellationToken cancellationToken) =>
+                {
+                    await step.RunAsync("reserve", () => 1);
+                    await client.SendAsync(new InngestEvent("shop/order.placed", new { OrderId = 3 }), cancellationToken);
+                    return Results.Ok(user.Principal.FindFirst("sub")?.Value ?? "anonymous");
+                }).WithDurableEndpoint();
+            });
+
+        using var response = await PostAsync(app, "/checkout", signedIn);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe(signedIn ? "u-42" : "anonymous");
+        Sent(http).Single().TryGetProperty("user", out var sent).ShouldBe(signedIn);
+        await checkpoints.WaitForSavesAsync(1);
+        using var run = JsonDocument.Parse(checkpoints.Saves[0].Event!);
+        run.RootElement.TryGetProperty("user", out var recorded).ShouldBe(signedIn);
+        if (signedIn)
+        {
+            sent.GetProperty(UserContextCodec.Key).GetProperty("v").GetInt32().ShouldBe(1);
+            recorded.GetProperty(UserContextCodec.Key).GetProperty("v").GetInt32().ShouldBe(1);
+        }
+    }
+
+    // Inngest keeps the event without its user, so the code outside steps sees the user only in the request that
+    // starts the run. What a step read before the wait comes back from Inngest.
+    [Fact]
+    public async Task A_durable_endpoint_resumed_after_a_wait_has_no_user_but_keeps_what_a_step_read_before_it()
+    {
+        var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        var checkpoints = new FakeEndpointCheckpointApi();
+        var api = new FakeInngestApi();
+        var tops = new List<string>();
+        await using var app = await StartAsync(
+            new EphemeralDataProtectionProvider(),
+            http,
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.AddSingleton<IEndpointCheckpointApi>(checkpoints);
+                inngest.Services.AddSingleton<IInngestApi>(api);
+            },
+            web =>
+            {
+                web.UseInngestDurableEndpoints();
+                web.MapPost("/ship", async (ICurrentUser user, IStepTools step) =>
+                {
+                    var top = Name(user);
+                    tops.Add(top);
+                    var saved = await step.RunAsync("read-user", () => Name(user));
+                    await step.SleepAsync("wait-for-packing", TimeSpan.FromMinutes(5));
+                    return Results.Ok(new[] { top, saved, Name(user) });
+                }).WithDurableEndpoint();
+            });
+
+        using var started = await PostAsync(app, "/ship", signedIn: true);
+
+        started.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var runId = started.Headers.GetValues("X-Run-ID").Single();
+        var created = checkpoints.Saves[0];
+        created.Ops[0].GetProperty("data").GetString().ShouldBe("u-42");
+        var stored = JsonNode.Parse(created.Event!)!.AsObject();
+        stored.Remove("user").ShouldBeTrue();
+        api.Events = $"[{stored.ToJsonString()}]";
+        api.Steps = $$$"""{"{{{StepIds.Hash("read-user")}}}":{"data":"u-42"},"{{{StepIds.Hash("wait-for-packing")}}}":{"data":null}}""";
+
+        using var resume = new HttpRequestMessage(HttpMethod.Post, "/ship");
+        resume.Headers.Add("X-Run-ID", runId);
+        using var resumed = await app.GetTestClient().SendAsync(resume, TestContext.Current.CancellationToken);
+
+        resumed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var output = (await resumed.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("data");
+        JsonSerializer.Deserialize<string[]>(output.GetProperty("body").GetString()!).ShouldBe(["anonymous", "u-42", "anonymous"]);
+        tops.ShouldBe(["u-42", "anonymous"]);
+    }
+
+    private static string Name(ICurrentUser user) => user.Principal.FindFirst("sub")?.Value ?? "anonymous";
 
     [Fact]
     public async Task An_app_that_registered_its_own_source_keeps_it()

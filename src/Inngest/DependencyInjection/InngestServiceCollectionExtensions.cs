@@ -12,6 +12,7 @@ using Inngest.Rest;
 using Inngest.Signing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -76,6 +77,8 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<CheckpointApiClient>();
         services.TryAddSingleton<ICheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());
         services.TryAddSingleton<IEndpointCheckpointApi>(static provider => provider.GetRequiredService<CheckpointApiClient>());
+        services.TryAddSingleton<EndpointRunSaves>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, EndpointRunSaves>(static provider => provider.GetRequiredService<EndpointRunSaves>()));
 
         // The steps of the durable endpoint or function whose code is running, for handlers that take them as a
         // parameter or a constructor argument.

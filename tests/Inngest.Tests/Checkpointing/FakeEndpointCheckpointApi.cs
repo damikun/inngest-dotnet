@@ -12,8 +12,12 @@ internal sealed class FakeEndpointCheckpointApi : IEndpointCheckpointApi
     private readonly List<EndpointSave> _saves = [];
     private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
     private Exception? _failNext;
+    private (TaskCompletionSource Reached, TaskCompletionSource Release)? _holdNext;
 
     public string? Token { get; set; } = "eyJ.token";
+
+    // Called once a call is saved, before the next one starts.
+    public Action<EndpointSave>? Saved { get; set; }
 
     public IReadOnlyList<EndpointSave> Saves
     {
@@ -52,36 +56,57 @@ internal sealed class FakeEndpointCheckpointApi : IEndpointCheckpointApi
         return this;
     }
 
-    public Task<EndpointRun> CheckpointNewRunAsync(NewEndpointRun run, CancellationToken cancellationToken)
+    // The next call waits until the test releases it, and is saved only then. Reached completes once it has started.
+    public (Task Reached, TaskCompletionSource Release) HoldNext()
     {
+        var hold = (new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
         lock (_gate)
         {
-            if (TakeFailure() is { } failure)
-            {
-                return Task.FromException<EndpointRun>(failure);
-            }
-
-            _saves.Add(new EndpointSave(Created: true, run.RunId, Encoding.UTF8.GetString(run.Event.Span), Text(run.Steps), run.Retries));
-            Notify();
+            _holdNext = hold;
         }
 
-        return Task.FromResult(new EndpointRun(run.RunId, "fn-uuid", "app-uuid", Token));
+        return (hold.Item1.Task, hold.Item2);
     }
 
-    public Task CheckpointEndpointStepsAsync(EndpointRun run, ReadOnlyMemory<byte> steps, CancellationToken cancellationToken)
+    public async Task<EndpointRun> CheckpointNewRunAsync(NewEndpointRun run, CancellationToken cancellationToken)
     {
+        var save = new EndpointSave(Created: true, run.RunId, Encoding.UTF8.GetString(run.Event.Span), Text(run.Steps), run.Retries);
+        await SaveAsync(save, cancellationToken);
+        return new EndpointRun(run.RunId, "fn-uuid", "app-uuid", Token);
+    }
+
+    public Task CheckpointEndpointStepsAsync(EndpointRun run, ReadOnlyMemory<byte> steps, CancellationToken cancellationToken) =>
+        SaveAsync(new EndpointSave(Created: false, run.RunId, Event: null, Text(steps), Retries: null), cancellationToken);
+
+    private async Task SaveAsync(EndpointSave save, CancellationToken cancellationToken)
+    {
+        // As the HTTP client does with a token that is already cancelled.
+        cancellationToken.ThrowIfCancellationRequested();
+        (TaskCompletionSource Reached, TaskCompletionSource Release)? hold;
         lock (_gate)
         {
             if (TakeFailure() is { } failure)
             {
-                return Task.FromException(failure);
+                throw failure;
             }
 
-            _saves.Add(new EndpointSave(Created: false, run.RunId, Event: null, Text(steps), Retries: null));
+            hold = _holdNext;
+            _holdNext = null;
+        }
+
+        if (hold is { } held)
+        {
+            held.Reached.TrySetResult();
+            await held.Release.Task.WaitAsync(cancellationToken);
+        }
+
+        lock (_gate)
+        {
+            _saves.Add(save);
             Notify();
         }
 
-        return Task.CompletedTask;
+        Saved?.Invoke(save);
     }
 
     private void Notify()

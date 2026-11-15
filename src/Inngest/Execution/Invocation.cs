@@ -104,7 +104,13 @@ internal sealed partial class Invocation
     // Results the run completed first that had not been reached when later ones were handed back.
     private HashSet<string>? _skipped;
 
-    public Invocation(ExecutionEngine engine, ExecutionRequest request, RunRequest run, Uri? runUrl, CancellationToken cancellationToken)
+    public Invocation(
+        ExecutionEngine engine,
+        ExecutionRequest request,
+        RunRequest run,
+        Uri? runUrl,
+        DateTimeOffset receivedAt,
+        CancellationToken cancellationToken)
     {
         _settings = engine.Settings;
         _time = engine.TimeProvider;
@@ -119,11 +125,11 @@ internal sealed partial class Invocation
             var api = engine.EndpointCheckpoints
                 ?? throw new InvalidOperationException("Durable endpoints need the checkpoint API that services.AddInngest() registers.");
             _endpoint = new EndpointSaver(api, run.RunId, endpoint);
-            _checkpoint = Checkpointer.ForEndpoint(_endpoint, _time, _settings.SerializerOptions);
+            _checkpoint = Checkpointer.ForEndpoint(_time, _settings.SerializerOptions);
         }
         else
         {
-            _checkpoint = _target is null ? Checkpointer.Create(engine.Checkpoints, _settings, request, run, _time) : null;
+            _checkpoint = _target is null ? Checkpointer.Create(engine.Checkpoints, _settings, request, run, receivedAt, _time) : null;
         }
         _unseen = run.Order.Count;
         _function = request.Function.Resolve(request.Services);

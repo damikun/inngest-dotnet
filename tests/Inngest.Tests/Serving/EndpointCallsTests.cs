@@ -41,6 +41,18 @@ public sealed class EndpointCallsTests
     }
 
     [Fact]
+    public void The_event_carries_the_user_it_is_given_and_none_otherwise()
+    {
+        using var user = JsonDocument.Parse("""{"_inngest_dotnet_user":{"v":1,"t":"sealed"}}""");
+
+        using var withUser = JsonDocument.Parse(EndpointCalls.WriteEvent(Request, Now, user.RootElement));
+        using var without = JsonDocument.Parse(EndpointCalls.WriteEvent(Request, Now));
+
+        withUser.RootElement.GetProperty("user").GetRawText().ShouldBe(user.RootElement.GetRawText());
+        without.RootElement.TryGetProperty("user", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public void A_request_without_a_body_records_an_empty_one()
     {
         using var document = JsonDocument.Parse(EndpointCalls.WriteEvent(Request with { Body = ReadOnlyMemory<byte>.Empty }, Now));
