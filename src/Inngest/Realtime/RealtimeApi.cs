@@ -1,8 +1,10 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Buffers;
 using System.Globalization;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Inngest.Client;
 using Inngest.Configuration;
@@ -29,7 +31,7 @@ internal interface IRealtimeApi
     Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken);
 }
 
-internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<RealtimeApi> logger) : IRealtimeApi
+internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestSettings settings, TimeProvider time, ILogger<RealtimeApi> logger) : IRealtimeApi
 {
     private readonly InngestApiTransport _transport = new(httpClientFactory, settings, logger);
 
@@ -38,9 +40,19 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
 
     public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
     {
-        var content = new TextStreamContent(chunks);
-        await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content), PublishAction(topic), cancellationToken)
-            .ConfigureAwait(false);
+        var content = new TextStreamContent(chunks, time, () => Log.StreamOutgrown(logger, topic.Name, topic.Channel, TextStreamContent.MaxPieces));
+        try
+        {
+            await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception) when (content.Failure is { } failure)
+        {
+            // The producer failed, not the request: a step whose model gave up for good must not be retried, and the
+            // caller may catch the model's own exception.
+            failure.Throw();
+        }
+
         return content.Text;
     }
 
@@ -161,12 +173,39 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
     }
 }
 
-// A message as inngest-js sends it: text as it is, anything else as JSON.
+// The body of a published message: its data as JSON. Inngest keeps a body that parses as JSON as that JSON, and takes
+// any other as a string. inngest-js sends text as it is, so its text that reads as JSON, such as "42" or a model's JSON
+// answer, arrives as a number or an object; here text always goes as a JSON string and stays a string.
 internal static class RealtimePayload
 {
-    public static byte[] Body<T>(T data, JsonSerializerOptions options) => data is string text
-        ? Encoding.UTF8.GetBytes(text)
-        : JsonSerializer.SerializeToUtf8Bytes(data, options.GetTypeInfo(typeof(T)));
+    // Inngest reads at most this much of a message and publishes one cut off there as a string of broken JSON.
+    public const int MaxMessageBytes = 512 * 1024;
+
+    public static byte[] Body<T>(T data, JsonSerializerOptions options)
+    {
+        if (data is not string text)
+        {
+            return JsonSerializer.SerializeToUtf8Bytes(data, options.GetTypeInfo(typeof(T)));
+        }
+
+        // Unless the app chose an encoder, letters outside ASCII go out as UTF-8. Escaped, text in most languages would be
+        // two or three times as large, and the 512 KB that Inngest reads would hold that much less of it.
+        var body = new ArrayBufferWriter<byte>(text.Length + 2);
+        using (var writer = new Utf8JsonWriter(body, new JsonWriterOptions { Encoder = options.Encoder ?? JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            writer.WriteStringValue(text);
+        }
+
+        return body.WrittenSpan.ToArray();
+    }
+
+    // Why a body is too large to publish, or null.
+    public static string? TooLarge(RealtimeTopic topic, int length) =>
+        length > MaxMessageBytes
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"Inngest reads at most 512 KB of a realtime message and cuts off the rest, but this message to topic \"{topic.Name}\" of channel \"{topic.Channel}\" is {length:N0} bytes.")
+            : null;
 
     public static void Check(RealtimeTopic topic)
     {

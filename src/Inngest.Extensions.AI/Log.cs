@@ -18,7 +18,4 @@ internal static partial class Log
 
     [LoggerMessage(EventId = 823, Level = LogLevel.Warning, Message = "The response of step {StepId} has additional properties that are not JSON, which are left out of what the step saves: {Reason}")]
     public static partial void AdditionalPropertiesLeftOut(ILogger logger, string stepId, string reason);
-
-    [LoggerMessage(EventId = 824, Level = LogLevel.Warning, Message = "The text of step {StepId} is longer than the {Chunks} chunks of up to {Bytes} bytes that Inngest takes in a stream, so the rest is not published to topic {Topic} of channel {Channel}.")]
-    public static partial void StreamTooLong(ILogger logger, string stepId, int chunks, int bytes, string topic, string channel);
 }

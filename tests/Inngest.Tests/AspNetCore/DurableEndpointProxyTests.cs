@@ -7,6 +7,7 @@ using Inngest.Tests.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Polly.Timeout;
 
 namespace Inngest.Tests.AspNetCore;
 
@@ -84,6 +85,19 @@ public sealed class DurableEndpointProxyTests : IAsyncDisposable
     public async Task Inngest_out_of_reach_is_a_bad_gateway()
     {
         _inngest.Fail(new HttpRequestException("Connection refused"));
+        var client = await StartAsync();
+
+        using var response = await client.GetAsync("/inngest/output?runId=01JRUN&token=eyJ", CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+        (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe("""{"error":"Failed to fetch run output"}""");
+    }
+
+    // Handlers the app adds to every HttpClient, such as a resilience pipeline, give up with exceptions of their own.
+    [Fact]
+    public async Task A_handler_that_gives_up_with_its_own_exception_is_a_bad_gateway()
+    {
+        _inngest.Fail(new TimeoutRejectedException());
         var client = await StartAsync();
 
         using var response = await client.GetAsync("/inngest/output?runId=01JRUN&token=eyJ", CancellationToken);

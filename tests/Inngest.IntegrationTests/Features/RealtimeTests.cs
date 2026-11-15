@@ -63,6 +63,65 @@ public sealed class RealtimeTests(EvaluationEnvironment environment) : Evaluatio
         message.RunId.ShouldBe(run.RunId);
     }
 
+    // Inngest relays 1,000 reads of a stream, and a model yields a few characters at a time.
+    [Fact(Timeout = 120_000)]
+    public async Task A_long_stream_of_small_pieces_reaches_a_subscriber_whole()
+    {
+        var topic = FeatureFunctions.Tokens(TestId);
+        var expected = string.Concat(Enumerable.Range(0, 1500).Select(i => $"t{i};"));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        await using var messages = Realtime.SubscribeAsync(topic.Channel, [topic.Name], stop.Token).GetAsyncEnumerator(stop.Token);
+        await WaitUntilSubscribedAsync(messages, () => Realtime.PublishAsync(topic, "ready", Cancellation));
+
+        var published = await Realtime.PublishStreamAsync(topic, Tokens(), Cancellation);
+
+        published.ShouldBe(expected);
+        var start = await NextAsync(messages, message => message.Kind == RealtimeMessageKind.StreamStart);
+        var text = new StringBuilder();
+        while (await NextAsync(messages, _ => true) is { Kind: not RealtimeMessageKind.StreamEnd } message)
+        {
+            if (message.Kind == RealtimeMessageKind.StreamChunk && message.StreamId == start.StreamId)
+            {
+                text.Append(message.Text);
+            }
+        }
+
+        text.ToString().ShouldBe(expected);
+
+        static async IAsyncEnumerable<string> Tokens()
+        {
+            for (var i = 0; i < 1500; i++)
+            {
+                await Task.Delay(5);
+                yield return $"t{i};";
+            }
+        }
+    }
+
+    // Inngest keeps a message that parses as JSON as that JSON, so text that reads as JSON must go as a JSON string.
+    [Fact(Timeout = 90_000)]
+    public async Task Text_that_reads_as_JSON_reaches_a_typed_subscriber_as_text()
+    {
+        var topic = new RealtimeTopic<string>($"run:{TestId}", "answer");
+        string[] texts = ["42", "true", """{"answer":1}""", "\"quoted\"", "Ďakujem, <b>Привет</b> & 'ok'", "done"];
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        await using var messages = Realtime.SubscribeAsync(topic, stop.Token).GetAsyncEnumerator(stop.Token);
+        await WaitUntilSubscribedAsync(messages, () => Realtime.PublishAsync(topic, "ready", Cancellation));
+
+        foreach (var text in texts)
+        {
+            await Realtime.PublishAsync(topic, text, Cancellation);
+        }
+
+        var received = new List<string?>();
+        while (received.Count < texts.Length)
+        {
+            received.Add((await NextAsync(messages, message => message.Data != "ready")).Data);
+        }
+
+        received.ShouldBe(texts);
+    }
+
     [Fact(Timeout = 90_000)]
     public async Task A_client_without_keys_subscribes_with_a_token_the_app_minted()
     {

@@ -143,7 +143,7 @@ public sealed class StreamingStepTests
     }
 
     [Fact]
-    public async Task The_updates_of_a_stream_are_gathered_into_chunks_before_they_are_published()
+    public async Task The_updates_of_a_stream_go_to_the_realtime_stream_as_the_model_sends_them()
     {
         var model = new FakeChatClient((_, _) => new ChatResponse(new ChatMessage(ChatRole.Assistant, "Once upon a time there was a fox")));
         var chat = new ChatClientBuilder(model).UseInngestSteps().Build();
@@ -157,8 +157,8 @@ public sealed class StreamingStepTests
 
         run.GetOutput<string>().ShouldBe("Once upon a time there was a fox");
 
-        // The model sent a word at a time, in a moment, and Inngest took the text as one chunk.
-        realtime.Chunks.ShouldBe(["Once upon a time there was a fox"]);
+        // A word at a time: PublishStreamAsync gathers them into the pieces Inngest relays.
+        realtime.Chunks.ShouldBe(["Once ", "upon ", "a ", "time ", "there ", "was ", "a ", "fox"]);
     }
 
     [Fact]

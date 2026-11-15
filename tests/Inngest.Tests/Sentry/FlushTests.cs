@@ -1,4 +1,7 @@
+using System.Net;
+using Inngest.Tests.Client;
 using Inngest.Tests.Execution;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.Sentry;
 
@@ -31,6 +34,22 @@ public sealed class FlushTests
         (await host.CallAsync(function, Call.New())).ShouldBe(200);
 
         host.Spy!.Methods.Count(method => method == "FlushAsync").ShouldBe(1);
+    }
+
+    // The client resolves middleware for an event sent from a controller too, where there is no call to report, and the
+    // send would wait for Sentry to take whatever the rest of the app has queued.
+    [Fact]
+    public async Task An_event_sent_outside_a_call_does_not_wait_for_a_flush()
+    {
+        var inngest = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        await using var host = new SentryHost(
+            registerHub: true,
+            services: services => services.AddHttpClient(InngestServiceCollectionExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => inngest));
+
+        await host.Services.GetRequiredService<IInngestClient>().SendAsync(new InngestEvent("shop/order.placed"), TestContext.Current.CancellationToken);
+
+        inngest.Requests.Count.ShouldBe(1);
+        host.Spy!.Methods.ShouldNotContain("FlushAsync");
     }
 
     [Fact]

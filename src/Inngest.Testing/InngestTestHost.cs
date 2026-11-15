@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Inngest.Client;
 using Inngest.Configuration;
+using Inngest.DependencyInjection;
 using Inngest.Execution;
 using Inngest.Functions;
 using Inngest.Internal;
@@ -54,10 +55,14 @@ public sealed class InngestTestHost : IAsyncDisposable, IDisposable
             throw new InvalidOperationException("The services have no Inngest registration. Call AddInngest and add the functions to test.");
         }
 
+        // The app's check of its settings reads the machine's INNGEST_* variables, which the host's settings leave out.
         var copy = new ServiceCollection();
         foreach (var descriptor in services)
         {
-            copy.Add(descriptor);
+            if (descriptor.IsKeyedService || descriptor.ImplementationType != typeof(InngestOptionsValidator))
+            {
+                copy.Add(descriptor);
+            }
         }
 
         // The client sends only with an event key or in dev mode, although the host keeps every event. Nothing set

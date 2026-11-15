@@ -380,7 +380,7 @@ Inngest API, with the app's signing key. See [Realtime](/inngest-dotnet/guides/r
 
 | Method | Returns |
 |---|---|
-| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one. Text goes out as it is, anything else as JSON. Also for a `RealtimeTopic<T>`. |
+| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one, as JSON: text as a JSON string. A message over 512 KB throws `ArgumentException`. Also for a `RealtimeTopic<T>`. |
 | `PublishStreamAsync(RealtimeTopic topic, IAsyncEnumerable<string> chunks, CancellationToken)` | `Task<string>`: all the text, streamed to the topic in one request as it arrives |
 | `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on, with the data read as a `T` |
 | `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |
@@ -430,10 +430,11 @@ API; up to 1.0.1 it was `"INNGEST001"`.
 | `RetryAfterException` | Thrown by your code to retry after `Delay` or at `RetryAt`. |
 | `StepFailedException` | Thrown by the SDK where a step that failed for good is awaited: `StepId`, `Error`. When the recorded error has a cause, `InnerException` is a `FunctionErrorException` for it. |
 | `FunctionErrorException` | An error Inngest recorded, rebuilt as an exception: `Error` holds the recorded name, message and stack, and `InnerException` the recorded cause. |
+| `InngestException` | Thrown by the SDK when talking to Inngest fails, with `StatusCode` when there is one. |
+| `SendEventsException` | An `InngestException` for a send Inngest refused events of: `Ids` has one id per event sent, in order, empty for each event refused. |
 
 An exception gives Inngest a code, which `FunctionError.Code` holds, by implementing **`IHasErrorCode`**, whose only
 member is `string? Code { get; }`, or with a `"code"` entry in its `Data`.
-| `InngestException` | Thrown by the SDK when talking to Inngest fails, with `StatusCode` when there is one. |
 
 ## Middleware
 
@@ -568,8 +569,8 @@ builder.Services
     .AddExtendedTraces();
 ```
 
-Every span that starts under the call's span, `inngest.execution`, is sent to Inngest at the end of the call, from any
-`ActivitySource`: an `HttpClient` request, a database query, a model call, a span of your own. Inngest shows them in the
+Every span that starts under the call's span, `inngest.execution`, is sent to Inngest at the end of the call, and an
+event sent from outside a run does not wait for that. The spans come from any `ActivitySource`: an `HttpClient` request, a database query, a model call, a span of your own. Inngest shows them in the
 run's trace, under the step whose handler made them. They go over OTLP/HTTP, as JSON, to `/v1/traces/userland` of the
 Inngest API, with the signing key, and carry the attributes Inngest reads to place them: `inngest.traceref` and the
 function's id from the trace state Inngest sent with the call, `sdk.run.id`, and `inngest.step.id`, `inngest.step.index`,
@@ -630,7 +631,7 @@ Package `Inngest.Extensions.AI`. The extension methods are in `Microsoft.Extensi
 | `ChatClientBuilder.UseInngestSteps(Action<InngestStepsOptions>?)` | Makes each call to the model inside a run a step: the messages and options are its input, the `ChatResponse` as JSON its result, and a replay returns the saved response without calling the model. A streaming call runs the whole stream in its step. Outside a run, and inside a step handler, calls pass through. |
 | `ChatClientBuilder.UseInngestFunctionInvocation(Action<FunctionInvokingChatClient>?, Action<InngestStepsOptions>?)` | Adds a `FunctionInvokingChatClient`, as `UseFunctionInvocation` does, whose invocations of tools inside a run are steps named `tool <name>`, with the arguments as input and `{"result": ...}` saved. A tool that throws is retried like any step, except for an `ArgumentException`, which fails its step at once. |
 | `ChatOptions.WithInngestStepId(string)` | Names the step of one call, in place of `chat`, for calls that reach the client in no fixed order, such as ones made after a request that finishes at varying times. The steps of its tools carry the name. The client removes the name before the options reach the model. |
-| `ChatOptions.WithInngestRealtimeStream(RealtimeTopic)` | Publishes the text of a streaming call to the topic while the model produces it, gathered into chunks of up to 1 KB, at most 1,000 to a stream. Failing to publish does not fail the call. |
+| `ChatOptions.WithInngestRealtimeStream(RealtimeTopic)` | Publishes the text of a streaming call to the topic while the model produces it, with `PublishStreamAsync`, which gathers it into the 1,000 pieces of up to 1 KB that Inngest relays. Failing to publish does not fail the call. |
 
 **`InngestInferChatClient(Uri endpoint, string model, string? apiKey = null, IReadOnlyDictionary<string, string>? headers = null)`**,
 in the `Inngest` namespace, is an `IChatClient` whose calls are inference steps in the OpenAI chat completions format: Inngest

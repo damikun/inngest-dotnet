@@ -2,6 +2,7 @@ using System.Net;
 using Inngest.Client;
 using Inngest.Signing;
 using Microsoft.Extensions.Logging.Testing;
+using Polly.CircuitBreaker;
 
 namespace Inngest.Tests.Client;
 
@@ -95,6 +96,22 @@ public sealed class InngestApiTransportTests
         refused.UsedFallbackKey.ShouldBeFalse();
         refusedResponse.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         _handler.Requests.Count.ShouldBe(2);
+    }
+
+    // Every caller reports this as Inngest being out of reach, with the reason the handler gave.
+    [Fact]
+    public async Task A_handler_that_fails_with_its_own_exception_reads_as_a_failed_request()
+    {
+        _handler.Fail(new BrokenCircuitException("The circuit is now open."));
+        var transport = Create(_ => { });
+
+        var exception = await Should.ThrowAsync<HttpRequestException>(transport.SendAsync(
+            new ApiCall(HttpMethod.Get, transport.Url("/v1/runs/01JRUN")),
+            HttpCompletionOption.ResponseContentRead,
+            TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldBe("The circuit is now open.");
+        exception.InnerException.ShouldBeOfType<BrokenCircuitException>();
     }
 
     private InngestApiTransport Create(Action<InngestOptions> configure) =>

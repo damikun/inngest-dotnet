@@ -39,7 +39,7 @@ internal sealed class RecordingRealtimeApi(InngestTestHost host) : IRealtimeApi
         Task.FromException<HttpResponseMessage>(new InvalidOperationException(
             "The test host records realtime messages in run.Published and host.Published and delivers them to no subscriber."));
 
-    // Text goes out as it is, so a message that is not JSON was a string.
+    // Inngest takes a message that is not JSON as a string.
     private static JsonElement Read(ReadOnlyMemory<byte> body)
     {
         try

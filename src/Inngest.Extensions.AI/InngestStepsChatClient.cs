@@ -18,9 +18,6 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
 {
     private const string DefaultStepId = "chat";
 
-    // How long the text of a stream waits to fill a chunk before it is published as it is.
-    private static readonly TimeSpan FlushInterval = TimeSpan.FromMilliseconds(100);
-
     public override Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
@@ -96,7 +93,6 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
         List<ChatMessage> history = [.. messages];
         callOptions = callOptions?.Clone();
         var realtime = streaming && settings.StreamTo is not null ? context.Services.GetRequiredService<IInngestRealtime>() : null;
-        var time = context.Services.GetService<TimeProvider>() ?? TimeProvider.System;
 
         // The digest goes with the saved response whether the input is recorded or not.
         // Inngest stores the input as it is, so it is not recorded while the encryption middleware keeps the rest of the
@@ -129,7 +125,7 @@ internal sealed class InngestStepsChatClient(IChatClient innerClient, InngestSte
             }
             else
             {
-                var publisher = realtime is null ? null : new StreamPublisher(realtime, settings.StreamTo!, stepId, logger, time, FlushInterval, token);
+                var publisher = realtime is null ? null : new StreamPublisher(realtime, settings.StreamTo!, stepId, logger, token);
                 var updates = new List<ChatResponseUpdate>();
                 try
                 {

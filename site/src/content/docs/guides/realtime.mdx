@@ -56,6 +56,18 @@ var summary = await context.Step.PublishStreamAsync(
 With `IChatClient` of `Microsoft.Extensions.AI`, pass the `Text` of each update of `GetStreamingResponseAsync`, or let
 [the chat client of `Inngest.Extensions.AI`](/inngest-dotnet/guides/ai/#streaming) publish it while it makes the model call a step.
 
+Inngest relays up to 1,000 pieces of a stream, of up to 1 KB each, and a model yields a few characters at a time, so
+the text is gathered into pieces: one goes out when it is full or when its text has waited 100 ms, and 1 second once
+the stream has 500 pieces. A stream that still outgrows the limit is sent whole and returned whole, but its
+subscribers may miss the end, and the SDK logs a warning with event id 354.
+
+The request lasts as long as the text takes to arrive, so the `HttpClient`'s timeout of 100 seconds does not cut it;
+the cancellation token does. It is sent only once, because sending it again would read the chunks again: a handler
+that tries, such as a retry policy, fails the publish instead.
+
+An exception the chunks throw reaches the caller as it is, not as a failure to reach Inngest, so a model that gives up
+with a `NonRetriableException` fails the step without retries.
+
 ## Publishing from anywhere
 
 `IInngestRealtime`, which `AddInngest` registers, publishes at once from anywhere, such as a controller or a
@@ -69,7 +81,9 @@ var status = new RealtimeTopic<OrderStatus>("order:o-1001", "status");
 await realtime.PublishAsync(status, new OrderStatus("Shipped", 100), cancellationToken);
 ```
 
-Text is published as it is and anything else as JSON with the app's serializer options, as the TypeScript SDK does.
+Data is published as JSON with the app's serializer options, and text as a JSON string, so text that reads as JSON,
+such as `42` or a model's JSON answer, still arrives as text. The TypeScript SDK sends text as it is, and Inngest keeps
+such text as the number or object it reads as.
 `PublishStreamAsync` streams from anywhere too.
 
 ## Subscribing in .NET
@@ -208,9 +222,12 @@ These are Inngest's:
 | What | Limit |
 |---|---|
 | A published message | 512 KB |
-| A stream | 1,000 chunks of up to 1 KB each |
+| A stream | 1,000 pieces of up to 1 KB each |
 | A subscription token | Connects within a minute of being minted |
 | Delivery | To the subscribers connected when the message is published; nothing is kept for later |
+
+Inngest reads 512 KB of a message and publishes one cut off there as a string of broken JSON, so `PublishAsync` throws
+`ArgumentException` for a larger message before sending it, and a publish step with one fails without retries.
 
 ## Testing
 

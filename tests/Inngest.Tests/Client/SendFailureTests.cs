@@ -19,6 +19,46 @@ public sealed class SendFailureTests
         exception.Message.ShouldBe("Inngest API error: 600 something odd happened");
     }
 
+    // Inngest goes on past a refused event and keeps the others, so a caller that sends the batch again sends those twice.
+    [Fact]
+    public async Task A_send_that_Inngest_partly_refuses_throws_with_the_ids_of_the_events_it_accepted()
+    {
+        var fixture = new ClientFixture();
+        fixture.Handler.Respond(HttpStatusCode.NotAcceptable, """{"ids":["01HQ0000000000000000000001","","01HQ0000000000000000000003"],"status":406,"error":"timestamp is before Jan 1, 1980"}""");
+
+        var exception = await Should.ThrowAsync<SendEventsException>(fixture.Client.SendAsync(Three(), TestContext.Current.CancellationToken));
+
+        exception.StatusCode.ShouldBe(406);
+        exception.Ids.ShouldBe(["01HQ0000000000000000000001", "", "01HQ0000000000000000000003"]);
+        exception.Message.ShouldBe("Inngest API error: 406 timestamp is before Jan 1, 1980 (Inngest accepted 2 of 3 events)");
+        fixture.Handler.Requests.Count.ShouldBe(1);
+    }
+
+    // An event over the size limit stops the events after it, which the reply then has no id for.
+    [Fact]
+    public async Task A_send_cut_short_by_an_event_that_is_too_large_has_an_empty_id_for_each_event_after_it()
+    {
+        var fixture = new ClientFixture();
+        fixture.Handler.Respond(HttpStatusCode.BadRequest, """{"ids":["01HQ0000000000000000000001"],"status":400,"error":"Event is over the max size"}""");
+
+        var exception = await Should.ThrowAsync<SendEventsException>(fixture.Client.SendAsync(Three(), TestContext.Current.CancellationToken));
+
+        exception.Ids.ShouldBe(["01HQ0000000000000000000001", "", ""]);
+        exception.Message.ShouldBe("Inngest API error: 400 Event is over the max size (Inngest accepted 1 of 3 events)");
+    }
+
+    [Fact]
+    public async Task A_refusal_that_names_no_events_throws_a_plain_InngestException()
+    {
+        var fixture = new ClientFixture();
+        fixture.Handler.Respond(HttpStatusCode.Unauthorized, """{"status":401,"error":"Event key not found"}""");
+
+        var exception = await Should.ThrowAsync<InngestException>(fixture.Client.SendAsync(Three(), TestContext.Current.CancellationToken));
+
+        exception.ShouldNotBeOfType<SendEventsException>();
+        exception.Message.ShouldBe("Inngest API error: 401 Event key not found");
+    }
+
     [Fact]
     public async Task Middleware_that_throws_rejects_the_send_before_anything_is_sent()
     {
@@ -61,6 +101,9 @@ public sealed class SendFailureTests
 
         fixture.Handler.Requests.Count.ShouldBe(1);
     }
+
+    private static InngestEvent[] Three() =>
+        [new("shop/order.placed", new { n = 1 }), new("shop/order.placed", new { n = 2 }), new("shop/order.placed", new { n = 3 })];
 
     private sealed class Refusing : InngestMiddleware
     {

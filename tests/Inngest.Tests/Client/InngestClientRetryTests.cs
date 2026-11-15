@@ -62,7 +62,7 @@ public sealed class InngestClientRetryTests
         var exception = await Should.ThrowAsync<InngestException>(fixture.Time.AdvanceUntilCompletedAsync(SendOne(fixture)));
 
         exception.StatusCode.ShouldBe(500);
-        exception.Message.ShouldBe("Inngest API error: 500 upstream is down");
+        exception.Message.ShouldBe("Inngest API error: 500 upstream is down (Inngest accepted 0 of 1 event)");
         fixture.Handler.Requests.Count.ShouldBe(InngestClient.MaxAttempts);
         fixture.Handler.Requests.Select(request => request.Header("X-Inngest-Event-Id-Seed")).Distinct().Count().ShouldBe(1);
     }
@@ -109,7 +109,7 @@ public sealed class InngestClientRetryTests
     [InlineData(HttpStatusCode.Conflict, "", "Event transformation failed")]
     [InlineData(HttpStatusCode.PreconditionFailed, "", "Event transformation failed")]
     [InlineData(HttpStatusCode.RequestEntityTooLarge, "", "Event payload too large")]
-    [InlineData(HttpStatusCode.NotAcceptable, """{"ids":[""],"status":406}""", """{"ids":[""],"status":406}""")]
+    [InlineData(HttpStatusCode.NotAcceptable, """{"ids":[""],"status":406}""", """{"ids":[""],"status":406} (Inngest accepted 0 of 1 event)""")]
     [InlineData(HttpStatusCode.UnprocessableEntity, "gateway said no", "gateway said no")]
     [InlineData(HttpStatusCode.UnprocessableEntity, "", "Unexpected response")]
     public async Task Does_not_retry_client_errors_and_describes_them_from_the_status(HttpStatusCode status, string body, string expectedMessage)
@@ -156,7 +156,7 @@ public sealed class InngestClientRetryTests
         var exception = await Should.ThrowAsync<InngestException>(SendOne(fixture));
 
         exception.StatusCode.ShouldBe(406);
-        exception.Message.ShouldBe("Inngest API error: 406 event name is empty");
+        exception.Message.ShouldBe("Inngest API error: 406 event name is empty (Inngest accepted 0 of 1 event)");
         fixture.Handler.Requests.Count.ShouldBe(1);
     }
 
@@ -168,7 +168,7 @@ public sealed class InngestClientRetryTests
 
         var exception = await Should.ThrowAsync<InngestException>(fixture.Time.AdvanceUntilCompletedAsync(SendOne(fixture)));
 
-        exception.Message.ShouldBe("Inngest API error: 200 partial");
+        exception.Message.ShouldBe("Inngest API error: 200 partial (Inngest accepted 1 of 1 event)");
     }
 
     [Theory]
