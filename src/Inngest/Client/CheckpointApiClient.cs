@@ -78,7 +78,7 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
             run.RunId,
             "because the run already exists",
             cancellationToken,
-            MaxNewRunLength).ConfigureAwait(false);
+            length => length > MaxNewRunLength ? TooLarge(run, length) : null).ConfigureAwait(false);
         return ReadRun(reply, run.RunId);
     }
 
@@ -99,7 +99,7 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
         string runId,
         string conflict,
         CancellationToken cancellationToken,
-        int maxLength = int.MaxValue)
+        Func<int, InngestException?>? tooLarge = null)
     {
         using var body = new PooledBufferWriter(payloadLength + 512);
         for (var attempt = 1; ; attempt++)
@@ -107,12 +107,9 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
             // Rewritten for every attempt, so that "ts" says when Inngest was asked.
             body.Clear();
             writeBody(body, _timeProvider.GetUtcNow());
-            if (body.WrittenCount > maxLength)
+            if (tooLarge?.Invoke(body.WrittenCount) is { } exception)
             {
-                throw new InngestException(
-                    $"Run {runId} was not created: the request's body and the first step's output come to {body.WrittenCount} bytes, more than " +
-                    $"the {maxLength} bytes Inngest reads of the call that creates a run. Lower DurableEndpointOptions.MaxRequestBodySize, or " +
-                    "return less from the first step.");
+                throw exception;
             }
 
             var (reply, error, retryable) = await TrySendAsync(url, body.WrittenMemory, runId, conflict, cancellationToken).ConfigureAwait(false);
@@ -131,6 +128,57 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
             await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    // Names what makes the call that creates a run larger than Inngest reads: the request's event, or the ops that go
+    // with it, which can be a step's output, an error or the endpoint's response.
+    private static InngestException TooLarge(NewEndpointRun run, int length)
+    {
+        var opsLength = run.Steps.IsEmpty ? 2 : run.Steps.Length;
+        if (length - opsLength > MaxNewRunLength)
+        {
+            return new InngestException(
+                $"Run {run.RunId} was not created: the request's event alone is {run.Event.Length} bytes, more than the {MaxNewRunLength} " +
+                "bytes Inngest reads of the call that creates a run. Lower DurableEndpointOptions.MaxRequestBodySize.");
+        }
+
+        var ops = DescribeOps(run.Steps);
+        var which = ops.Count == 1 ? "the op" : "the ops";
+        return new InngestException(
+            $"Run {run.RunId} was not created: the call that creates it comes to {length} bytes, more than the {MaxNewRunLength} bytes " +
+            $"Inngest reads of it. The request's event takes {run.Event.Length} bytes of it, and {which} {string.Join(", ", ops)} {opsLength}. " +
+            $"Lower DurableEndpointOptions.MaxRequestBodySize, or make {which} smaller, such as the output of a step or the message of an error.");
+    }
+
+    // Each op by its kind and the name of its step, such as StepRun "price".
+    private static List<string> DescribeOps(ReadOnlyMemory<byte> steps)
+    {
+        var ops = new List<string>();
+        try
+        {
+            using var document = JsonDocument.Parse(steps);
+            foreach (var op in document.RootElement.EnumerateArray())
+            {
+                var kind = Text(op, "op"u8) ?? "of unknown kind";
+                ops.Add(Text(op, "displayName"u8) is { } name ? $"{kind} \"{name}\"" : kind switch
+                {
+                    "RunComplete" => "RunComplete (the endpoint's response)",
+                    "StepError" or "StepFailed" => $"{kind} (the endpoint's own error)",
+                    _ => kind,
+                });
+            }
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            // Named by their size alone.
+        }
+
+        return ops;
+    }
+
+    private static string? Text(JsonElement element, ReadOnlySpan<byte> name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     // The reply's data holds the ids of the run Inngest created and the token for its output.
     internal static EndpointRun ReadRun(ReadOnlySpan<byte> reply, string runId)
