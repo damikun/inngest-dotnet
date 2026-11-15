@@ -19,9 +19,9 @@ public static class SystemEvents
     public const string FunctionCancelled = "inngest/function.cancelled";
 
     /// <summary>
-    /// The name of the event an invoked function receives. It is not a trigger: Inngest would start a function
-    /// triggered by it on every invoke of any function in the environment, so startup refuses one. A function that only
-    /// runs when it is invoked has Triggers = [].
+    /// The name of the event an invoked function receives. A trigger on it is accepted and means the function runs when
+    /// it is invoked, but it is never sent to Inngest, which would start the function on every invoke of any function in
+    /// the environment. A function that only runs when it is invoked has Triggers = [].
     /// </summary>
     public const string FunctionInvoked = "inngest/function.invoked";
 

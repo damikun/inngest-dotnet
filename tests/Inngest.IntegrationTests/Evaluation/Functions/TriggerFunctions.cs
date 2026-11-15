@@ -19,6 +19,8 @@ internal static class TriggerFunctions
     public const string Delayed = "eval/trg.delayed";
     public const string FanOut = "eval/trg.fanout";
     public const string InvokeOnlyId = "trg-invoke-only";
+    public const string InvokerOfDeclared = "eval/trg.invoker.declared";
+    public const string InvokeDeclaredId = "trg-invoke-declared";
 
     public static void Add(IInngestBuilder inngest)
     {
@@ -71,6 +73,16 @@ internal static class TriggerFunctions
             new FunctionOptions { Id = "trg-invoker", Triggers = [Trigger.Event(Invoker)] },
             static async (context, _) =>
                 await context.Step.InvokeAsync<int>("call", new InvokeOptions(InvokeOnlyId) { Data = context.Event.Data }));
+
+        // A trigger on the invoke event, as the TypeScript SDK's invoke() helper adds. The sync leaves it out.
+        inngest.AddFunction<ValueEvent>(
+            new FunctionOptions { Id = InvokeDeclaredId, Triggers = [Trigger.Event(SystemEvents.FunctionInvoked)] },
+            static (context, _) => Task.FromResult<object?>(context.Event.Data.Value * 3));
+
+        inngest.AddFunction<ValueEvent>(
+            new FunctionOptions { Id = "trg-invoker-declared", Triggers = [Trigger.Event(InvokerOfDeclared)] },
+            static async (context, _) =>
+                await context.Step.InvokeAsync<int>("call", new InvokeOptions(InvokeDeclaredId) { Data = context.Event.Data }));
 
         inngest.AddFunction<ValueEvent>(
             new FunctionOptions { Id = "trg-meta", Triggers = [Trigger.Event(Meta)] },

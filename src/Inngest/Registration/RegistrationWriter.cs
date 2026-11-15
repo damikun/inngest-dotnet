@@ -91,9 +91,7 @@ internal static class RegistrationWriter
         json.WriteStartArray("triggers");
         foreach (var trigger in triggers)
         {
-            // Inngest would start the function on every invoke of any function, so it never sees this trigger, as with
-            // the TypeScript SDK. The validator refuses it at startup as well.
-            if (trigger is EventTrigger { Event: SystemEvents.FunctionInvoked })
+            if (IsInvokeTrigger(trigger))
             {
                 continue;
             }
@@ -122,6 +120,11 @@ internal static class RegistrationWriter
 
         json.WriteEndArray();
     }
+
+    // A trigger on the invoke event only says the function runs when it is invoked, which every function does. Inngest
+    // would start the function on every invoke of any function, so it never sees this trigger, as with the TypeScript
+    // SDK's invoke() helper.
+    internal static bool IsInvokeTrigger(FunctionTrigger trigger) => trigger is EventTrigger { Event: SystemEvents.FunctionInvoked };
 
     // Inngest reads the time zone from a "TZ=" or "CRON_TZ=" prefix. A prefix the schedule already has wins.
     internal static string CronSchedule(CronTrigger trigger) => CronExpression.WithTimezone(trigger.Schedule, trigger.Timezone);

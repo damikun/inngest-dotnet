@@ -73,10 +73,9 @@ inngest.AddFunction<ScoreAccount>(new FunctionOptions { Id = "score-account", Tr
 Inngest starts the invoked run with an `inngest/function.invoked` event whose `data` is the data you passed, so the
 invoked function reads it as its event data. Its return value is what `InvokeAsync` returns.
 
-That event name is not a trigger. Inngest would start a function triggered by `inngest/function.invoked` on every
-invoke of any function in the environment, and the caller could get that function's result instead of the one it
-invoked, so the app refuses such a trigger at startup. A function that only runs when it is invoked has
-`Triggers = []`.
+A function that only runs when it is invoked has `Triggers = []`. A trigger on `inngest/function.invoked` means the
+same: the app accepts it but never sends it to Inngest, which would start the function on every invoke of any
+function in the environment.
 
 A class that derives from `InngestFunction<TEventData>` returns `object?`, so a caller can only read its result as
 `object`. Give it a result type, or invoke it by its id.

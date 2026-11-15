@@ -110,6 +110,22 @@ public sealed class TriggerScenarios(EvaluationEnvironment environment) : Evalua
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task A_function_whose_only_trigger_is_the_invoke_event_syncs_without_triggers_and_runs_when_invoked()
+    {
+        var run = await RunToEndAsync(TriggerFunctions.InvokerOfDeclared, new ValueEvent(TestId, 7));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        run.OutputAs<int>().ShouldBe(21);
+        var registered = (await Api.GetAppFunctionsAsync(Fixture.AppId, Cancellation)).Single(function => function.Slug == $"eval-{TriggerFunctions.InvokeDeclaredId}");
+        registered.Config.TryGetProperty("triggers", out var triggers).ShouldBeTrue();
+        triggers.ValueKind.ShouldBeOneOf(JsonValueKind.Array, JsonValueKind.Null);
+        if (triggers.ValueKind == JsonValueKind.Array)
+        {
+            triggers.GetArrayLength().ShouldBe(0);
+        }
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task The_user_object_of_an_event_reaches_the_function()
     {
         var sent = await Client.SendAsync(
