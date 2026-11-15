@@ -145,7 +145,7 @@ public sealed record Shipment(
 The SDK logs a warning when a step returns a number whose value changes (event id 172) or an invoke sends one (event
 id 173), in a function or a durable endpoint, with the step and where the number is, such as `$.trackingId`. A decimal
 that only loses its trailing zeros keeps its value, so it is logged at debug level instead (event ids 174 and 175).
-Event data is not checked. With checkpointing, the call that ran the step reads its result back in the form Inngest
+An invoke that a race reports again while it is pending is logged once per run in an app. Event data is not checked. With checkpointing, the call that ran the step reads its result back in the form Inngest
 stores, so every call sees the same value. The [test host](/inngest-dotnet/guides/testing/) sends results and events
 in that form too.
 

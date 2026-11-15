@@ -105,6 +105,26 @@ public sealed class NumberWarningTests : IDisposable
         warning.Message.ShouldStartWith("Invoke step second of run 01JRUN of function fn sends a number at $.opts.payload.data.orderId");
     }
 
+    // A race calls the function after each of its steps, and the function reports an invoke that is still pending again.
+    [Fact]
+    public async Task An_invoke_reported_again_by_a_later_call_of_the_run_is_logged_once()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.ParallelAsync(ParallelMode.Race, () => Task.WhenAny(
+                context.Step.InvokeAsync<object>("charge", new InvokeOptions("child") { Data = new { orderId = 1234567890123456789L } }),
+                context.Step.RunAsync("ship", () => 1)));
+            return null;
+        });
+
+        var first = await _host.CallAsync(function, Call.New());
+        var second = await _host.CallAsync(function, Call.New().Data("ship", "1").DisableImmediateExecution());
+
+        first.OpCodes.ShouldBe(["InvokeFunction", "StepPlanned"]);
+        second.OpCodes.ShouldBe(["InvokeFunction"]);
+        Logged(InvokePayloadEventId).ShouldHaveSingleItem();
+    }
+
     [Fact]
     public async Task An_invoke_payload_that_only_loses_trailing_zeros_is_logged_at_debug_level()
     {

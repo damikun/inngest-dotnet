@@ -190,14 +190,19 @@ internal sealed partial class Invocation
             op = op[1..];
         }
 
-        switch (FindChangedNumber(op))
+        if (FindChangedNumber(op) is not ({ } path, var change) || change == NumberChange.None ||
+            !_engine.FirstInvokeLog(_run.RunId, step.HashedId))
         {
-            case ({ } path, NumberChange.Value):
-                Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
-                break;
-            case ({ } path, NumberChange.TrailingZeros):
-                Log.InvokePayloadTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
-                break;
+            return;
+        }
+
+        if (change == NumberChange.Value)
+        {
+            Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+        }
+        else
+        {
+            Log.InvokePayloadTrailingZerosDropped(_runLogger, step.FinalId, _run.RunId, _functionId, path);
         }
     }
 
