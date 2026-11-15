@@ -38,17 +38,51 @@ public sealed class SyncTests
         _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Debug);
     }
 
-    [Fact]
-    public async Task A_rejected_sync_answers_500_with_the_error()
+    // The dev server keeps the reason a 400 gives and shows any 500 as internal_server_error (pkg/deploy/deploy.go), as
+    // the TypeScript SDK expects it to.
+    [Theory]
+    [InlineData(400)]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(404)]
+    [InlineData(422)]
+    public async Task A_sync_Inngest_refuses_answers_with_its_status_and_reason(int status)
     {
-        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: true, Error: "App ID required");
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: true, Error: "At least one function is invalid");
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
+
+        response.StatusCode.ShouldBe(status);
+        response.BodyText().ShouldBe("""{"message":"At least one function is invalid","modified":false}""");
+        response.Header("X-Inngest-Sync-Kind").ShouldBe("out_of_band");
+        _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task A_signed_sync_in_cloud_mode_learns_why_Inngest_refused_it()
+    {
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: false, Error: "At least one function is invalid");
+        var request = _harness.Sign(new FakeServeRequest("PUT", body: """{"url":"http://localhost:3000/api/inngest"}"""), CommHandlerHarness.PrimaryKey);
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, request);
+
+        response.StatusCode.ShouldBe(400);
+        response.BodyText().ShouldBe("""{"message":"At least one function is invalid","modified":false}""");
+        _harness.IsSignedWith(response, CommHandlerHarness.PrimaryKey).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(502)]
+    [InlineData(503)]
+    public async Task A_sync_that_fails_on_Inngest_s_side_answers_500(int status)
+    {
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: false, Error: "Error upserting app");
 
         using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
 
         response.StatusCode.ShouldBe(500);
-        response.BodyText().ShouldBe("""{"message":"App ID required","modified":false}""");
-        response.Header("X-Inngest-Sync-Kind").ShouldBe("out_of_band");
-        _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
+        response.BodyText().ShouldBe("""{"message":"Error upserting app","modified":false}""");
     }
 
     [Fact]
@@ -237,10 +271,13 @@ public sealed class SyncTests
         _harness.Api.RegisterToken.CanBeCanceled.ShouldBeFalse();
     }
 
-    [Fact]
-    public async Task An_unsigned_caller_is_not_told_why_a_sync_failed()
+    [Theory]
+    [InlineData(400)]
+    [InlineData(401)]
+    [InlineData(502)]
+    public async Task An_unsigned_caller_is_not_told_why_a_sync_failed(int status)
     {
-        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: false, Error: "Invalid function config for shop-checkout");
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: false, Error: "Invalid function config for shop-checkout");
 
         using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, new FakeServeRequest("PUT"));
 

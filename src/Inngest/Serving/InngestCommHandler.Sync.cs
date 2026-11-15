@@ -94,10 +94,17 @@ public sealed partial class InngestCommHandler
             }
         }
 
+        // A refusal goes back with Inngest's status, as in the TypeScript SDK: the dev server shows the reason a 400
+        // gives, while it shows any 500 as an internal error of the app. Anything else is a failure to register. A
+        // caller that failed authentication only learns that the sync failed.
         if (!result.Success)
         {
             Log.SyncRejected(_logger, result.StatusCode, result.Error);
-            return SyncResult(500, string.IsNullOrEmpty(result.Error) || !caller.IsValid ? "Failed to register" : result.Error, modified: false);
+            var refused = caller.IsValid && result.StatusCode is >= 400 and < 500;
+            return SyncResult(
+                refused ? result.StatusCode : 500,
+                string.IsNullOrEmpty(result.Error) || !caller.IsValid ? "Failed to register" : result.Error,
+                modified: false);
         }
 
         if (result.Modified)
