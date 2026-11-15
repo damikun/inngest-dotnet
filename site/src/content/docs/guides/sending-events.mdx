@@ -197,6 +197,13 @@ any, and a `SendEventAsync` step with more fails without retries. Send larger li
 When the send fails for good, `SendAsync` throws `InngestException`, with the HTTP status in `StatusCode` when
 there was one. Inside a function, `SendEventAsync` fails like any other step and is retried with it.
 
+Inngest handles the events of a send one by one, so it can refuse some, such as one with a timestamp before 1980, and
+keep the others, which start their functions; an event over the size limit also stops the events after it. Inngest then
+answers with the first error and the ids of the events it kept, and `SendAsync` throws `SendEventsException`, an
+`InngestException` whose `Ids` has one id per event, in the order they were sent, and an empty string for each event
+Inngest refused. The message says how many were accepted. Sending the whole list again would send the accepted events
+twice, unless each has an `Id`; send only those whose id is empty.
+
 {/* check: statements; IInngestClient inngest; ILogger logger; CancellationToken cancellationToken */}
 ```csharp
 try

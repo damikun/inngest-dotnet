@@ -246,7 +246,7 @@ internal sealed class InngestClient : IInngestClient
 
         for (var attempt = 1; ; attempt++)
         {
-            var outcome = await TryPostAsync(url, environment, body.WrittenMemory, seed, cancellationToken).ConfigureAwait(false);
+            var outcome = await TryPostAsync(url, environment, body.WrittenMemory, events.Count, seed, cancellationToken).ConfigureAwait(false);
             if (outcome.Result is { } result)
             {
                 Log.SentEvents(_logger, events.Count);
@@ -269,6 +269,7 @@ internal sealed class InngestClient : IInngestClient
         Uri url,
         string? environment,
         ReadOnlyMemory<byte> body,
+        int count,
         string seed,
         CancellationToken cancellationToken)
     {
@@ -282,7 +283,7 @@ internal sealed class InngestClient : IInngestClient
             var client = _httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
             using var response = await client.SendToInngestAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
             var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            return ReadResponse((int)response.StatusCode, content);
+            return ReadResponse((int)response.StatusCode, content, count);
         }
         catch (HttpRequestException exception)
         {
@@ -297,7 +298,7 @@ internal sealed class InngestClient : IInngestClient
 
     // The body decides, not the HTTP status: a send that succeeded for only some events still answers with an
     // error status in the body.
-    private static SendOutcome ReadResponse(int httpStatus, byte[] content)
+    private static SendOutcome ReadResponse(int httpStatus, byte[] content, int count)
     {
         EventApiResponse? reply;
         try
@@ -316,10 +317,32 @@ internal sealed class InngestClient : IInngestClient
 
         var status = reply is { Status: > 0 } ? reply.Status : httpStatus;
         var message = reply?.Error is { Length: > 0 } error ? error : DescribeStatus(status, content);
-        var exception = new InngestException($"Inngest API error: {status} {message}", status);
+
+        // Inngest handles every event and keeps those it accepts, and its reply has one id per event, empty for each it
+        // refused. An event too large stops the rest, which get no id at all.
+        var exception = reply is { Status: > 0, Ids: { } replyIds }
+            ? Refused(status, message, replyIds, count)
+            : new InngestException($"Inngest API error: {status} {message}", status);
 
         // Client errors will fail the same way again, so only transient failures are worth another attempt.
         return new SendOutcome(null, exception, status is < 400 or >= 500 or 408 or 425 or 429);
+    }
+
+    private static SendEventsException Refused(int status, string message, string?[] replyIds, int count)
+    {
+        var ids = new string[count];
+        var accepted = 0;
+        for (var i = 0; i < count; i++)
+        {
+            ids[i] = i < replyIds.Length ? replyIds[i] ?? "" : "";
+            accepted += ids[i].Length > 0 ? 1 : 0;
+        }
+
+        var events = count == 1 ? "event" : "events";
+        return new SendEventsException(
+            string.Create(CultureInfo.InvariantCulture, $"Inngest API error: {status} {message} (Inngest accepted {accepted} of {count} {events})"),
+            status,
+            ids);
     }
 
     private static string DescribeStatus(int status, byte[] content) => status switch
