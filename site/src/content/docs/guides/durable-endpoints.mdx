@@ -443,6 +443,13 @@ and the SDK verifies the calls from Inngest with it. See [Configuration](/innges
 
 - **Endpoints that require authorization cannot be resumed yet.** The call from Inngest has no user, so authorization
   refuses it. Such an endpoint works only while all of its steps run in the request.
+- **Do not block on tasks.** For a durable endpoint, everything after `UseInngestDurableEndpoints` runs as the code of
+  a function: its filters, the handler and the services they call run on a thread of the request's own, one
+  continuation at a time. ASP.NET Core otherwise has no such thread, so code that blocks on a task with `.Result`,
+  `.Wait()` or `GetAwaiter().GetResult()`, such as a factory that creates a client synchronously, works elsewhere but
+  deadlocks here when the task awaits without `ConfigureAwait(false)`, and the request never answers. Await the task.
+  The SDK logs an error, event id 112, when the thread is held for five seconds while work waits for it. See
+  [How it works](/inngest-dotnet/how-it-works/#what-it-means-for-your-code).
 - **Code that outlives the call must not use `HttpContext`.** When a run is handed over, the handler is abandoned at
   its step, and ASP.NET Core reuses the `HttpContext` once the request is over. Code the handler started that goes on
   running, such as a task that is not awaited, must not touch it.

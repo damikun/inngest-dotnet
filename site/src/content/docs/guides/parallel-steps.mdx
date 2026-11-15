@@ -91,8 +91,9 @@ for the losing step to finish, unless they run in race mode too.
 
 - **Different ids in different branches.** Two parallel branches that reuse an id share its numbering, and which
   branch gets which result can depend on timing. The SDK logs a warning when it sees that.
-- **Do not block on a step.** `.Result`, `.Wait()` and `GetAwaiter().GetResult()` on a step's task never return:
-  the SDK hands out results on the function's own scheduler, which a blocked thread holds up.
+- **Do not block on a task.** `.Result`, `.Wait()` and `GetAwaiter().GetResult()` on a step's task never return:
+  the SDK hands out results on the function's own thread, which the blocked call holds up. The same goes for any task
+  whose code awaits without `ConfigureAwait(false)`, as app code usually does.
 - **Leaving the scheduler.** Code that uses `ConfigureAwait(false)` or `Task.Run` inside a function still works,
   but steps started from other threads may be reported one at a time instead of all at once.
 - **Unawaited steps still run.** A step that is started and never awaited is reported to Inngest like the others.

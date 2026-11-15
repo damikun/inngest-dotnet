@@ -295,7 +295,7 @@ its extension methods, such as `RunAsync`, `SleepAsync` and `MapAsync`) and of `
 | [`INNGEST020`](#inngest020) | Warning | A step's handler assigns a local, a parameter or a field that the function reads outside the step. |
 | [`INNGEST021`](#inngest021) | Info | A `finally` block, a `using` statement or a `using` declaration around a step. |
 | [`INNGEST022`](#inngest022) | Warning | A step id built from the clock, a new `Guid` or a random number. |
-| [`INNGEST023`](#inngest023) | Warning | `.Result`, `.Wait()` or `.GetAwaiter().GetResult()` on the task of a step. A code fix awaits it. |
+| [`INNGEST023`](#inngest023) | Warning | `.Result`, `.Wait()` or `.GetAwaiter().GetResult()` on the task of a step, or on a task that a function's code starts outside a step. A code fix awaits it. |
 | [`INNGEST024`](#inngest024) | Warning | A step called inside the handler of another step. |
 | [`INNGEST025`](#inngest025) | Warning | The task of a step or of `SendAsync` dropped in a method or lambda that is not async. |
 | [`INNGEST026`](#inngest026) | Warning | The clock, a new `Guid` or a random number read in a function outside a step. A code fix gets it in a step. |
@@ -304,9 +304,9 @@ its extension methods, such as `RunAsync`, `SleepAsync` and `MapAsync`) and of `
 | [`INNGEST029`](#inngest029) | Info | A loop over a dictionary or a set that calls a step with an id the item is not part of. |
 | [`INNGEST032`](#inngest032) | Warning | Two steps of one function with the same literal id. |
 
-`INNGEST026` to `INNGEST029` look at the code that runs in every call: the body of a method, local function or lambda
-that takes `FunctionContext<TEventData>`, which is `ExecuteAsync`, the handler of a delegate function and a helper the
-function passes its context to, outside the handlers of its steps.
+`INNGEST026` to `INNGEST029`, and `INNGEST023` for tasks that are not steps, look at the code that runs in every call:
+the body of a method, local function or lambda that takes `FunctionContext<TEventData>`, which is `ExecuteAsync`, the
+handler of a delegate function and a helper the function passes its context to, outside the handlers of its steps.
 
 This function has two of the mistakes. On the call after `charge` ran, its handler does not run again, so `receiptId`
 is still `null`, and the id of the second step is new on every day the run goes on:
@@ -383,8 +383,11 @@ They read the code of one method at a time, so they keep quiet rather than guess
   variable after the function has returned, such as a test, is left alone.
 - `INNGEST022` looks at the id expression and at the initializer of a local it reads. A value made inside a step and
   returned from it is stable, and so is `new Random(seed)`.
-- `INNGEST023` reports a blocking call made on the step call itself. Reading `.Result` of a task that was awaited before,
-  as after `Task.WhenAll`, is fine and not reported.
+- `INNGEST023` reports a blocking call made on a step call itself, anywhere. In the code of a function it also reports
+  one on a task that the code starts by calling a method, such as `LoadAsync().Result`, directly or through a local,
+  the task of a step kept in a local among them. Reading `.Result` of a task that was awaited before, as after
+  `Task.WhenAll`, or checked with `IsCompleted` is fine and not reported, and so are tasks from `Task.FromResult` or
+  `Task.Run`, tasks in parameters, fields and properties, and code that `Task.Run`, `ContinueWith` or a step runs.
 - `INNGEST025` leaves async methods to the compiler, which reports a call that is not awaited there (`CS4014`). Assigning
   the task to a discard, `_ = client.SendAsync(...)`, says that nothing should wait for it.
 - `INNGEST021` is information only, because the cleanup often does no harm when it runs late, as with a
@@ -511,9 +514,14 @@ display name, `StepOptions.Name`, can hold anything.
 
 ### INNGEST023
 
-Warning. Code blocks on the task of a step with `.Result`, `.Wait()` or `.GetAwaiter().GetResult()`. The SDK runs a function
-on a scheduler of its own and completes a step's task from there, so blocking its thread deadlocks the call, and a step
-that is new never completes in the call at all. Await the task. In an async method or lambda the code fix does that.
+Warning. Code blocks with `.Result`, `.Wait()` or `.GetAwaiter().GetResult()` on the task of a step, or, in the code of a
+function outside its steps, on a task the code starts itself. The SDK runs that code on a thread of its own, one
+continuation at a time, and completes a step's task from there, so blocking the thread deadlocks the call, and a step
+that is new never completes in the call at all. Any other task whose code awaits without `ConfigureAwait(false)`, as
+app code usually does, resumes on that thread too and deadlocks the call the same way; one that completes elsewhere
+still holds up the whole call while it runs. Await the task. In an async method or lambda the code fix does that. The
+SDK also logs an error at run time, event id 112, when the thread is held while work waits for it; see
+[How it works](/inngest-dotnet/how-it-works/#what-it-means-for-your-code).
 
 ### INNGEST024
 

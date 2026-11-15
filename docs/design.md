@@ -430,8 +430,12 @@ Such code can make the SDK report fewer steps at once. With an id that parallel 
 which branch gets which result, since a repeated id is numbered in the order the steps reach the scheduler, as the
 branches' own I/O can do too. The step tools register a step when it is called, a fetch with a body that is not
 buffered included: it holds every decision of the call until the body has been read, so that it is reported with the
-steps found with it. Blocking on a step task (`.Result`) deadlocks the invocation, as it would on any single-threaded
-context.
+steps found with it. Blocking on a step task (`.Result`), or on any task whose code resumes on the scheduler, deadlocks
+the invocation, as it would on any single-threaded context. `INNGEST023` reports the common cases at compile time. At
+run time a watchdog timer logs an error (event id 112), once, when a callback on the scheduler has run for five seconds
+while work waits in its queue. It measures real time, whatever `TimeProvider` the engine has, since the thread is
+blocked in real time, and stays quiet while a debugger is attached. The thread cannot be freed, but the hang is no
+longer silent.
 
 A step's handler runs in the execution context captured where the step was called, not in the engine's, as a plain
 method call would. An `AsyncLocal` the function set, the current `Activity`, baggage and logging scopes are there in the
@@ -445,6 +449,14 @@ Two rules keep tasks the function starts from hanging, as they would not on the 
 - Once the call has answered, work posted to the scheduler, and work still queued, runs on the thread pool instead
   of being dropped. A task the function started may outlive the call, such as one a singleton caches, or a
   `SemaphoreSlim` wait whose `finally` releases it. The abandoned function's own steps still never complete.
+
+A cancelled call, for example one whose connection a proxy closed, does not end while user code it started is still
+running, because the host disposes the call's services when it ends, and a pooled `DbContext` would go back to the
+pool under that code. It waits for a step handler or a middleware hook that ignores the token, or for the function's
+own work, until the function ends or waits on a step, running the function's continuations meanwhile. It waits 30
+seconds at most, then logs a warning (event id 110 for a step, 111 for the function's own work) and ends as cancelled,
+leaving that code to finish on its own. The failure of every task the call stops waiting for, the function's own
+included, is observed, so it is not reported as an unobserved task exception.
 
 ### Fan-out
 

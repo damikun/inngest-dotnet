@@ -14,8 +14,9 @@ and waits for input from outside. The programming models are close. The differen
 - **Inngest** calls the function over HTTP at an endpoint your app serves, or through a
   [Connect](/inngest-dotnet/guides/connect/) worker that holds a connection open. Each call runs the function from
   the top. Steps that are done return their saved results; the first new step runs, and the call ends. The code
-  between steps runs on every call, but on the ordinary .NET scheduler: `Task.WhenAll`, `ConfigureAwait` and
-  ordinary `async` code are fine.
+  between steps runs on every call, on a thread of the call's own rather than a deterministic scheduler:
+  `Task.WhenAll`, `ConfigureAwait` and ordinary `async` code are fine, but blocking on a task with `.Result` or
+  `.Wait()` deadlocks the call; see [How it works](/inngest-dotnet/how-it-works/#what-it-means-for-your-code).
 
 So a workflow becomes a function, and each activity call becomes a step whose handler is the activity's body.
 
