@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Inngest.Execution;
@@ -133,6 +134,63 @@ public sealed class CheckpointingTests : IDisposable
 
         result.Body.ShouldBe("""{"same":false,"value":1,"note":null}""");
         _host.Checkpoints.Checkpoints.ShouldHaveSingleItem().Ops[0].GetProperty("data").GetRawText().ShouldBe("""{"value":1}""");
+    }
+
+    // Inngest canonicalizes every call body, so a replay reads 1234567890123456789 as 1234567890123456800 and 19.90 as
+    // 19.9. The call that ran the step has to see the same, or the steps named after them get other ids on a replay.
+    [Fact]
+    public async Task The_function_gets_the_result_back_as_Inngest_sends_it_on_a_replay()
+    {
+        string? raw = null;
+        var function = Define(async context =>
+        {
+            var ids = await context.Step.RunAsync("load", () => new[] { 1234567890123456789L });
+            var amount = await context.Step.RunAsync("amount", () => 19.90m);
+            var element = await context.Step.RunAsync("raw", () => JsonDocument.Parse("""{"b":"<é>","a":1.50}""").RootElement.Clone());
+            raw = element.GetRawText();
+            foreach (var id in ids)
+            {
+                await context.Step.RunAsync($"ship-{id}", () => "shipped");
+            }
+
+            await context.Step.RunAsync(string.Create(CultureInfo.InvariantCulture, $"charge-{amount}"), () => "charged");
+            return "done";
+        });
+
+        var result = await _host.CallCheckpointedAsync(function, Call.New());
+
+        result.Body.ShouldBe("\"done\"");
+        raw.ShouldBe("""{"a":1.5,"b":"<é>"}""");
+        _host.Checkpoints.Checkpoints.Select(checkpoint => checkpoint.Ops[0].GetProperty("name").GetString())
+            .ShouldBe(["load", "amount", "raw", "ship-1234567890123456800", "charge-19.9"]);
+
+        // What the steps saved is what the step returned; only Inngest's copy is canonical.
+        _host.Checkpoints.Checkpoints[0].Ops[0].GetProperty("data").GetRawText().ShouldBe("[1234567890123456789]");
+        _host.Checkpoints.Checkpoints[1].Ops[0].GetProperty("data").GetRawText().ShouldBe("19.90");
+    }
+
+    [Fact]
+    public async Task A_replay_finds_the_steps_named_after_a_canonicalized_result()
+    {
+        var shipped = 0;
+        var function = Define(async context =>
+        {
+            var ids = await context.Step.RunAsync("load", () => new[] { 1234567890123456789L });
+            foreach (var id in ids)
+            {
+                await context.Step.RunAsync($"ship-{id}", () => ++shipped);
+            }
+
+            return "done";
+        });
+        await _host.CallCheckpointedAsync(function, Call.New());
+        var saved = _host.Checkpoints.Checkpoints.Select(checkpoint => checkpoint.Ops[0].GetProperty("name").GetString()!).ToList();
+
+        // The saved steps as the next call brings them, canonicalized.
+        var replay = await _host.CallCheckpointedAsync(function, Call.New().Data(saved[0], "[1234567890123456800]").Data(saved[1], "1"));
+
+        replay.Body.ShouldBe("\"done\"");
+        shipped.ShouldBe(1);
     }
 
     [Fact]
