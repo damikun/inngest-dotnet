@@ -64,7 +64,7 @@ public interface IStepTools
 
     /// <summary>
     /// Publishes data to a realtime topic, tagged with the run, and returns it. The step publishes once: a replay
-    /// returns the memoized data without publishing again.
+    /// returns the memoized data without publishing again. A message over 512 KB fails the step without retries.
     /// </summary>
     Task<T> PublishAsync<T>(string id, RealtimeTopic topic, T data) =>
         throw new NotSupportedException($"{GetType().Name} does not implement PublishAsync.");
@@ -141,7 +141,7 @@ public interface IStepTools
 
     /// <summary>
     /// Publishes data to a realtime topic, tagged with the run, and returns it. The step publishes once: a replay
-    /// returns the memoized data without publishing again.
+    /// returns the memoized data without publishing again. A message over 512 KB fails the step without retries.
     /// </summary>
     Task<T> PublishAsync<T>(StepOptions stepOptions, RealtimeTopic topic, T data) => PublishAsync(IdOf(stepOptions), topic, data);
 

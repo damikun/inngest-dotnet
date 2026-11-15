@@ -13,7 +13,8 @@ public interface IInngestRealtime
 {
     /// <summary>
     /// Publishes data to the topic at once, from anywhere; inside a run it is tagged with the run's id. A retry of
-    /// the code publishes again: inside a function, IStepTools.PublishAsync publishes once.
+    /// the code publishes again: inside a function, IStepTools.PublishAsync publishes once. The data goes as JSON, text
+    /// as a JSON string, and a message over 512 KB throws ArgumentException.
     /// </summary>
     Task PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken cancellationToken = default);
 
