@@ -1,3 +1,4 @@
+using Inngest.Execution;
 using Inngest.Tests.Checkpointing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -116,6 +117,25 @@ public sealed class NumberWarningTests : IDisposable
         var record = Logged(InvokePayloadTrailingZerosEventId).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Debug);
         record.Message.ShouldStartWith("Invoke step charge of run 01JRUN of function fn sends a number at $.opts.payload.data.amount that comes back without its trailing zeros");
+    }
+
+    [Fact]
+    public async Task An_invoke_from_a_durable_endpoint_is_logged_too()
+    {
+        var endpoint = TestFunction.Define(
+            async context =>
+            {
+                await context.Step.InvokeAsync<object>("charge", new InvokeOptions("child") { Data = new { amount = 0.1234567890123456789m } });
+                return null;
+            },
+            "POST /orders");
+
+        var outcome = await _host.EndpointAsync(endpoint);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        _host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().OpNames.ShouldBe(["InvokeFunction"]);
+        Logged(InvokePayloadEventId).ShouldHaveSingleItem().Message
+            .ShouldStartWith("Invoke step charge of run 01JENDPOINTRUN00000000000000 of function POST /orders sends a number at $.opts.payload.data.amount");
     }
 
     private IReadOnlyList<FakeLogRecord> Logged(int eventId) => [.. _host.Logs.GetSnapshot().Where(record => record.Id.Id == eventId)];
