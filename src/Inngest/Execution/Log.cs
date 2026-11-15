@@ -83,7 +83,8 @@ internal static partial class Log
     public static partial void EndpointRunNotRecorded(ILogger logger, string runId, string functionId, Exception exception);
 
     [LoggerMessage(153, LogLevel.Warning,
-        "Run {RunId} of durable endpoint {FunctionId} was not recorded in Inngest: the app had stopped before its save could start. The client has the response.")]
+        "Run {RunId} of durable endpoint {FunctionId} was not recorded in Inngest: its request ended after the app's shutdown timeout ran out, " +
+        "or after the app had stopped, too late for its save to start. The client has the response.")]
     public static partial void EndpointRunNotRecordedStopping(ILogger logger, string runId, string functionId);
 
     [LoggerMessage(154, LogLevel.Error,

@@ -12,7 +12,8 @@ namespace Inngest.Execution;
 // finish, so a run that finished in that time would never be recorded. When the host stops, the saves still running
 // are waited for, as the Go SDK waits for its checkpoints, for as long as the shutdown timeout allows. They are waited
 // for once more after every other service has stopped, the server with its requests included, and whatever is left
-// then is cancelled. A save that ends by being cancelled is logged: its call may or may not have reached Inngest.
+// then is cancelled. A save that ends by being cancelled, or does not end soon after, is logged: its call may or may not
+// have reached Inngest.
 //
 // A save starts after the response, so a host that freezes or ends the process once a response is out, as serverless
 // hosts do, can delay it or lose it. Each save holds the ops of its run until Inngest has them. While Inngest is slow
@@ -20,13 +21,15 @@ namespace Inngest.Execution;
 // pile up without end.
 internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
 {
-    // How long the saves that were cancelled get to end, so that they are logged before the app says it has stopped.
-    private static readonly TimeSpan CancelledGrace = TimeSpan.FromSeconds(1);
-
     private readonly ILogger<EndpointRunSaves> _logger;
     private readonly CancellationTokenSource _cancelled = new();
-    private readonly HashSet<Task> _running = [];
+    private readonly Dictionary<Task, Save> _running = [];
+
+    // Guards the source while it is cancelled or disposed: the container can dispose the service while the host is
+    // still stopping it.
+    private readonly object _gate = new();
     private bool _stopped;
+    private bool _disposed;
 
     public EndpointRunSaves(ILogger<EndpointRunSaves> logger)
     {
@@ -43,6 +46,9 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
     // How many saves may be under way before a request waits for its own.
     public int MaxRunning { get; init; } = 100;
 
+    // How long the saves that were cancelled get to end, so that they are logged before the app says it has stopped.
+    public TimeSpan CancelledGrace { get; init; } = TimeSpan.FromSeconds(1);
+
     // Starts recording a run. The save logs its own failure and never throws. The task returned is the save when more
     // than MaxRunning are under way, which the request then waits for, and a completed one otherwise.
     public Task Start(string runId, string functionId, Func<CancellationToken, Task> save)
@@ -53,8 +59,9 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
         {
             if (!_stopped)
             {
-                task = Task.Run(() => RunAsync(runId, functionId, save), CancellationToken.None);
-                _running.Add(task);
+                var entry = new Save(runId, functionId);
+                task = Task.Run(() => RunAsync(entry, save), CancellationToken.None);
+                _running.Add(task, entry);
                 behind = _running.Count > MaxRunning;
             }
         }
@@ -91,18 +98,25 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
         await CancelAsync().ConfigureAwait(false);
     }
 
-    // The container disposes the service after the host has stopped it, or instead of that.
+    // The container disposes the service after the host has stopped it, or instead of that. It cancels the token here
+    // too, as the saves can have been stopped and not yet cancelled.
     public void Dispose()
     {
-        if (Stop() is not null)
+        Stop();
+        lock (_gate)
         {
-            _cancelled.Cancel();
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
-        _cancelled.Dispose();
+            _disposed = true;
+            _cancelled.Cancel();
+            _cancelled.Dispose();
+        }
     }
 
-    private async Task RunAsync(string runId, string functionId, Func<CancellationToken, Task> save)
+    private async Task RunAsync(Save entry, Func<CancellationToken, Task> save)
     {
         try
         {
@@ -110,7 +124,15 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
         }
         catch (Exception) when (Stopped.IsCancellationRequested)
         {
-            Log.EndpointRunSaveCancelled(_logger, runId, functionId);
+            LogCancelled(entry);
+        }
+    }
+
+    private void LogCancelled(Save save)
+    {
+        if (save.TakeLog())
+        {
+            Log.EndpointRunSaveCancelled(_logger, save.RunId, save.FunctionId);
         }
     }
 
@@ -133,7 +155,7 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
     {
         lock (_running)
         {
-            return [.. _running.Where(static save => !save.IsCompleted)];
+            return [.. _running.Keys.Where(static save => !save.IsCompleted)];
         }
     }
 
@@ -146,7 +168,7 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
     }
 
     // The saves still running, or null once stopped. Saves started from now on are not run.
-    private Task[]? Stop()
+    private KeyValuePair<Task, Save>[]? Stop()
     {
         lock (_running)
         {
@@ -167,14 +189,40 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
             return;
         }
 
-        _cancelled.Cancel();
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _cancelled.Cancel();
+            }
+        }
+
         try
         {
-            await Task.WhenAll(running).WaitAsync(CancelledGrace).ConfigureAwait(false);
+            await Task.WhenAll(running.Select(static save => save.Key)).WaitAsync(CancelledGrace).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
-            // A save that does not end when it is cancelled is left to itself.
+            // A save that does not end when it is cancelled is left to itself, and logged now: the app may end first.
+            foreach (var (task, save) in running)
+            {
+                if (!task.IsCompleted)
+                {
+                    LogCancelled(save);
+                }
+            }
         }
+    }
+
+    // A save under way, which is logged as cancelled once at most.
+    private sealed class Save(string runId, string functionId)
+    {
+        private int _logged;
+
+        public string RunId => runId;
+
+        public string FunctionId => functionId;
+
+        public bool TakeLog() => Interlocked.Exchange(ref _logged, 1) == 0;
     }
 }
