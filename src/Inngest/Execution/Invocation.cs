@@ -125,7 +125,7 @@ internal sealed partial class Invocation
             var api = engine.EndpointCheckpoints
                 ?? throw new InvalidOperationException("Durable endpoints need the checkpoint API that services.AddInngest() registers.");
             _endpoint = new EndpointSaver(api, run.RunId, endpoint);
-            _checkpoint = Checkpointer.ForEndpoint(_endpoint, _time, _settings.SerializerOptions);
+            _checkpoint = Checkpointer.ForEndpoint(_time, _settings.SerializerOptions);
         }
         else
         {

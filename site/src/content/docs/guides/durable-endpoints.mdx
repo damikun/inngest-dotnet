@@ -159,8 +159,8 @@ over, or when the endpoint is done.
 ### The endpoint finishes
 
 The client gets the response, with the run's id in an `X-Run-ID` header. After the response, the SDK records the run
-in Inngest, with the steps that ran and the response. A request that ran no steps leaves no run, and its response has
-no `X-Run-ID`.
+in Inngest, with the steps that ran and the response, in one call unless they come to more than the 4 MiB Inngest reads
+of a call. A request that ran no steps leaves no run, and its response has no `X-Run-ID`.
 
 If Inngest cannot be reached for the recording, the SDK logs it. The client has its response already.
 
@@ -169,7 +169,8 @@ If Inngest cannot be reached for the recording, the SDK logs it. The client has 
 A sleep, a wait for an event or a signal, an invoke, a fetch or inference step, and steps in parallel do not run in
 the request: Inngest carries them out. The SDK saves the steps so far, which creates the run in Inngest, and the
 client gets a 303 See Other to a URL that answers with the final response. That URL waits up to five minutes for the
-run to finish.
+run to finish. As in the TypeScript SDK, the steps go to Inngest one to a call: Inngest takes several in one call for
+steps in parallel, and would then plan each later step of the run before running it.
 
 This handler runs `reserve-stock` in the request and then waits for a person to approve a large order. The body of
 the handler:
@@ -390,6 +391,10 @@ Inngest stores the request's body and sends it back on every call that resumes t
 SDK reads the whole body into memory before the handler runs, and refuses one larger than `MaxRequestBodySize` with
 413. This holds for every request to the endpoint, whether or not it ends up waiting. Inngest accepts about 3 MiB at
 most.
+
+The call that creates the run carries the body, in base64, and the output of the first step, and Inngest reads 4 MiB
+of it at most. When the two come to more, the run is not created: a request that hands its run over fails, and one
+that finished logs it.
 
 ## Configuration
 

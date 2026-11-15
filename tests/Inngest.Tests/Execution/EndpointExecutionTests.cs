@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Inngest.Client;
 using Inngest.Execution;
 using Inngest.Functions;
 
@@ -83,10 +84,10 @@ public sealed class EndpointExecutionTests
         outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
         outcome.RunId.ShouldBe(RunId);
         outcome.Token.ShouldBe("eyJ.token");
-        var save = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem();
-        save.Created.ShouldBeTrue();
-        save.OpNames.ShouldBe(["StepRun", "Sleep"]);
-        save.Ops[1].GetProperty("id").GetString().ShouldBe(StepIds.Hash("cool-off"));
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Select(save => save.Created).ShouldBe([true, false]);
+        saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+        saves[1].Ops[0].GetProperty("id").GetString().ShouldBe(StepIds.Hash("cool-off"));
     }
 
     [Fact]
@@ -103,10 +104,58 @@ public sealed class EndpointExecutionTests
         }));
 
         outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
-        var save = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem();
-        save.OpNames.ShouldBe(["StepRun", "StepError"]);
-        save.Ops[1].GetProperty("id").GetString().ShouldBe(StepIds.Hash("reserve"));
-        save.Ops[1].GetProperty("error").GetProperty("message").GetString().ShouldBe("inventory service unavailable");
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "StepError"]);
+        var error = saves[1].Ops[0];
+        error.GetProperty("id").GetString().ShouldBe(StepIds.Hash("reserve"));
+        error.GetProperty("error").GetProperty("message").GetString().ShouldBe("inventory service unavailable");
+    }
+
+    // Inngest takes more than one op in a call for steps in parallel, and would plan every later step of the run, which
+    // starts the attempts of the failed one over.
+    [Fact]
+    public async Task Steps_that_ran_go_to_Inngest_one_to_a_call_when_a_later_step_fails()
+    {
+        using var host = new EngineHost();
+        Func<int> charge = () => throw new InvalidOperationException("card declined");
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.RunAsync("load-order", () => 42);
+            await context.Step.RunAsync("reserve", () => 43);
+            await context.Step.RunAsync("charge", charge);
+            return Response("charged");
+        }));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Select(save => save.Created).ShouldBe([true, false, false]);
+        saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "StepRun", "StepError"]);
+        saves.Select(save => save.Ops[0].GetProperty("id").GetString())
+            .ShouldBe([StepIds.Hash("load-order"), StepIds.Hash("reserve"), StepIds.Hash("charge")]);
+    }
+
+    [Fact]
+    public async Task Steps_that_ran_before_large_ones_leave_the_call_that_creates_the_run_under_what_Inngest_reads()
+    {
+        using var host = new EngineHost();
+        var large = new string('x', 1_500_000);
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            foreach (var id in new[] { "a", "b", "c" })
+            {
+                await context.Step.RunAsync(id, () => large);
+            }
+
+            await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(5));
+            return Response("later");
+        }));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "StepRun", "StepRun", "Sleep"]);
+        saves.ShouldAllBe(save => (save.Event ?? "").Length + save.Steps.Length < CheckpointApiClient.MaxNewRunLength);
     }
 
     [Fact]
@@ -193,6 +242,49 @@ public sealed class EndpointExecutionTests
         var save = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem();
         save.OpNames.ShouldBe(["StepPlanned", "StepPlanned"]);
         save.Ops.Select(op => op.GetProperty("id").GetString()).ShouldBe([StepIds.Hash("a"), StepIds.Hash("b")]);
+    }
+
+    [Fact]
+    public async Task Steps_in_parallel_after_a_step_that_ran_go_to_Inngest_together_in_a_call_of_their_own()
+    {
+        using var host = new EngineHost();
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.RunAsync("load-order", () => 42);
+            await Task.WhenAll(context.Step.RunAsync("a", () => 1), context.Step.RunAsync("b", () => 2));
+            return Response("both");
+        }));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Select(save => save.Created).ShouldBe([true, false]);
+        saves[0].OpNames.ShouldBe(["StepRun"]);
+        saves[1].OpNames.ShouldBe(["StepPlanned", "StepPlanned"]);
+    }
+
+    [Fact]
+    public async Task A_finished_run_too_large_for_one_call_is_recorded_in_calls_under_what_Inngest_reads()
+    {
+        using var host = new EngineHost();
+        var large = new string('x', 1_500_000);
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            foreach (var id in new[] { "a", "b", "c" })
+            {
+                await context.Step.RunAsync(id, () => large);
+            }
+
+            return Response("done");
+        }));
+        await outcome.Finish!(CancellationToken);
+
+        var saves = host.EndpointCheckpoints.Saves;
+        saves.Count.ShouldBeGreaterThan(1);
+        saves.Select(save => save.Created).ShouldBe([true, .. Enumerable.Repeat(false, saves.Count - 1)]);
+        saves.SelectMany(save => save.OpNames).ShouldBe(["StepRun", "StepRun", "StepRun", "RunComplete"]);
+        saves.ShouldAllBe(save => (save.Event ?? "").Length + save.Steps.Length < CheckpointApiClient.MaxNewRunLength);
     }
 
     [Fact]

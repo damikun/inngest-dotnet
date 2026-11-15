@@ -94,6 +94,42 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task A_step_that_fails_after_steps_that_ran_gets_only_the_attempts_its_retries_allow()
+    {
+        using var response = await PostAsync($"/charge/{TestId}", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var output = await FollowAsync(response);
+        output.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        Fixture.Attempts(TestId, "charge").ShouldBe(2);
+        Fixture.Attempts(TestId, "load").ShouldBe(1);
+        Fixture.Attempts(TestId, "reserve").ShouldBe(1);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task Steps_larger_together_than_Inngest_reads_in_one_call_are_handed_over()
+    {
+        using var response = await PostAsync($"/large/{TestId}?sleep=true", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var output = await FollowAsync(response);
+        output.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonDocument.Parse(output.Body).RootElement.GetProperty("length").GetInt32().ShouldBe(4_500_000);
+        Fixture.Attempts(TestId, "a").ShouldBe(1);
+        Fixture.Attempts(TestId, "c").ShouldBe(1);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_finished_request_whose_steps_are_larger_than_one_call_records_its_run()
+    {
+        using var response = await PostAsync($"/large/{TestId}", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+        await Api.WaitForTraceAsync(runId, "the run completed", trace => trace.Status == "COMPLETED", Cancellation);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task A_wait_for_an_event_ends_when_the_event_arrives()
     {
         using var response = await PostAsync($"/approve/{TestId}", "{}");

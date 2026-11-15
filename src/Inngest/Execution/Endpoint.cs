@@ -55,16 +55,59 @@ internal sealed class EndpointOutcome
         new(EndpointOutcomeKind.Failed, runId) { Error = error, Finish = finish };
 }
 
-// Saves the steps of a durable endpoint request: the first save creates the run, later ones add to it.
+// Saves the steps of a durable endpoint request. The first call creates the run with the request's event and the first
+// op, later ones add to the run.
 internal sealed class EndpointSaver(IEndpointCheckpointApi api, string runId, EndpointCall call)
 {
+    // Room for ops in one call: Inngest reads 4 MiB of the call that creates a run, of which the rest of the body takes a
+    // few hundred bytes. Calls that add steps keep under it too.
+    private const int MaxOpsLength = CheckpointApiClient.MaxNewRunLength - 1024;
+
     public string RunId => runId;
 
     // Set once Inngest has created the run.
     public EndpointRun? Run { get; private set; }
 
-    public async Task SaveAsync(ReadOnlyMemory<byte> steps, CancellationToken cancellationToken)
+    // A run Inngest takes over. Inngest takes more than one op in a call, other than lazy ones, for steps in parallel and
+    // then plans every later step of the run before it runs, which also starts the attempts of a failed step over. So,
+    // as in inngest-js, the steps that ran go one to a call, and the last ops, the steps in parallel when there are
+    // several, go together.
+    public async Task HandOverAsync(EndpointOps ops, int last, CancellationToken cancellationToken)
     {
+        var ran = ops.Count - last;
+        for (var i = 0; i < ran; i++)
+        {
+            await SaveAsync(ops, i, 1, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (last > 0)
+        {
+            await SaveAsync(ops, ran, last, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // A run that ended in the request, with RunComplete as its last op. Inngest never calls it again, so its ops share
+    // calls, one for most requests, and only the size of a call splits them.
+    public async Task FinishAsync(EndpointOps ops, CancellationToken cancellationToken)
+    {
+        var room = MaxOpsLength - (Run is null ? call.Event.Length : 0);
+        for (var from = 0; from < ops.Count;)
+        {
+            var count = 1;
+            while (from + count < ops.Count && ops.Length(from, count + 1) <= room)
+            {
+                count++;
+            }
+
+            await SaveAsync(ops, from, count, cancellationToken).ConfigureAwait(false);
+            from += count;
+            room = MaxOpsLength;
+        }
+    }
+
+    private async Task SaveAsync(EndpointOps ops, int from, int count, CancellationToken cancellationToken)
+    {
+        var steps = ops.Slice(from, count);
         if (Run is { } run)
         {
             await api.CheckpointEndpointStepsAsync(run, steps, cancellationToken).ConfigureAwait(false);
@@ -73,5 +116,39 @@ internal sealed class EndpointSaver(IEndpointCheckpointApi api, string runId, En
         {
             Run = await api.CheckpointNewRunAsync(new NewEndpointRun(runId, call.Event, steps, call.Retries), cancellationToken).ConfigureAwait(false);
         }
+    }
+}
+
+// The ops a durable endpoint request buffered, as one JSON array, and where each op ends in it.
+internal sealed class EndpointOps(byte[] array, int[] ends)
+{
+    public static readonly EndpointOps Empty = new([], []);
+
+    public int Count => ends.Length;
+
+    // The length of ops [from, from + count) as a JSON array.
+    public int Length(int from, int count) => Span(from, count).Length + 2;
+
+    // Ops [from, from + count) as a JSON array of their own.
+    public ReadOnlyMemory<byte> Slice(int from, int count)
+    {
+        if (from == 0 && count == Count)
+        {
+            return array;
+        }
+
+        var ops = Span(from, count);
+        var slice = new byte[ops.Length + 2];
+        slice[0] = (byte)'[';
+        ops.CopyTo(slice.AsSpan(1));
+        slice[^1] = (byte)']';
+        return slice;
+    }
+
+    // The ops with the commas between them. The first op follows the opening bracket, every other one a comma.
+    private ReadOnlySpan<byte> Span(int from, int count)
+    {
+        var start = from == 0 ? 1 : ends[from - 1] + 1;
+        return array.AsSpan(start, ends[from + count - 1] - start);
     }
 }

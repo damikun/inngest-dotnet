@@ -99,7 +99,7 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         var runId = response.Headers.GetValues("X-Run-ID").ShouldHaveSingleItem();
         response.Headers.Location.ShouldBe(new Uri($"http://localhost:8288/v1/http/runs/{runId}/output?token=eyJ.token"));
         (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBeEmpty();
-        _checkpoints.Saves.ShouldHaveSingleItem().OpNames.ShouldBe(["StepRun", "Sleep"]);
+        _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
     }
 
     [Fact]

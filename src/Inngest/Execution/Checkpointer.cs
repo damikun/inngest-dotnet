@@ -18,8 +18,8 @@ internal sealed class Checkpointer : IDisposable
     // Connect has no HTTP request timeout to stay under.
     public static readonly TimeSpan ConnectMaxRuntime = TimeSpan.FromMinutes(5);
 
-    // Where the buffered ops go, as a JSON array.
-    private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _save;
+    // Where the buffered ops go, as a JSON array. Null for a durable endpoint, which takes its ops and sends them itself.
+    private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task>? _save;
     private readonly TimeProvider _time;
     private readonly int _bufferedSteps;
     private readonly TimeSpan _maxRuntime;
@@ -29,13 +29,16 @@ internal sealed class Checkpointer : IDisposable
     // A step's output sits one level down in its op, so the op is read with room for whatever the serializer wrote.
     private readonly JsonReaderOptions _readerOptions;
 
+    // Where each buffered op ends in the array.
+    private readonly List<int> _ends = [];
+
     // The buffered ops as a JSON array, without its closing bracket until it is sent.
     private PooledBufferWriter? _steps;
     private bool _closed;
     private long _oldest;
 
     private Checkpointer(
-        Func<ReadOnlyMemory<byte>, CancellationToken, Task> save,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task>? save,
         TimeProvider time,
         int bufferedSteps,
         TimeSpan maxRuntime,
@@ -104,10 +107,10 @@ internal sealed class Checkpointer : IDisposable
             settings.SerializerOptions);
     }
 
-    // A durable endpoint request keeps its steps until the run is handed to Inngest or the endpoint is done, so that
-    // a request that finishes costs Inngest one call, made after the response.
-    public static Checkpointer ForEndpoint(EndpointSaver saver, TimeProvider time, JsonSerializerOptions serializerOptions) =>
-        new(saver.SaveAsync, time, int.MaxValue, Timeout.InfiniteTimeSpan, maxInterval: null, serializerOptions);
+    // A durable endpoint request keeps its steps until the run is handed to Inngest or the endpoint is done, and then
+    // takes them out to send them; see EndpointSaver.
+    public static Checkpointer ForEndpoint(TimeProvider time, JsonSerializerOptions serializerOptions) =>
+        new(save: null, time, int.MaxValue, Timeout.InfiniteTimeSpan, maxInterval: null, serializerOptions);
 
     // Buffers a StepRun op and returns its data as a later call reads it from Inngest, so the function sees the same
     // value now as on every replay. The copy outlives the buffer, which is reused once the op is sent.
@@ -134,22 +137,28 @@ internal sealed class Checkpointer : IDisposable
         }
 
         steps.Write(op);
+        _ends.Add(steps.WrittenCount);
         Count++;
     }
 
     // Saves the buffered steps. Throws InngestException when Inngest did not save them; they stay buffered then.
     public async Task SaveAsync(CancellationToken cancellationToken)
     {
-        await _save(Close(), cancellationToken).ConfigureAwait(false);
+        await _save!(Close(), cancellationToken).ConfigureAwait(false);
         Discard();
     }
 
-    // The buffered ops as a JSON array that outlives the call, which then saves them after its answer.
-    public byte[] TakeSteps()
+    // The buffered ops of a durable endpoint, which outlive the call.
+    public EndpointOps TakeOps()
     {
-        var steps = Close().ToArray();
+        if (Count == 0)
+        {
+            return EndpointOps.Empty;
+        }
+
+        var ops = new EndpointOps(Close().ToArray(), [.. _ends]);
         Discard();
-        return steps;
+        return ops;
     }
 
     // Takes the buffered steps as the answer to the call, for when Inngest could not save them: Inngest then saves
@@ -166,6 +175,7 @@ internal sealed class Checkpointer : IDisposable
     public void Discard()
     {
         _steps?.Clear();
+        _ends.Clear();
         _closed = false;
         Count = 0;
     }

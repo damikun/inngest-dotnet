@@ -54,6 +54,18 @@ public sealed class EndpointCheckpointApiTests
     }
 
     [Fact]
+    public async Task A_run_whose_first_call_is_larger_than_Inngest_reads_fails_before_it_is_sent()
+    {
+        var steps = Encoding.UTF8.GetBytes($$"""[{"id":"a","op":"StepRun","data":"{{new string('x', CheckpointApiClient.MaxNewRunLength)}}"}]""");
+
+        var exception = await Should.ThrowAsync<InngestException>(Create().CheckpointNewRunAsync(NewRun with { Steps = steps }, CancellationToken));
+
+        exception.Message.ShouldStartWith("Run 01JRUN was not created: the request's body and the first step's output come to");
+        exception.Message.ShouldContain("more than the 4194304 bytes Inngest reads");
+        _handler.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Adds_steps_to_the_run_under_its_function_and_app()
     {
         _handler.Respond(HttpStatusCode.OK);

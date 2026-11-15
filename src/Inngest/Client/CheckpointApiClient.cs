@@ -18,6 +18,9 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
 {
     internal const int MaxAttempts = 5;
 
+    // Inngest reads at most this much of the call that creates a run, and fails to parse the rest.
+    internal const int MaxNewRunLength = 4 * 1024 * 1024;
+
     // The execution version of the calls Inngest makes when it resumes the run.
     private const int RequestVersion = 2;
 
@@ -74,7 +77,8 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
             (body, now) => WriteBody(body, run, now),
             run.RunId,
             "because the run already exists",
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            MaxNewRunLength).ConfigureAwait(false);
         return ReadRun(reply, run.RunId);
     }
 
@@ -94,7 +98,8 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
         Action<PooledBufferWriter, DateTimeOffset> writeBody,
         string runId,
         string conflict,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maxLength = int.MaxValue)
     {
         using var body = new PooledBufferWriter(payloadLength + 512);
         for (var attempt = 1; ; attempt++)
@@ -102,6 +107,13 @@ internal sealed class CheckpointApiClient : ICheckpointApi, IEndpointCheckpointA
             // Rewritten for every attempt, so that "ts" says when Inngest was asked.
             body.Clear();
             writeBody(body, _timeProvider.GetUtcNow());
+            if (body.WrittenCount > maxLength)
+            {
+                throw new InngestException(
+                    $"Run {runId} was not created: the request's body and the first step's output come to {body.WrittenCount} bytes, more than " +
+                    $"the {maxLength} bytes Inngest reads of the call that creates a run. Lower DurableEndpointOptions.MaxRequestBodySize, or " +
+                    "return less from the first step.");
+            }
 
             var (reply, error, retryable) = await TrySendAsync(url, body.WrittenMemory, runId, conflict, cancellationToken).ConfigureAwait(false);
             if (error is null)
