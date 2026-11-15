@@ -386,11 +386,15 @@ They read the code of one method at a time, so they keep quiet rather than guess
 - `INNGEST023` reports a blocking call made on a step call itself, anywhere. In the code of a function it also reports
   one on a task that the code starts by calling a method, such as `LoadAsync().Result`, directly or through a local,
   the task of a step kept in a local among them. A wait through `WaitAsync` or `ContinueWith` counts as one on the task
-  they wait for or continue, so `Task.Run(...).ContinueWith(...).Result` is fine. Reading `.Result` of a task that was
-  awaited before, as after `Task.WhenAll`, or checked with `IsCompleted` is fine and not reported, and so are tasks from
-  `Task.FromResult` or `Task.Run`, tasks in parameters, fields and properties, and code that `Task.Run`, `ContinueWith`
-  or a step runs. The handler of a durable endpoint is not looked at this way yet: there only a blocking call on a step
-  call itself is reported, and the error the SDK logs at run time, event id 112, covers the rest.
+  they wait for or continue, so `Task.Run(...).ContinueWith(...).Result` is fine, unless `ContinueWith` is given a
+  scheduler other than `TaskScheduler.Default`, such as `TaskScheduler.FromCurrentSynchronizationContext()`, which runs
+  the continuation on the function's thread. Reading `.Result` of a task that was awaited before, as after
+  `Task.WhenAll`, or checked with `IsCompleted` is fine and not reported, but awaiting `WaitAsync` on it does not count,
+  since `WaitAsync` can give up first. Tasks from `Task.FromResult` or `Task.Run`, tasks in parameters, fields and
+  properties, and code that `Task.Run`, `ContinueWith` or a step runs are fine too. The handler of a durable endpoint
+  is not looked at this way yet: there only a blocking call on a step call itself is reported, not one on the task of
+  a step kept in a local or waited for through `WaitAsync` or `ContinueWith`, and the error the SDK logs at run time,
+  event id 112, covers the rest.
 - `INNGEST025` leaves async methods to the compiler, which reports a call that is not awaited there (`CS4014`). Assigning
   the task to a discard, `_ = client.SendAsync(...)`, says that nothing should wait for it.
 - `INNGEST021` is information only, because the cleanup often does no harm when it runs late, as with a

@@ -235,13 +235,14 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         // The call that started the task, when it is one the code starts here and may not have finished by the blocking
         // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll and
         // WhenAny are looked into, for the tasks they are given one by one, and ContinueWith for the task it continues:
-        // the continuation runs on the thread pool unless told otherwise, once that task is done.
+        // the continuation runs on the thread pool once that task is done. Given a scheduler of its own, such as the
+        // function's thread from FromCurrentSynchronizationContext, the continuation is a task the code starts itself.
         private IInvocationOperation? StartedBy(IOperation task, IOperation blocking, int depth)
         {
             switch (Unwrapped(task))
             {
                 case IInvocationOperation { TargetMethod.Name: "ContinueWith", Instance: { } continued } call when IsTask(call.TargetMethod.ContainingType):
-                    return depth < 4 ? StartedBy(continued, blocking, depth + 1) : null;
+                    return (depth < 4 ? StartedBy(continued, blocking, depth + 1) : null) ?? (HasOwnScheduler(call) ? call : null);
                 case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod):
                     foreach (var argument in call.Arguments)
                     {
@@ -278,6 +279,22 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
             return !(method.Name == "StartNew" && IsType(method.ContainingType, "TaskFactory", "System", "Threading", "Tasks"));
         }
 
+        // A ContinueWith given a scheduler other than the thread pool's. TaskScheduler.Current is the one ContinueWith
+        // uses when it is given none, and in the code of a function that is the thread pool's too.
+        private static bool HasOwnScheduler(IInvocationOperation continueWith)
+        {
+            foreach (var argument in continueWith.Arguments)
+            {
+                if (argument.Parameter?.Type is INamedTypeSymbol type && IsType(type, "TaskScheduler", "System", "Threading", "Tasks"))
+                {
+                    return Unconverted(argument.Value) is not IPropertyReferenceOperation { Property.Name: "Default" or "Current", Instance: null } property
+                        || !IsType(property.Property.ContainingType, "TaskScheduler", "System", "Threading", "Tasks");
+                }
+            }
+
+            return false;
+        }
+
         private bool IsSettledBefore(ILocalSymbol local, IOperation blocking)
         {
             if (_settled is null)
@@ -299,7 +316,8 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         }
 
         // A local is settled where the code awaits its task, alone or among those of Task.WhenAll or WhenAny, reads
-        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again.
+        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again. A wait through
+        // WaitAsync settles nothing, since WaitAsync can give up while the task goes on.
         private void FindLocals()
         {
             _initializers = new Dictionary<ILocalSymbol, IOperation>(SymbolEqualityComparer.Default);
@@ -312,7 +330,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                         _initializers[declarator.Symbol] = value;
                         break;
                     case IAwaitOperation awaitOperation:
-                        var awaited = Unwrapped(awaitOperation.Operation);
+                        var awaited = Unwrapped(awaitOperation.Operation, throughWaits: false);
                         Settle(awaited, operation);
                         if (awaited is IInvocationOperation whenAll && IsWhenAllOrAny(whenAll.TargetMethod))
                         {
@@ -331,7 +349,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                         Settle(Unconverted(instance), operation);
                         break;
                     case IInvocationOperation { TargetMethod.Name: "Wait" or "GetAwaiter", Instance: { } instance } when IsAwaitable(instance.Type):
-                        Settle(Unwrapped(instance), operation);
+                        Settle(Unwrapped(instance, throughWaits: false), operation);
                         break;
                 }
             }
