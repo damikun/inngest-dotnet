@@ -171,6 +171,7 @@ internal sealed class Call
     private readonly List<string> _stack = [];
     private string _event = """{"data":{"value":1},"id":"01JTEST","name":"test/event","ts":1793268000000,"user":{}}""";
     private string? _events;
+    private string _runId = "01JRUN";
     private string[]? _explicitStack;
     private int _attempt;
     private int? _maxAttempts = 4;
@@ -215,6 +216,12 @@ internal sealed class Call
         return this;
     }
 
+    public Call RunId(string runId)
+    {
+        _runId = runId;
+        return this;
+    }
+
     public Call DisableImmediateExecution()
     {
         _disableImmediateExecution = true;
@@ -246,7 +253,7 @@ internal sealed class Call
         var events = _useApi ? "[]" : _events ?? "[" + _event + "]";
         var json =
             $$$"""
-            {"ctx":{"attempt":{{{_attempt}}},"disable_immediate_execution":{{{Bool(_disableImmediateExecution)}}},"fn_id":"0b3c7d2a-uuid",{{{MaxAttempts()}}}"run_id":"01JRUN","stack":{"current":{{{stack.Length}}},"stack":[{{{string.Join(",", stack.Select(id => $"\"{id}\""))}}}]},"use_api":{{{Bool(_useApi)}}}},"event":{{{_event}}},"events":{{{events}}},"steps":{{{steps}}},"use_api":{{{Bool(_useApi)}}},"version":2}
+            {"ctx":{"attempt":{{{_attempt}}},"disable_immediate_execution":{{{Bool(_disableImmediateExecution)}}},"fn_id":"0b3c7d2a-uuid",{{{MaxAttempts()}}}"run_id":"{{{_runId}}}","stack":{"current":{{{stack.Length}}},"stack":[{{{string.Join(",", stack.Select(id => $"\"{id}\""))}}}]},"use_api":{{{Bool(_useApi)}}}},"event":{{{_event}}},"events":{{{events}}},"steps":{{{steps}}},"use_api":{{{Bool(_useApi)}}},"version":2}
             """;
         return Encoding.UTF8.GetBytes(json);
     }

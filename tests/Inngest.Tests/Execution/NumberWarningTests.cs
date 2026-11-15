@@ -126,6 +126,40 @@ public sealed class NumberWarningTests : IDisposable
     }
 
     [Fact]
+    public async Task Each_pending_invoke_of_a_race_is_logged_once()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.ParallelAsync(ParallelMode.Race, () => Task.WhenAny(
+                context.Step.InvokeAsync<object>("charge", new InvokeOptions("child") { Data = new { orderId = 1234567890123456789L } }),
+                context.Step.InvokeAsync<object>("refund", new InvokeOptions("child") { Data = new { orderId = 1234567890123456789L } }),
+                context.Step.RunAsync("ship", () => 1)));
+            return null;
+        });
+
+        var first = await _host.CallAsync(function, Call.New());
+        var second = await _host.CallAsync(function, Call.New().Data("ship", "1").DisableImmediateExecution());
+
+        first.OpCodes.ShouldBe(["InvokeFunction", "InvokeFunction", "StepPlanned"]);
+        second.OpCodes.ShouldBe(["InvokeFunction", "InvokeFunction"]);
+        Logged(InvokePayloadEventId).Select(record => record.Message.Split(" sends ")[0]).Order().ShouldBe(
+            ["Invoke step charge of run 01JRUN of function fn", "Invoke step refund of run 01JRUN of function fn"]);
+    }
+
+    [Fact]
+    public async Task The_same_invoke_in_another_run_is_logged_again()
+    {
+        var function = TestFunction.Define(async context =>
+            await context.Step.InvokeAsync<object>("charge", new InvokeOptions("child") { Data = new { orderId = 1234567890123456789L } }));
+
+        await _host.CallAsync(function, Call.New());
+        await _host.CallAsync(function, Call.New().RunId("01JOTHERRUN"));
+
+        Logged(InvokePayloadEventId).Select(record => record.Message.Split(" sends ")[0]).ShouldBe(
+            ["Invoke step charge of run 01JRUN of function fn", "Invoke step charge of run 01JOTHERRUN of function fn"]);
+    }
+
+    [Fact]
     public async Task An_invoke_payload_that_only_loses_trailing_zeros_is_logged_at_debug_level()
     {
         var function = TestFunction.Define(async context =>
