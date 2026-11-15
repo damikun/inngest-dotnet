@@ -239,6 +239,28 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_cancelled_call_for_a_step_the_function_does_not_reach_ends_at_once()
+    {
+        using var host = new EngineHost();
+        using var cancellation = new CancellationTokenSource();
+        var function = TestFunction.Define(async context =>
+        {
+            await context.Step.RunAsync("A", () => "A");
+            return await context.Step.RunAsync("B", () => "B");
+        });
+
+        var pending = host.Engine.ExecuteAsync(
+            new() { Function = function, Body = Call.New().ToBytes(), StepId = Call.Hash("B"), Services = host.Services },
+            cancellation.Token);
+        await host.Time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+
+        // The function waits on A, which runs in a call of its own, so none of its code runs in this call any more.
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 111);
+    }
+
+    [Fact]
     public async Task A_step_can_await_a_task_the_function_started()
     {
         var function = TestFunction.Define(async context =>

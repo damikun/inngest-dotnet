@@ -105,6 +105,10 @@ internal sealed partial class Invocation
     // The run's state as far as this call knows it, in bytes; computed when a step first writes its output.
     private long? _stateBytes;
     private long _waitingSince;
+
+    // In a call for one step: the function went idle right after finding steps that other calls run, and has run no code
+    // since. It then most likely waits on them, though it may also wait on work of its own that the call cannot see.
+    private bool _waitsOnOtherCalls;
     private volatile bool _finished;
 
     // Results the run completed first that had not been reached when later ones were handed back.
@@ -304,7 +308,10 @@ internal sealed partial class Invocation
         {
             try
             {
-                _scheduler.RunPending(MaxContinuationsPerTick);
+                if (_scheduler.RunPending(MaxContinuationsPerTick) > 0)
+                {
+                    _waitsOnOtherCalls = false;
+                }
             }
             catch (Exception exception)
             {

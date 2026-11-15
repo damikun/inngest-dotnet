@@ -33,7 +33,9 @@ internal sealed partial class Invocation
                 return await ExecuteAsync(target).ConfigureAwait(false);
             }
 
-            // Other new steps are ignored: Inngest has planned them already and runs each in a call of its own.
+            // Other new steps are ignored: Inngest has planned them already and runs each in a call of its own. A function
+            // that is idle right after finding some most likely waits on them, and they never complete in this call.
+            _waitsOnOtherCalls = _window.Exists(static step => step.IsNew);
             ClearWindow();
             _waitingSince = _time.GetTimestamp();
             return null;
@@ -141,9 +143,15 @@ internal sealed partial class Invocation
     }
 
     // The call was cancelled while the function waits on work of its own, such as a query on a DbContext of the call.
-    // Its code goes on when that work ends, so the call waits until the function ends or waits on a step it found.
+    // Its code goes on when that work ends, so the call waits until the function ends or waits on a step it found. A
+    // function that waits on steps of other calls runs no code here any more, so there is nothing to wait for.
     private Task FunctionCancelledAsync(Task function)
     {
+        if (_waitsOnOtherCalls)
+        {
+            return Task.FromCanceled(_cancellationToken);
+        }
+
         var found = _found.Count;
         return CancelledAsync(function, () => function.IsCompleted || _found.Count > found, stepId: null);
     }
