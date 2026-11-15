@@ -235,13 +235,14 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         // The call that started the task, when it is one the code starts here and may not have finished by the blocking
         // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll and
         // WhenAny are looked into, for the tasks they are given one by one, and ContinueWith for the task it continues:
-        // the continuation runs on the thread pool unless told otherwise, once that task is done.
+        // the continuation runs on the thread pool once that task is done. Given a scheduler of its own, such as the
+        // function's thread from FromCurrentSynchronizationContext, the continuation is a task the code starts itself.
         private IInvocationOperation? StartedBy(IOperation task, IOperation blocking, int depth)
         {
             switch (Unwrapped(task))
             {
                 case IInvocationOperation { TargetMethod.Name: "ContinueWith", Instance: { } continued } call when IsTask(call.TargetMethod.ContainingType):
-                    return depth < 4 ? StartedBy(continued, blocking, depth + 1) : null;
+                    return (depth < 4 ? StartedBy(continued, blocking, depth + 1) : null) ?? (HasOwnScheduler(call) ? call : null);
                 case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod):
                     foreach (var argument in call.Arguments)
                     {
@@ -276,6 +277,22 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
             }
 
             return !(method.Name == "StartNew" && IsType(method.ContainingType, "TaskFactory", "System", "Threading", "Tasks"));
+        }
+
+        // A ContinueWith given a scheduler other than the thread pool's. TaskScheduler.Current is the one ContinueWith
+        // uses when it is given none, and in the code of a function that is the thread pool's too.
+        private static bool HasOwnScheduler(IInvocationOperation continueWith)
+        {
+            foreach (var argument in continueWith.Arguments)
+            {
+                if (argument.Parameter?.Type is INamedTypeSymbol type && IsType(type, "TaskScheduler", "System", "Threading", "Tasks"))
+                {
+                    return Unconverted(argument.Value) is not IPropertyReferenceOperation { Property.Name: "Default" or "Current", Instance: null } property
+                        || !IsType(property.Property.ContainingType, "TaskScheduler", "System", "Threading", "Tasks");
+                }
+            }
+
+            return false;
         }
 
         private bool IsSettledBefore(ILocalSymbol local, IOperation blocking)
