@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Inngest.Json;
 
 namespace Inngest.Steps;
 
@@ -90,5 +91,5 @@ internal sealed class InferStep<TResponse>(string id, InferOptions infer) : Foun
     }
 
     protected override TResponse Read(JsonElement value, JsonSerializerOptions options) =>
-        value.Deserialize(infer.ResponseType as JsonTypeInfo<TResponse> ?? (JsonTypeInfo<TResponse>)options.GetTypeInfo(typeof(TResponse)))!;
+        JsonPayload.Read(value, infer.ResponseType as JsonTypeInfo<TResponse> ?? (JsonTypeInfo<TResponse>)options.GetTypeInfo(typeof(TResponse)));
 }

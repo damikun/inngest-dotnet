@@ -209,6 +209,14 @@ options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.Json
 The SDK takes a copy when it starts, so later changes have no effect. For trimmed or Native AOT apps, see
 [Native AOT and trimming](/inngest-dotnet/guides/native-aot/).
 
+Inngest sends events and step results back in canonical JSON (RFC 8785), with the keys of every object sorted. So a type
+discriminator such as `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` usually arrives after the other
+properties. On .NET 9 and later the SDK sets `AllowOutOfOrderMetadataProperties` on its copy of the options. On .NET 8,
+whose System.Text.Json has no such setting, it moves the discriminators of the type being read to the front of their
+objects first. It finds them through properties, derived types and generic collections, but not inside a collection
+class that implements `IEnumerable<T>` itself or behind a custom converter; keep the default `$type` discriminator
+there, which sorts first.
+
 ## Connect settings
 
 The [Connect](/inngest-dotnet/guides/connect/) worker has settings of its own in `ConnectOptions`, with

@@ -7,6 +7,7 @@ using Inngest.Configuration;
 using Inngest.Events;
 using Inngest.Execution;
 using Inngest.Internal;
+using Inngest.Json;
 
 namespace Inngest.Steps;
 
@@ -50,7 +51,7 @@ internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : Fou
             throw Cancelled(functionId ?? invoke.FunctionId);
         }
 
-        return value.Deserialize((JsonTypeInfo<TResult>)options.GetTypeInfo(typeof(TResult)))!;
+        return JsonPayload.Read(value, (JsonTypeInfo<TResult>)options.GetTypeInfo(typeof(TResult)));
     }
 
     // Like a failed attempt that no retry can fix: the call site gets a StepFailedException it can catch.

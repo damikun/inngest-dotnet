@@ -195,6 +195,15 @@ public sealed class StepDataScenarios(EvaluationEnvironment environment) : Evalu
         run.OutputAs<UnicodeResult>().ShouldBe(new UnicodeResult(Text, $"{Text}|{Text.Length}", Text.Length));
         Observed.Names.ShouldBe(["first", "second"]);
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task A_custom_type_discriminator_is_read_from_the_sorted_JSON_Inngest_sends()
+    {
+        var run = await RunToEndAsync(StepDataFunctions.Polymorphic, new PaymentEvent(TestId, new CardPayment("4242", 2030)));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        run.OutputAs<PaymentResult>().ShouldBe(new PaymentResult("card 4242", "bank DE89", "bank DE89"));
+    }
 }
 
 [Trait("Category", "Evaluation")]

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Inngest.Configuration;
 using Inngest.Execution;
+using Inngest.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Realtime;
@@ -47,7 +48,7 @@ internal sealed class RealtimePublishStep<T>(string id, RealtimeTopic topic, T d
         }
     }
 
-    protected override T Read(JsonElement value, JsonSerializerOptions options) => value.Deserialize(TypeInfo(options))!;
+    protected override T Read(JsonElement value, JsonSerializerOptions options) => JsonPayload.Read(value, TypeInfo(options));
 
     private static JsonTypeInfo<T> TypeInfo(JsonSerializerOptions options) => (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
 }

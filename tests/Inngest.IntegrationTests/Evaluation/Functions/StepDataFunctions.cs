@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Inngest.IntegrationTests.Evaluation.Functions;
 
@@ -49,6 +50,20 @@ internal sealed record UnicodeEvent(string TestId, string Text) : IScenarioEvent
 
 internal sealed record UnicodeResult(string Echoed, string FromSecondStep, int Length);
 
+// Inngest sends every object with its keys sorted, so "type" reaches the SDK after the other properties.
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(CardPayment), "card")]
+[JsonDerivedType(typeof(BankPayment), "bank")]
+internal abstract record PaymentMethod;
+
+internal sealed record CardPayment(string Last4, int ExpYear) : PaymentMethod;
+
+internal sealed record BankPayment(string Iban) : PaymentMethod;
+
+internal sealed record PaymentEvent(string TestId, PaymentMethod Payment) : IScenarioEvent;
+
+internal sealed record PaymentResult(string FromEvent, string FromStep, string FromLaterStep);
+
 // What step results look like after their round trip through Inngest: null, primitives, records, large and Unicode data.
 internal static class StepDataFunctions
 {
@@ -57,6 +72,7 @@ internal static class StepDataFunctions
     public const string Record = "eval/step.record";
     public const string Large = "eval/step.large";
     public const string Unicode = "eval/step.unicode";
+    public const string Polymorphic = "eval/step.polymorphic";
 
     public static readonly Primitives SamplePrimitives = new(
         int.MaxValue,
@@ -200,7 +216,24 @@ internal static class StepDataFunctions
 
                 return new UnicodeResult(echoed, second, echoed.Length);
             });
+
+        // A type discriminator other than "$type", in the event and in a step's result.
+        inngest.AddFunction<PaymentEvent>(
+            new FunctionOptions { Id = "step-polymorphic", Triggers = [Trigger.Event(Polymorphic)] },
+            static async (context, _) =>
+            {
+                var method = await context.Step.RunAsync<PaymentMethod>("pick", () => new BankPayment("DE89"));
+                var later = await context.Step.RunAsync("describe", () => Describe(method));
+                return new PaymentResult(Describe(context.Event.Data.Payment), Describe(method), later);
+            });
     }
+
+    private static string Describe(PaymentMethod method) => method switch
+    {
+        CardPayment card => $"card {card.Last4}",
+        BankPayment bank => $"bank {bank.Iban}",
+        _ => "unknown",
+    };
 
     // Records with collections compare by reference, so compare their JSON instead.
     private static bool Equivalent<T>(T actual, T expected) =>
