@@ -13,6 +13,10 @@ namespace Inngest.SourceGeneration.Functions;
 // type, or a name computed some other way, is left alone.
 internal static class EventTriggers
 {
+    // SystemEvents.FunctionInvoked. A trigger on it means the function runs when it is invoked, as having no trigger
+    // does, so it is not compared.
+    private const string FunctionInvoked = "inngest/function.invoked";
+
     public static void Check(SymbolAnalysisContext context, INamedTypeSymbol type)
     {
         if (EventDataType(type) is not { } data || EventName(data, context.CancellationToken) is not { } expected)
@@ -46,6 +50,11 @@ internal static class EventTriggers
             if (name is null)
             {
                 return;
+            }
+
+            if (name == FunctionInvoked)
+            {
+                continue;
             }
 
             if (Matches(name, expected))
