@@ -23,6 +23,10 @@ internal sealed class InvocationScheduler : SynchronizationContext
     // thread reads it to tell when that code holds the thread.
     private long _runningSince;
 
+    // The items in the queue, counted apart from it for the watchdog on another thread, since only the engine's thread may
+    // read a single-reader channel.
+    private int _queued;
+
     public bool IsCurrent => Current == this;
 
     // Once the invocation has answered, work goes to the thread pool, as it would without this context. It may complete
@@ -30,8 +34,11 @@ internal sealed class InvocationScheduler : SynchronizationContext
     // everything that waits on those waiting forever.
     public override void Post(SendOrPostCallback d, object? state)
     {
+        // Counted first, so that the count is never below what the queue holds.
+        Interlocked.Increment(ref _queued);
         if (!_queue.Writer.TryWrite(new WorkItem(d, state)))
         {
+            Interlocked.Decrement(ref _queued);
             RunLater(new WorkItem(d, state));
         }
     }
@@ -70,6 +77,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
         {
             while (count < limit && _queue.Reader.TryRead(out var item))
             {
+                Interlocked.Decrement(ref _queued);
                 count++;
                 Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
                 try
@@ -95,11 +103,11 @@ internal sealed class InvocationScheduler : SynchronizationContext
 
     // Whether code on this context has run for at least the given time while work waits for it. Nothing else runs that
     // work, so the code is most likely blocked on a task that needs it, which then never completes. Called from another
-    // thread: peeking is safe there, since the channel keeps its items in a ConcurrentQueue.
+    // thread, so it reads only the count.
     public bool IsHeldFor(TimeSpan time)
     {
         var since = Volatile.Read(ref _runningSince);
-        return since != 0 && Stopwatch.GetElapsedTime(since) >= time && _queue.Reader.TryPeek(out _);
+        return since != 0 && Stopwatch.GetElapsedTime(since) >= time && Volatile.Read(ref _queued) > 0;
     }
 
     // Completes when more work is queued, for example when awaited I/O finishes.
@@ -113,6 +121,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
         _queue.Writer.TryComplete();
         while (_queue.Reader.TryRead(out var item))
         {
+            Interlocked.Decrement(ref _queued);
             RunLater(item);
         }
     }
