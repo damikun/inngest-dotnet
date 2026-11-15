@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Inngest.Execution;
 using Inngest.Functions;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +9,10 @@ namespace Inngest.Tests.Execution;
 // Function code that leaves the invocation's scheduler must still get correct results.
 public sealed class ThreadingTests : IDisposable
 {
+    // Short, so that the tests of a call that outlives it do not wait long. The engine's clock never moves in them: the
+    // grace runs in real time.
+    private static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(200);
+
     private readonly EngineHost _host = new();
 
     public void Dispose() => _host.Dispose();
@@ -179,6 +184,7 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task A_cancelled_call_stops_waiting_for_work_of_the_function_after_a_grace_period()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         using var cancellation = new CancellationTokenSource();
         var never = new TaskCompletionSource();
         var function = TestFunction.Define(async _ =>
@@ -187,18 +193,16 @@ public sealed class ThreadingTests : IDisposable
             return null;
         });
 
-        var pending = Execute(_host, function, cancellation.Token);
-        var timers = _host.Time.Created;
+        var pending = Execute(host, function, cancellation.Token);
+        var waited = Stopwatch.StartNew();
         await cancellation.CancelAsync();
-        await _host.Time.TimersCreated(timers + 1);
-        pending.IsCompleted.ShouldBeFalse();
-        _host.Time.Advance(Invocation.CancelledCallGrace);
 
-        await Should.ThrowAsync<OperationCanceledException>(() => pending);
-        var record = _host.Logs.GetSnapshot().Where(record => record.Id.Id == 111).ShouldHaveSingleItem();
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 111).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Warning);
         record.Category.ShouldBe("Inngest.Function.fn");
-        record.Message.ShouldStartWith("Run 01JRUN of function fn was still waiting on work of its own 00:00:30 after the call was cancelled");
+        record.Message.ShouldStartWith("Run 01JRUN of function fn was still waiting on work of its own 00:00:00.2000000 after the call was cancelled");
     }
 
     [Fact]
@@ -260,6 +264,7 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task A_cancelled_call_stops_waiting_for_a_step_that_ignores_the_token_after_a_grace_period()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         using var cancellation = new CancellationTokenSource();
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var never = new TaskCompletionSource<string>();
@@ -269,18 +274,16 @@ public sealed class ThreadingTests : IDisposable
             return await never.Task;
         }));
 
-        var pending = Execute(_host, function, cancellation.Token);
+        var pending = Execute(host, function, cancellation.Token);
         await started.Task;
-        var timers = _host.Time.Created;
+        var waited = Stopwatch.StartNew();
         await cancellation.CancelAsync();
-        await _host.Time.TimersCreated(timers + 1);
-        pending.IsCompleted.ShouldBeFalse();
-        _host.Time.Advance(Invocation.CancelledCallGrace);
 
-        await Should.ThrowAsync<OperationCanceledException>(() => pending);
-        var record = _host.Logs.GetSnapshot().Where(record => record.Id.Id == 110).ShouldHaveSingleItem();
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 110).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Warning);
-        record.Message.ShouldStartWith("Step stuck of run 01JRUN of function fn was still running 00:00:30 after the call was cancelled");
+        record.Message.ShouldStartWith("Step stuck of run 01JRUN of function fn was still running 00:00:00.2000000 after the call was cancelled");
     }
 
     [Fact]
@@ -317,6 +320,7 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task A_step_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         var message = "late failure " + Guid.NewGuid();
         var unobserved = await CountUnobservedAsync(message, async () =>
         {
@@ -330,10 +334,10 @@ public sealed class ThreadingTests : IDisposable
                 throw new InvalidOperationException(message);
             }));
 
-            var pending = Execute(_host, function, cancellation.Token);
+            var pending = Execute(host, function, cancellation.Token);
             await started.Task;
-            await CancelPastGraceAsync(cancellation, pending);
-            await Should.ThrowAsync<OperationCanceledException>(() => pending);
+            await cancellation.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             release.SetResult();
         });
 
@@ -343,6 +347,7 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task A_function_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         var message = "late failure " + Guid.NewGuid();
         var unobserved = await CountUnobservedAsync(message, async () =>
         {
@@ -354,9 +359,9 @@ public sealed class ThreadingTests : IDisposable
                 throw new InvalidOperationException(message);
             });
 
-            var pending = Execute(_host, function, cancellation.Token);
-            await CancelPastGraceAsync(cancellation, pending);
-            await Should.ThrowAsync<OperationCanceledException>(() => pending);
+            var pending = Execute(host, function, cancellation.Token);
+            await cancellation.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             release.SetResult();
         });
 
@@ -447,15 +452,6 @@ public sealed class ThreadingTests : IDisposable
         using var result = await host.Engine.ExecuteAsync(
             new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = scope.ServiceProvider },
             cancellationToken);
-    }
-
-    // Cancels the call and lets the grace period run out, if the call waits for one.
-    private async Task CancelPastGraceAsync(CancellationTokenSource cancellation, Task pending)
-    {
-        var timers = _host.Time.Created;
-        await cancellation.CancelAsync();
-        await Task.WhenAny(pending, _host.Time.TimersCreated(timers + 1));
-        _host.Time.Advance(Invocation.CancelledCallGrace);
     }
 
     // How many tasks failed with the message without anyone observing it, once the scenario has run and the garbage

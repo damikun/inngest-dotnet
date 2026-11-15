@@ -150,19 +150,19 @@ internal sealed partial class Invocation
 
     // A cancelled call still waits for the user code it started, since the call's services are disposed once it ends:
     // a step handler or a hook that ignores the token, or the function's own work. The function's continuations keep
-    // running meanwhile, as that code may wait on them. Code still running after CancelledCallGrace is logged and left
-    // to finish on its own. Either way the call ends as cancelled.
+    // running meanwhile, as that code may wait on them. Code still running after the grace period is logged and left to
+    // finish on its own. Either way the call ends as cancelled.
     private async Task CancelledAsync(Task code, Func<bool> settled, string? stepId)
     {
         if (!await SettleAsync(code, settled).ConfigureAwait(false))
         {
             if (stepId is null)
             {
-                Log.FunctionOutlivedCall(_runLogger, _run.RunId, _functionId, CancelledCallGrace);
+                Log.FunctionOutlivedCall(_runLogger, _run.RunId, _functionId, _cancelledCallGrace);
             }
             else
             {
-                Log.StepOutlivedCall(_runLogger, stepId, _run.RunId, _functionId, CancelledCallGrace);
+                Log.StepOutlivedCall(_runLogger, stepId, _run.RunId, _functionId, _cancelledCallGrace);
             }
         }
 
@@ -170,11 +170,13 @@ internal sealed partial class Invocation
         _cancellationToken.ThrowIfCancellationRequested();
     }
 
-    // True when the code settled within CancelledCallGrace.
+    // True when the code settled within the grace period. Real time, whatever clock the engine is given: the grace bounds
+    // how long the call's services stay alive, and a test clock that nothing moves would keep a call cancelled at shutdown
+    // open until the host gives up.
     private async Task<bool> SettleAsync(Task code, Func<bool> settled)
     {
         using var grace = new CancellationTokenSource();
-        var deadline = Task.Delay(CancelledCallGrace, _time, grace.Token);
+        var deadline = Task.Delay(_cancelledCallGrace, TimeProvider.System, grace.Token);
         try
         {
             while (true)

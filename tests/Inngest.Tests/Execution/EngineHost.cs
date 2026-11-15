@@ -24,7 +24,11 @@ internal sealed class EngineHost : IDisposable
 
     private readonly ServiceProvider _provider;
 
-    public EngineHost(Action<IServiceCollection>? configure = null, InngestSettings? settings = null, TimeSpan? heldThreadTimeout = null)
+    public EngineHost(
+        Action<IServiceCollection>? configure = null,
+        InngestSettings? settings = null,
+        TimeSpan? heldThreadTimeout = null,
+        TimeSpan? cancelledCallGrace = null)
     {
         var services = new ServiceCollection();
         services.AddFakeLogging();
@@ -32,9 +36,14 @@ internal sealed class EngineHost : IDisposable
         _provider = services.BuildServiceProvider();
         Logs = _provider.GetFakeLogCollector();
         var loggerFactory = _provider.GetRequiredService<ILoggerFactory>();
-        Engine = heldThreadTimeout is { } timeout
-            ? new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints) { HeldThreadTimeout = timeout }
-            : new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints);
+
+        // The engine's own defaults, for the limits a test leaves out.
+        var defaults = new ExecutionEngine(Settings, loggerFactory, Time, Api);
+        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints)
+        {
+            HeldThreadTimeout = heldThreadTimeout ?? defaults.HeldThreadTimeout,
+            CancelledCallGrace = cancelledCallGrace ?? defaults.CancelledCallGrace,
+        };
     }
 
     public static InngestSettings Settings { get; } = new()
@@ -120,18 +129,6 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : FakeTimeProvider(
         }
 
         return timer;
-    }
-
-    // How many timers have been created so far.
-    public int Created
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _timers;
-            }
-        }
     }
 
     // Completes once this many timers have been created in total.

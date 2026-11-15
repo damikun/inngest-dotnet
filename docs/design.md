@@ -455,8 +455,10 @@ running, because the host disposes the call's services when it ends, and a poole
 pool under that code. It waits for a step handler or a middleware hook that ignores the token, or for the function's
 own work, until the function ends or waits on a step, running the function's continuations meanwhile. It waits 30
 seconds at most, then logs a warning (event id 110 for a step, 111 for the function's own work) and ends as cancelled,
-leaving that code to finish on its own. The failure of every task the call stops waiting for, the function's own
-included, is observed, so it is not reported as an unobserved task exception.
+leaving that code to finish on its own. The 30 seconds are real time, whatever `TimeProvider` the engine has: a fake
+clock in an app's tests would otherwise keep a call cancelled at shutdown open until the host gives up. The failure of
+every task the call stops waiting for, the function's own included, is observed, so it is not reported as an
+unobserved task exception.
 
 ### Fan-out
 

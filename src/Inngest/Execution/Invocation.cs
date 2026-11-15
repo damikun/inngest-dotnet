@@ -26,10 +26,6 @@ internal sealed partial class Invocation
     // Inngest has no op for a step that is not found, so a targeted call fails with a 500 after this long.
     public static readonly TimeSpan StepNotFoundTimeout = TimeSpan.FromSeconds(10);
 
-    // How long a cancelled call still waits for user code it started, such as a step handler that ignores the token,
-    // before it ends and its services are disposed under that code.
-    public static readonly TimeSpan CancelledCallGrace = TimeSpan.FromSeconds(30);
-
     // The longest Task.Delay waits; it throws for anything longer.
     private static readonly TimeSpan MaxTimerDelay = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
@@ -78,6 +74,7 @@ internal sealed partial class Invocation
     private readonly ReplaySafeLogger _functionLogger;
     private readonly MiddlewarePipeline? _pipeline;
     private readonly TimeSpan _heldThreadTimeout;
+    private readonly TimeSpan _cancelledCallGrace;
 
     // Runs while the function runs, to notice code that holds the function's thread; see StartWatchdog.
     private ITimer? _watchdog;
@@ -119,6 +116,7 @@ internal sealed partial class Invocation
         _time = engine.TimeProvider;
         _logger = engine.Logger;
         _heldThreadTimeout = engine.HeldThreadTimeout;
+        _cancelledCallGrace = engine.CancelledCallGrace;
         _run = run;
         _requestBytes = request.Body.Length;
         _services = request.Services;

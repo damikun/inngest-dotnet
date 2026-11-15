@@ -54,6 +54,10 @@ internal sealed class ExecutionEngine : IExecutionEngine
     // How long the code of a function may hold its thread while work waits for it before the call logs an error.
     public TimeSpan HeldThreadTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
+    // How long a cancelled call still waits for user code it started, such as a step handler that ignores the token,
+    // before it ends and its services are disposed under that code.
+    public TimeSpan CancelledCallGrace { get; init; } = TimeSpan.FromSeconds(30);
+
     public async Task<ExecutionResult> ExecuteAsync(ExecutionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
