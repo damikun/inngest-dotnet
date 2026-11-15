@@ -8,22 +8,31 @@ public interface IInngestClient
     /// <summary>The id of the app this client belongs to.</summary>
     string AppId { get; }
 
-    /// <summary>Sends one event to Inngest.</summary>
+    /// <summary>
+    /// Sends one event to Inngest. When Inngest refuses the event, such as one with a timestamp before 1980, SendAsync
+    /// throws SendEventsException, whose Ids hold an empty string for it.
+    /// </summary>
     Task<SendEventsResult> SendAsync(InngestEvent @event, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Sends several events to Inngest in a single request. When Inngest refuses some of them, it throws
-    /// SendEventsException, whose Ids hold the ids of the events Inngest accepted.
+    /// Sends several events to Inngest in a single request. When Inngest refuses any of them, it still keeps the
+    /// others, and SendAsync throws SendEventsException, whose Ids hold one entry per event in the order sent: the id
+    /// of each event Inngest accepted and an empty string for each it refused.
     /// </summary>
     Task<SendEventsResult> SendAsync(IEnumerable<InngestEvent> events, CancellationToken cancellationToken = default);
 
-    /// <summary>Sends one event to Inngest with options for this call, such as another environment.</summary>
+    /// <summary>
+    /// Sends one event to Inngest with options for this call, such as another environment. When Inngest refuses the
+    /// event, SendAsync throws SendEventsException, whose Ids hold an empty string for it.
+    /// </summary>
     Task<SendEventsResult> SendAsync(InngestEvent @event, SendOptions options, CancellationToken cancellationToken = default) =>
         SendAsync([@event], options, cancellationToken);
 
     /// <summary>
-    /// Sends several events to Inngest in a single request with options for this call, such as another environment. When
-    /// Inngest refuses some of them, it throws SendEventsException, whose Ids hold the ids of the events Inngest accepted.
+    /// Sends several events to Inngest in a single request with options for this call, such as another environment.
+    /// When Inngest refuses any of them, it still keeps the others, and SendAsync throws SendEventsException, whose Ids
+    /// hold one entry per event in the order sent: the id of each event Inngest accepted and an empty string for each it
+    /// refused.
     /// </summary>
     Task<SendEventsResult> SendAsync(IEnumerable<InngestEvent> events, SendOptions options, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not implement SendAsync with SendOptions.");
