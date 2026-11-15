@@ -319,17 +319,41 @@ public sealed class FunctionBodyAnalyzerTests
                 {
                     var continued = Task.Run(() => 1).ContinueWith(task => task.Result + 1).Result;
                     var bounded = Task.Run(() => "x").WaitAsync(TimeSpan.FromSeconds(5)).Result;
+                    var done = Task.FromResult("y").WaitAsync(cancellationToken).Result;
+                    return continued + bounded + done;
+                }
+            }
+            """;
+
+        await Verify(source);
+    }
+
+    [Fact]
+    public async Task Blocking_on_a_task_after_a_WaitAsync_that_may_have_given_up_on_it_is_reported()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
                     var loading = LoadAsync();
-                    await loading.WaitAsync(cancellationToken);
-                    var loaded = loading.Result;
-                    return continued + bounded + loaded;
+                    try
+                    {
+                        await loading.WaitAsync(TimeSpan.FromSeconds(1));
+                    }
+                    catch (TimeoutException)
+                    {
+                    }
+
+                    return {|#0:loading.Result|};
                 }
 
                 private static Task<string> LoadAsync() => Task.FromResult("x");
             }
             """;
 
-        await Verify(source);
+        await Verify(source, Blocked(0, ".Result", "LoadAsync()"));
     }
 
     // INNGEST029

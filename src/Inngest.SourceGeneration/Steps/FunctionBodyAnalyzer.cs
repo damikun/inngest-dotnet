@@ -299,7 +299,8 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         }
 
         // A local is settled where the code awaits its task, alone or among those of Task.WhenAll or WhenAny, reads
-        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again.
+        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again. A wait through
+        // WaitAsync settles nothing, since WaitAsync can give up while the task goes on.
         private void FindLocals()
         {
             _initializers = new Dictionary<ILocalSymbol, IOperation>(SymbolEqualityComparer.Default);
@@ -312,7 +313,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                         _initializers[declarator.Symbol] = value;
                         break;
                     case IAwaitOperation awaitOperation:
-                        var awaited = Unwrapped(awaitOperation.Operation);
+                        var awaited = Unwrapped(awaitOperation.Operation, throughWaits: false);
                         Settle(awaited, operation);
                         if (awaited is IInvocationOperation whenAll && IsWhenAllOrAny(whenAll.TargetMethod))
                         {
@@ -331,7 +332,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                         Settle(Unconverted(instance), operation);
                         break;
                     case IInvocationOperation { TargetMethod.Name: "Wait" or "GetAwaiter", Instance: { } instance } when IsAwaitable(instance.Type):
-                        Settle(Unwrapped(instance), operation);
+                        Settle(Unwrapped(instance, throughWaits: false), operation);
                         break;
                 }
             }
