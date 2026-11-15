@@ -12,7 +12,7 @@ namespace Inngest.SourceGeneration.Steps;
 /// <summary>
 /// Looks at the code of a function that runs in every call, outside its steps (see <see cref="FunctionBody"/>): values
 /// from the clock or a random source, waits with Task.Delay or Thread.Sleep, awaited calls that are not steps, loops
-/// over unordered collections that call steps, and two steps with the same id.
+/// over unordered collections that call steps, two steps with the same id, and blocking waits on tasks the code starts.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
@@ -28,7 +28,9 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.DelayInFunction,
         DiagnosticDescriptors.AwaitOutsideStep,
         DiagnosticDescriptors.UnorderedLoopOverSteps,
-        DiagnosticDescriptors.RepeatedStepId);
+        DiagnosticDescriptors.RepeatedStepId,
+        DiagnosticDescriptors.BlockingOnStep,
+        DiagnosticDescriptors.BlockingOnTask);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -52,24 +54,35 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         private readonly List<(string Id, IInvocationOperation Step, IArgumentOperation Argument)> _ids = [];
         private readonly HashSet<IForEachLoopOperation> _reportedLoops = [];
 
+        // For INNGEST023, made on first use: the tasks in locals, by what the locals were declared with, and where the
+        // code first awaits a local's task or checks whether it is done.
+        private Dictionary<ILocalSymbol, IOperation>? _initializers;
+        private Dictionary<ILocalSymbol, int>? _settled;
+
         // Quiet is set inside the arguments of a step, which are saved with the step on its first call and not read
         // again, inside the arguments of a log message, which records the value without acting on it, and inside a
-        // throw, which ends the call, as a RetryAfterException with a time from the clock does.
-        public void Walk(IOperation operation, bool quiet)
+        // throw, which ends the call, as a RetryAfterException with a time from the clock does. Off the thread is set
+        // inside lambdas that System.Threading runs elsewhere, such as the work of Task.Run.
+        public void Walk(IOperation operation, bool quiet, bool offThread = false)
         {
             if (operation != body.Operation && operation is IAnonymousFunctionOperation or ILocalFunctionOperation && !FunctionBody.RunsInPlace(operation))
             {
                 return;
             }
 
+            offThread = offThread || (operation != body.Operation && RunsOffThread(operation));
             Visit(operation, quiet);
+            if (!offThread)
+            {
+                CheckBlocking(operation);
+            }
 
             var quietChildren = quiet
                 || operation is IThrowOperation
                 || (operation is IInvocationOperation invocation && (StepCalls.IsStep(invocation.TargetMethod) || IsLogging(invocation.TargetMethod)));
             foreach (var child in operation.ChildOperations)
             {
-                Walk(child, quietChildren);
+                Walk(child, quietChildren, offThread);
             }
         }
 
@@ -170,6 +183,163 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
             var method = invocation.TargetMethod;
             var name = method.ReducedFrom is not null || method.IsExtensionMethod ? method.Name : method.ContainingType.Name + "." + method.Name;
             context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.AwaitOutsideStep, StepCalls.NameLocation(invocation), name));
+        }
+
+        // INNGEST023: .Result, .Wait() or .GetAwaiter().GetResult() on a task that the code starts itself, by calling a
+        // method, and may not have finished. A task in a parameter, a field or a property is left alone, since it may come
+        // from anywhere, and so is one the code awaited or checked before. StepCallAnalyzer reports a wait on a step
+        // call itself; a step's task kept in a local is reported here.
+        private void CheckBlocking(IOperation operation)
+        {
+            var (task, how) = operation switch
+            {
+                IPropertyReferenceOperation { Property.Name: "Result", Instance: { } instance } when IsTask(instance.Type) => (instance, ".Result"),
+                IInvocationOperation { TargetMethod.Name: "Wait", Instance: { } instance } when IsTask(instance.Type) => (instance, ".Wait()"),
+                IInvocationOperation { TargetMethod.Name: "GetResult", Instance: IInvocationOperation { TargetMethod.Name: "GetAwaiter", Instance: { } instance } }
+                    when IsAwaitable(instance.Type) => (instance, ".GetAwaiter().GetResult()"),
+                _ => (null, null),
+            };
+
+            if (task is null)
+            {
+                return;
+            }
+
+            task = Unwrapped(task);
+            if (StartedBy(task, operation, depth: 0) is not { } call)
+            {
+                return;
+            }
+
+            var step = StepCalls.IsOnStepTools(call.TargetMethod);
+            if (step && task == call)
+            {
+                return;
+            }
+
+            var properties = StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation)
+                ? ImmutableDictionary<string, string?>.Empty.Add(StepCallAnalyzer.CanAwaitProperty, "true")
+                : ImmutableDictionary<string, string?>.Empty;
+
+            context.ReportDiagnostic(step
+                ? Diagnostic.Create(DiagnosticDescriptors.BlockingOnStep, operation.Syntax.GetLocation(), properties, how, StepCalls.Describe(call))
+                : Diagnostic.Create(DiagnosticDescriptors.BlockingOnTask, operation.Syntax.GetLocation(), properties, how, Describe(call)));
+        }
+
+        // The call that started the task, when it is one the code starts here and may not have finished by the blocking
+        // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll and
+        // WhenAny are looked into, for the tasks they are given one by one.
+        private IInvocationOperation? StartedBy(IOperation task, IOperation blocking, int depth)
+        {
+            switch (Unwrapped(task))
+            {
+                case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod):
+                    foreach (var argument in call.Arguments)
+                    {
+                        foreach (var element in Elements(argument.Value))
+                        {
+                            if (depth < 4 && StartedBy(element, blocking, depth + 1) is { } started)
+                            {
+                                return started;
+                            }
+                        }
+                    }
+
+                    return null;
+                case IInvocationOperation call:
+                    return StartsTask(call) ? call : null;
+                case ILocalReferenceOperation reference when depth < 4 && !IsSettledBefore(reference.Local, blocking):
+                    return Initializers().TryGetValue(reference.Local, out var initializer) ? StartedBy(initializer, blocking, depth + 1) : null;
+                default:
+                    return null;
+            }
+        }
+
+        // A call whose task can still be running. The From methods of Task and ValueTask make tasks that are done, the
+        // work of Task.Run and StartNew runs on the thread pool, without the function's thread, which makes blocking on
+        // it the usual way out of an async API, and Task.Delay is INNGEST027's.
+        private static bool StartsTask(IInvocationOperation call)
+        {
+            var method = call.TargetMethod;
+            if (IsType(method.ContainingType, "Task", "System", "Threading", "Tasks") || IsType(method.ContainingType, "ValueTask", "System", "Threading", "Tasks"))
+            {
+                return !method.Name.StartsWith("From", System.StringComparison.Ordinal) && method.Name is not ("Run" or "Delay");
+            }
+
+            return !(method.Name == "StartNew" && IsType(method.ContainingType, "TaskFactory", "System", "Threading", "Tasks"));
+        }
+
+        private bool IsSettledBefore(ILocalSymbol local, IOperation blocking)
+        {
+            if (_settled is null)
+            {
+                FindLocals();
+            }
+
+            return _settled!.TryGetValue(local, out var position) && position < blocking.Syntax.SpanStart;
+        }
+
+        private Dictionary<ILocalSymbol, IOperation> Initializers()
+        {
+            if (_initializers is null)
+            {
+                FindLocals();
+            }
+
+            return _initializers!;
+        }
+
+        // A local is settled where the code awaits its task, alone or among those of Task.WhenAll or WhenAny, reads
+        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again.
+        private void FindLocals()
+        {
+            _initializers = new Dictionary<ILocalSymbol, IOperation>(SymbolEqualityComparer.Default);
+            _settled = new Dictionary<ILocalSymbol, int>(SymbolEqualityComparer.Default);
+            foreach (var operation in body.Operation.DescendantsAndSelf())
+            {
+                switch (operation)
+                {
+                    case IVariableDeclaratorOperation declarator when declarator.GetVariableInitializer() is { Value: { } value }:
+                        _initializers[declarator.Symbol] = value;
+                        break;
+                    case IAwaitOperation awaitOperation:
+                        var awaited = Unconverted(awaitOperation.Operation);
+                        if (awaited is IInvocationOperation { TargetMethod.Name: "ConfigureAwait", Instance: { } configured })
+                        {
+                            awaited = Unconverted(configured);
+                        }
+
+                        Settle(awaited, operation);
+                        if (awaited is IInvocationOperation whenAll && IsWhenAllOrAny(whenAll.TargetMethod))
+                        {
+                            foreach (var argument in whenAll.Arguments)
+                            {
+                                foreach (var element in Elements(argument.Value))
+                                {
+                                    Settle(Unconverted(element), operation);
+                                }
+                            }
+                        }
+
+                        break;
+                    case IPropertyReferenceOperation { Property.Name: "IsCompleted" or "IsCompletedSuccessfully" or "IsFaulted" or "IsCanceled" or "Status" or "Result", Instance: { } instance }
+                        when IsTask(instance.Type):
+                        Settle(Unconverted(instance), operation);
+                        break;
+                    case IInvocationOperation { TargetMethod.Name: "Wait" or "GetAwaiter", Instance: { } instance } when IsAwaitable(instance.Type):
+                        Settle(Unwrapped(instance), operation);
+                        break;
+                }
+            }
+        }
+
+        private void Settle(IOperation task, IOperation where)
+        {
+            if (task is ILocalReferenceOperation reference
+                && (!_settled!.TryGetValue(reference.Local, out var position) || where.Syntax.SpanStart < position))
+            {
+                _settled[reference.Local] = where.Syntax.SpanStart;
+            }
         }
 
         // INNGEST032 collects the constant ids here and reports them when the walk is done.
@@ -487,6 +657,63 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
 
     private static bool IsTask(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "Task" or "ValueTask" } named && IsType(named, named.Name, "System", "Threading", "Tasks");
+
+    // The task itself, past conversions, ConfigureAwait and AsTask.
+    private static IOperation Unwrapped(IOperation task)
+    {
+        task = Unconverted(task);
+        while (task is IInvocationOperation { TargetMethod.Name: "ConfigureAwait" or "AsTask", Instance: { } inner })
+        {
+            task = Unconverted(inner);
+        }
+
+        return task;
+    }
+
+    // What GetAwaiter().GetResult() blocks on: a task, or a task after ConfigureAwait.
+    private static bool IsAwaitable(ITypeSymbol? type) =>
+        IsTask(type)
+        || (type is INamedTypeSymbol { Name: "ConfiguredTaskAwaitable" or "ConfiguredValueTaskAwaitable" } named
+            && IsType(named, named.Name, "System", "Runtime", "CompilerServices"));
+
+    // A lambda that the code hands to System.Threading to run, such as the work of Task.Run, a continuation or a
+    // thread. It runs elsewhere, without the function's thread, so it may block.
+    private static bool RunsOffThread(IOperation operation)
+    {
+        if (operation is not IAnonymousFunctionOperation)
+        {
+            return false;
+        }
+
+        var parent = operation.Parent;
+        while (parent is IDelegateCreationOperation or IConversionOperation)
+        {
+            parent = parent.Parent;
+        }
+
+        var method = parent?.Parent switch
+        {
+            IInvocationOperation invocation when parent is IArgumentOperation => invocation.TargetMethod,
+            IObjectCreationOperation creation when parent is IArgumentOperation => creation.Constructor,
+            _ => null,
+        };
+
+        var space = (method?.ReducedFrom ?? method)?.ContainingNamespace?.ToDisplayString();
+        return space is "System.Threading" or "System.Threading.Tasks";
+    }
+
+    // The call that started a task, for the message: the method, or the delegate that was invoked.
+    private static string Describe(IInvocationOperation call) =>
+        call.TargetMethod.MethodKind == MethodKind.DelegateInvoke && call.Instance is { } instance
+            ? instance switch
+            {
+                ILocalReferenceOperation local => local.Local.Name,
+                IParameterReferenceOperation parameter => parameter.Parameter.Name,
+                IFieldReferenceOperation field => field.Field.Name,
+                IPropertyReferenceOperation property => property.Property.Name,
+                _ => "a delegate",
+            } + "()"
+            : call.TargetMethod.Name + "()";
 
     private static string? ConstantId(IOperation value)
     {

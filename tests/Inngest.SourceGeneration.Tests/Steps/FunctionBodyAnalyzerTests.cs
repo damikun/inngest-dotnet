@@ -180,6 +180,103 @@ public sealed class FunctionBodyAnalyzerTests
         await Verify(source);
     }
 
+    // INNGEST023
+
+    [Fact]
+    public async Task Blocking_on_a_task_the_function_starts_is_reported()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder(HttpClient http) : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var page = {|#0:http.GetStringAsync("https://example.com").Result|};
+                    {|#1:SaveAsync(page).Wait()|};
+                    var loading = LoadAsync();
+                    var loaded = {|#2:loading.GetAwaiter().GetResult()|};
+                    var again = loading.Result;
+                    var configured = {|#3:LoadAsync().ConfigureAwait(false).GetAwaiter().GetResult()|};
+                    var count = {|#4:CountAsync().Result|};
+                    var sizes = new[] { "a" }.Select(item => {|#5:LoadAsync().Result|}.Length).Sum();
+                    await context.Step.ParallelAsync(ParallelMode.Wait, async () => {|#6:SaveAsync(again).Wait()|});
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    var charged = {|#7:charging.Result|};
+                    {|#8:Task.WhenAll(Task.Run(() => 1), LoadAsync()).Wait()|};
+
+                    // A wait on the step call itself is StepCallAnalyzer's.
+                    var direct = context.Step.RunAsync("direct", () => 2).Result;
+                    return page + loaded + configured + count + sizes + charged + direct;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+
+                private static Task SaveAsync(string page) => Task.CompletedTask;
+
+                private static ValueTask<int> CountAsync() => new(1);
+            }
+            """;
+
+        await Verify(
+            source,
+            Blocked(0, ".Result", "GetStringAsync()"),
+            Blocked(1, ".Wait()", "SaveAsync()"),
+            Blocked(2, ".GetAwaiter().GetResult()", "LoadAsync()"),
+            Blocked(3, ".GetAwaiter().GetResult()", "LoadAsync()"),
+            Blocked(4, ".Result", "CountAsync()"),
+            Blocked(5, ".Result", "LoadAsync()"),
+            Blocked(6, ".Wait()", "SaveAsync()"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(7).WithArguments(".Result", "RunAsync(\"charge\")"),
+            Blocked(8, ".Wait()", "LoadAsync()"));
+    }
+
+    [Fact]
+    public async Task Blocking_on_a_task_that_is_done_or_runs_elsewhere_is_fine()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                private static readonly Task<string> Cached = LoadAsync();
+
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var a = LoadAsync();
+                    var b = LoadAsync();
+                    await Task.WhenAll(a, b);
+                    var both = a.Result + b.GetAwaiter().GetResult();
+
+                    var c = LoadAsync();
+                    var d = LoadAsync();
+                    var first = await Task.WhenAny(c, d);
+                    var winner = first.Result;
+
+                    var e = LoadAsync();
+                    var early = e.IsCompleted ? e.Result : "";
+
+                    var offloaded = Task.Run(() => LoadAsync()).Result;
+                    var inside = await Task.Run(() => LoadAsync().Result);
+                    var done = Task.FromResult(1).Result + ValueTask.FromResult(2).Result;
+                    Task.CompletedTask.Wait();
+                    Task.WhenAll(Task.Run(() => 1), Task.Run(() => 2)).Wait();
+                    var all = new List<Task<string>> { LoadAsync() };
+                    Task.WhenAll(all).Wait();
+                    var continued = await Task.Run(() => "x").ContinueWith(task => LoadAsync().Result + task.Result);
+                    var step = await context.Step.RunAsync("step", () => LoadAsync().Result);
+                    Func<string> later = () => LoadAsync().Result;
+                    string Local() => LoadAsync().Result;
+                    return both + winner + early + offloaded + inside + done + continued + step + later() + Local() + Passed(context, a);
+                }
+
+                private static string Passed(FunctionContext<JsonElement> context, Task<string> pending) => pending.Result + Cached.Result;
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+            }
+            """;
+
+        await Verify(source);
+    }
+
     // INNGEST029
 
     [Fact]
@@ -351,6 +448,9 @@ public sealed class FunctionBodyAnalyzerTests
 
     private static DiagnosticResult Awaited(int markup, string call) =>
         new DiagnosticResult(DiagnosticDescriptors.AwaitOutsideStep).WithLocation(markup).WithArguments(call);
+
+    private static DiagnosticResult Blocked(int markup, string how, string call) =>
+        new DiagnosticResult(DiagnosticDescriptors.BlockingOnTask).WithLocation(markup).WithArguments(how, call);
 
     private static DiagnosticResult Unordered(int markup, string collection, string step) =>
         new DiagnosticResult(DiagnosticDescriptors.UnorderedLoopOverSteps).WithLocation(markup).WithArguments(collection, step);
