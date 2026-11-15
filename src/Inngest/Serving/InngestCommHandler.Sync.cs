@@ -97,23 +97,25 @@ public sealed partial class InngestCommHandler
         // The dev server and self-hosted Inngest read the reason only from a 400 (deploy.GetDeployError). They take a
         // 401, 403 or 404 for a problem with the app's own URL, show a 500 as an internal error of the app and any other
         // status as success. So a refusal goes back as a 400 with Inngest's reason, naming Inngest's status when that is
-        // another one; anything else is a failure to register. A caller that failed authentication only learns that the
-        // sync failed.
+        // another one or there is no reason; anything else is a failure to register. A caller that failed authentication
+        // only learns that the sync failed.
         if (!result.Success)
         {
-            Log.SyncRejected(_logger, result.StatusCode, result.Error);
+            var status = result.StatusCode;
+            var reason = string.IsNullOrEmpty(result.Error) ? null : result.Error;
+            Log.SyncRejected(_logger, status, reason ?? "no reason given");
             if (!caller.IsValid)
             {
                 return SyncResult(500, "Failed to register", modified: false);
             }
 
-            var reason = string.IsNullOrEmpty(result.Error) ? "Failed to register" : result.Error;
-            return result.StatusCode switch
+            var message = (status, reason) switch
             {
-                400 => SyncResult(400, reason, modified: false),
-                > 400 and < 500 => SyncResult(400, $"Inngest answered {result.StatusCode}: {reason}", modified: false),
-                _ => SyncResult(500, reason, modified: false),
+                (_, null) => $"Inngest answered {status}.",
+                (> 400 and < 500, _) => $"Inngest answered {status}: {reason}",
+                _ => reason,
             };
+            return SyncResult(status is >= 400 and < 500 ? 400 : 500, message, modified: false);
         }
 
         if (result.Modified)

@@ -253,12 +253,12 @@ public sealed class InngestApiClientRegisterTests
     [InlineData(HttpStatusCode.BadRequest, """{"error":"Expected server kind dev, got cloud"}""", "Expected server kind dev, got cloud")]
     [InlineData(HttpStatusCode.BadRequest, """{"code":"sdk_version_denied","error":"App sync was blocked","data":null,"status":400}""", "App sync was blocked")]
     [InlineData(HttpStatusCode.Unauthorized, "Authentication failed", "Authentication failed")]
-    [InlineData(HttpStatusCode.InternalServerError, "", "Inngest answered with HTTP 500.")]
+    [InlineData(HttpStatusCode.InternalServerError, "", null)]
     [InlineData(HttpStatusCode.Conflict, """{"error":""}""", """{"error":""}""")]
     [InlineData(HttpStatusCode.BadGateway, """{"error":{"code":"upstream"}}""", """{"error":{"code":"upstream"}}""")]
-    [InlineData(HttpStatusCode.Created, "", "Inngest answered with HTTP 201.")]
-    [InlineData(HttpStatusCode.NoContent, "", "Inngest answered with HTTP 204.")]
-    public async Task Reports_why_inngest_rejected_the_sync(HttpStatusCode status, string body, string expectedError)
+    [InlineData(HttpStatusCode.Created, "", null)]
+    [InlineData(HttpStatusCode.NoContent, " ", null)]
+    public async Task Reports_why_inngest_rejected_the_sync(HttpStatusCode status, string body, string? expectedError)
     {
         var fixture = new ApiFixture();
         fixture.Handler.Respond(status, body, "text/plain");

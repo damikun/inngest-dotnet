@@ -1,5 +1,7 @@
+using System.Net;
 using Inngest.Client;
 using Inngest.Internal;
+using Inngest.Tests.Client;
 using Inngest.Tests.Serving.Fakes;
 using Microsoft.Extensions.Logging;
 
@@ -87,15 +89,32 @@ public sealed class SyncTests
         response.BodyText().ShouldBe("""{"message":"Error upserting app","modified":false}""");
     }
 
-    [Fact]
-    public async Task A_rejected_sync_without_an_error_still_explains_itself()
+    [Theory]
+    [InlineData(400, 400)]
+    [InlineData(404, 400)]
+    [InlineData(502, 500)]
+    public async Task A_rejected_sync_without_an_error_still_explains_itself(int status, int answer)
     {
-        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 502, Modified: false, Error: null);
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: false, Error: null);
 
         using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
 
-        response.StatusCode.ShouldBe(500);
-        response.BodyText().ShouldBe("""{"message":"Failed to register","modified":false}""");
+        response.StatusCode.ShouldBe(answer);
+        response.BodyText().ShouldBe($$"""{"message":"Inngest answered {{status}}.","modified":false}""");
+    }
+
+    // Inngest's reply to a refused sync can have no body, and then its status is all there is to tell.
+    [Fact]
+    public async Task A_sync_refused_with_an_empty_reply_names_the_status_once()
+    {
+        var api = new ApiFixture();
+        api.Handler.Respond(HttpStatusCode.NotFound);
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"), api.Api);
+
+        response.StatusCode.ShouldBe(400);
+        response.BodyText().ShouldBe("""{"message":"Inngest answered 404.","modified":false}""");
+        _harness.Logger.LatestRecord.Message.ShouldBe("Inngest rejected the sync with status 404: no reason given");
     }
 
     [Fact]

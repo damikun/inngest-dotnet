@@ -60,9 +60,11 @@ internal static class ApiHttp
 
     // The reason Inngest gave for a failed call: the "error" of a JSON reply, else whatever text the body holds.
     public static string DescribeError(int statusCode, ReadOnlySpan<byte> body) =>
-        ParseReply(body)?.Error is { Length: > 0 } error
-            ? error
-            : ToText(body) ?? $"Inngest answered with HTTP {statusCode}.";
+        ReasonOf(body) ?? $"Inngest answered with HTTP {statusCode}.";
+
+    // As DescribeError, but null when the body gives no reason.
+    public static string? ReasonOf(ReadOnlySpan<byte> body) =>
+        ParseReply(body)?.Error is { Length: > 0 } error ? error : ToText(body);
 
     public static string? ToText(ReadOnlySpan<byte> body)
     {
