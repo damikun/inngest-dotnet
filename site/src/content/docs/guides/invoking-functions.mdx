@@ -75,7 +75,8 @@ invoked function reads it as its event data. Its return value is what `InvokeAsy
 
 A function that only runs when it is invoked has `Triggers = []`. A trigger on `inngest/function.invoked` means the
 same: the app accepts it but never sends it to Inngest, which would start the function on every invoke of any
-function in the environment.
+function in the environment. Any `If` condition on that trigger is ignored too, so every invoke runs the function,
+whatever the condition says.
 
 A class that derives from `InngestFunction<TEventData>` returns `object?`, so a caller can only read its result as
 `object`. Give it a result type, or invoke it by its id.

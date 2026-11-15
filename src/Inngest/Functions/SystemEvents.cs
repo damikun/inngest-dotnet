@@ -21,7 +21,8 @@ public static class SystemEvents
     /// <summary>
     /// The name of the event an invoked function receives. A trigger on it is accepted and means the function runs when
     /// it is invoked, but it is never sent to Inngest, which would start the function on every invoke of any function in
-    /// the environment. A function that only runs when it is invoked has Triggers = [].
+    /// the environment. Any condition on it is ignored too, so every invoke runs the function, whatever the condition
+    /// says. A function that only runs when it is invoked has Triggers = [].
     /// </summary>
     public const string FunctionInvoked = "inngest/function.invoked";
 
