@@ -29,7 +29,7 @@ internal interface IRealtimeApi
     Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken);
 }
 
-internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestSettings settings, ILogger<RealtimeApi> logger) : IRealtimeApi
+internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestSettings settings, TimeProvider time, ILogger<RealtimeApi> logger) : IRealtimeApi
 {
     private readonly InngestApiTransport _transport = new(httpClientFactory, settings, logger);
 
@@ -38,7 +38,7 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
 
     public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
     {
-        var content = new TextStreamContent(chunks);
+        var content = new TextStreamContent(chunks, time, () => Log.StreamOutgrown(logger, topic.Name, topic.Channel, TextStreamContent.MaxPieces));
         await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
             .ConfigureAwait(false);
         return content.Text;
