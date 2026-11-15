@@ -106,7 +106,13 @@ internal sealed class DurableEndpointMiddleware
         var now = _time.GetUtcNow();
         var runId = Ulid.New(now);
         var retries = options.RetriesOrDefault;
-        var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now);
+
+        // The user of the request, when the app uses the user context, so that the endpoint's code and the events it
+        // sends have the user they would have without the run.
+        var user = context.RequestServices.GetService<IEndpointEventUser>() is { } users
+            ? await users.GetAsync(now, cancellationToken).ConfigureAwait(false)
+            : null;
+        var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now, user);
 
         // What middleware before this one has set, such as security headers. An answer that replaces the endpoint's
         // response keeps them and drops what the endpoint set.

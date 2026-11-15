@@ -1,7 +1,10 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using Inngest.Client;
 using Inngest.Execution;
+using Inngest.Tests.Checkpointing;
 using Inngest.Tests.Client;
 using Inngest.Tests.Execution;
 using Inngest.UserContext;
@@ -186,6 +189,47 @@ public sealed class HttpContextSourceTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         Sent(http).Single().TryGetProperty("user", out _).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_durable_endpoint_gives_its_run_and_the_events_it_sends_the_user_of_the_request(bool signedIn)
+    {
+        var http = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK, ClientFixture.Accepted);
+        var checkpoints = new FakeEndpointCheckpointApi();
+        await using var app = await StartAsync(
+            new EphemeralDataProtectionProvider(),
+            http,
+            inngest =>
+            {
+                inngest.AddUserContextFromHttpContext();
+                inngest.Services.AddSingleton<IEndpointCheckpointApi>(checkpoints);
+            },
+            web =>
+            {
+                web.UseInngestDurableEndpoints();
+                web.MapPost("/checkout", async (IInngestClient client, ICurrentUser user, IStepTools step, CancellationToken cancellationToken) =>
+                {
+                    await step.RunAsync("reserve", () => 1);
+                    await client.SendAsync(new InngestEvent("shop/order.placed", new { OrderId = 3 }), cancellationToken);
+                    return Results.Ok(user.Principal.FindFirst("sub")?.Value ?? "anonymous");
+                }).WithDurableEndpoint();
+            });
+
+        using var response = await PostAsync(app, "/checkout", signedIn);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<string>(TestContext.Current.CancellationToken)).ShouldBe(signedIn ? "u-42" : "anonymous");
+        Sent(http).Single().TryGetProperty("user", out var sent).ShouldBe(signedIn);
+        await checkpoints.WaitForSavesAsync(1);
+        using var run = JsonDocument.Parse(checkpoints.Saves[0].Event!);
+        run.RootElement.TryGetProperty("user", out var recorded).ShouldBe(signedIn);
+        if (signedIn)
+        {
+            sent.GetProperty(UserContextCodec.Key).GetProperty("v").GetInt32().ShouldBe(1);
+            recorded.GetProperty(UserContextCodec.Key).GetProperty("v").GetInt32().ShouldBe(1);
+        }
     }
 
     [Fact]

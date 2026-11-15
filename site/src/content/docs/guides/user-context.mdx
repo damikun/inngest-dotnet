@@ -295,6 +295,12 @@ public sealed class ImportCatalog(ICurrentUser user, IAlerts alerts) : InngestFu
 }
 ```
 
+A [durable endpoint](/inngest-dotnet/guides/durable-endpoints/) runs its handler inside a run, so the request that
+starts the run gives the run the user the source names, as it would to an event sent from the request. The handler's
+`ICurrentUser` and the events it sends then carry that user, as they would without `WithDurableEndpoint()`. Inngest
+does not keep the user of the run's `inngest/http.request` event, so a call with which Inngest resumes the run has no
+user. `EventFilter` sees that event too, and returning false for it leaves the run without a user.
+
 There is no single user where there is no single event. A function that batches events has none, and neither have the
 failure and cancel handlers of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not
 restored.

@@ -137,6 +137,16 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
         run.OutputAs<ReportResult>().Direct.ShouldBe("nobody");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task A_durable_endpoint_runs_as_the_signed_in_user_and_the_events_it_sends_carry_the_user()
+    {
+        await using var web = await StartWebAppAsync();
+
+        (await web.CheckoutAsync(TestId, signedIn: true)).ShouldBe(Ada);
+
+        (await Observed.WaitForAsync("followup", TimeSpan.FromSeconds(20), Cancellation)).Value.ShouldBe(Ada);
+    }
+
     [Fact(Timeout = 90_000)]
     public async Task A_payload_copied_from_an_event_and_sent_again_with_a_far_timestamp_starts_a_run_without_the_user()
     {
@@ -231,6 +241,15 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
                 var result = await client.SendAsync(@event, cancellationToken);
                 return Results.Ok(result.Ids[0]);
             });
+
+            // Runs a step and sends an event inside its run, and answers with the user it ran as.
+            app.UseInngestDurableEndpoints();
+            app.MapPost("/checkout/{testId}", async (string testId, ICurrentUser user, IStepTools step, IInngestClient client, CancellationToken cancellationToken) =>
+            {
+                await step.RunAsync("reserve", () => testId);
+                await client.SendAsync(new InngestEvent(UserContextFunctions.Followup, new UserEvent(testId)), cancellationToken);
+                return Results.Ok(UserContextFunctions.Describe(user));
+            }).WithDurableEndpoint("checkout");
             await app.StartAsync(TestContext.Current.CancellationToken);
             return new WebApp(app);
         }
@@ -247,6 +266,20 @@ public sealed class UserContextTests(UserContextFixture fixture) : IntegrationTe
             using var response = await _app.GetTestClient().SendAsync(request, Cancellation);
             response.EnsureSuccessStatusCode();
             return (await response.Content.ReadAsStringAsync(Cancellation)).Trim('"');
+        }
+
+        // Posts to the durable endpoint and returns the user it ran as.
+        public async Task<string> CheckoutAsync(string testId, bool signedIn)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/checkout/{testId}");
+            if (signedIn)
+            {
+                request.Headers.Add("X-Signed-In", "1");
+            }
+
+            using var response = await _app.GetTestClient().SendAsync(request, Cancellation);
+            response.EnsureSuccessStatusCode();
+            return (await response.Content.ReadFromJsonAsync<string>(Cancellation))!;
         }
 
         public async ValueTask DisposeAsync()
