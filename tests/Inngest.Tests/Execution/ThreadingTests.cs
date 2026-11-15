@@ -395,6 +395,31 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_function_that_fails_after_its_call_ended_is_logged_at_debug_level()
+    {
+        using var host = new EngineHost(services => services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Debug)), cancelledCallGrace: Grace);
+        using var cancellation = new CancellationTokenSource();
+        var release = new TaskCompletionSource();
+        var function = TestFunction.Define(async _ =>
+        {
+            await release.Task.ConfigureAwait(false);
+            throw new InvalidOperationException("late failure");
+        });
+
+        var pending = Execute(host, function, cancellation.Token);
+        await cancellation.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        release.SetResult();
+        SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 113), TimeSpan.FromSeconds(10));
+
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 113).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Debug);
+        record.Category.ShouldBe("Inngest.Function.fn");
+        record.Message.ShouldStartWith("Run 01JRUN of function fn failed after its call had ended");
+        record.Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("late failure");
+    }
+
+    [Fact]
     public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
     {
         using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
