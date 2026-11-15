@@ -129,9 +129,11 @@ public sealed class ExtendedTracesTests
         call.Attributes["inngest.traceparent"].ShouldBe($"00-{host.TraceId}-{ExecutorSpanId}-01");
         call.Attributes["sys.function.id"].ShouldBe(FunctionId);
         call.Attributes["sys.app.id"].ShouldBe(AppId);
+        call.Span.GetProperty("links").GetArrayLength().ShouldBe(0);
     }
 
-    // Such as the span of a wrapper that instruments the Lambda invocation itself.
+    // Such as the span of a wrapper that instruments the Lambda invocation itself. The link keeps the call in reach from
+    // the app's own trace, which its collector shows.
     [Fact]
     public async Task A_call_under_a_span_of_another_trace_continues_the_trace_Inngest_sent()
     {
@@ -146,6 +148,9 @@ public sealed class ExtendedTracesTests
         call.Span.GetProperty("traceId").GetString().ShouldBe(host.TraceId);
         call.Span.GetProperty("parentSpanId").GetString().ShouldBe(ExecutorSpanId);
         call.Attributes["sys.function.id"].ShouldBe(FunctionId);
+        var link = call.Span.GetProperty("links").EnumerateArray().ShouldHaveSingleItem();
+        link.GetProperty("traceId").GetString().ShouldBe(invocation.TraceId.ToHexString());
+        link.GetProperty("spanId").GetString().ShouldBe(invocation.SpanId.ToHexString());
     }
 
     [Fact]

@@ -580,7 +580,10 @@ function's id from the trace state Inngest sent with the call, `sdk.run.id`, and
   own collector as well gets the same spans there, with the attributes above.
 - A call continues the trace Inngest sent with it: under the host's span for the request, which ASP.NET Core starts
   from the `traceparent` and `tracestate` headers and the Connect worker from its request, and otherwise straight from
-  those headers, as on AWS Lambda and Azure Functions. A call without Inngest's trace state sends nothing.
+  those headers, as on AWS Lambda and Azure Functions. A host span of another trace, such as the invocation span of an
+  OpenTelemetry Lambda wrapper, does not become the call's parent but gets a link from it, so the app's own trace in
+  its collector still leads to the call; this holds with `AddInstrumentation()` alone too. A call without Inngest's
+  trace state sends nothing.
 - Once a step has run in a call, spans outside a step are left out, as the TypeScript SDK does, since they are the SDK's
   own work between checkpointed steps. A span that has not ended when the call ends, such as one around a step that the
   call stops at, is dropped.
