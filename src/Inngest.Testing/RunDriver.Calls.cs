@@ -81,9 +81,10 @@ internal sealed partial class RunDriver
     }
 
     // The call body in the canonical form Inngest sends: the keys of every object sorted, and every number gone through
-    // a double, so that events and step results read the way they do in production. Events have no lone surrogates left,
-    // as EventJson replaces them the way Inngest does. One in step data, which Inngest keeps as the SDK wrote it and
-    // cannot canonicalize, leaves the body as it was written.
+    // a double, so that events and step results read the way they do in production. Events, and invoke results that are
+    // objects, have no lone surrogates left, as they are written the way Inngest decodes them. Inngest keeps other step
+    // data as the SDK wrote it, and its canonicalizer refuses a lone surrogate there unless another \u escape follows
+    // it, and then turns the two into one U+FFFD. The test host leaves a body with a lone surrogate as it was written.
     private PooledBufferWriter Canonical(int attempt)
     {
         using var written = new PooledBufferWriter();

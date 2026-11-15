@@ -100,9 +100,10 @@ internal static class EventJson
     private static void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options) =>
         JsonSerializer.Serialize(writer, value, options.GetTypeInfo(value.GetType()));
 
-    // Inngest decodes events into Go strings, where a lone surrogate becomes U+FFFD. Only a converter that writes raw JSON
-    // can put one in an event, and only as a \u escape, which "\ufffd" replaces in place.
-    private static void ReplaceLoneSurrogates(Span<byte> json)
+    // Inngest decodes events, and invoke results that are objects, into Go strings, where a lone surrogate becomes
+    // U+FFFD. Only a converter that writes raw JSON can put one there, and only as a \u escape, which "\ufffd"
+    // replaces in place.
+    public static void ReplaceLoneSurrogates(Span<byte> json)
     {
         for (var i = 0; i < json.Length - 1; i++)
         {
