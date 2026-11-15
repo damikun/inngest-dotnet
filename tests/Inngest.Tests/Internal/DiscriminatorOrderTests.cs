@@ -87,6 +87,18 @@ public sealed class DiscriminatorOrderTests
         moved.Deserialize<MethodBatch>(Options).ShouldBeOfType<ImportedBatch>().ShouldHaveSingleItem().ShouldBe(new BankTransfer("DE89"));
     }
 
+    // A converter that hands the value back to the serializer reads it as the property's declared type.
+    [Fact]
+    public void A_property_with_its_own_converter_is_looked_into_as_its_declared_type()
+    {
+        const string Sorted = """{"item":{"iban":"DE89","type":"bank"}}""";
+
+        var moved = MoveFirst<Boxed>(Sorted);
+
+        moved.GetRawText().ShouldBe("""{"item":{"type":"bank","iban":"DE89"}}""");
+        moved.Deserialize<Boxed>(Options)!.Item.ShouldBe(new BankTransfer("DE89"));
+    }
+
     [Fact]
     public void Sorted_keys_are_what_System_Text_Json_8_cannot_read()
     {
@@ -184,6 +196,17 @@ public sealed class DiscriminatorOrderTests
     public class MethodBatch : List<PaymentMethod>;
 
     public sealed class ImportedBatch : MethodBatch;
+
+    public sealed record Boxed([property: JsonConverter(typeof(PassThrough))] PaymentMethod Item);
+
+    public sealed class PassThrough : JsonConverter<PaymentMethod>
+    {
+        public override PaymentMethod? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            JsonSerializer.Deserialize<PaymentMethod>(ref reader, options);
+
+        public override void Write(Utf8JsonWriter writer, PaymentMethod value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, options);
+    }
 
     public sealed class MethodList : ICollection<PaymentMethod>
     {

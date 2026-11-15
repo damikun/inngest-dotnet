@@ -84,6 +84,21 @@ public sealed class SortedKeysTests : IDisposable
     }
 
     [Fact]
+    public async Task A_property_with_a_converter_that_calls_the_serializer_is_read_back_from_sorted_keys()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var boxed = await context.Step.RunAsync("box", () => new Boxed(new Card("4242", 2030)));
+            return Describe(boxed.Item);
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("box", """{"item":{"expYear":2030,"last4":"4242","type":"card"}}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"card 4242\"");
+    }
+
+    [Fact]
     public async Task Event_data_with_a_custom_discriminator_is_read_from_sorted_keys()
     {
         var function = TestFunction.Define<OrderPlaced>(context => Task.FromResult<object?>(Describe(context.Event.Data.Payment)));
@@ -148,6 +163,17 @@ public sealed class SortedKeysTests : IDisposable
     public class MethodLog : List<PaymentMethod>;
 
     public sealed class MethodHistory : MethodLog;
+
+    public sealed record Boxed([property: JsonConverter(typeof(PassThrough))] PaymentMethod Item);
+
+    public sealed class PassThrough : JsonConverter<PaymentMethod>
+    {
+        public override PaymentMethod? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            JsonSerializer.Deserialize<PaymentMethod>(ref reader, options);
+
+        public override void Write(Utf8JsonWriter writer, PaymentMethod value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, options);
+    }
 
     [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
     [JsonDerivedType(typeof(Ring), "ring")]

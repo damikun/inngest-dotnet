@@ -203,8 +203,10 @@ internal static class DiscriminatorOrder
                     _properties = new(options.PropertyNameCaseInsensitive ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
                     foreach (var property in info.Properties)
                     {
-                        // A converter of the property's own reads it however it likes.
-                        if (property.CustomConverter is null && !property.IsExtensionData && Info(options, property.PropertyType) is { } propertyInfo)
+                        // A converter of the property's own is taken to read the property's declared type, as one that
+                        // hands the value back to the serializer does. Moving a discriminator first does not hurt one
+                        // that reads properties by name.
+                        if (!property.IsExtensionData && Info(options, property.PropertyType) is { } propertyInfo)
                         {
                             _properties.TryAdd(property.Name, propertyInfo);
                         }
