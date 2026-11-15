@@ -28,11 +28,11 @@ public static class InngestChatOptionsExtensions
     }
 
     /// <summary>
-    /// Publishes the text of a streaming call to the realtime topic as the model produces it, as IInngestRealtime does
-    /// for a stream, so that a browser can show it before the step finishes. The text goes out in chunks of up to 1 KB,
-    /// at most 1,000 to a stream, and what outgrows that is left out. The step still returns the whole response once the
-    /// model is done, and a replay publishes nothing. Failing to publish does not fail the model call; a retry of the step
-    /// publishes the stream again, from the start.
+    /// Publishes the text of a streaming call to the realtime topic as the model produces it, with
+    /// IInngestRealtime.PublishStreamAsync, so that a browser can show it before the step finishes. Inngest relays up to
+    /// 1,000 pieces of up to 1 KB a stream, into which the text is gathered, and subscribers miss what outgrows that. The
+    /// step still returns the whole response once the model is done, and a replay publishes nothing. Failing to publish
+    /// does not fail the model call; a retry of the step publishes the stream again, from the start.
     /// </summary>
     public static ChatOptions WithInngestRealtimeStream(this ChatOptions options, RealtimeTopic topic)
     {
