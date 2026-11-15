@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Inngest.Client;
+using Inngest.Internal;
 using Inngest.Signing;
 using Inngest.Tests.Client;
 using Microsoft.Extensions.Logging.Testing;
@@ -94,15 +95,37 @@ public sealed class EndpointCheckpointApiTests
     [Fact]
     public async Task A_request_whose_event_alone_is_larger_than_Inngest_reads_says_so()
     {
-        var @event = LargeEvent(CheckpointApiClient.MaxNewRunLength + 10);
+        var run = NewRun with { Event = LargeEvent(CheckpointApiClient.MaxNewRunLength + 10) };
 
-        var exception = await Should.ThrowAsync<InngestException>(
-            Create().CheckpointNewRunAsync(NewRun with { Event = @event }, CancellationToken));
+        var exception = await Should.ThrowAsync<InngestException>(Create().CheckpointNewRunAsync(run, CancellationToken));
 
-        exception.Message.ShouldStartWith($"Run 01JRUN was not created: the request's event alone is {@event.Length} bytes, more than the 4194304 bytes");
+        exception.Message.ShouldStartWith($"Run 01JRUN was not created: without its ops, the call that creates it comes to {LengthWithoutOps(run)} bytes");
+        exception.Message.ShouldContain($"and the request's event takes {run.Event.Length} of them.");
         exception.Message.ShouldContain("Lower DurableEndpointOptions.MaxRequestBodySize");
         exception.Message.ShouldNotContain("StepRun");
         _handler.Requests.ShouldBeEmpty();
+    }
+
+    // The rest of the call takes about a hundred bytes, so an event just under the limit can leave no room for it.
+    [Fact]
+    public async Task A_request_whose_event_is_just_under_what_Inngest_reads_says_what_the_call_comes_to_without_its_ops()
+    {
+        var run = NewRun with { Event = LargeEvent(CheckpointApiClient.MaxNewRunLength - 50) };
+
+        var exception = await Should.ThrowAsync<InngestException>(Create().CheckpointNewRunAsync(run, CancellationToken));
+
+        exception.Message.ShouldBe(
+            $"Run 01JRUN was not created: without its ops, the call that creates it comes to {LengthWithoutOps(run)} bytes, more than the " +
+            $"4194304 bytes Inngest reads of it, and the request's event takes {run.Event.Length} of them. Lower DurableEndpointOptions.MaxRequestBodySize.");
+        _handler.Requests.ShouldBeEmpty();
+    }
+
+    // The call as it is sent, with an empty list of ops.
+    private static int LengthWithoutOps(NewEndpointRun run)
+    {
+        using var body = new PooledBufferWriter();
+        CheckpointApiClient.WriteBody(body, run with { Steps = ReadOnlyMemory<byte>.Empty }, Now);
+        return body.WrittenCount - "[]".Length;
     }
 
     private static byte[] Ops(params string[] ops) => Encoding.UTF8.GetBytes($"[{string.Join(',', ops)}]");

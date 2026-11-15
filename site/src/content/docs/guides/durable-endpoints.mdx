@@ -408,9 +408,11 @@ SDK reads the whole body into memory before the handler runs, and refuses one la
 413. This holds for every request to the endpoint, whether or not it ends up waiting. Inngest accepts about 3 MiB at
 most.
 
-The call that creates the run carries the body, in base64, and the output of the first step, and Inngest reads 4 MiB
-of it at most. When the two come to more, the run is not created: a request that hands its run over fails, and one
-that finished logs it.
+The call that creates the run carries the body, in base64, and the run's first op, and Inngest reads 4 MiB of it at
+most. That op is the output of the first step that ran or, when none ran, what hands the run over, such as a sleep, a
+step's error or the endpoint's own error. A run that ended in the request also sends as many of its other ops as fit
+in that call, and the rest in later ones. When the body and the first op come to more, the run is not created: a
+request that hands its run over fails, and one that ended in the request logs it.
 
 ## Configuration
 
