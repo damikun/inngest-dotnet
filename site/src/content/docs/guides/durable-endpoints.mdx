@@ -168,8 +168,8 @@ of a call. A request that ran no steps leaves no run, and its response has no `X
 
 The recording runs in the background, so neither the response nor the next request on the connection waits for
 Inngest. If Inngest cannot be reached for it, the SDK logs it; the client has its response already. When the app
-stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, and logs each run it
-could not record in that time.
+stops, it waits for recordings still under way for as long as the host's shutdown timeout allows, then cancels the
+rest and logs each run whose recording that cancelled, as one Inngest may not have.
 
 Because the run is recorded after the response, a host that freezes or ends the process as soon as a response is out,
 as serverless hosts do, can record it late or lose it. Each recording keeps the run's steps in memory until Inngest

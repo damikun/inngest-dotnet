@@ -42,6 +42,97 @@ public sealed class EndpointRunSavesTests
         saves.Stopped.IsCancellationRequested.ShouldBeTrue();
     }
 
+    // A save that ends as it is cancelled may have reached Inngest before it was, so the warning cannot say more.
+    [Fact]
+    public async Task A_save_cancelled_by_the_shutdown_timeout_is_logged_as_maybe_not_recorded()
+    {
+        var logger = new FakeLogger<EndpointRunSaves>();
+        var saves = new EndpointRunSaves(logger);
+        saves.Start("run-1", "POST /orders/{id}", cancellationToken => Task.Delay(Timeout.Infinite, cancellationToken)).IsCompleted.ShouldBeTrue();
+        using var timedOut = new CancellationTokenSource();
+        await timedOut.CancelAsync();
+
+        await saves.StopAsync(timedOut.Token);
+
+        var warning = logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        warning.Id.Id.ShouldBe(156);
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain("run-1");
+        warning.Message.ShouldContain("POST /orders/{id}");
+        warning.Message.ShouldContain("may not be recorded");
+    }
+
+    // Such as a save whose call reached Inngest just before the token was cancelled.
+    [Fact]
+    public async Task A_save_that_finishes_although_the_shutdown_timeout_cancelled_it_is_not_logged()
+    {
+        var logger = new FakeLogger<EndpointRunSaves>();
+        var saves = new EndpointRunSaves(logger);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        saves.Start("run-1", "POST /orders/{id}", _ => release.Task).IsCompleted.ShouldBeTrue();
+        using var timedOut = new CancellationTokenSource();
+        await timedOut.CancelAsync();
+
+        var stopping = saves.StopAsync(timedOut.Token);
+        release.SetResult();
+        await stopping.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        await saves.StoppedAsync(timedOut.Token);
+
+        saves.Stopped.IsCancellationRequested.ShouldBeTrue();
+        logger.Collector.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_save_started_after_the_service_stopped_is_cancelled_when_the_rest_of_the_shutdown_timeout_runs_out()
+    {
+        var logger = new FakeLogger<EndpointRunSaves>();
+        var saves = new EndpointRunSaves(logger);
+        await saves.StopAsync(CancellationToken);
+        saves.Start("run-1", "POST /orders/{id}", cancellationToken => Task.Delay(Timeout.Infinite, cancellationToken)).IsCompleted.ShouldBeTrue();
+        using var timedOut = new CancellationTokenSource();
+        await timedOut.CancelAsync();
+
+        await saves.StoppedAsync(timedOut.Token);
+
+        logger.Collector.GetSnapshot().ShouldHaveSingleItem().Id.Id.ShouldBe(156);
+    }
+
+    // Hand-overs keep the token after the app has stopped, and the container disposes the service.
+    [Fact]
+    public async Task The_token_of_a_stopped_app_stays_usable_once_the_service_is_disposed()
+    {
+        var saves = new EndpointRunSaves(NullLogger<EndpointRunSaves>.Instance);
+        await saves.StopAsync(CancellationToken);
+        await saves.StoppedAsync(CancellationToken);
+
+        saves.Dispose();
+        saves.Dispose();
+
+        var stopped = saves.Stopped;
+        stopped.IsCancellationRequested.ShouldBeTrue();
+        var called = false;
+        using (stopped.Register(() => called = true))
+        {
+            called.ShouldBeTrue();
+        }
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stopped, CancellationToken);
+        linked.IsCancellationRequested.ShouldBeTrue();
+        saves.Start("run-1", "POST /orders/{id}", _ => Task.CompletedTask).IsCompleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_service_disposed_without_stopping_cancels_its_token()
+    {
+        var saves = new EndpointRunSaves(NullLogger<EndpointRunSaves>.Instance);
+        var stopped = saves.Stopped;
+
+        saves.Dispose();
+
+        stopped.IsCancellationRequested.ShouldBeTrue();
+        saves.Stopped.IsCancellationRequested.ShouldBeTrue();
+    }
+
     // In a host whose web server stops after this service, as when the web host is set up before AddInngest, a request
     // the server lets finish starts its save once StopAsync has returned. It is waited for once the app has stopped.
     [Fact]

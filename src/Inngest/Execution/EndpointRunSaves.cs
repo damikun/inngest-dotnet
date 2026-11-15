@@ -12,21 +12,33 @@ namespace Inngest.Execution;
 // finish, so a run that finished in that time would never be recorded. When the host stops, the saves still running
 // are waited for, as the Go SDK waits for its checkpoints, for as long as the shutdown timeout allows. They are waited
 // for once more after every other service has stopped, the server with its requests included, and whatever is left
-// then is cancelled and logged.
+// then is cancelled. A save that ends by being cancelled is logged: its call may or may not have reached Inngest.
 //
 // A save starts after the response, so a host that freezes or ends the process once a response is out, as serverless
 // hosts do, can delay it or lose it. Each save holds the ops of its run until Inngest has them. While Inngest is slow
 // or cannot be reached, past MaxRunning saves the request waits for its own after its response, so that saves cannot
 // pile up without end.
-internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHostedLifecycleService
+internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
 {
+    // How long the saves that were cancelled get to end, so that they are logged before the app says it has stopped.
+    private static readonly TimeSpan CancelledGrace = TimeSpan.FromSeconds(1);
+
+    private readonly ILogger<EndpointRunSaves> _logger;
     private readonly CancellationTokenSource _cancelled = new();
-    private readonly Dictionary<Task, (string RunId, string FunctionId)> _running = [];
+    private readonly HashSet<Task> _running = [];
     private bool _stopped;
+
+    public EndpointRunSaves(ILogger<EndpointRunSaves> logger)
+    {
+        _logger = logger;
+
+        // Taken here, as the source's Token cannot be read once it is disposed, and hand-overs read this after that.
+        Stopped = _cancelled.Token;
+    }
 
     // Cancelled once the app has stopped, or its shutdown timeout ran out. It also ends a hand-over that goes on after
     // its client left, which the server waits for as a request.
-    public CancellationToken Stopped => _cancelled.Token;
+    public CancellationToken Stopped { get; }
 
     // How many saves may be under way before a request waits for its own.
     public int MaxRunning { get; init; } = 100;
@@ -41,16 +53,15 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
         {
             if (!_stopped)
             {
-                var token = _cancelled.Token;
-                task = Task.Run(() => RunAsync(save, token), CancellationToken.None);
-                _running.Add(task, (runId, functionId));
+                task = Task.Run(() => RunAsync(runId, functionId, save), CancellationToken.None);
+                _running.Add(task);
                 behind = _running.Count > MaxRunning;
             }
         }
 
         if (task is null)
         {
-            Log.EndpointRunNotRecordedStopping(logger, runId, functionId);
+            Log.EndpointRunNotRecordedStopping(_logger, runId, functionId);
             return Task.CompletedTask;
         }
 
@@ -77,18 +88,29 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
     public async Task StoppedAsync(CancellationToken cancellationToken)
     {
         await WaitAsync(cancellationToken).ConfigureAwait(false);
-        Cancel();
+        await CancelAsync().ConfigureAwait(false);
     }
 
-    private static async Task RunAsync(Func<CancellationToken, Task> save, CancellationToken cancellationToken)
+    // The container disposes the service after the host has stopped it, or instead of that.
+    public void Dispose()
+    {
+        if (Stop() is not null)
+        {
+            _cancelled.Cancel();
+        }
+
+        _cancelled.Dispose();
+    }
+
+    private async Task RunAsync(string runId, string functionId, Func<CancellationToken, Task> save)
     {
         try
         {
-            await save(cancellationToken).ConfigureAwait(false);
+            await save(Stopped).ConfigureAwait(false);
         }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        catch (Exception) when (Stopped.IsCancellationRequested)
         {
-            // Logged when it was cancelled.
+            Log.EndpointRunSaveCancelled(_logger, runId, functionId);
         }
     }
 
@@ -103,7 +125,7 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            Cancel();
+            await CancelAsync().ConfigureAwait(false);
         }
     }
 
@@ -111,7 +133,7 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
     {
         lock (_running)
         {
-            return [.. _running.Keys.Where(static save => !save.IsCompleted)];
+            return [.. _running.Where(static save => !save.IsCompleted)];
         }
     }
 
@@ -123,26 +145,36 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
         }
     }
 
-    private void Cancel()
+    // The saves still running, or null once stopped. Saves started from now on are not run.
+    private Task[]? Stop()
     {
-        (string RunId, string FunctionId)[] dropped;
         lock (_running)
         {
             if (_stopped)
             {
-                return;
+                return null;
             }
 
             _stopped = true;
-            dropped = [.. _running.Values];
-            _running.Clear();
+            return [.. _running];
         }
+    }
 
-        foreach (var (runId, functionId) in dropped)
+    private async Task CancelAsync()
+    {
+        if (Stop() is not { } running)
         {
-            Log.EndpointRunNotRecordedStopping(logger, runId, functionId);
+            return;
         }
 
         _cancelled.Cancel();
+        try
+        {
+            await Task.WhenAll(running).WaitAsync(CancelledGrace).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // A save that does not end when it is cancelled is left to itself.
+        }
     }
 }
