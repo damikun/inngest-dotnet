@@ -30,6 +30,13 @@ internal sealed class RealtimePublishStep<T>(string id, RealtimeTopic topic, T d
     public override async Task<object?> ExecuteAsync(FunctionContext context, IServiceProvider services, CancellationToken cancellationToken)
     {
         var body = RealtimePayload.Body(data, Owner.SerializerOptions);
+
+        // Another attempt would publish the same data.
+        if (RealtimePayload.TooLarge(topic, body.Length) is { } tooLarge)
+        {
+            throw new NonRetriableException(tooLarge);
+        }
+
         await services.GetRequiredService<IRealtimeApi>().PublishAsync(topic, context.RunId, body, cancellationToken).ConfigureAwait(false);
         return data;
     }

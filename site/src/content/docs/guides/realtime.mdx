@@ -78,7 +78,9 @@ var status = new RealtimeTopic<OrderStatus>("order:o-1001", "status");
 await realtime.PublishAsync(status, new OrderStatus("Shipped", 100), cancellationToken);
 ```
 
-Text is published as it is and anything else as JSON with the app's serializer options, as the TypeScript SDK does.
+Data is published as JSON with the app's serializer options, and text as a JSON string, so text that reads as JSON,
+such as `42` or a model's JSON answer, still arrives as text. The TypeScript SDK sends text as it is, and Inngest keeps
+such text as the number or object it reads as.
 `PublishStreamAsync` streams from anywhere too.
 
 ## Subscribing in .NET
@@ -220,6 +222,9 @@ These are Inngest's:
 | A stream | 1,000 pieces of up to 1 KB each |
 | A subscription token | Connects within a minute of being minted |
 | Delivery | To the subscribers connected when the message is published; nothing is kept for later |
+
+Inngest reads 512 KB of a message and publishes one cut off there as a string of broken JSON, so `PublishAsync` throws
+`ArgumentException` for a larger message before sending it, and a publish step with one fails without retries.
 
 ## Testing
 

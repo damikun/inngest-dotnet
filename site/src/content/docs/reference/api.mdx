@@ -380,7 +380,7 @@ Inngest API, with the app's signing key. See [Realtime](/inngest-dotnet/guides/r
 
 | Method | Returns |
 |---|---|
-| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one. Text goes out as it is, anything else as JSON. Also for a `RealtimeTopic<T>`. |
+| `PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken)` | `Task`; publishes at once, tagged with the run when called inside one, as JSON: text as a JSON string. A message over 512 KB throws `ArgumentException`. Also for a `RealtimeTopic<T>`. |
 | `PublishStreamAsync(RealtimeTopic topic, IAsyncEnumerable<string> chunks, CancellationToken)` | `Task<string>`: all the text, streamed to the topic in one request as it arrives |
 | `SubscribeAsync<T>(RealtimeTopic<T> topic, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<T>>`: the topic's messages from now on, with the data read as a `T` |
 | `SubscribeAsync(string channel, IReadOnlyList<string> topics, CancellationToken)` | `IAsyncEnumerable<RealtimeMessage<JsonElement>>` for several topics of a channel |

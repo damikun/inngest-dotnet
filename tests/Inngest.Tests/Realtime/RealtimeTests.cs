@@ -29,15 +29,75 @@ public sealed class RealtimeTests
         request.Header("Content-Type").ShouldBe("application/json");
     }
 
-    [Fact]
-    public async Task Text_is_published_as_it_is()
+    // Inngest keeps a body that parses as JSON as that JSON, so text sent as it is could arrive as a number or an object.
+    [Theory]
+    [InlineData("Hel", "\"Hel\"")]
+    [InlineData("42", "\"42\"")]
+    [InlineData("true", "\"true\"")]
+    [InlineData("{\"answer\":1}", "\"{\\u0022answer\\u0022:1}\"")]
+    [InlineData("\"quoted\"", "\"\\u0022quoted\\u0022\"")]
+    [InlineData("", "\"\"")]
+    public async Task Text_is_published_as_a_JSON_string(string text, string body)
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
         await using var provider = Build(handler);
 
-        await provider.GetRequiredService<IInngestRealtime>().PublishAsync(new RealtimeTopic("chat", "tokens"), "Hel");
+        await provider.GetRequiredService<IInngestRealtime>().PublishAsync(new RealtimeTopic<string>("chat", "answer"), text);
 
-        handler.Single.BodyText.ShouldBe("Hel");
+        handler.Single.BodyText.ShouldBe(body);
+    }
+
+    [Fact]
+    public async Task A_publish_step_publishes_text_as_a_JSON_string()
+    {
+        var api = new RecordingApi();
+        using var host = new EngineHost(services => services.AddSingleton<IRealtimeApi>(api));
+        var function = TestFunction.Define(async context => await context.Step.PublishAsync("progress", new RealtimeTopic<string>("chat", "progress"), "42"));
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.Op().GetProperty("data").GetRawText().ShouldBe("\"42\"");
+        api.Published.Select(publish => publish.Body).ShouldBe(["\"42\""]);
+    }
+
+    // Inngest reads 512 KB of a message, and publishes one cut off there as a string of broken JSON.
+    [Fact]
+    public async Task A_message_of_512_KB_is_published()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var provider = Build(handler);
+
+        await provider.GetRequiredService<IInngestRealtime>().PublishAsync(Status, new string('x', (512 * 1024) - 2));
+
+        handler.Single.Body.Length.ShouldBe(512 * 1024);
+    }
+
+    [Fact]
+    public async Task A_larger_message_is_refused_before_it_is_sent()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var provider = Build(handler);
+
+        var exception = await Should.ThrowAsync<ArgumentException>(
+            () => provider.GetRequiredService<IInngestRealtime>().PublishAsync(Status, new string('x', (512 * 1024) - 1)));
+
+        exception.ParamName.ShouldBe("data");
+        exception.Message.ShouldStartWith(
+            "Inngest reads at most 512 KB of a realtime message and cuts off the rest, but this message to topic \"status\" of channel \"document:abc 123\" is 524,289 bytes.");
+        handler.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_publish_step_with_a_larger_message_fails_without_retries()
+    {
+        var api = new RecordingApi();
+        using var host = new EngineHost(services => services.AddSingleton<IRealtimeApi>(api));
+        var function = TestFunction.Define(async context => await context.Step.PublishAsync("status", Status, new string('x', 600_000)));
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        api.Published.ShouldBeEmpty();
     }
 
     [Fact]

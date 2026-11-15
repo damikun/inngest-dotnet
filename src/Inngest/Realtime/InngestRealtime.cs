@@ -15,7 +15,13 @@ internal sealed class InngestRealtime(IRealtimeApi api, RealtimeSubscriber subsc
     public Task PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken cancellationToken = default)
     {
         RealtimePayload.Check(topic);
-        return api.PublishAsync(topic, Invocation.AmbientContext?.RunId, RealtimePayload.Body(data, settings.SerializerOptions), cancellationToken);
+        var body = RealtimePayload.Body(data, settings.SerializerOptions);
+        if (RealtimePayload.TooLarge(topic, body.Length) is { } tooLarge)
+        {
+            throw new ArgumentException(tooLarge, nameof(data));
+        }
+
+        return api.PublishAsync(topic, Invocation.AmbientContext?.RunId, body, cancellationToken);
     }
 
     public Task PublishAsync<T>(RealtimeTopic<T> topic, T data, CancellationToken cancellationToken = default)
