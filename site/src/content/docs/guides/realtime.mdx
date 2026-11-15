@@ -58,13 +58,19 @@ With `IChatClient` of `Microsoft.Extensions.AI`, pass the `Text` of each update 
 
 Inngest relays up to 1,000 pieces of a stream, of up to 1 KB each, and a model yields a few characters at a time, so
 the text is gathered into pieces: one goes out when it is full or when its text has waited 100 ms, and 1 second once
-the stream has 500 pieces. A stream that still outgrows the limit ends its request there, because Inngest stops
-reading after 1,000 pieces and then closes the connection. Its subscribers receive the end of the stream and miss the
-rest, the SDK logs a warning with event id 354, and the publish still reads all the text and returns it.
+the stream has 500 pieces. A stream that still outgrows the limit ends its request after 1,000 pieces: Inngest reads a
+stream 1 KB at a time, and after 1,000 reads it ends the stream for its subscribers, discards up to 256 KB more of the
+body and closes the connection if the body goes on after that. The subscribers miss the rest, the SDK logs a warning
+with event id 354, and the publish still reads all the text and returns it.
 
-The request lasts as long as the text takes to arrive, so the `HttpClient`'s timeout of 100 seconds does not cut it;
-the cancellation token does. It is sent only once, because sending it again would read the chunks again: a handler
-that tries, such as a retry policy, fails the publish instead.
+A piece holds whole characters, but when pieces reach Inngest together, a read can run from one piece into the next
+and cut a character in two, so text outside ASCII can reach subscribers with replacement characters (U+FFFD) where one
+chunk ends and the next begins. The text the publish returns is always whole.
+
+The request lasts as long as the text takes to arrive, up to the 1,000th piece, so the `HttpClient`'s timeout of 100
+seconds does not cut it; the cancellation token does, also while the publish reads the rest of a longer stream without
+the request. It is sent only once, because sending it again would read the chunks again: a handler that tries, such as
+a retry policy, fails the publish instead.
 
 An exception the chunks throw reaches the caller as it is, not as a failure to reach Inngest, so a model that gives up
 with a `NonRetriableException` fails the step without retries.

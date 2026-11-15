@@ -47,6 +47,24 @@ public sealed class SendFailureTests
         exception.Message.ShouldBe("Inngest API error: 400 Event is over the max size (Inngest accepted 1 of 3 events)");
     }
 
+    // Inngest answers a send of one event it refuses as it answers any other send.
+    [Fact]
+    public async Task A_single_event_that_Inngest_refuses_throws_with_an_empty_id_for_it()
+    {
+        var fixture = new ClientFixture();
+        const string Refused = """{"ids":[""],"status":406,"error":"timestamp is before Jan 1, 1980"}""";
+        fixture.Handler.Respond(HttpStatusCode.NotAcceptable, Refused).Respond(HttpStatusCode.NotAcceptable, Refused);
+        var early = new InngestEvent("shop/order.placed") { Timestamp = new DateTimeOffset(1975, 1, 1, 0, 0, 0, TimeSpan.Zero) };
+
+        var exception = await Should.ThrowAsync<SendEventsException>(fixture.Client.SendAsync(early, TestContext.Current.CancellationToken));
+        var withOptions = await Should.ThrowAsync<SendEventsException>(
+            fixture.Client.SendAsync(early, new SendOptions(), TestContext.Current.CancellationToken));
+
+        exception.Ids.ShouldBe([""]);
+        exception.Message.ShouldBe("Inngest API error: 406 timestamp is before Jan 1, 1980 (Inngest accepted 0 of 1 event)");
+        withOptions.Ids.ShouldBe([""]);
+    }
+
     [Fact]
     public async Task An_error_with_an_id_for_every_event_says_that_Inngest_still_accepted_them()
     {

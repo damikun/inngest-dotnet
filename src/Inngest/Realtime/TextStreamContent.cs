@@ -13,9 +13,12 @@ namespace Inngest.Realtime;
 // a chunk and stops reading after 1,000 reads, so a producer that yields a few characters at a time, as a model does,
 // would use up the stream after a page of text. The text is therefore gathered into pieces, which go out when they are
 // full or when their text has waited for a short interval, and the interval grows once the stream is long, so that the
-// pieces last. A piece holds whole characters below 1 KB, which keeps a character from being split between two chunks.
-// Once Inngest has stopped reading, it takes 256 KB more and then closes the connection, so the body ends after the
-// pieces it relays, and the chunks it leaves are read by ReadToEndAsync.
+// pieces last. A piece holds whole characters in at most 1 KB, but a read goes on into the next piece when that one has
+// already arrived, and can then end inside a character, which subscribers receive as U+FFFD. Whether it does depends
+// only on when the pieces arrive, so it is not prevented here; the text the publish returns is whole.
+// After 1,000 reads Inngest ends the stream, discards up to 256 KB more of the body and closes the connection if the
+// body goes on after that, so the body ends after the pieces it relays, and the chunks it leaves are read by
+// ReadToEndAsync.
 internal sealed class TextStreamContent : HttpContent
 {
     // The reads Inngest relays of one stream.
