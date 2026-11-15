@@ -131,10 +131,12 @@ public sealed record CheckoutRequest(string OrderId, string CustomerId, decimal 
 `WebApplication` adds routing on its own; with another host, call `UseRouting` first. Everything after it in the
 pipeline runs inside the run. Put exception handling, such as `UseExceptionHandler`, before it, so that the SDK sees an
 exception first and can have it retried. If the app calls `UseAuthentication` and `UseAuthorization`, put them before
-it too: with the [user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the run gets the user that
-`HttpContext.User` holds when the middleware runs, which is nobody before authentication, and a request that
-authorization refuses then starts no run. A `WebApplication` that does not call them adds both ahead of the app's own
-middleware.
+it too, so that a request that authorization refuses starts no run. With the
+[user context](/inngest-dotnet/guides/user-context/#pass-the-user-on), the source of the user is asked when the
+middleware runs: with `AddUserContextFromHttpContext` the run gets the user that `HttpContext.User` holds then, which is
+nobody before authentication, and a source of your own gives what it returns at that point. A `WebApplication` adds
+each of the two that the app does not call ahead of the app's own middleware, but only when its services are
+registered: authentication after `AddAuthentication`, and authorization after `AddAuthorization`.
 
 `MapInngest` is not needed. Inngest calls a durable endpoint at its own URL and learns of it when the first run is
 saved, so there is nothing to sync. An app that has functions as well maps `MapInngest` as usual.

@@ -305,9 +305,13 @@ resumed call would take another branch than the request did. Read the user in a 
 [Durable endpoints](/inngest-dotnet/guides/durable-endpoints/#limitations) shows. The source is asked when
 `UseInngestDurableEndpoints` runs, so with `AddUserContextFromHttpContext` that middleware goes after
 `UseAuthentication` and `UseAuthorization`; before them, `HttpContext.User` is nobody yet and the run has no user.
-`EventFilter` sees that event too, with the request as its data, and returning false for it leaves the run without a
-user. So does a source, filter or protector that throws, such as with a key ring that cannot be read: the request is
-served, and a warning with event id 155 has the exception.
+`EventFilter` sees that event too. Its name is `inngest/http.request`, and its `Data` is a `JsonElement` with the
+request's `domain`, `method`, `path`, `ip`, `content_type`, `query_params`, `body` in base64, and `fn`, the endpoint's
+[function id](/inngest-dotnet/guides/durable-endpoints/#the-function-id). As for a send, the source is asked first,
+and the filter only when the source gave an authenticated user with claims that `Claims` allows. Returning false
+leaves the run without a user, but the source has been called by then. A source, filter or protector that throws, such
+as with a key ring that cannot be read, also leaves the run without a user: the request is served, and a warning with
+event id 155 has the exception.
 
 There is no single user where there is no single event. A function that batches events has none, and neither have the
 failure and cancel handlers of one. The events that `WaitForEventAsync` matched are results of steps, and their `user` is not
