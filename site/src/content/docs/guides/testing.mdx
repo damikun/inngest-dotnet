@@ -184,6 +184,10 @@ once.
 - When a run fails for good, it runs the function's failure handler, if it has one, with the
   `inngest/function.failed` event Inngest would send, and with the same mocks.
 - It records the events the app sends instead of sending them.
+- It cancels the call that is running when the token passed to `RunAsync` is cancelled, as when Inngest abandons a
+  call, and `RunAsync` throws `OperationCanceledException`. The host runs on the system clock, so a cancelled run
+  whose code ignores the token, such as a step handler that does not pass it on, takes up to 30 seconds of real time
+  to end, as the call waits for that code in the app too (see [handlers](/inngest-dotnet/guides/steps/#handlers)).
 
 What it does not do:
 

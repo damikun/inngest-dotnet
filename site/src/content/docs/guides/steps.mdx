@@ -94,7 +94,9 @@ The cancellation token passed to the handler is canceled when Inngest abandons t
 cancelled call still waits up to 30 seconds, of real time whatever `TimeProvider` the app registers, for a handler
 that is running, so that the services the call resolved, such as a `DbContext`, are not disposed under it. A handler
 still running after that is logged as a warning, event id 110, and the call ends; pass the token on to the work the
-handler does.
+handler does. The call waits the same way for a middleware hook that is running, and for work of the function's own
+outside steps, such as a query on the call's `DbContext`, until the function reaches its next step or returns. That
+work still running after 30 seconds is logged as a warning, event id 111.
 
 A handler that returns a `ValueTask` is rejected with an `ArgumentException`, because the SDK would otherwise save
 the `ValueTask` itself instead of waiting for it. Make the lambda `async` or call `AsTask()`.
