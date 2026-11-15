@@ -19,7 +19,7 @@ internal sealed partial class RunDriver
         return JsonElement.ParseValue(ref reader);
     }
 
-    // What Inngest stores for a step that ran: {"data": <output>} or {"error": <error>}.
+    // What Inngest stores for a step that ran: {"data": <output>} or {"error": <error>}, with the value as the SDK wrote it.
     private byte[] Wrap(string property, JsonElement value)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -33,7 +33,12 @@ internal sealed partial class RunDriver
             }
             else
             {
-                value.WriteTo(writer);
+                // Copied rather than written again, which would fail on a lone surrogate.
+#if NET9_0_OR_GREATER
+                writer.WriteRawValue(System.Runtime.InteropServices.JsonMarshal.GetRawUtf8Value(value), skipInputValidation: true);
+#else
+                writer.WriteRawValue(value.GetRawText(), skipInputValidation: true);
+#endif
             }
 
             writer.WriteEndObject();
@@ -76,8 +81,9 @@ internal sealed partial class RunDriver
     }
 
     // The call body in the canonical form Inngest sends: the keys of every object sorted, and every number gone through
-    // a double, so that events and step results read the way they do in production. A lone surrogate, which Inngest
-    // could not canonicalize either, leaves the body as it was written.
+    // a double, so that events and step results read the way they do in production. Events have no lone surrogates left,
+    // as EventJson replaces them the way Inngest does. One in step data, which Inngest keeps as the SDK wrote it and
+    // cannot canonicalize, leaves the body as it was written.
     private PooledBufferWriter Canonical(int attempt)
     {
         using var written = new PooledBufferWriter();
@@ -85,16 +91,24 @@ internal sealed partial class RunDriver
         var body = new PooledBufferWriter(written.WrittenCount);
         try
         {
-            using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
-            JsonCanonicalizer.Write(document.RootElement, body);
-        }
-        catch (InvalidOperationException)
-        {
-            body.Clear();
-            body.Write(written.WrittenSpan);
-        }
+            try
+            {
+                using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
+                JsonCanonicalizer.Write(document.RootElement, body);
+            }
+            catch (InvalidOperationException)
+            {
+                body.Clear();
+                body.Write(written.WrittenSpan);
+            }
 
-        return body;
+            return body;
+        }
+        catch
+        {
+            body.Dispose();
+            throw;
+        }
     }
 
     // A call body as Inngest sends it: keys sorted, and the stack listing results in the order they completed.

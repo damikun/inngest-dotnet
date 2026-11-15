@@ -60,6 +60,7 @@ internal sealed partial class Invocation
     // What the middleware's next() returns for a step that does not complete in this invocation.
     private readonly TaskCompletionSource<object?> _never = new();
 
+    private readonly ExecutionEngine _engine;
     private readonly InngestSettings _settings;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
@@ -118,6 +119,7 @@ internal sealed partial class Invocation
         DateTimeOffset receivedAt,
         CancellationToken cancellationToken)
     {
+        _engine = engine;
         _settings = engine.Settings;
         _time = engine.TimeProvider;
         _logger = engine.Logger;

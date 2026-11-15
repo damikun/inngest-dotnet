@@ -16,10 +16,16 @@ namespace Inngest.Execution;
 // executes one step, reports the steps it found, or answers with the function's output or error.
 internal sealed class ExecutionEngine : IExecutionEngine
 {
+    // Enough to cover the pending invokes of the runs an app has going at once.
+    private const int MaxLoggedInvokes = 4096;
+
     private readonly ConcurrentDictionary<string, ILogger> _functionLoggers = new(StringComparer.Ordinal);
     private readonly ILoggerFactory _loggerFactory;
     private readonly IInngestApi _api;
     private readonly JsonDocumentOptions _documentOptions;
+
+    // The invoke steps whose payload has been logged about, by run id and hashed step id.
+    private readonly ConcurrentDictionary<(string RunId, string HashedId), byte> _loggedInvokes = new();
 
     public ExecutionEngine(
         InngestSettings settings,
@@ -138,6 +144,18 @@ internal sealed class ExecutionEngine : IExecutionEngine
             steps?.Dispose();
             events?.Dispose();
         }
+    }
+
+    // True the first time it is asked for an invoke step of a run. A pending invoke is reported again by every later call
+    // of a race, with the same payload, and is logged about only once in this app. Once full, the set starts over.
+    public bool FirstInvokeLog(string runId, string hashedId)
+    {
+        if (_loggedInvokes.Count >= MaxLoggedInvokes)
+        {
+            _loggedInvokes.Clear();
+        }
+
+        return _loggedInvokes.TryAdd((runId, hashedId), 0);
     }
 
     // Loggers are cached because LoggerFactory takes a lock to look one up.

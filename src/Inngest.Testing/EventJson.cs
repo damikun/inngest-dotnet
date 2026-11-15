@@ -2,6 +2,7 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Buffers;
+using System.Globalization;
 using System.Text.Json;
 using Inngest.Events;
 using Inngest.Execution;
@@ -72,7 +73,9 @@ internal static class EventJson
             writer.WriteEndObject();
         }
 
-        return buffer.WrittenSpan.ToArray();
+        var json = buffer.WrittenSpan.ToArray();
+        ReplaceLoneSurrogates(json);
+        return json;
     }
 
     // What InngestClient checks before it sends, so that an event it would refuse fails the same way here.
@@ -96,4 +99,50 @@ internal static class EventJson
 
     private static void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options) =>
         JsonSerializer.Serialize(writer, value, options.GetTypeInfo(value.GetType()));
+
+    // Inngest decodes events into Go strings, where a lone surrogate becomes U+FFFD. Only a converter that writes raw JSON
+    // can put one in an event, and only as a \u escape, which "\ufffd" replaces in place.
+    private static void ReplaceLoneSurrogates(Span<byte> json)
+    {
+        for (var i = 0; i < json.Length - 1; i++)
+        {
+            if (json[i] != '\\')
+            {
+                continue;
+            }
+
+            if (json[i + 1] != 'u' || !TryReadUnit(json, i, out var unit))
+            {
+                i++;
+                continue;
+            }
+
+            if (char.IsHighSurrogate(unit) && TryReadUnit(json, i + 6, out var next) && char.IsLowSurrogate(next))
+            {
+                i += 11;
+                continue;
+            }
+
+            if (char.IsSurrogate(unit))
+            {
+                "\\ufffd"u8.CopyTo(json[i..]);
+            }
+
+            i += 5;
+        }
+    }
+
+    // The code unit of the \u escape at the index.
+    private static bool TryReadUnit(ReadOnlySpan<byte> json, int index, out char unit)
+    {
+        unit = default;
+        if (index + 6 > json.Length || json[index] != '\\' || json[index + 1] != 'u' ||
+            !ushort.TryParse(json.Slice(index + 2, 4), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var value))
+        {
+            return false;
+        }
+
+        unit = (char)value;
+        return true;
+    }
 }

@@ -50,6 +50,54 @@ public sealed class SortedKeysTests : IDisposable
         result.Body.ShouldBe("\"bank DE00,card 4242,main=bank DE89\"");
     }
 
+    // "kind" is an ordinary property of Ring and the discriminator of Part, both of which the result holds.
+    [Fact]
+    public async Task A_property_named_like_the_discriminator_of_another_type_is_left_where_it_is()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var drawing = await context.Step.RunAsync("draw", () => new Drawing(new Ring("x", 1), new Twig("b")));
+            return $"{drawing.Figure} {drawing.Part}";
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data(
+            "draw",
+            """{"figure":{"kind":"x","size":1,"type":"ring"},"part":{"bark":"b","kind":"twig"}}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"Ring { Kind = x, Size = 1 } Twig { Bark = b }\"");
+    }
+
+    [Fact]
+    public async Task The_items_of_a_polymorphic_list_are_read_back_from_sorted_keys()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var history = await context.Step.RunAsync<MethodLog>("history", () => new MethodHistory { new BankTransfer("DE89") });
+            return $"{history.GetType().Name} {string.Join(",", history.Select(Describe))}";
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("history", """{"$type":"history","$values":[{"iban":"DE89","type":"bank"}]}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"MethodHistory bank DE89\"");
+    }
+
+    [Fact]
+    public async Task A_property_with_a_converter_that_calls_the_serializer_is_read_back_from_sorted_keys()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var boxed = await context.Step.RunAsync("box", () => new Boxed(new Card("4242", 2030)));
+            return Describe(boxed.Item);
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("box", """{"item":{"expYear":2030,"last4":"4242","type":"card"}}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"card 4242\"");
+    }
+
     [Fact]
     public async Task Event_data_with_a_custom_discriminator_is_read_from_sorted_keys()
     {
@@ -109,4 +157,35 @@ public sealed class SortedKeysTests : IDisposable
     public sealed record Wallet(string Id, List<PaymentMethod> Methods, Dictionary<string, PaymentMethod> ByName);
 
     public sealed record OrderPlaced(string OrderId, PaymentMethod Payment);
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(MethodHistory), "history")]
+    public class MethodLog : List<PaymentMethod>;
+
+    public sealed class MethodHistory : MethodLog;
+
+    public sealed record Boxed([property: JsonConverter(typeof(PassThrough))] PaymentMethod Item);
+
+    public sealed class PassThrough : JsonConverter<PaymentMethod>
+    {
+        public override PaymentMethod? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            JsonSerializer.Deserialize<PaymentMethod>(ref reader, options);
+
+        public override void Write(Utf8JsonWriter writer, PaymentMethod value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, options);
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Ring), "ring")]
+    public abstract record Figure;
+
+    public sealed record Ring(string Kind, int Size) : Figure;
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(Twig), "twig")]
+    public abstract record Part;
+
+    public sealed record Twig(string Bark) : Part;
+
+    public sealed record Drawing(Figure Figure, Part Part);
 }

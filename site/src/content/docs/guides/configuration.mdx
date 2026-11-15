@@ -232,10 +232,11 @@ Inngest sends events and step results back in canonical JSON (RFC 8785), with th
 every number read as a 64-bit floating point value (see [numbers](/inngest-dotnet/guides/steps/#numbers)). So a type
 discriminator such as `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` usually arrives after the other
 properties. On .NET 9 and later the SDK sets `AllowOutOfOrderMetadataProperties` on its copy of the options. On .NET 8,
-whose System.Text.Json has no such setting, it moves the discriminators of the type being read to the front of their
-objects first. It finds them through properties, derived types and generic collections, but not inside a collection
-class that implements `IEnumerable<T>` itself or behind a custom converter; keep the default `$type` discriminator
-there, which sorts first.
+whose System.Text.Json has no such setting, it first walks the value along the type being read and moves the
+discriminator of each polymorphic object to the front, including the items of a polymorphic collection. Under a
+`[JsonConverter]` on a property it goes on as the property's declared type, which suits a converter that hands the
+value back to the serializer. Past that it cannot see what a custom converter reads; keep the default `$type`
+discriminator for types read there, which sorts first.
 
 ## Connect settings
 
