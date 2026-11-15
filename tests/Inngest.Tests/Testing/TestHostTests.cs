@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Inngest.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -88,6 +89,39 @@ public sealed class TestHostTests
 
         // The step's own output is what it returned.
         run.GetStep("load").GetOutput<long>().ShouldBe(1234567890123456789L);
+    }
+
+    // Inngest reads events into Go strings, which turn a lone surrogate into U+FFFD, and canonicalizes the call as usual.
+    [Fact]
+    public async Task A_lone_surrogate_in_event_data_reaches_the_function_as_the_replacement_character()
+    {
+        await using var host = For(context => Task.FromResult<object?>(new
+        {
+            text = context.Event.Data.GetProperty("text").GetString(),
+            raw = context.Event.Data.GetRawText(),
+        }));
+
+        var run = await host.RunAsync("fn", Event(new RawJson("""{"text":"a\ud800b\udc00\ud83d\ude00","n":1.0}""")), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        run.Output!.Value.GetProperty("text").GetString().ShouldBe("a\uFFFDb\uFFFD\U0001F600");
+        run.Output!.Value.GetProperty("raw").GetString().ShouldBe("{\"n\":1,\"text\":\"a\uFFFDb\uFFFD\U0001F600\"}");
+    }
+
+    // Inngest keeps step data as the SDK wrote it, and cannot canonicalize a lone surrogate in it.
+    [Fact]
+    public async Task A_lone_surrogate_in_step_data_leaves_the_call_as_it_was_written()
+    {
+        await using var host = For(async context =>
+        {
+            await context.Step.RunAsync("raw", () => new RawJson("""{"b":"\ud800","a":1.0}"""));
+            return context.Event.Data.GetRawText();
+        });
+
+        var run = await host.RunAsync("fn", Event(new { b = 1.0m, a = 2 }), Cancel);
+
+        run.Status.ShouldBe(TestRunStatus.Completed);
+        run.GetOutput<string>().ShouldBe("""{"b":1.0,"a":2}""");
     }
 
     [Fact]
@@ -589,5 +623,17 @@ public sealed class TestHostTests
         properties["runID"].ShouldBe(run.RunId);
         properties["stepID"].ShouldBe("a");
         properties.ShouldNotContainKey("runURL");
+    }
+
+    // Writes its JSON as it is, as a converter that copies a stored payload would.
+    [JsonConverter(typeof(RawJsonConverter))]
+    private sealed record RawJson(string Json);
+
+    private sealed class RawJsonConverter : JsonConverter<RawJson>
+    {
+        public override RawJson Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            new(JsonElement.ParseValue(ref reader).GetRawText());
+
+        public override void Write(Utf8JsonWriter writer, RawJson value, JsonSerializerOptions options) => writer.WriteRawValue(value.Json);
     }
 }
