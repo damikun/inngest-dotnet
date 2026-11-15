@@ -102,6 +102,24 @@ public sealed class ExecutionTests : IAsyncLifetime
         await session.NextAsync(GatewayMessageType.WorkerReply);
     }
 
+    // The call's span continues this trace context when nothing listens for the worker's span of the request.
+    [Fact]
+    public async Task Hands_the_trace_context_of_the_request_to_the_engine()
+    {
+        var engine = new ControlledEngine();
+        await using var worker = new WorkerHost(_gateway, engine: engine);
+        await worker.StartAsync();
+        var session = await _gateway.NextReadySessionAsync();
+
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+
+        var execution = await engine.NextAsync();
+        execution.Request.TraceParent.ShouldBe("00-user-01");
+        execution.Request.TraceState.ShouldBe("user=1");
+        execution.Complete(200, "null");
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+    }
+
     [Fact]
     public async Task A_request_without_a_step_id_starts_the_run()
     {

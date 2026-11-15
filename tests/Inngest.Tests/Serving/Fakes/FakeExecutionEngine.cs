@@ -30,6 +30,8 @@ internal sealed class FakeExecutionEngine : IExecutionEngine
             RequestId = request.RequestId,
             JobId = request.JobId,
             GenerationId = request.GenerationId,
+            TraceParent = request.TraceParent,
+            TraceState = request.TraceState,
         });
         LastResult = await Handler(request, cancellationToken);
         return LastResult;
@@ -47,6 +49,10 @@ internal sealed class FakeExecutionEngine : IExecutionEngine
         public string? JobId { get; init; }
 
         public int? GenerationId { get; init; }
+
+        public string? TraceParent { get; init; }
+
+        public string? TraceState { get; init; }
 
         public string BodyText => Encoding.UTF8.GetString(Body);
     }

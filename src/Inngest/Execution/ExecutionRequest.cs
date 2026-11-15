@@ -28,6 +28,12 @@ internal sealed record ExecutionRequest
     // Which dispatch of the run this call is (X-Inngest-Generation-Id). Null when Inngest sent none.
     public int? GenerationId { get; init; }
 
+    // The trace context Inngest sent with the call (the traceparent and tracestate headers, or the Connect request's
+    // user_trace_ctx), for instrumentation on hosts that start no span for the request. Null when Inngest sent none.
+    public string? TraceParent { get; init; }
+
+    public string? TraceState { get; init; }
+
     // How long the call may run steps under checkpointing when the options leave MaxRuntime unset. Connect workers
     // allow longer than HTTP calls, which a host or proxy may time out.
     public TimeSpan DefaultCheckpointMaxRuntime { get; init; } = Checkpointer.ServeMaxRuntime;

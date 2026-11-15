@@ -19,14 +19,15 @@ internal static class ConnectTelemetry
         "inngest",
         typeof(ConnectTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]);
 
-    public static Activity? StartRequest(GatewayExecutorRequestData data)
+    public static Activity? StartRequest(GatewayExecutorRequestData data, string? traceParent, string? traceState)
     {
         if (!Source.HasListeners())
         {
             return null;
         }
 
-        var activity = Source.StartActivity(RequestSpan, ActivityKind.Server, ParentOf(data.UserTraceCtx.Span));
+        var parent = ActivityContext.TryParse(traceParent, traceState, isRemote: true, out var context) ? context : default;
+        var activity = Source.StartActivity(RequestSpan, ActivityKind.Server, parent);
         if (activity is { IsAllDataRequested: true })
         {
             activity.SetTag("sys.function.slug", data.FunctionSlug);
@@ -36,8 +37,9 @@ internal static class ConnectTelemetry
         return activity;
     }
 
-    // user_trace_ctx holds the traceparent and tracestate headers that Inngest would send over HTTP, as JSON.
-    private static ActivityContext ParentOf(ReadOnlySpan<byte> json)
+    // user_trace_ctx holds the traceparent and tracestate headers that Inngest would send over HTTP, as JSON. Either is
+    // null when it is missing or the JSON cannot be read.
+    public static (string? TraceParent, string? TraceState) TraceContextOf(ReadOnlySpan<byte> json)
     {
         string? traceparent = null;
         string? tracestate = null;
@@ -78,6 +80,6 @@ internal static class ConnectTelemetry
             return default;
         }
 
-        return ActivityContext.TryParse(traceparent, tracestate, isRemote: true, out var parent) ? parent : default;
+        return (traceparent, tracestate);
     }
 }

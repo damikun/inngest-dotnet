@@ -117,7 +117,8 @@ internal sealed partial class ConnectWorker
 
     private async Task<Reply> ExecuteAsync(GatewayExecutorRequestData data, CancellationToken cancellationToken)
     {
-        using var activity = ConnectTelemetry.StartRequest(data);
+        var (traceParent, traceState) = ConnectTelemetry.TraceContextOf(data.UserTraceCtx.Span);
+        using var activity = ConnectTelemetry.StartRequest(data, traceParent, traceState);
         if (!_registry.TryGet(data.FunctionSlug, out var function))
         {
             Log.FunctionNotFound(_logger, data.FunctionSlug);
@@ -138,6 +139,8 @@ internal sealed partial class ConnectWorker
                 Services = scope.ServiceProvider,
                 RequestId = data.RequestId.Length > 0 ? data.RequestId : null,
                 JobId = data.JobId.Length > 0 ? data.JobId : null,
+                TraceParent = traceParent,
+                TraceState = traceState,
                 DefaultCheckpointMaxRuntime = Checkpointer.ConnectMaxRuntime,
             };
 

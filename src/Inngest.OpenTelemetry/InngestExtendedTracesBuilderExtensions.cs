@@ -20,8 +20,8 @@ public static class InngestExtendedTracesBuilderExtensions
     /// </summary>
     /// <remarks>
     /// The spans of a run are recorded even where the app's own sampler would drop them; other spans are left alone.
-    /// A call continues the trace Inngest sent with it through the host's span for the request, which ASP.NET Core and
-    /// the Connect worker start.
+    /// A call continues the trace Inngest sent with it: under the host's span for the request, which ASP.NET Core and the
+    /// Connect worker start, and otherwise straight from the request's traceparent and tracestate, as on AWS Lambda.
     /// </remarks>
     [Experimental(ExtendedTracesDiagnostics.Id)]
     public static IInngestBuilder AddExtendedTraces(this IInngestBuilder builder)

@@ -66,7 +66,7 @@ internal sealed class InngestTelemetry : IDisposable
 
     public static Activity? StartCall(string slug, FunctionContext context)
     {
-        var activity = Source.StartActivity(CallSpan, ActivityKind.Internal);
+        var activity = Source.StartActivity(CallSpan, ActivityKind.Internal, ParentOf(context));
         if (activity is { IsAllDataRequested: true })
         {
             activity.SetTag(Attributes.FunctionSlug, slug);
@@ -76,7 +76,7 @@ internal sealed class InngestTelemetry : IDisposable
             activity.SetTag(Attributes.EventId, context.EventId);
 
             // Inngest's own ids of the function and the app come in the trace state it sends with every call, which
-            // the span inherits from the request's span, the same place the TypeScript SDK reads them from.
+            // the span inherits from its parent, the same place the TypeScript SDK reads them from.
             if (activity.TraceStateString is { Length: > 0 } traceState)
             {
                 activity.SetTag(Attributes.FunctionId, TraceStateValue(traceState, "inngest@fn="));
@@ -85,6 +85,21 @@ internal sealed class InngestTelemetry : IDisposable
         }
 
         return activity;
+    }
+
+    // The call continues the trace Inngest sent with it. ASP.NET Core's span for the request and the Connect worker's
+    // already do, and the call's span goes under them. AWS Lambda, Azure Functions and custom hosts start none, nor
+    // does ASP.NET Core when nothing asks it for one, so the span then takes the trace context from the request itself,
+    // as the TypeScript SDK always does.
+    private static ActivityContext ParentOf(FunctionContext context)
+    {
+        if (!ActivityContext.TryParse(context.TraceParent, context.TraceState, isRemote: true, out var parent)
+            || Activity.Current?.TraceId == parent.TraceId)
+        {
+            return default;
+        }
+
+        return parent;
     }
 
     // Under the call's span when there is one, else under whatever is current.

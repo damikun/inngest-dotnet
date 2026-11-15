@@ -148,6 +148,8 @@ internal sealed partial class Invocation
         {
             RequestId = request.RequestId,
             JobId = request.JobId,
+            TraceParent = request.TraceParent,
+            TraceState = request.TraceState,
             RunUrl = runUrl,
             PropagateSessions = _settings.SessionPropagation,
             Middleware = middleware,

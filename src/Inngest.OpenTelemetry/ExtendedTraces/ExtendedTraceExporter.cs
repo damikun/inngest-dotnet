@@ -20,7 +20,8 @@ namespace Inngest.OpenTelemetry.ExtendedTraces;
 //
 // The listener samples the spans it tracks, so they are recorded even where the app's own sampler would drop them; it
 // lets every other span alone. It also asks ASP.NET Core and the Connect worker for the span of the request, without
-// recording it, so that the call's span inherits the trace context Inngest sent.
+// recording it, so that the call's span inherits the trace context Inngest sent. Without one, as on AWS Lambda, the
+// call's span takes that context from the request.
 internal sealed partial class ExtendedTraceExporter : IAsyncDisposable
 {
     public const string Path = "/v1/traces/userland";
