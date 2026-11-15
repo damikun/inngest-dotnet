@@ -116,7 +116,11 @@ internal sealed partial class Invocation
                 await Task.WhenAny(work, function).ConfigureAwait(false);
             }
 
-            _cancellationToken.ThrowIfCancellationRequested();
+            if (_cancellationToken.IsCancellationRequested)
+            {
+                await FunctionCancelledAsync(function).ConfigureAwait(false);
+            }
+
             return true;
         }
 
@@ -128,8 +132,72 @@ internal sealed partial class Invocation
         }
 
         var expired = await WaitAtMostAsync(work, function, remaining).ConfigureAwait(false);
-        _cancellationToken.ThrowIfCancellationRequested();
+        if (_cancellationToken.IsCancellationRequested)
+        {
+            await FunctionCancelledAsync(function).ConfigureAwait(false);
+        }
+
         return !expired;
+    }
+
+    // The call was cancelled while the function waits on work of its own, such as a query on a DbContext of the call.
+    // Its code goes on when that work ends, so the call waits until the function ends or waits on a step it found.
+    private Task FunctionCancelledAsync(Task function)
+    {
+        var found = _found.Count;
+        return CancelledAsync(function, () => function.IsCompleted || _found.Count > found, stepId: null);
+    }
+
+    // A cancelled call still waits for the user code it started, since the call's services are disposed once it ends:
+    // a step handler or a hook that ignores the token, or the function's own work. The function's continuations keep
+    // running meanwhile, as that code may wait on them. Code still running after the grace period is logged and left to
+    // finish on its own. Either way the call ends as cancelled.
+    private async Task CancelledAsync(Task code, Func<bool> settled, string? stepId)
+    {
+        if (!await SettleAsync(code, settled).ConfigureAwait(false))
+        {
+            if (stepId is null)
+            {
+                Log.FunctionOutlivedCall(_runLogger, _run.RunId, _functionId, _cancelledCallGrace);
+            }
+            else
+            {
+                Log.StepOutlivedCall(_runLogger, stepId, _run.RunId, _functionId, _cancelledCallGrace);
+            }
+        }
+
+        ObserveFailure(code);
+        _cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    // True when the code settled within the grace period. Real time, whatever clock the engine is given: the grace bounds
+    // how long the call's services stay alive, and a test clock that nothing moves would keep a call cancelled at shutdown
+    // open until the host gives up.
+    private async Task<bool> SettleAsync(Task code, Func<bool> settled)
+    {
+        using var grace = new CancellationTokenSource();
+        var deadline = Task.Delay(_cancelledCallGrace, TimeProvider.System, grace.Token);
+        try
+        {
+            while (true)
+            {
+                RunPendingQuietly();
+                if (settled())
+                {
+                    return true;
+                }
+
+                var work = _scheduler.WaitForWorkAsync(grace.Token).AsTask();
+                if (await Task.WhenAny(code, work, deadline).ConfigureAwait(false) == deadline)
+                {
+                    return false;
+                }
+            }
+        }
+        finally
+        {
+            await grace.CancelAsync().ConfigureAwait(false);
+        }
     }
 
     // Waits for more work, the end of the function or the delay; true when the delay ran out first. A delay longer than
@@ -180,7 +248,7 @@ internal sealed partial class Invocation
 
         if (_pipeline is not null)
         {
-            await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output)).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output), step.FinalId).ConfigureAwait(false);
         }
 
         // The function gets the result once the step is saved, or straight away while the buffer fills.
@@ -200,7 +268,7 @@ internal sealed partial class Invocation
         var info = _pipeline is null ? null : step.CreateInfo(memoized: false);
         if (_pipeline is not null)
         {
-            await AwaitHookAsync(_pipeline.OnStepStartAsync(info!)).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnStepStartAsync(info!), step.FinalId).ConfigureAwait(false);
         }
 
         var startedAt = _time.GetUtcNow();
@@ -210,7 +278,7 @@ internal sealed partial class Invocation
         Exception? error = null;
         try
         {
-            output = await AwaitHandlerAsync(RunHandler(step, info, ai)).ConfigureAwait(false);
+            output = await AwaitHandlerAsync(RunHandler(step, info, ai), step.FinalId).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_cancellationToken.IsCancellationRequested)
         {
@@ -230,15 +298,15 @@ internal sealed partial class Invocation
         return new StepOutcome(info, output, error, new Timing(startedAt, _time.GetElapsedTime(started)));
     }
 
-    private async Task<object?> AwaitHandlerAsync(Task<object?> handler)
+    private async Task<object?> AwaitHandlerAsync(Task<object?> handler, string stepId)
     {
-        await RunPendingUntilAsync(handler).ConfigureAwait(false);
+        await RunPendingUntilAsync(handler, stepId).ConfigureAwait(false);
         return await handler.ConfigureAwait(false);
     }
 
     // A middleware hook may wait on the same tasks as a handler, such as a token a singleton caches that the function
-    // started loading, so it is awaited the same way.
-    private async ValueTask AwaitHookAsync(ValueTask hook)
+    // started loading, so it is awaited the same way. The step is the one the hook is about, if any.
+    private async ValueTask AwaitHookAsync(ValueTask hook, string? stepId = null)
     {
         if (hook.IsCompleted)
         {
@@ -247,29 +315,38 @@ internal sealed partial class Invocation
         }
 
         var task = hook.AsTask();
-        await RunPendingUntilAsync(task).ConfigureAwait(false);
+        await RunPendingUntilAsync(task, stepId).ConfigureAwait(false);
         await task.ConfigureAwait(false);
     }
 
     // The function's own continuations keep running while a handler or a hook runs, as on the JavaScript event loop:
     // that code may await a task the function started, and that task resumes on the scheduler. Nothing is decided
-    // meanwhile. A cancelled call stops waiting even for code that ignores the token.
-    private async Task RunPendingUntilAsync(Task task)
+    // meanwhile. A cancelled call waits a while longer for code that ignores the token, and then stops waiting.
+    private async Task RunPendingUntilAsync(Task task, string? stepId)
     {
         while (!task.IsCompleted)
         {
             var work = _scheduler.WaitForWorkAsync(_cancellationToken).AsTask();
             await Task.WhenAny(task, work).ConfigureAwait(false);
-            _cancellationToken.ThrowIfCancellationRequested();
-            try
+            if (_cancellationToken.IsCancellationRequested)
             {
-                _scheduler.RunPending(MaxContinuationsPerTick);
+                await CancelledAsync(task, () => task.IsCompleted, stepId).ConfigureAwait(false);
             }
-            catch (Exception)
-            {
-                // An async void method threw. RunPending throws it again each time it runs, so the loop fails the run
-                // with it once the step is done, or the next call does.
-            }
+
+            RunPendingQuietly();
+        }
+    }
+
+    private void RunPendingQuietly()
+    {
+        try
+        {
+            _scheduler.RunPending(MaxContinuationsPerTick);
+        }
+        catch (Exception)
+        {
+            // An async void method threw. RunPending throws it again each time it runs, so the loop fails the run with
+            // it once the step is done, or the next call does.
         }
     }
 
@@ -284,7 +361,7 @@ internal sealed partial class Invocation
             {
                 if (_pipeline is not null)
                 {
-                    await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output)).ConfigureAwait(false);
+                    await AwaitHookAsync(_pipeline.OnStepCompleteAsync(outcome.Info!, outcome.Output), step.FinalId).ConfigureAwait(false);
                 }
 
                 return new ExecutionResult(206, body);
@@ -294,7 +371,7 @@ internal sealed partial class Invocation
             ReportStepError(step, error, retriable);
             if (_pipeline is not null)
             {
-                await AwaitHookAsync(_pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable)).ConfigureAwait(false);
+                await AwaitHookAsync(_pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable), step.FinalId).ConfigureAwait(false);
             }
 
             WriteStepError(body, step, error, final: !retriable, outcome.Timing);

@@ -51,6 +51,52 @@ public sealed class AwaitStepCodeFixTests
         await Run(source, source);
     }
 
+    [Fact]
+    public async Task Awaits_a_task_the_function_starts()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var page = {|#0:LoadAsync().Result|};
+                    {|#1:SaveAsync(page).ConfigureAwait(false).GetAwaiter().GetResult()|};
+                    return page;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+
+                private static Task SaveAsync(string page) => Task.CompletedTask;
+            }
+            """;
+        const string fixedSource = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var page = await {|INNGEST028:LoadAsync|}();
+                    await {|INNGEST028:SaveAsync|}(page).ConfigureAwait(false);
+                    return page;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+
+                private static Task SaveAsync(string page) => Task.CompletedTask;
+            }
+            """;
+
+        var test = new CSharpCodeFixTest<FunctionBodyAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier>();
+        ProjectSetup.Configure(test, properties: null);
+        test.TestState.Sources.Add(Sources.Usings + source);
+        test.TestState.ExpectedDiagnostics.Add(new DiagnosticResult(DiagnosticDescriptors.BlockingOnTask).WithLocation(0).WithArguments(".Result", "LoadAsync()"));
+        test.TestState.ExpectedDiagnostics.Add(
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnTask).WithLocation(1).WithArguments(".GetAwaiter().GetResult()", "SaveAsync()"));
+        test.FixedState.Sources.Add(Sources.Usings + fixedSource);
+        await test.RunAsync();
+    }
+
     private static async Task Run(string source, string fixedSource)
     {
         var test = new CSharpCodeFixTest<StepCallAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier>();

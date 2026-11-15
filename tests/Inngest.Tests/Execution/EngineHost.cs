@@ -24,14 +24,26 @@ internal sealed class EngineHost : IDisposable
 
     private readonly ServiceProvider _provider;
 
-    public EngineHost(Action<IServiceCollection>? configure = null, InngestSettings? settings = null)
+    public EngineHost(
+        Action<IServiceCollection>? configure = null,
+        InngestSettings? settings = null,
+        TimeSpan? heldThreadTimeout = null,
+        TimeSpan? cancelledCallGrace = null)
     {
         var services = new ServiceCollection();
         services.AddFakeLogging();
         configure?.Invoke(services);
         _provider = services.BuildServiceProvider();
         Logs = _provider.GetFakeLogCollector();
-        Engine = new ExecutionEngine(settings ?? Settings, _provider.GetRequiredService<ILoggerFactory>(), Time, Api, Checkpoints, EndpointCheckpoints);
+        var loggerFactory = _provider.GetRequiredService<ILoggerFactory>();
+
+        // The engine's own defaults, for the limits a test leaves out.
+        var defaults = new ExecutionEngine(Settings, loggerFactory, Time, Api);
+        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints)
+        {
+            HeldThreadTimeout = heldThreadTimeout ?? defaults.HeldThreadTimeout,
+            CancelledCallGrace = cancelledCallGrace ?? defaults.CancelledCallGrace,
+        };
     }
 
     public static InngestSettings Settings { get; } = new()

@@ -1,8 +1,18 @@
+using System.Diagnostics;
+using Inngest.Execution;
+using Inngest.Functions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
 namespace Inngest.Tests.Execution;
 
 // Function code that leaves the invocation's scheduler must still get correct results.
 public sealed class ThreadingTests : IDisposable
 {
+    // Short, so that the tests of a call that outlives it do not wait long. The engine's clock never moves in them: the
+    // grace runs in real time.
+    private static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(200);
+
     private readonly EngineHost _host = new();
 
     public void Dispose() => _host.Dispose();
@@ -172,8 +182,9 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_the_call_stops_waiting_for_the_function()
+    public async Task A_cancelled_call_stops_waiting_for_work_of_the_function_after_a_grace_period()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         using var cancellation = new CancellationTokenSource();
         var never = new TaskCompletionSource();
         var function = TestFunction.Define(async _ =>
@@ -182,12 +193,49 @@ public sealed class ThreadingTests : IDisposable
             return null;
         });
 
-        var pending = _host.Engine.ExecuteAsync(
-            new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = _host.Services },
-            cancellation.Token);
+        var pending = Execute(host, function, cancellation.Token);
+        var waited = Stopwatch.StartNew();
         await cancellation.CancelAsync();
 
-        await Should.ThrowAsync<OperationCanceledException>(() => pending);
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 111).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.Category.ShouldBe("Inngest.Function.fn");
+        record.Message.ShouldStartWith("Run 01JRUN of function fn was still waiting on work of its own 00:00:00.2000000 after the call was cancelled");
+    }
+
+    [Fact]
+    public async Task A_cancelled_call_ends_only_once_the_work_the_function_waits_on_has_finished()
+    {
+        using var host = new EngineHost(services => services.AddScoped<ScopedResource>());
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource();
+        bool? disposedWhileUsed = null;
+        var function = TestFunction.Define(async context =>
+        {
+            var resource = context.Services.GetRequiredService<ScopedResource>();
+            started.SetResult();
+
+            // Work of the function's own that ignores the token, such as a query on the call's DbContext.
+            await release.Task;
+            disposedWhileUsed = resource.Disposed;
+            return await context.Step.RunAsync("next", () => "next");
+        });
+
+        var pending = ExecuteInScopeAsync(host, function, cancellation.Token);
+        await started.Task;
+        await cancellation.CancelAsync();
+
+        // Long enough for a call that does not wait to have ended and disposed its scope.
+        await Task.WhenAny(pending, Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
+        release.SetResult();
+
+        // Once the function waits on a step, none of its code runs any more, so the call ends without the grace period.
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        disposedWhileUsed.ShouldBe(false);
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 111);
     }
 
     [Fact]
@@ -214,8 +262,9 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_the_call_stops_waiting_for_a_step_that_ignores_the_token()
+    public async Task A_cancelled_call_stops_waiting_for_a_step_that_ignores_the_token_after_a_grace_period()
     {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
         using var cancellation = new CancellationTokenSource();
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var never = new TaskCompletionSource<string>();
@@ -225,13 +274,213 @@ public sealed class ThreadingTests : IDisposable
             return await never.Task;
         }));
 
-        var pending = _host.Engine.ExecuteAsync(
-            new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = _host.Services },
-            cancellation.Token);
+        var pending = Execute(host, function, cancellation.Token);
+        await started.Task;
+        var waited = Stopwatch.StartNew();
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 110).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.Message.ShouldStartWith("Step stuck of run 01JRUN of function fn was still running 00:00:00.2000000 after the call was cancelled");
+    }
+
+    [Fact]
+    public async Task A_cancelled_call_ends_only_once_the_step_it_started_has_finished()
+    {
+        using var host = new EngineHost(services => services.AddScoped<ScopedResource>());
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource();
+        bool? disposedWhileUsed = null;
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("slow", async () =>
+        {
+            var resource = context.Services.GetRequiredService<ScopedResource>();
+            started.SetResult();
+            await release.Task;
+            disposedWhileUsed = resource.Disposed;
+            return "done";
+        }));
+
+        var pending = ExecuteInScopeAsync(host, function, cancellation.Token);
         await started.Task;
         await cancellation.CancelAsync();
 
-        await Should.ThrowAsync<OperationCanceledException>(() => pending);
+        // Long enough for a call that does not wait to have ended and disposed its scope.
+        await Task.WhenAny(pending, Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
+        release.SetResult();
+
+        // The call still ends as cancelled, though the step finished.
+        await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        disposedWhileUsed.ShouldBe(false);
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 110);
+    }
+
+    [Fact]
+    public async Task A_step_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
+    {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
+        var message = "late failure " + Guid.NewGuid();
+        var unobserved = await CountUnobservedAsync(message, async () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource();
+            var function = TestFunction.Define(async context => await context.Step.RunAsync<string>("late", async () =>
+            {
+                started.SetResult();
+                await release.Task;
+                throw new InvalidOperationException(message);
+            }));
+
+            var pending = Execute(host, function, cancellation.Token);
+            await started.Task;
+            await cancellation.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            release.SetResult();
+        });
+
+        unobserved.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_function_that_fails_after_its_call_was_cancelled_is_not_reported_as_unobserved()
+    {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
+        var message = "late failure " + Guid.NewGuid();
+        var unobserved = await CountUnobservedAsync(message, async () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var release = new TaskCompletionSource();
+            var function = TestFunction.Define(async _ =>
+            {
+                await release.Task.ConfigureAwait(false);
+                throw new InvalidOperationException(message);
+            });
+
+            var pending = Execute(host, function, cancellation.Token);
+            await cancellation.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            release.SetResult();
+        });
+
+        unobserved.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var function = TestFunction.Define(async _ =>
+        {
+            var loading = LoadAsync();
+
+            // Holds the thread as loading.Result would, which would never return, until the watchdog has spoken.
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            return await loading;
+        });
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.Body.ShouldBe("\"loaded\"");
+        var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Error);
+        record.Category.ShouldBe("Inngest.Function.fn");
+        record.Message.ShouldStartWith("Run 01JRUN of function fn has held its thread for 00:00:00.0500000 while work for it waits.");
+
+        // Resumes on the invocation's scheduler, as app code without ConfigureAwait(false) does.
+        static async Task<string> LoadAsync()
+        {
+            await Task.Delay(1);
+            return "loaded";
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Code_that_blocks_on_a_step_it_found_is_logged(bool memoized)
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        bool? completedWhileHeld = null;
+        var function = TestFunction.Define(async context =>
+        {
+            var step = context.Step.RunAsync("A", () => "A");
+
+            // Holds the thread as step.Result would, which would never return, until the watchdog has spoken.
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            completedWhileHeld = step.IsCompleted;
+            return await step;
+        });
+
+        var result = await host.CallAsync(function, memoized ? Call.New().Data("A", "\"A\"") : Call.New());
+
+        completedWhileHeld.ShouldBe(false);
+        if (memoized)
+        {
+            result.Body.ShouldBe("\"A\"");
+        }
+        else
+        {
+            result.OpCodes.ShouldBe(["StepRun"]);
+        }
+
+        host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Code_that_blocks_on_a_step_whose_result_is_handed_back_later_is_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var function = TestFunction.Define(async context =>
+        {
+            var a = context.Step.RunAsync("A", () => "A");
+            var b = context.Step.RunAsync("B", () => "B");
+
+            // B completed first, so A's result is handed back only once this code lets go of the thread.
+            var first = await b;
+            SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            return first + await a;
+        });
+
+        var result = await host.CallAsync(function, Call.New().Data("B", "\"B\"").Data("A", "\"A\""));
+
+        result.Body.ShouldBe("\"BA\"");
+        host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Code_that_holds_the_function_thread_after_its_steps_were_handed_back_is_not_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(20));
+        var function = TestFunction.Define(async context =>
+        {
+            var a = await context.Step.RunAsync("A", () => "A");
+            Thread.Sleep(200);
+            return a;
+        });
+
+        var result = await host.CallAsync(function, Call.New().Data("A", "\"A\""));
+
+        result.Body.ShouldBe("\"A\"");
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 112);
+    }
+
+    [Fact]
+    public async Task Code_that_holds_the_function_thread_while_nothing_waits_for_it_is_not_logged()
+    {
+        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(20));
+        var function = TestFunction.Define(_ =>
+        {
+            Thread.Sleep(200);
+            return Task.FromResult<object?>("done");
+        });
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.Body.ShouldBe("\"done\"");
+        host.Logs.GetSnapshot().ShouldNotContain(record => record.Id.Id == 112);
     }
 
     [Fact]
@@ -259,5 +508,58 @@ public sealed class ThreadingTests : IDisposable
             await release;
             return "loaded";
         }
+    }
+
+    private static Task<ExecutionResult> Execute(EngineHost host, FunctionDefinition function, CancellationToken cancellationToken) =>
+        host.Engine.ExecuteAsync(
+            new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = host.Services },
+            cancellationToken);
+
+    // As a host serves a call: the call's services come from a scope that ends with the call.
+    private static async Task ExecuteInScopeAsync(EngineHost host, FunctionDefinition function, CancellationToken cancellationToken)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+        using var result = await host.Engine.ExecuteAsync(
+            new() { Function = function, Body = Call.New().ToBytes(), StepId = "step", Services = scope.ServiceProvider },
+            cancellationToken);
+    }
+
+    // How many tasks failed with the message without anyone observing it, once the scenario has run and the garbage
+    // collector has finalized what it left behind.
+    private static async Task<int> CountUnobservedAsync(string message, Func<Task> scenario)
+    {
+        var count = 0;
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs args)
+        {
+            if (args.Exception.Flatten().InnerExceptions.Any(exception => exception.Message == message))
+            {
+                Interlocked.Increment(ref count);
+            }
+        }
+
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            await scenario();
+            for (var i = 0; i < 20 && Volatile.Read(ref count) == 0; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+
+            return Volatile.Read(ref count);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
+    }
+
+    private sealed class ScopedResource : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
     }
 }

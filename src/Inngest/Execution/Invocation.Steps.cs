@@ -88,6 +88,9 @@ internal sealed partial class Invocation
         step.Attach(finalId, index, hashedId, memo);
         _steps.Add(hashedId, step);
         _found.Add(step);
+
+        // A result in the order is owed until TryResolveNext hands it back.
+        _scheduler.StepFound(owed: memo is { Ordered: true });
         if (_found.Count == MaxSteps + 1)
         {
             Log.StepLimitPassed(_runLogger, _run.RunId, _functionId, _found.Count, finalId);
@@ -253,6 +256,7 @@ internal sealed partial class Invocation
 
             step.Handled = true;
             _scheduler.Post(static state => ((FoundStep)state!).Owner.Resolve((FoundStep)state), step);
+            _scheduler.ResultHandedBack();
             return true;
         }
 

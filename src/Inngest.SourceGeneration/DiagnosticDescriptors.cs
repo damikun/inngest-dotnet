@@ -133,6 +133,17 @@ internal static class DiagnosticDescriptors
         description: "The SDK runs a function on a scheduler of its own, one continuation at a time, and completes a step's task from that scheduler. Blocking the scheduler's thread on the task keeps it from ever completing, and a step that is new never completes in the call at all.",
         helpLinkUri: GuideUrl + "#" + DiagnosticIds.BlockingOnStep.ToLowerInvariant());
 
+    // INNGEST023 too, for a task other than a step's, which deadlocks only when it needs the function's thread.
+    public static readonly DiagnosticDescriptor BlockingOnTask = new(
+        DiagnosticIds.BlockingOnStep,
+        title: "Blocking on a task in the code of a function",
+        messageFormat: "{0} blocks on the task of {1}, which deadlocks the call if the task needs the function's thread; await it instead",
+        category: StepsCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The SDK runs the code of a function, outside its steps, on a thread of its own, one continuation at a time, and so does a durable endpoint. A task that this code starts, and that awaits anything without ConfigureAwait(false) as app code usually does, completes only through that thread. Blocking the thread on the task keeps it from ever completing, and the call hangs until Inngest gives up on it. A task that completes elsewhere still holds up the whole call while it runs.",
+        helpLinkUri: GuideUrl + "#" + DiagnosticIds.BlockingOnStep.ToLowerInvariant());
+
     public static readonly DiagnosticDescriptor NestedStep = new(
         DiagnosticIds.NestedStep,
         title: "A step is called inside the handler of another step",

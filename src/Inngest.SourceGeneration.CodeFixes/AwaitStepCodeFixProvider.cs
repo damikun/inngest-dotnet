@@ -15,13 +15,15 @@ using Microsoft.CodeAnalysis.Simplification;
 namespace Inngest.SourceGeneration;
 
 /// <summary>
-/// Awaits the task of a step instead of blocking on it, in a function that is async already.
+/// Awaits the task of a step, or a task the code of a function starts, instead of blocking on it, in a function that is
+/// async already.
 /// </summary>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AwaitStepCodeFixProvider))]
 [Shared]
 public sealed class AwaitStepCodeFixProvider : CodeFixProvider
 {
-    private const string Title = "Await the step";
+    private const string StepTitle = "Await the step";
+    private const string TaskTitle = "Await the task";
 
     public override ImmutableArray<string> FixableDiagnosticIds { get; } = ImmutableArray.Create(DiagnosticIds.BlockingOnStep);
 
@@ -42,8 +44,9 @@ public sealed class AwaitStepCodeFixProvider : CodeFixProvider
             return;
         }
 
+        var title = diagnostic.Descriptor.Title.ToString() == DiagnosticDescriptors.BlockingOnTask.Title.ToString() ? TaskTitle : StepTitle;
         context.RegisterCodeFix(
-            CodeAction.Create(Title, cancellationToken => AwaitAsync(context.Document, root, blocking, task, cancellationToken), equivalenceKey: Title),
+            CodeAction.Create(title, cancellationToken => AwaitAsync(context.Document, root, blocking, task, cancellationToken), equivalenceKey: title),
             diagnostic);
     }
 

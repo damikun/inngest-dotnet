@@ -69,6 +69,15 @@ is answered with a `201` at once, and the same answer follows inside the stream 
 - **Step ids identify results.** Keep them the same while runs are in flight.
 - **Results are JSON.** Return types that round-trip through `System.Text.Json`, such as records.
 - **Nothing waits in your app.** A week-long sleep is a timestamp in Inngest; deploys and restarts do not affect it.
+- **Do not block on tasks.** The SDK runs the function's code on a thread of the call's own, one continuation at a
+  time, the way JavaScript runs on its event loop; that is how it knows when the function has gone as far as it can.
+  Blocking that thread with `.Result`, `.Wait()` or `GetAwaiter().GetResult()` deadlocks the call when the task needs
+  the thread to complete, as a step's task does and so does any code that awaits without `ConfigureAwait(false)`. The
+  call then never answers. Await the task instead. The
+  [`INNGEST023`](/inngest-dotnet/guides/source-generator/#inngest023) analyzer reports such waits, and the SDK logs an
+  error, event id 112, when the function's code holds the thread for five seconds while work waits for it, such as
+  the result of a step it called. Step handlers run on the thread pool, as other .NET code does, and a
+  [durable endpoint](/inngest-dotnet/guides/durable-endpoints/#limitations) runs like a function.
 
 ## Going deeper
 

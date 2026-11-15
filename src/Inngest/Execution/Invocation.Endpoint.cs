@@ -29,7 +29,7 @@ internal sealed partial class Invocation
         ReportStepError(step, error, retriable);
         if (_pipeline is not null)
         {
-            await AwaitHookAsync(_pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable)).ConfigureAwait(false);
+            await AwaitHookAsync(_pipeline.OnStepErrorAsync(outcome.Info!, error, isFinalAttempt: !retriable), step.FinalId).ConfigureAwait(false);
         }
 
         using (var op = new PooledBufferWriter())

@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 
@@ -18,6 +19,20 @@ internal sealed class InvocationScheduler : SynchronizationContext
 
     private ExceptionDispatchInfo? _unhandled;
 
+    // When the user code running on this context now started, as a Stopwatch timestamp, or 0 while none runs. Another
+    // thread reads it to tell when that code holds the thread.
+    private long _runningSince;
+
+    // What waits for the thread, counted for the watchdog on another thread. The queue's items are counted apart from it,
+    // since only the engine's thread may read a single-reader channel. A step the code finds waits for the engine to hand
+    // back its result or decide on it, which it does only once it has the thread again: _found counts the steps found and
+    // _foundBefore the count when the engine last handed the thread to the code. _owed counts memoized results the engine
+    // has yet to hand back, one per turn, some of them of steps found in an earlier turn.
+    private int _queued;
+    private int _found;
+    private int _foundBefore;
+    private int _owed;
+
     public bool IsCurrent => Current == this;
 
     // Once the invocation has answered, work goes to the thread pool, as it would without this context. It may complete
@@ -25,8 +40,11 @@ internal sealed class InvocationScheduler : SynchronizationContext
     // everything that waits on those waiting forever.
     public override void Post(SendOrPostCallback d, object? state)
     {
+        // Counted first, so that the count is never below what the queue holds.
+        Interlocked.Increment(ref _queued);
         if (!_queue.Writer.TryWrite(new WorkItem(d, state)))
         {
+            Interlocked.Decrement(ref _queued);
             RunLater(new WorkItem(d, state));
         }
     }
@@ -42,12 +60,15 @@ internal sealed class InvocationScheduler : SynchronizationContext
     {
         var previous = Current;
         SetSynchronizationContext(this);
+        Volatile.Write(ref _foundBefore, _found);
+        Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
         try
         {
             return start();
         }
         finally
         {
+            Volatile.Write(ref _runningSince, 0);
             SetSynchronizationContext(previous);
         }
     }
@@ -58,12 +79,15 @@ internal sealed class InvocationScheduler : SynchronizationContext
     {
         var previous = Current;
         SetSynchronizationContext(this);
+        Volatile.Write(ref _foundBefore, _found);
         var count = 0;
         try
         {
             while (count < limit && _queue.Reader.TryRead(out var item))
             {
+                Interlocked.Decrement(ref _queued);
                 count++;
+                Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
                 try
                 {
                     item.Callback(item.State);
@@ -77,11 +101,38 @@ internal sealed class InvocationScheduler : SynchronizationContext
         }
         finally
         {
+            Volatile.Write(ref _runningSince, 0);
             SetSynchronizationContext(previous);
         }
 
         _unhandled?.Throw();
         return count;
+    }
+
+    // Called by the engine, on its thread, for each step the code finds; owed when the engine has its memoized result to
+    // hand back.
+    public void StepFound(bool owed)
+    {
+        Volatile.Write(ref _found, _found + 1);
+        if (owed)
+        {
+            Interlocked.Increment(ref _owed);
+        }
+    }
+
+    // Called by the engine, on its thread, as it hands back a memoized result that StepFound counted as owed.
+    public void ResultHandedBack() => Interlocked.Decrement(ref _owed);
+
+    // Whether code on this context has run for at least the given time while work waits for it: queued continuations,
+    // steps it found since the engine last had the thread, or memoized results the engine has yet to hand back. Nothing
+    // else does that work, so the code is most likely blocked on a task that needs it, such as a step's, which then never
+    // completes. Called from another thread, so it reads only the counts.
+    public bool IsHeldFor(TimeSpan time)
+    {
+        var since = Volatile.Read(ref _runningSince);
+        return since != 0
+            && Stopwatch.GetElapsedTime(since) >= time
+            && (Volatile.Read(ref _queued) > 0 || Volatile.Read(ref _owed) > 0 || Volatile.Read(ref _found) != Volatile.Read(ref _foundBefore));
     }
 
     // Completes when more work is queued, for example when awaited I/O finishes.
@@ -95,6 +146,7 @@ internal sealed class InvocationScheduler : SynchronizationContext
         _queue.Writer.TryComplete();
         while (_queue.Reader.TryRead(out var item))
         {
+            Interlocked.Decrement(ref _queued);
             RunLater(item);
         }
     }
