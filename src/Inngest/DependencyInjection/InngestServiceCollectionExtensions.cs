@@ -34,21 +34,19 @@ public static class InngestServiceCollectionExtensions
             options.Configure(configure);
         }
 
-        // Fails the host at startup rather than on the first request or send.
+        // Fails the host at startup rather than on the first request or send: first for a missing app id, then for
+        // anything else in the settings the SDK cannot read.
         options
             .Validate(
-                static o => !string.IsNullOrWhiteSpace(o.AppId) || (o.Configuration is { } section && InngestConfiguration.ReadAppId(section) is not null),
+                InngestOptionsValidator.HasAppId,
                 "InngestOptions.AppId is required, for example AddInngest(options => options.AppId = \"my-app\"), or as AppId in the configuration section passed to AddInngest.")
             .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<InngestOptions>, InngestOptionsValidator>());
 
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton(static provider =>
-        {
-            var configuration = provider.GetService<IConfiguration>();
-            return InngestSettings.Create(
-                provider.GetRequiredService<IOptions<InngestOptions>>().Value,
-                configuration is null ? Environment.GetEnvironmentVariable : name => configuration[name]);
-        });
+        services.TryAddSingleton(static provider => InngestSettings.Create(
+            provider.GetRequiredService<IOptions<InngestOptions>>().Value,
+            InngestOptionsValidator.VariablesOf(provider)));
 
         // The default HttpClient logging writes each request's URL at Information level, and the URL of an event send
         // holds the event key. The SDK logs what goes wrong itself.

@@ -99,6 +99,63 @@ public sealed class AddInngestConfigurationTests
         exception.Message.ShouldContain("InngestOptions.AppId is required");
     }
 
+    // An app that only sends events would otherwise start, pass its health checks and fail every send.
+    [Theory]
+    [InlineData("INNGEST_EVENT_API_BASE_URL", "ftp://events.internal", "INNGEST_EVENT_API_BASE_URL must be an http or https URL, but it is 'ftp://events.internal'.")]
+    [InlineData("Inngest:IsDev", "yes please", "Inngest:IsDev must be true or false, but it is 'yes please'.")]
+    [InlineData("Inngest:BaseUrl", "ftp://files.example.com", "Inngest:BaseUrl must be an absolute http or https URL, but it is 'ftp://files.example.com'.")]
+    public async Task The_host_does_not_start_with_a_setting_the_SDK_cannot_read(string name, string value, string message)
+    {
+        var builder = NewHost(("Inngest:AppId", "billing"), (name, value));
+        builder.Services.AddInngest(builder.Configuration.GetSection("Inngest"));
+        using var host = builder.Build();
+
+        var exception = await Should.ThrowAsync<OptionsValidationException>(() => host.StartAsync(TestContext.Current.CancellationToken));
+
+        exception.Failures.ShouldBe([message]);
+    }
+
+    [Fact]
+    public async Task The_host_does_not_start_with_an_option_set_in_code_the_SDK_cannot_use()
+    {
+        var builder = NewHost();
+        builder.Services.AddInngest(options =>
+        {
+            options.AppId = "billing";
+            options.EventApiBaseUrl = new Uri("ftp://events.internal");
+        });
+        using var host = builder.Build();
+
+        var exception = await Should.ThrowAsync<OptionsValidationException>(() => host.StartAsync(TestContext.Current.CancellationToken));
+
+        exception.Failures.ShouldBe(["InngestOptions.EventApiBaseUrl must be an absolute http or https URL."]);
+    }
+
+    [Fact]
+    public async Task A_missing_app_id_is_the_only_failure_reported()
+    {
+        var builder = NewHost(("INNGEST_EVENT_API_BASE_URL", "ftp://events.internal"));
+        builder.Services.AddInngest();
+        using var host = builder.Build();
+
+        var exception = await Should.ThrowAsync<OptionsValidationException>(() => host.StartAsync(TestContext.Current.CancellationToken));
+
+        exception.Failures.ShouldHaveSingleItem().ShouldStartWith("InngestOptions.AppId is required");
+    }
+
+    // Without a host nothing checks at startup, and the settings fail with the same message when first needed.
+    [Fact]
+    public async Task Without_a_host_a_setting_the_SDK_cannot_read_fails_when_the_settings_are_first_needed()
+    {
+        var configuration = InngestSection.Root([("AppId", "billing")], ("INNGEST_API_BASE_URL", "ftp://api.internal"));
+        var services = Services(configuration);
+        services.AddInngest(configuration.GetSection(InngestSection.Name));
+        await using var provider = services.BuildServiceProvider();
+
+        Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<InngestSettings>())
+            .Message.ShouldBe("INNGEST_API_BASE_URL must be an http or https URL, but it is 'ftp://api.internal'.");
+    }
+
     [Fact]
     public async Task Variables_in_the_host_configuration_win_over_the_section_and_the_callback_wins_over_both()
     {

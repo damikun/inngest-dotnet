@@ -17,7 +17,10 @@ builder.Services.AddInngest(options =>
 });
 ```
 
-`AppId` is the only required setting. The SDK checks it when the host starts.
+`AppId` is the only required setting. The SDK checks the settings when the host starts, so a missing `AppId`, or a
+value it cannot read, such as an `INNGEST_EVENT_API_BASE_URL` that is not an http URL, stops the app with an
+`OptionsValidationException` before it serves a request or sends an event. Without a host, as in a plain
+`ServiceCollection`, the same check runs when the settings are first needed.
 
 ## Settings
 
