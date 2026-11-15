@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Inngest.Client;
 using Inngest.Configuration;
@@ -187,8 +188,10 @@ internal static class RealtimePayload
             return JsonSerializer.SerializeToUtf8Bytes(data, options.GetTypeInfo(typeof(T)));
         }
 
+        // Unless the app chose an encoder, letters outside ASCII go out as UTF-8. Escaped, text in most languages would be
+        // two or three times as large, and the 512 KB that Inngest reads would hold that much less of it.
         var body = new ArrayBufferWriter<byte>(text.Length + 2);
-        using (var writer = new Utf8JsonWriter(body, new JsonWriterOptions { Encoder = options.Encoder }))
+        using (var writer = new Utf8JsonWriter(body, new JsonWriterOptions { Encoder = options.Encoder ?? JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStringValue(text);
         }

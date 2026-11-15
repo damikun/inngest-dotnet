@@ -34,8 +34,9 @@ public sealed class RealtimeTests
     [InlineData("Hel", "\"Hel\"")]
     [InlineData("42", "\"42\"")]
     [InlineData("true", "\"true\"")]
-    [InlineData("{\"answer\":1}", "\"{\\u0022answer\\u0022:1}\"")]
-    [InlineData("\"quoted\"", "\"\\u0022quoted\\u0022\"")]
+    [InlineData("{\"answer\":1}", "\"{\\\"answer\\\":1}\"")]
+    [InlineData("\"quoted\"", "\"\\\"quoted\\\"\"")]
+    [InlineData("Ďakujem, <b>Привет</b> & 'ok'", "\"Ďakujem, <b>Привет</b> & 'ok'\"")]
     [InlineData("", "\"\"")]
     public async Task Text_is_published_as_a_JSON_string(string text, string body)
     {
@@ -70,6 +71,20 @@ public sealed class RealtimeTests
         await provider.GetRequiredService<IInngestRealtime>().PublishAsync(Status, new string('x', (512 * 1024) - 2));
 
         handler.Single.Body.Length.ShouldBe(512 * 1024);
+    }
+
+    // Escaped, each of these letters would take 6 bytes instead of 2.
+    [Fact]
+    public async Task Text_outside_ASCII_of_512_KB_in_UTF8_is_published()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var provider = Build(handler);
+        var text = new string('ž', ((512 * 1024) - 2) / 2);
+
+        await provider.GetRequiredService<IInngestRealtime>().PublishAsync(Status, text);
+
+        handler.Single.Body.Length.ShouldBe(512 * 1024);
+        handler.Single.BodyText.ShouldBe($"\"{text}\"");
     }
 
     [Fact]

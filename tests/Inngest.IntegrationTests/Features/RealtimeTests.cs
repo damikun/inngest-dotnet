@@ -103,7 +103,7 @@ public sealed class RealtimeTests(EvaluationEnvironment environment) : Evaluatio
     public async Task Text_that_reads_as_JSON_reaches_a_typed_subscriber_as_text()
     {
         var topic = new RealtimeTopic<string>($"run:{TestId}", "answer");
-        string[] texts = ["42", "true", """{"answer":1}""", "\"quoted\"", "done"];
+        string[] texts = ["42", "true", """{"answer":1}""", "\"quoted\"", "Ďakujem, <b>Привет</b> & 'ok'", "done"];
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
         await using var messages = Realtime.SubscribeAsync(topic, stop.Token).GetAsyncEnumerator(stop.Token);
         await WaitUntilSubscribedAsync(messages, () => Realtime.PublishAsync(topic, "ready", Cancellation));
