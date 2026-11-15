@@ -84,6 +84,8 @@ internal sealed class SentryHost : IAsyncDisposable
 
     public IExecutionEngine Engine { get; }
 
+    public IServiceProvider Services => _provider;
+
     // Null unless registerHub.
     public HubSpy? Spy { get; }
 

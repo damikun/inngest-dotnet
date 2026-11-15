@@ -569,8 +569,8 @@ builder.Services
     .AddExtendedTraces();
 ```
 
-Every span that starts under the call's span, `inngest.execution`, is sent to Inngest at the end of the call, from any
-`ActivitySource`: an `HttpClient` request, a database query, a model call, a span of your own. Inngest shows them in the
+Every span that starts under the call's span, `inngest.execution`, is sent to Inngest at the end of the call, and an
+event sent from outside a run does not wait for that. The spans come from any `ActivitySource`: an `HttpClient` request, a database query, a model call, a span of your own. Inngest shows them in the
 run's trace, under the step whose handler made them. They go over OTLP/HTTP, as JSON, to `/v1/traces/userland` of the
 Inngest API, with the signing key, and carry the attributes Inngest reads to place them: `inngest.traceref` and the
 function's id from the trace state Inngest sent with the call, `sdk.run.id`, and `inngest.step.id`, `inngest.step.index`,

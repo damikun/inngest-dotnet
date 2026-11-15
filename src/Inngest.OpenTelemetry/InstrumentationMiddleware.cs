@@ -28,6 +28,10 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry, Exte
     // New steps found in this call that it did not execute, which Inngest still has to carry out.
     private int _unexecuted;
 
+    // Whether a call went through this instance. The client resolves middleware for an event sent outside a run too,
+    // and such a send must not wait for the export of what other calls have ended.
+    private bool _sawCall;
+
     public override ValueTask OnMemoizationEndAsync(FunctionContext context)
     {
         Begin(context);
@@ -166,7 +170,7 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry, Exte
     public async ValueTask DisposeAsync()
     {
         End();
-        if (extendedTraces is not null)
+        if (_sawCall && extendedTraces is not null)
         {
             await extendedTraces.FlushAsync().ConfigureAwait(false);
         }
@@ -185,6 +189,7 @@ internal sealed class InstrumentationMiddleware(InngestTelemetry telemetry, Exte
         // A host that resolved the middleware outside a scope of its own reuses it for the next call.
         End();
         _context = context;
+        _sawCall = true;
         _slug = telemetry.SlugOf(context.FunctionId);
         _startedAt = Stopwatch.GetTimestamp();
 

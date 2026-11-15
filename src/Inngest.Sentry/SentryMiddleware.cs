@@ -34,6 +34,11 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
     private ITransactionTracer? _transaction;
     private bool _failed;
 
+    // Whether a call went through this instance. The client resolves middleware for an event sent outside a run too,
+    // and a send from a controller must not wait for Sentry to take what the rest of the app has queued. The TypeScript
+    // middleware flushes after a call only, as well.
+    private bool _sawCall;
+
     private IHub Hub => registeredHub ?? HubAdapter.Instance;
 
     public override ValueTask OnMemoizationEndAsync(FunctionContext context)
@@ -108,8 +113,14 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
     public async ValueTask DisposeAsync()
     {
         End();
+        bool sawCall;
+        lock (_gate)
+        {
+            sawCall = _sawCall;
+        }
+
         var hub = Hub;
-        if (!_options.DisableAutomaticFlush && hub.IsEnabled)
+        if (sawCall && !_options.DisableAutomaticFlush && hub.IsEnabled)
         {
             await hub.FlushAsync(_options.FlushTimeout).ConfigureAwait(false);
         }
@@ -150,6 +161,7 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
             _context = context;
             _transaction = transaction;
             _failed = false;
+            _sawCall = true;
         }
 
         return transaction;
@@ -258,6 +270,7 @@ internal sealed class SentryMiddleware(IInngestClient client, IOptions<SentryRep
         ISpan? stepSpan = null;
         lock (_gate)
         {
+            _sawCall = true;
             transaction = _transaction;
             if (step is not null)
             {

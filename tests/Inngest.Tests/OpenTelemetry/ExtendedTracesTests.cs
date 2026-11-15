@@ -164,13 +164,35 @@ public sealed class ExtendedTracesTests
         return attributes;
     }
 
+    // The client resolves middleware for an event sent with IInngestClient, which has no call of its own, and the send
+    // would wait for the export of the spans other calls have ended so far.
+    [Fact]
+    public async Task An_event_sent_outside_a_call_exports_nothing()
+    {
+        await using var host = new Host(body: ClientFixture.Accepted);
+        var client = host.Services.GetRequiredService<IInngestClient>();
+        var function = TestFunction.Define(async _ =>
+        {
+            using (host.Source.StartActivity("before-the-send"))
+            {
+            }
+
+            await client.SendAsync(new InngestEvent("shop/order.placed"));
+            return "sent";
+        });
+
+        (await host.CallAsync(function, TraceState)).ShouldBe(200);
+
+        host.Http.Requests.Select(request => request.Uri.AbsolutePath).ShouldBe(["/e/NO_EVENT_KEY_SET", "/v1/traces/userland"]);
+    }
+
     private sealed class Host : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;
 
-        public Host(HttpStatusCode answer = HttpStatusCode.OK)
+        public Host(HttpStatusCode answer = HttpStatusCode.OK, string body = "{}")
         {
-            Http = new FakeHttpHandler().RespondAlways(answer, "{}");
+            Http = new FakeHttpHandler().RespondAlways(answer, body);
             var services = new ServiceCollection();
             services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
             services.AddFakeLogging();
@@ -185,6 +207,8 @@ public sealed class ExtendedTracesTests
         }
 
         public FakeHttpHandler Http { get; }
+
+        public IServiceProvider Services => _provider;
 
         public FakeLogCollector Logs { get; }
 

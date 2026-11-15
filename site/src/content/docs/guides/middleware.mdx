@@ -457,7 +457,8 @@ builder.Services
 ```
 
 Unless `DisableAutomaticFlush` is set, the middleware flushes Sentry when the call's service scope ends, so that events
-are sent before a runtime that stops once a call has answered, as serverless ones may, goes away.
+are sent before a runtime that stops once a call has answered, as serverless ones may, goes away. Only a call is
+flushed: an event the app sends from outside a run, such as from a controller, does not wait for Sentry.
 
 ### Sentry's logging integration
 
