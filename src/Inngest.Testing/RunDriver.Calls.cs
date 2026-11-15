@@ -85,16 +85,24 @@ internal sealed partial class RunDriver
         var body = new PooledBufferWriter(written.WrittenCount);
         try
         {
-            using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
-            JsonCanonicalizer.Write(document.RootElement, body);
-        }
-        catch (InvalidOperationException)
-        {
-            body.Clear();
-            body.Write(written.WrittenSpan);
-        }
+            try
+            {
+                using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
+                JsonCanonicalizer.Write(document.RootElement, body);
+            }
+            catch (InvalidOperationException)
+            {
+                body.Clear();
+                body.Write(written.WrittenSpan);
+            }
 
-        return body;
+            return body;
+        }
+        catch
+        {
+            body.Dispose();
+            throw;
+        }
     }
 
     // A call body as Inngest sends it: keys sorted, and the stack listing results in the order they completed.
