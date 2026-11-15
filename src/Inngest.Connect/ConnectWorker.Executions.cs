@@ -1,7 +1,6 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
-using System.Globalization;
 using Google.Protobuf;
 using Inngest.Connect.Protocol;
 using Inngest.Errors;
@@ -283,10 +282,8 @@ internal sealed partial class ConnectWorker
 
         reply.Dispose();
         Log.ReplyTooLarge(_logger, data.RequestId, data.FunctionSlug, size);
-        // Rounded up, so a reply just over the limit never reads as 8.00.
-        var mebibytes = (Math.Ceiling(size * 100.0 / (1024 * 1024)) / 100).ToString("0.00", CultureInfo.InvariantCulture);
         var exception = new NonRetriableException(
-            $"Function \"{data.FunctionSlug}\" answered Inngest with {mebibytes} MiB, more than the 8 MiB Inngest accepts in one answer. " +
+            $"Function \"{data.FunctionSlug}\" answered Inngest with {Mebibytes.Format(size)} MiB, more than the 8 MiB Inngest accepts in one answer. " +
             "Keep large data outside the run and return a reference to it.");
 
         using var body = new PooledBufferWriter();

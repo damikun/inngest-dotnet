@@ -14,7 +14,8 @@ public sealed class LimitTests : IDisposable
     [Fact]
     public async Task A_step_output_over_4_MiB_fails_the_step_without_retries()
     {
-        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', FourMebibytes)));
+        // With the quotes of the JSON string, one byte over.
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', FourMebibytes - 1)));
 
         var result = await _host.CallAsync(function, Call.New());
 
@@ -23,7 +24,7 @@ public sealed class LimitTests : IDisposable
         var error = result.Op().GetProperty("error");
         error.GetProperty("name").GetString().ShouldBe(nameof(NonRetriableException));
         error.GetProperty("message").GetString().ShouldBe(
-            "The output of step \"export\" is 4.0 MiB, more than the 4 MiB Inngest keeps for a step. Keep large data outside the run and return a reference to it.");
+            "The output of step \"export\" is 4.01 MiB, more than the 4 MiB Inngest keeps for a step. Keep large data outside the run and return a reference to it.");
         result.Op().TryGetProperty("data", out _).ShouldBeFalse();
     }
 
