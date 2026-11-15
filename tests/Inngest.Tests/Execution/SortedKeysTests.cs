@@ -50,6 +50,24 @@ public sealed class SortedKeysTests : IDisposable
         result.Body.ShouldBe("\"bank DE00,card 4242,main=bank DE89\"");
     }
 
+    // "kind" is an ordinary property of Ring and the discriminator of Part, both of which the result holds.
+    [Fact]
+    public async Task A_property_named_like_the_discriminator_of_another_type_is_left_where_it_is()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var drawing = await context.Step.RunAsync("draw", () => new Drawing(new Ring("x", 1), new Twig("b")));
+            return $"{drawing.Figure} {drawing.Part}";
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data(
+            "draw",
+            """{"figure":{"kind":"x","size":1,"type":"ring"},"part":{"bark":"b","kind":"twig"}}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"Ring { Kind = x, Size = 1 } Twig { Bark = b }\"");
+    }
+
     [Fact]
     public async Task Event_data_with_a_custom_discriminator_is_read_from_sorted_keys()
     {
@@ -109,4 +127,18 @@ public sealed class SortedKeysTests : IDisposable
     public sealed record Wallet(string Id, List<PaymentMethod> Methods, Dictionary<string, PaymentMethod> ByName);
 
     public sealed record OrderPlaced(string OrderId, PaymentMethod Payment);
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Ring), "ring")]
+    public abstract record Figure;
+
+    public sealed record Ring(string Kind, int Size) : Figure;
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    [JsonDerivedType(typeof(Twig), "twig")]
+    public abstract record Part;
+
+    public sealed record Twig(string Bark) : Part;
+
+    public sealed record Drawing(Figure Figure, Part Part);
 }
