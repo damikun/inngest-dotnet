@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using Inngest.IntegrationTests.Functions;
 using Inngest.IntegrationTests.Harness;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,5 +40,62 @@ public sealed class SendEventTests(DevServerFixture fixture) : IntegrationTest<D
         exception.Ids[1].ShouldBeEmpty();
         exception.Ids[2].ShouldNotBeEmpty();
         exception.Message.ShouldEndWith("(Inngest accepted 2 of 3 events)");
+    }
+
+    // A retry sends the whole list again with the same seed for event ids, so the events Inngest kept the first time get
+    // the same ids and start no second runs.
+    [Fact(Timeout = 60_000)]
+    public async Task A_send_retried_after_a_lost_reply_keeps_the_ids_and_starts_each_run_once()
+    {
+        var losing = new LosesFirstReply();
+        var services = new ServiceCollection();
+        services.AddInngest(options =>
+        {
+            options.AppId = "retrying-sender";
+            options.IsDev = true;
+            options.DevServerUrl = Api.BaseUrl;
+        });
+        services.AddHttpClient(InngestServiceCollectionExtensions.HttpClientName).AddHttpMessageHandler(() => losing);
+        await using var provider = services.BuildServiceProvider();
+
+        var sent = await provider.GetRequiredService<IInngestClient>().SendAsync(
+            [new InngestEvent("itests/send.child", new NumberEvent(TestId, 1)), new InngestEvent("itests/send.child", new NumberEvent(TestId, 2))],
+            Cancellation);
+
+        losing.Requests.ShouldBe(2);
+        sent.Ids.ShouldBe(losing.LostIds);
+        foreach (var id in sent.Ids)
+        {
+            (await Api.WaitForRunEndAsync(id, Cancellation)).Status.ShouldBe(RunStatus.Completed);
+        }
+
+        // Time for a second run to start if there were one.
+        await Task.Delay(TimeSpan.FromSeconds(2), Cancellation);
+        Observed.Values<int>("received").Order().ShouldBe([1, 2]);
+    }
+
+    // Lets the first send reach Inngest and loses its reply.
+    private sealed class LosesFirstReply : DelegatingHandler
+    {
+        public int Requests { get; private set; }
+
+        public IReadOnlyList<string> LostIds { get; private set; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = await base.SendAsync(request, cancellationToken);
+            if (++Requests > 1)
+            {
+                return response;
+            }
+
+            using (response)
+            {
+                using var reply = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                LostIds = [.. reply.RootElement.GetProperty("ids").EnumerateArray().Select(id => id.GetString()!)];
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.BadGateway);
+        }
     }
 }

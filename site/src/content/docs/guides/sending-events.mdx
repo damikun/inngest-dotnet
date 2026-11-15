@@ -189,7 +189,8 @@ attempts, waiting 100 ms, 200 ms, 400 ms and so on with some jitter in between. 
 wrong key or `400` for an invalid event, fail at once.
 
 Every attempt of one `SendAsync` call carries the same seed for event ids, so a retry after a lost response creates
-the same events rather than copies.
+the same events rather than copies. A retry sends the whole list again, also when Inngest kept part of it and answered
+the rest with a `5xx`, and the events it kept get the same ids again, so they start no second runs.
 
 Inngest takes at most 5,000 events in one send. `SendAsync` throws an `ArgumentException` for more, before sending
 any, and a `SendEventAsync` step with more fails without retries. Send larger lists in several calls or steps.

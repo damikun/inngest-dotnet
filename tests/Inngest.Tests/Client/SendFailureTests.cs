@@ -59,6 +59,25 @@ public sealed class SendFailureTests
         exception.Message.ShouldBe("Inngest API error: 200 partial (Inngest still accepted all 3 events)");
     }
 
+    // As in the TypeScript SDK, a retry sends the whole list again with the same seed, so the events Inngest kept get the
+    // same ids and start no second runs.
+    [Fact]
+    public async Task A_partly_refused_send_that_is_retried_sends_the_whole_list_again_with_the_same_seed()
+    {
+        var fixture = new ClientFixture();
+        fixture.Handler
+            .Respond(HttpStatusCode.InternalServerError, """{"ids":["01HQ0000000000000000000001","","01HQ0000000000000000000003"],"status":500,"error":"could not publish"}""")
+            .Respond(HttpStatusCode.OK, """{"ids":["01HQ0000000000000000000001","01HQ0000000000000000000002","01HQ0000000000000000000003"],"status":200}""");
+
+        var result = await fixture.Time.AdvanceUntilCompletedAsync(fixture.Client.SendAsync(Three(), TestContext.Current.CancellationToken));
+
+        result.Ids.ShouldBe(["01HQ0000000000000000000001", "01HQ0000000000000000000002", "01HQ0000000000000000000003"]);
+        var requests = fixture.Handler.Requests;
+        requests.Count.ShouldBe(2);
+        requests[1].BodyText.ShouldBe(requests[0].BodyText);
+        requests[1].Header("X-Inngest-Event-Id-Seed").ShouldBe(requests[0].Header("X-Inngest-Event-Id-Seed"));
+    }
+
     [Fact]
     public async Task A_refusal_that_names_no_events_throws_a_plain_InngestException()
     {
