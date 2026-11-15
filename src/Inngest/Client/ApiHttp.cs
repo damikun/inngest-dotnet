@@ -26,6 +26,26 @@ internal static class ApiHttp
         }
     }
 
+    // Handlers that the app adds to every HttpClient, such as a resilience pipeline, fail with exceptions of their own.
+    // Those become an HttpRequestException, which every caller takes for Inngest being out of reach, so the SDK's own
+    // retries apply and its callers get an InngestException. Cancellation stays as it is: only the caller can tell
+    // whether it was its own.
+    public static async Task<HttpResponseMessage> SendToInngestAsync(
+        this HttpClient client,
+        HttpRequestMessage request,
+        HttpCompletionOption completionOption,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await client.SendAsync(request, completionOption, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not (HttpRequestException or OperationCanceledException))
+        {
+            throw new HttpRequestException(exception.Message, exception);
+        }
+    }
+
     public static ApiReply? ParseReply(ReadOnlySpan<byte> body)
     {
         try

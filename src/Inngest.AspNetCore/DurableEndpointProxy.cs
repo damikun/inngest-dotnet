@@ -72,7 +72,7 @@ internal sealed class DurableEndpointProxy(IHttpClientFactory httpClientFactory,
             // waits by default. The client of the proxy decides how long to wait.
             var client = httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
             client.Timeout = Timeout.InfiniteTimeSpan;
-            using var upstream = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+            using var upstream = await client.SendToInngestAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
             status = (int)upstream.StatusCode;
             contentType = upstream.Content.Headers.ContentType?.ToString();
             body = await upstream.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);

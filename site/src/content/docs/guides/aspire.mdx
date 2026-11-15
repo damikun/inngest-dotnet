@@ -102,6 +102,10 @@ one, finds the server too; `INNGEST_BASE_URL` has the same address for SDKs that
 `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL` before `INNGEST_BASE_URL`, so they are set as well. A
 self-hosted server sets `INNGEST_DEV` to `0` on purpose.
 
+The service defaults project of Aspire's templates adds the standard resilience handler to every `HttpClient` of an
+app. The SDK keeps it off the client it calls Inngest with, which retries and waits on its own terms; see
+[the SDK's HttpClient](/inngest-dotnet/guides/configuration/#the-sdks-httpclient).
+
 Projects inherit the environment of the AppHost, and the settings above win over the same variables in it, so an
 `INNGEST_DEV` or an `INNGEST_API_BASE_URL` left in a shell does not send a project elsewhere or switch off the checks
 of signatures. Every other `INNGEST_*` variable of that environment still reaches the projects, and some of them break

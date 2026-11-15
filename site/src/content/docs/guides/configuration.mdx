@@ -174,6 +174,16 @@ options.Streaming = true;
 `INNGEST_STREAMING=true` does the same, as it does for the TypeScript SDK. A call that ends within three seconds is
 answered as usual. Connect workers need no streaming: their connection to Inngest stays open.
 
+## The SDK's HttpClient
+
+The SDK calls Inngest with the `HttpClient` named `Inngest` of `IHttpClientFactory`. It retries what is worth
+retrying itself, sends a signal or a stream only once, and waits as long as Inngest takes, for example for the output
+of a durable endpoint or for a model's reply streamed to a topic. A resilience handler that the app adds to every
+client with `ConfigureHttpClientDefaults`, such as the standard resilience handler of Aspire's service defaults, is
+kept off that client, so its retries and timeouts do not stack on the SDK's. Other handlers stay, and when one fails
+with an exception of its own, the SDK treats it as Inngest being out of reach and throws an `InngestException`. To put
+a policy on the SDK's client anyway, add it to `AddHttpClient("Inngest")` after `AddInngest`.
+
 ## Syncs
 
 A sync tells Inngest which functions the app has. Inngest starts one by sending a `PUT` to the endpoint:

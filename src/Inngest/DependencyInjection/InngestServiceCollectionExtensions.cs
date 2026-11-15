@@ -21,6 +21,9 @@ public static class InngestServiceCollectionExtensions
 {
     internal const string HttpClientName = "Inngest";
 
+    // What AddStandardResilienceHandler, AddStandardHedgingHandler and AddResilienceHandler add.
+    private const string ResilienceHandlerTypeName = "Microsoft.Extensions.Http.Resilience.ResilienceHandler";
+
     public static IInngestBuilder AddInngest(this IServiceCollection services, Action<InngestOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -49,7 +52,25 @@ public static class InngestServiceCollectionExtensions
 
         // The default HttpClient logging writes each request's URL at Information level, and the URL of an event send
         // holds the event key. The SDK logs what goes wrong itself.
-        services.AddHttpClient(HttpClientName).RemoveAllLoggers();
+        //
+        // The SDK retries what is worth retrying itself, sends a signal and a stream once on purpose, and holds requests
+        // open for as long as Inngest does, such as the one for the output of a durable endpoint. A resilience handler
+        // that the app adds to every client, as Aspire's service defaults do, would retry on top of that, send again what
+        // must go once and cut those requests short, so the SDK's client goes without. It is matched by name, so the SDK
+        // needs no reference to Microsoft.Extensions.Http.Resilience. One the app adds to this client after AddInngest
+        // stays.
+        services.AddHttpClient(HttpClientName)
+            .RemoveAllLoggers()
+            .ConfigureAdditionalHttpMessageHandlers(static (handlers, _) =>
+            {
+                for (var i = handlers.Count - 1; i >= 0; i--)
+                {
+                    if (handlers[i].GetType().FullName == ResilienceHandlerTypeName)
+                    {
+                        handlers.RemoveAt(i);
+                    }
+                }
+            });
         services.TryAddSingleton<RequestSigner>();
         services.TryAddSingleton<IInngestApi, InngestApiClient>();
         services.TryAddSingleton<ISignalApi, SignalApi>();

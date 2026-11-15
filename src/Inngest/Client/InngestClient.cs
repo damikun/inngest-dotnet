@@ -280,7 +280,7 @@ internal sealed class InngestClient : IInngestClient
         try
         {
             var client = _httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
-            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await client.SendToInngestAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
             var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             return ReadResponse((int)response.StatusCode, content);
         }

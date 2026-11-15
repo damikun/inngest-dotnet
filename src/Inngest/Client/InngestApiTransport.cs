@@ -56,7 +56,7 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
         CancellationToken cancellationToken)
     {
         using var request = CreateRequest(call, key, call.Environment ?? settings.Environment);
-        return await client.SendAsync(request, completionOption, cancellationToken).ConfigureAwait(false);
+        return await client.SendToInngestAsync(request, completionOption, cancellationToken).ConfigureAwait(false);
     }
 
     private static HttpRequestMessage CreateRequest(ApiCall call, SigningKey? key, string? environment)
