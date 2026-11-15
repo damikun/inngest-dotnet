@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Inngest.Errors;
 using Inngest.Internal;
+using Inngest.Json;
 using Inngest.Middleware;
 
 namespace Inngest.Execution;
@@ -21,7 +22,7 @@ internal sealed partial class Invocation
         {
             using var writer = WireWriter.Create(body, _settings.SerializerOptions);
             writer.WriteStartArray();
-            WriteStepRunOp(writer, step, output, timing);
+            WriteStepRunOp(writer, body, step, output, timing);
             writer.WriteEndArray();
             return null;
         }
@@ -33,14 +34,22 @@ internal sealed partial class Invocation
     }
 
     // The one place a StepRun op is written, for the classic answer and the checkpoint alike, so the payload
-    // transforms of the call's middleware apply to both.
-    private void WriteStepRunOp(Utf8JsonWriter writer, FoundStep step, object? output, Timing timing)
+    // transforms of the call's middleware apply to both. The writer writes to body, where the output is checked.
+    private void WriteStepRunOp(Utf8JsonWriter writer, PooledBufferWriter body, FoundStep step, object? output, Timing timing)
     {
         step.WriteOpStart(writer, Ops.StepRun, _settings);
         writer.WritePropertyName(DataProperty);
-        var start = writer.BytesCommitted + writer.BytesPending;
+        writer.Flush();
+        var start = body.WrittenCount;
         step.WriteData(writer, output, _settings.SerializerOptions);
-        CheckOutputSize(step, writer.BytesCommitted + writer.BytesPending - start);
+        writer.Flush();
+        var data = body.WrittenSpan[start..];
+        CheckOutputSize(step, data.Length);
+        if (NumberPrecision.FindChanged(data, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth) is { } path)
+        {
+            Log.StepOutputNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
+        }
+
         timing.Write(writer);
         step.Metadata?.Write(writer);
         writer.WriteEndObject();
@@ -132,10 +141,24 @@ internal sealed partial class Invocation
                 writer.WriteStartArray();
                 foreach (var step in steps)
                 {
-                    if (step.IsNew)
+                    if (!step.IsNew)
                     {
-                        step.WriteOpStart(writer, step.Op, _settings);
-                        writer.WriteEndObject();
+                        continue;
+                    }
+
+                    var invoke = step.Type == StepType.Invoke;
+                    if (invoke)
+                    {
+                        writer.Flush();
+                    }
+
+                    var start = body.WrittenCount;
+                    step.WriteOpStart(writer, step.Op, _settings);
+                    writer.WriteEndObject();
+                    if (invoke)
+                    {
+                        writer.Flush();
+                        CheckInvokePayload(step, body.WrittenSpan[start..]);
                     }
                 }
 
@@ -149,6 +172,21 @@ internal sealed partial class Invocation
             // Only user data can fail here, such as an invoke payload that cannot be serialized.
             body.Dispose();
             return await RejectAsync(exception).ConfigureAwait(false);
+        }
+    }
+
+    // The payload of an invoke becomes the event of the invoked run, which reads its numbers as Inngest hands them back.
+    private void CheckInvokePayload(FoundStep step, ReadOnlySpan<byte> op)
+    {
+        // The writer puts the comma between ops before the op that follows it.
+        if (!op.IsEmpty && op[0] == ',')
+        {
+            op = op[1..];
+        }
+
+        if (NumberPrecision.FindChanged(op, JsonPayload.DocumentOptions(_settings.SerializerOptions).MaxDepth) is { } path)
+        {
+            Log.InvokePayloadNumberChanged(_runLogger, step.FinalId, _run.RunId, _functionId, path);
         }
     }
 

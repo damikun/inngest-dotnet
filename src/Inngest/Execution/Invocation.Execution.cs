@@ -317,7 +317,7 @@ internal sealed partial class Invocation
         {
             using (var writer = WireWriter.Create(op, _settings.SerializerOptions))
             {
-                WriteStepRunOp(writer, step, outcome.Output, outcome.Timing);
+                WriteStepRunOp(writer, op, step, outcome.Output, outcome.Timing);
             }
 
             data = _checkpoint!.Add(op.WrittenSpan);
