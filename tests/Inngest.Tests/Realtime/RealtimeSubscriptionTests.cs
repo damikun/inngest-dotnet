@@ -45,6 +45,50 @@ public sealed class RealtimeSubscriptionTests
         exception.Message.ShouldBe("Inngest sent nothing for 45 seconds.");
     }
 
+    // The time the consumer spends on a message is not the server's silence, and dropping the connection for it would
+    // lose the messages already on their way.
+    [Fact]
+    public async Task A_consumer_that_takes_longer_than_the_idle_timeout_over_a_message_keeps_the_stream()
+    {
+        var feed = new SseFeed();
+        using var response = feed.Response();
+        var stream = await response.Content.ReadAsStreamAsync(Cancel);
+        await using var events = ServerSentEvents.ReadDataAsync(stream, _time, TimeSpan.FromSeconds(45), Cancel).GetAsyncEnumerator(Cancel);
+        await feed.SendAsync("1");
+        (await events.MoveNextAsync().AsTask().WaitAsync(Wait, Cancel)).ShouldBeTrue();
+
+        for (var i = 0; i < 3; i++)
+        {
+            await feed.WriteAsync(": keepalive\n\n");
+            _time.Advance(TimeSpan.FromSeconds(15));
+        }
+
+        await feed.SendAsync("2");
+        _time.Advance(TimeSpan.FromSeconds(1));
+
+        (await events.MoveNextAsync().AsTask().WaitAsync(Wait, Cancel)).ShouldBeTrue();
+        events.Current.ShouldBe("2");
+    }
+
+    [Fact]
+    public async Task A_stream_that_stays_silent_after_the_consumer_took_a_message_still_times_out()
+    {
+        var feed = new SseFeed();
+        using var response = feed.Response();
+        var stream = await response.Content.ReadAsStreamAsync(Cancel);
+        await using var events = ServerSentEvents.ReadDataAsync(stream, _time, TimeSpan.FromSeconds(45), Cancel).GetAsyncEnumerator(Cancel);
+        await feed.SendAsync("1");
+        (await events.MoveNextAsync().AsTask().WaitAsync(Wait, Cancel)).ShouldBeTrue();
+        _time.Advance(TimeSpan.FromMinutes(5));
+
+        var next = events.MoveNextAsync().AsTask();
+        await Task.Delay(50, Cancel);
+        _time.Advance(TimeSpan.FromSeconds(46));
+
+        var exception = await Should.ThrowAsync<TimeoutException>(() => next.WaitAsync(Wait, Cancel));
+        exception.Message.ShouldBe("Inngest sent nothing for 45 seconds.");
+    }
+
     [Fact]
     public void Messages_are_read_with_their_data_and_streams_with_the_topic_of_their_start()
     {

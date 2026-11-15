@@ -11,7 +11,8 @@ namespace Inngest.Realtime;
 // ignored. Inngest sends one JSON message per event and a comment as a keepalive every 15 seconds.
 internal static class ServerSentEvents
 {
-    // Throws TimeoutException when the stream sends nothing, not even a keepalive, for idleTimeout.
+    // Throws TimeoutException when the stream sends nothing, not even a keepalive, for idleTimeout. The time the consumer
+    // spends on an event does not count: the stream goes on arriving meanwhile, and dropping it would lose what is in it.
     public static async IAsyncEnumerable<string> ReadDataAsync(
         Stream stream,
         TimeProvider time,
@@ -44,7 +45,9 @@ internal static class ServerSentEvents
             {
                 if (data.Length > 0)
                 {
+                    idle.CancelAfter(Timeout.InfiniteTimeSpan);
                     yield return data.ToString();
+                    idle.CancelAfter(idleTimeout);
                     data.Clear();
                 }
 
