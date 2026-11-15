@@ -37,17 +37,7 @@ public sealed class StreamPublisherTests
     {
         var time = new TestTimeProvider(EngineHost.Now);
         var inngest = new Receiving();
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton<TimeProvider>(time);
-        services.AddInngest(options =>
-        {
-            options.AppId = "test-app";
-            options.IsDev = true;
-            options.BaseUrl = new Uri("http://localhost:8288");
-        });
-        services.AddHttpClient("Inngest").ConfigurePrimaryHttpMessageHandler(() => inngest);
-        await using var provider = services.BuildServiceProvider();
+        await using var provider = Services(time, inngest);
         var publisher = new StreamPublisher(provider.GetRequiredService<IInngestRealtime>(), Topic, "chat", _logger, TestContext.Current.CancellationToken);
 
         publisher.Write("Once ");
@@ -62,6 +52,27 @@ public sealed class StreamPublisherTests
         await publisher.CompleteAsync();
 
         inngest.Writes.ShouldBe(["Once upon", " a time"]);
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
+    }
+
+    // Inngest relays 1,000 pieces of a stream, so the publish of a longer answer ends there while the model goes on.
+    [Fact]
+    public async Task The_publish_of_an_answer_longer_than_Inngest_relays_ends_there_without_a_failure()
+    {
+        var inngest = new Receiving();
+        await using var provider = Services(new TestTimeProvider(EngineHost.Now), inngest);
+        var publisher = new StreamPublisher(provider.GetRequiredService<IInngestRealtime>(), Topic, "chat", _logger, TestContext.Current.CancellationToken);
+
+        for (var i = 0; i < 1001; i++)
+        {
+            publisher.Write(new string('x', 1024));
+        }
+
+        await inngest.Received.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        publisher.Write("The end.");
+        await publisher.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        inngest.Writes.Count.ShouldBe(1000);
         _logger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 
@@ -83,11 +94,30 @@ public sealed class StreamPublisherTests
     private StreamPublisher Publisher(RecordingRealtime? realtime = null) =>
         new(realtime ?? _realtime, Topic, "chat", _logger, TestContext.Current.CancellationToken);
 
+    private static ServiceProvider Services(TimeProvider time, Receiving inngest)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(time);
+        services.AddInngest(options =>
+        {
+            options.AppId = "test-app";
+            options.IsDev = true;
+            options.BaseUrl = new Uri("http://localhost:8288");
+        });
+        services.AddHttpClient("Inngest").ConfigurePrimaryHttpMessageHandler(() => inngest);
+        return services.BuildServiceProvider();
+    }
+
     // Takes the body of a publish as Inngest does, write by write as it arrives.
     private sealed class Receiving : HttpMessageHandler
     {
         private readonly Lock _gate = new();
         private readonly List<string> _writes = [];
+        private readonly TaskCompletionSource _received = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Completes once the body has ended.
+        public Task Received => _received.Task;
 
         public IReadOnlyList<string> Writes
         {
@@ -112,6 +142,7 @@ public sealed class StreamPublisherTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             await request.Content!.CopyToAsync(new Body(this), cancellationToken);
+            _received.TrySetResult();
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
 

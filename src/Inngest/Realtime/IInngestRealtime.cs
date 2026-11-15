@@ -13,7 +13,8 @@ public interface IInngestRealtime
 {
     /// <summary>
     /// Publishes data to the topic at once, from anywhere; inside a run it is tagged with the run's id. A retry of
-    /// the code publishes again: inside a function, IStepTools.PublishAsync publishes once.
+    /// the code publishes again: inside a function, IStepTools.PublishAsync publishes once. The data goes as JSON, text
+    /// as a JSON string, and a message over 512 KB throws ArgumentException.
     /// </summary>
     Task PublishAsync<T>(RealtimeTopic topic, T data, CancellationToken cancellationToken = default);
 
@@ -24,9 +25,9 @@ public interface IInngestRealtime
     /// Streams text to the topic as the chunks arrive, in one request, and returns all of it. Subscribers receive a
     /// StreamStart, the text in StreamChunk messages and a StreamEnd. Inngest relays up to 1,000 pieces of up to 1 KB a
     /// stream, so the text is gathered into pieces that go out when they are full or have waited 100 ms, and 1 second
-    /// once the stream has 500 pieces. A stream that still outgrows the limit is sent whole and logs a warning, and
-    /// subscribers may miss its end. The cancellation token bounds the request, not the HttpClient's timeout. An exception
-    /// the chunks throw reaches the caller as it is.
+    /// once the stream has 500 pieces. A stream that still outgrows the limit ends its request there and logs a warning:
+    /// subscribers receive the StreamEnd and miss the rest, which is still read and returned. The cancellation token
+    /// bounds the request, not the HttpClient's timeout. An exception the chunks throw reaches the caller as it is.
     /// </summary>
     Task<string> PublishStreamAsync(RealtimeTopic topic, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken = default);
 

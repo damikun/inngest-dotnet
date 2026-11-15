@@ -19,6 +19,6 @@ internal static partial class Log
     [LoggerMessage(EventId = 353, Level = LogLevel.Information, Message = "The realtime subscription to channel {Channel} with a given token ended: {Reason}")]
     public static partial void RealtimeTokenSubscriptionEnded(ILogger logger, string channel, string reason);
 
-    [LoggerMessage(EventId = 354, Level = LogLevel.Warning, Message = "The stream to topic {Topic} of channel {Channel} has outgrown the {Pieces} pieces Inngest relays, so its subscribers may not receive the rest of the text. The publish still returns all of it.")]
+    [LoggerMessage(EventId = 354, Level = LogLevel.Warning, Message = "The stream to topic {Topic} of channel {Channel} has outgrown the {Pieces} pieces Inngest relays, so its request ended there and its subscribers do not receive the rest of the text. The publish still reads all of it and returns it.")]
     public static partial void StreamOutgrown(ILogger logger, string topic, string channel, int pieces);
 }

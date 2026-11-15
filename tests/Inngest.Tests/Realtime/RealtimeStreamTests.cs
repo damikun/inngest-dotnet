@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Inngest.Realtime;
 using Inngest.Tests.Client;
@@ -155,8 +156,10 @@ public sealed class RealtimeStreamTests
         }
     }
 
+    // Inngest stops reading a stream after 1,000 reads and closes the connection once 256 KB more have come, which would
+    // fail the publish.
     [Fact]
-    public async Task A_stream_that_outgrows_what_Inngest_relays_is_sent_whole_with_a_warning()
+    public async Task A_stream_that_outgrows_what_Inngest_relays_ends_its_request_there_with_a_warning()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
         await using var provider = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch), configureServices: services => services.AddFakeLogging());
@@ -164,11 +167,204 @@ public sealed class RealtimeStreamTests
         var text = await provider.GetRequiredService<IInngestRealtime>().PublishStreamAsync(Tokens, Full(1001), TestContext.Current.CancellationToken);
 
         text.Length.ShouldBe(1001 * 1024);
-        handler.Single.Body.Length.ShouldBe(1001 * 1024);
+        handler.Single.Body.Length.ShouldBe(1000 * 1024);
         var warning = provider.GetFakeLogCollector().GetSnapshot().Where(record => record.Id.Id == 354).ShouldHaveSingleItem();
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.Message.ShouldBe(
-            "The stream to topic tokens of channel chat:42 has outgrown the 1000 pieces Inngest relays, so its subscribers may not receive the rest of the text. The publish still returns all of it.");
+            "The stream to topic tokens of channel chat:42 has outgrown the 1000 pieces Inngest relays, so its request ended there and its subscribers do not receive the rest of the text. The publish still reads all of it and returns it.");
+    }
+
+    [Fact]
+    public async Task The_text_after_the_pieces_Inngest_relays_is_read_once_the_request_has_ended()
+    {
+        var inngest = new Receiving();
+        await using var provider = ClientServices.Build(
+            new FakeHttpHandler(),
+            new FakeTimeProvider(DateTimeOffset.UnixEpoch),
+            configureServices: services => services
+                .AddHttpClient(InngestServiceCollectionExtensions.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => inngest));
+
+        var text = await provider.GetRequiredService<IInngestRealtime>().PublishStreamAsync(Tokens, Long(), TestContext.Current.CancellationToken);
+
+        text.ShouldBe(new string('x', 1001 * 1024) + " and the rest");
+        inngest.Body.ShouldBe(new string('x', 1000 * 1024));
+
+        async IAsyncEnumerable<string> Long()
+        {
+            await foreach (var chunk in Full(1001))
+            {
+                yield return chunk;
+            }
+
+            await inngest.Received.WaitAsync(TimeSpan.FromSeconds(10));
+            yield return " and the rest";
+        }
+    }
+
+    // The piece past the limit can be one whose text waited for more, while the next chunk is on its way.
+    [Fact]
+    public async Task Text_that_waited_past_the_last_piece_Inngest_relays_is_returned_after_the_request()
+    {
+        var time = new TestTimeProvider(EngineHost.Now);
+        var more = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = new RecordingStream();
+        var content = new TextStreamContent(Long(), time);
+
+        var sending = content.CopyToAsync(writes, TestContext.Current.CancellationToken);
+        await time.TimersCreated(1).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromSeconds(1));
+        await sending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        more.SetResult();
+        var text = await content.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        writes.Pieces.Count.ShouldBe(1000);
+        text.ShouldBe(new string('x', 1000 * 1024) + "ab");
+
+        async IAsyncEnumerable<string> Long()
+        {
+            for (var i = 0; i < 1000; i++)
+            {
+                yield return new string('x', 1024);
+            }
+
+            yield return "a";
+            await more.Task;
+            yield return "b";
+        }
+    }
+
+    [Fact]
+    public async Task A_publish_that_fails_after_the_pieces_Inngest_relays_stops_reading_the_chunks()
+    {
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.InternalServerError, """{"error":"broken"}""");
+        await using var provider = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+
+        var failure = await Should.ThrowAsync<InngestException>(provider.GetRequiredService<IInngestRealtime>()
+            .PublishStreamAsync(Tokens, Endless(), TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        failure.Message.ShouldBe("Failed to publish to topic \"tokens\" of channel \"chat:42\": broken");
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        async IAsyncEnumerable<string> Endless([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await foreach (var chunk in Full(1001))
+                {
+                    yield return chunk;
+                }
+
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                yield return "never";
+            }
+            finally
+            {
+                stopped.SetResult();
+            }
+        }
+    }
+
+    // Past the pieces Inngest relays, the producer's exception comes from reading the rest of the text, not from the request.
+    [Fact]
+    public async Task What_the_producer_throws_after_the_pieces_Inngest_relays_reaches_the_caller_as_it_is()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var provider = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        var refusal = new NonRetriableException("The model refused.");
+
+        var thrown = await Should.ThrowAsync<NonRetriableException>(provider.GetRequiredService<IInngestRealtime>()
+            .PublishStreamAsync(Tokens, FailingAfter(1001, refusal), TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        thrown.ShouldBeSameAs(refusal);
+        handler.Single.Body.Length.ShouldBe(1000 * 1024);
+    }
+
+    [Fact]
+    public async Task A_stream_step_whose_producer_gives_up_after_the_pieces_Inngest_relays_fails_without_retries()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var client = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        using var host = new EngineHost(services => services.AddSingleton(client.GetRequiredService<IRealtimeApi>()));
+        var function = TestFunction.Define(async context =>
+            await context.Step.PublishStreamAsync("reply", Tokens, FailingAfter(1001, new NonRetriableException("The model refused."))));
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        var error = result.Op().GetProperty("error");
+        error.GetProperty("name").GetString().ShouldBe("NonRetriableException");
+        error.GetProperty("message").GetString().ShouldBe("The model refused.");
+        handler.Single.Body.Length.ShouldBe(1000 * 1024);
+    }
+
+    // Once the request has ended, the caller's token still stops the producer while the rest of the text is read.
+    [Fact]
+    public async Task Cancelling_a_publish_after_the_pieces_Inngest_relays_stops_the_producer()
+    {
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var provider = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        var publishing = provider.GetRequiredService<IInngestRealtime>().PublishStreamAsync(Tokens, Endless(), cancel.Token);
+        await waiting.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        handler.Single.Body.Length.ShouldBe(1000 * 1024);
+        await cancel.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(publishing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        async IAsyncEnumerable<string> Endless([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await foreach (var chunk in Full(1001))
+                {
+                    yield return chunk;
+                }
+
+                waiting.SetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                yield return "never";
+            }
+            finally
+            {
+                stopped.SetResult();
+            }
+        }
+    }
+
+    // The request's token belongs to the network stack, which may cancel it once it is done with the request.
+    [Fact]
+    public async Task The_requests_token_does_not_stop_the_producer_once_the_body_has_ended()
+    {
+        var more = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var content = new TextStreamContent(Long(), TimeProvider.System);
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        await content.CopyToAsync(Stream.Null, request.Token);
+        await request.CancelAsync();
+        more.SetResult();
+        var text = await content.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        content.Pieces.ShouldBe(1000);
+        text.ShouldBe(new string('x', 1001 * 1024) + " and the rest");
+
+        async IAsyncEnumerable<string> Long([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await foreach (var chunk in Full(1001))
+            {
+                yield return chunk;
+            }
+
+            await more.Task.WaitAsync(cancellationToken);
+            yield return " and the rest";
+        }
     }
 
     [Fact]
@@ -306,6 +502,17 @@ public sealed class RealtimeStreamTests
         throw exception;
     }
 
+    // Yields count full chunks and then fails.
+    private static async IAsyncEnumerable<string> FailingAfter(int count, Exception exception)
+    {
+        await foreach (var chunk in Full(count))
+        {
+            yield return chunk;
+        }
+
+        throw exception;
+    }
+
     private sealed record Progress(string Text, int Percent);
 
     private sealed class ModelException(string message) : Exception(message);
@@ -313,13 +520,19 @@ public sealed class RealtimeStreamTests
     // Reads the body as the network stack sends it, until the stream ends or the request is cancelled.
     private sealed class Receiving : HttpMessageHandler
     {
+        private readonly TaskCompletionSource _received = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string? Body { get; private set; }
+
+        // Completes once the body has ended.
+        public Task Received => _received.Task;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             using var body = new MemoryStream();
             await request.Content!.CopyToAsync(body, cancellationToken);
             Body = Encoding.UTF8.GetString(body.ToArray());
+            _received.TrySetResult();
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }

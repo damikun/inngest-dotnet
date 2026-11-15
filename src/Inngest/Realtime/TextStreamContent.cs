@@ -14,6 +14,8 @@ namespace Inngest.Realtime;
 // would use up the stream after a page of text. The text is therefore gathered into pieces, which go out when they are
 // full or when their text has waited for a short interval, and the interval grows once the stream is long, so that the
 // pieces last. A piece holds whole characters below 1 KB, which keeps a character from being split between two chunks.
+// Once Inngest has stopped reading, it takes 256 KB more and then closes the connection, so the body ends after the
+// pieces it relays, and the chunks it leaves are read by ReadToEndAsync.
 internal sealed class TextStreamContent : HttpContent
 {
     // The reads Inngest relays of one stream.
@@ -30,15 +32,21 @@ internal sealed class TextStreamContent : HttpContent
     private readonly IAsyncEnumerable<string> _chunks;
     private readonly TimeProvider _time;
     private readonly Action? _outgrown;
+    private readonly CancellationToken _cancellationToken;
     private readonly StringBuilder _text = new();
     private int _sent;
 
-    // outgrown is told once when the stream has more pieces than Inngest relays.
-    public TextStreamContent(IAsyncEnumerable<string> chunks, TimeProvider time, Action? outgrown = null)
+    // The chunks the body left unread when it reached the limit.
+    private ChunkReader? _rest;
+
+    // outgrown is told once when the stream has more pieces than Inngest relays. The cancellation token stops the
+    // producer of the chunks, also while ReadToEndAsync reads what the body left.
+    public TextStreamContent(IAsyncEnumerable<string> chunks, TimeProvider time, Action? outgrown = null, CancellationToken cancellationToken = default)
     {
         _chunks = chunks;
         _time = time;
         _outgrown = outgrown;
+        _cancellationToken = cancellationToken;
         Headers.ContentType = new MediaTypeHeaderValue("text/stream");
     }
 
@@ -51,6 +59,34 @@ internal sealed class TextStreamContent : HttpContent
     // What the producer of the chunks threw. It is the caller's to see as it is, such as a NonRetriableException of a model
     // that gave up, whatever the handlers of the request make of it on the way.
     public ExceptionDispatchInfo? Failure { get; private set; }
+
+    // Reads the chunks the body left when it reached the limit, and returns all the text.
+    public async Task<string> ReadToEndAsync()
+    {
+        if (Interlocked.Exchange(ref _rest, null) is { } rest)
+        {
+            await using (rest.ConfigureAwait(false))
+            {
+                while (await ReadAsync(rest).ConfigureAwait(false))
+                {
+                    _text.Append(rest.Current);
+                    rest.Token.ThrowIfCancellationRequested();
+                }
+            }
+        }
+
+        return Text;
+    }
+
+    // Stops the producer of the chunks the body left, for a request that failed after it reached the limit.
+    public async Task AbandonAsync()
+    {
+        if (Interlocked.Exchange(ref _rest, null) is { } rest)
+        {
+            await rest.StopAsync().ConfigureAwait(false);
+            await rest.DisposeAsync().ConfigureAwait(false);
+        }
+    }
 
     protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
         SerializeToStreamAsync(stream, context, CancellationToken.None);
@@ -66,29 +102,29 @@ internal sealed class TextStreamContent : HttpContent
         }
 
         using var piece = new Piece();
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var chunks = _chunks.GetAsyncEnumerator(stop.Token);
-
-        // The read of the next chunk, which goes on while a piece that has waited long enough is written.
-        Task<bool>? next = null;
+        var reader = new ChunkReader(_chunks, _cancellationToken, cancellationToken);
+        var outgrown = false;
         try
         {
             while (true)
             {
-                next ??= chunks.MoveNextAsync().AsTask();
-                if (piece.Length > 0 && !next.IsCompleted && !await ArrivesInTimeAsync(next, piece.StartedAt, stop.Token).ConfigureAwait(false))
+                if (piece.Length > 0 && !reader.Next.IsCompleted && !await ArrivesInTimeAsync(reader.Next, piece.StartedAt, reader.Token).ConfigureAwait(false))
                 {
-                    await WriteAsync(stream, piece, stop.Token).ConfigureAwait(false);
+                    if (!await WriteAsync(stream, piece, reader.Token).ConfigureAwait(false))
+                    {
+                        outgrown = true;
+                        return;
+                    }
+
                     continue;
                 }
 
-                if (!await ReadAsync(next).ConfigureAwait(false))
+                if (!await ReadAsync(reader).ConfigureAwait(false))
                 {
                     break;
                 }
 
-                next = null;
-                var chunk = chunks.Current;
+                var chunk = reader.Current;
                 if (string.IsNullOrEmpty(chunk))
                 {
                     continue;
@@ -99,9 +135,10 @@ internal sealed class TextStreamContent : HttpContent
                 while (!remaining.IsEmpty)
                 {
                     remaining = piece.Add(remaining, _time.GetTimestamp());
-                    if (piece.IsFull)
+                    if (piece.IsFull && !await WriteAsync(stream, piece, reader.Token).ConfigureAwait(false))
                     {
-                        await WriteAsync(stream, piece, stop.Token).ConfigureAwait(false);
+                        outgrown = true;
+                        return;
                     }
                 }
             }
@@ -109,23 +146,26 @@ internal sealed class TextStreamContent : HttpContent
             piece.End();
             if (piece.Length > 0)
             {
-                await WriteAsync(stream, piece, stop.Token).ConfigureAwait(false);
+                await WriteAsync(stream, piece, reader.Token).ConfigureAwait(false);
             }
         }
         catch
         {
             // The producer may be at work on the next chunk, and it cannot be disposed until it has stopped.
-            await stop.CancelAsync().ConfigureAwait(false);
+            await reader.StopAsync().ConfigureAwait(false);
             throw;
         }
         finally
         {
-            if (next is { IsCompleted: false })
+            if (outgrown)
             {
-                await ((Task)next).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                reader.Detach();
+                _rest = reader;
             }
-
-            await chunks.DisposeAsync().ConfigureAwait(false);
+            else
+            {
+                await reader.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 
@@ -135,11 +175,11 @@ internal sealed class TextStreamContent : HttpContent
         return false;
     }
 
-    private async Task<bool> ReadAsync(Task<bool> next)
+    private async Task<bool> ReadAsync(ChunkReader reader)
     {
         try
         {
-            return await next.ConfigureAwait(false);
+            return await reader.ReadAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -163,16 +203,68 @@ internal sealed class TextStreamContent : HttpContent
         return first == next;
     }
 
-    private async Task WriteAsync(Stream stream, Piece piece, CancellationToken cancellationToken)
+    // Writes the piece, unless the stream already has all the pieces Inngest relays.
+    private async Task<bool> WriteAsync(Stream stream, Piece piece, CancellationToken cancellationToken)
     {
-        if (++Pieces == MaxPieces + 1)
+        if (Pieces == MaxPieces)
         {
             _outgrown?.Invoke();
+            return false;
         }
 
+        Pieces++;
         await stream.WriteAsync(piece.Bytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         piece.Clear();
+        return true;
+    }
+
+    // Reads the chunks one ahead, so that a piece can go out while the next chunk is on its way. The producer stops when
+    // the caller's token is cancelled, or the request's until the reader is detached from the request.
+    private sealed class ChunkReader : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _stop;
+        private readonly IAsyncEnumerator<string> _chunks;
+        private readonly CancellationTokenRegistration _request;
+        private Task<bool>? _next;
+
+        public ChunkReader(IAsyncEnumerable<string> chunks, CancellationToken cancellationToken, CancellationToken request)
+        {
+            _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _request = request.UnsafeRegister(static stop => ((CancellationTokenSource)stop!).Cancel(), _stop);
+            _chunks = chunks.GetAsyncEnumerator(_stop.Token);
+        }
+
+        public CancellationToken Token => _stop.Token;
+
+        // The read of the next chunk, begun if it has not been.
+        public Task<bool> Next => _next ??= _chunks.MoveNextAsync().AsTask();
+
+        public string Current => _chunks.Current;
+
+        public async Task<bool> ReadAsync()
+        {
+            var read = await Next.ConfigureAwait(false);
+            _next = null;
+            return read;
+        }
+
+        public Task StopAsync() => _stop.CancelAsync();
+
+        // Lets the producer go on after the request has ended.
+        public void Detach() => _request.Dispose();
+
+        public async ValueTask DisposeAsync()
+        {
+            _request.Dispose();
+            if (_next is { IsCompleted: false } next)
+            {
+                await ((Task)next).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
+
+            await _chunks.DisposeAsync().ConfigureAwait(false);
+            _stop.Dispose();
+        }
     }
 
     // The bytes of the next piece. The encoder keeps the first half of a surrogate pair until the other half arrives, so
