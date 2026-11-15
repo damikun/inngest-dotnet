@@ -108,11 +108,23 @@ internal sealed class DurableEndpointMiddleware
         var retries = options.RetriesOrDefault;
 
         // The user of the request, when the app uses the user context, so that the endpoint's code and the events it
-        // sends have the user they would have without the run.
-        var user = context.RequestServices.GetService<IEndpointEventUser>() is { } users
-            ? await users.GetAsync(now, cancellationToken).ConfigureAwait(false)
-            : null;
-        var @event = EndpointCalls.WriteEvent(Describe(context, body, functionId), now, user);
+        // sends have the user they would have without the run. Not being able to take it, such as with a key ring that
+        // cannot be read, leaves the run without one, as a user too large to attach does, rather than fail the request.
+        var described = Describe(context, body, functionId);
+        JsonElement? user = null;
+        try
+        {
+            if (context.RequestServices.GetService<IEndpointEventUser>() is { } users)
+            {
+                user = await users.GetAsync(described, now, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            Log.EndpointUserNotTaken(_logger, functionId, exception);
+        }
+
+        var @event = EndpointCalls.WriteEvent(described, now, user);
 
         // What middleware before this one has set, such as security headers. An answer that replaces the endpoint's
         // response keeps them and drops what the endpoint set.

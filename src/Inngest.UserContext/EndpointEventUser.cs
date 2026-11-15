@@ -18,14 +18,16 @@ internal sealed class EndpointEventUser(
     ILogger<EndpointEventUser> logger,
     IUserContextSource? source = null) : IEndpointEventUser
 {
-    public async ValueTask<JsonElement?> GetAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    public async ValueTask<JsonElement?> GetAsync(EndpointRequest request, DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
-        if (source is null || options.Value.EventFilter?.Invoke(new InngestEvent(EndpointCalls.EventName) { Timestamp = timestamp }) == false)
+        if (source is null || codec.Capture(await source.GetUserAsync(cancellationToken).ConfigureAwait(false)) is not { } snapshot)
         {
             return null;
         }
 
-        if (codec.Capture(await source.GetUserAsync(cancellationToken).ConfigureAwait(false)) is not { } snapshot)
+        // The filter sees the event as the run gets it, which is written only for a user it could be attached to.
+        if (options.Value.EventFilter is { } filter &&
+            !filter(new InngestEvent(EndpointCalls.EventName, EndpointCalls.Data(request)) { Timestamp = timestamp }))
         {
             return null;
         }

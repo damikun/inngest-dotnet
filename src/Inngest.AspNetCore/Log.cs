@@ -10,6 +10,10 @@ internal static partial class Log
     [LoggerMessage(EventId = 360, Level = LogLevel.Warning, Message = "Relaying realtime channel {Channel} stopped: {Reason}")]
     public static partial void RealtimeRelayFailed(ILogger logger, string channel, string reason);
 
+    [LoggerMessage(EventId = 155, Level = LogLevel.Warning,
+        Message = "Could not take the user of a request to durable endpoint {FunctionId}, so its run has no user. The user context's source, EventFilter or protector threw.")]
+    public static partial void EndpointUserNotTaken(ILogger logger, string functionId, Exception exception);
+
     [LoggerMessage(EventId = 600, Level = LogLevel.Warning,
         Message = "Refused a request to durable endpoint {FunctionId} with 413: its body is larger than the {Limit} bytes its run may store.")]
     public static partial void EndpointBodyTooLarge(ILogger logger, string functionId, int limit);
