@@ -167,8 +167,8 @@ Subscribers receive the text as a stream, which [`PublishStreamAsync`](/inngest-
 sends. A model sends an update every few characters, and Inngest relays at most 1,000 pieces of up to 1 KB in a stream,
 so the updates are gathered into pieces. A piece goes out when it is full, or when its text has waited 100 milliseconds,
 and the wait grows to a second once the stream has 500 pieces, so that a long answer does not use them up. Subscribers
-of a text that still outgrows the limit, which is about a megabyte, miss the rest of it, and the SDK logs a warning with
-event id 354. The model call is not affected.
+of a text that still outgrows the limit, which is about a megabyte, receive the end of the stream there and miss the
+rest, and the SDK logs a warning with event id 354. The model call is not affected.
 
 This is why the step publishes through `IInngestRealtime` and does not use the `PublishStreamAsync` step tool: a step
 cannot be called inside the handler of another, and the model call is the step that reads the stream. A publishing step

@@ -40,7 +40,11 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
 
     public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
     {
-        var content = new TextStreamContent(chunks, time, () => Log.StreamOutgrown(logger, topic.Name, topic.Channel, TextStreamContent.MaxPieces));
+        var content = new TextStreamContent(
+            chunks,
+            time,
+            () => Log.StreamOutgrown(logger, topic.Name, topic.Channel, TextStreamContent.MaxPieces),
+            cancellationToken);
         try
         {
             await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
@@ -52,8 +56,14 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
             // caller may catch the model's own exception.
             failure.Throw();
         }
+        catch
+        {
+            await content.AbandonAsync().ConfigureAwait(false);
+            throw;
+        }
 
-        return content.Text;
+        // A stream longer than Inngest relays ended its request there, and the rest of its text is read now.
+        return await content.ReadToEndAsync().ConfigureAwait(false);
     }
 
     public async Task<HttpResponseMessage> OpenSubscriptionAsync(string token, Uri? apiBaseUrl, CancellationToken cancellationToken)

@@ -98,6 +98,46 @@ public sealed class RealtimeTests(EvaluationEnvironment environment) : Evaluatio
         }
     }
 
+    // Inngest reads 1,000 pieces of a stream, then up to 256 KB more, and then closes the connection. A longer stream
+    // must not fail for it, and returns all its text.
+    [Fact(Timeout = 120_000)]
+    public async Task A_stream_longer_than_Inngest_relays_returns_all_its_text()
+    {
+        var topic = FeatureFunctions.Tokens(TestId);
+        var block = new string('x', 4096);
+        var expected = string.Concat(Enumerable.Range(0, 350).Select(Block));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        await using var messages = Realtime.SubscribeAsync(topic.Channel, [topic.Name], stop.Token).GetAsyncEnumerator(stop.Token);
+        await WaitUntilSubscribedAsync(messages, () => Realtime.PublishAsync(topic, "ready", Cancellation));
+
+        var published = await Realtime.PublishStreamAsync(topic, Blocks(), Cancellation);
+
+        published.ShouldBe(expected);
+        var start = await NextAsync(messages, message => message.Kind == RealtimeMessageKind.StreamStart);
+        var text = new StringBuilder();
+        while (await NextAsync(messages, _ => true) is { Kind: not RealtimeMessageKind.StreamEnd } message)
+        {
+            if (message.Kind == RealtimeMessageKind.StreamChunk && message.StreamId == start.StreamId)
+            {
+                text.Append(message.Text);
+            }
+        }
+
+        text.ToString().ShouldBe(expected[..(1000 * 1024)]);
+
+        string Block(int i) => $"{i:D6}{block}";
+
+        // 1,000 pieces and 300 KB more at once, then the rest as slowly as a model writes.
+        async IAsyncEnumerable<string> Blocks()
+        {
+            for (var i = 0; i < 350; i++)
+            {
+                await Task.Delay(i < 330 ? 0 : 150);
+                yield return Block(i);
+            }
+        }
+    }
+
     // Inngest keeps a message that parses as JSON as that JSON, so text that reads as JSON must go as a JSON string.
     [Fact(Timeout = 90_000)]
     public async Task Text_that_reads_as_JSON_reaches_a_typed_subscriber_as_text()
