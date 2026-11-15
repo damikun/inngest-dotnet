@@ -166,6 +166,7 @@ internal static class DiscriminatorOrder
         private readonly Dictionary<object, JsonTypeInfo>? _derived;
         private readonly Dictionary<string, JsonTypeInfo>? _properties;
         private readonly JsonTypeInfo? _values;
+        private readonly JsonTypeInfo? _collection;
 
         // 0 until MoveFirst has looked through the type, then 1 when it meets no discriminator and 2 when it does.
         private int _meets;
@@ -213,6 +214,7 @@ internal static class DiscriminatorOrder
 
                 case JsonTypeInfoKind.Enumerable:
                     Items = ElementInfo(info);
+                    _collection = info;
                     break;
 
                 case JsonTypeInfoKind.Dictionary:
@@ -262,8 +264,21 @@ internal static class DiscriminatorOrder
             return this;
         }
 
-        public JsonTypeInfo? Member(JsonProperty property) =>
-            _values ?? (_properties is not null && _properties.TryGetValue(property.Name, out var info) ? info : null);
+        public JsonTypeInfo? Member(JsonProperty property)
+        {
+            if (_values is not null)
+            {
+                return _values;
+            }
+
+            if (_properties is not null)
+            {
+                return _properties.GetValueOrDefault(property.Name);
+            }
+
+            // A collection read from an object, as a polymorphic one is written, has its items under "$values".
+            return _collection is not null && property.NameEquals("$values") ? _collection : null;
+        }
 
         public IEnumerable<JsonTypeInfo> Reachable()
         {

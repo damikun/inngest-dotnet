@@ -69,6 +69,21 @@ public sealed class SortedKeysTests : IDisposable
     }
 
     [Fact]
+    public async Task The_items_of_a_polymorphic_list_are_read_back_from_sorted_keys()
+    {
+        var function = TestFunction.Define(async context =>
+        {
+            var history = await context.Step.RunAsync<MethodLog>("history", () => new MethodHistory { new BankTransfer("DE89") });
+            return $"{history.GetType().Name} {string.Join(",", history.Select(Describe))}";
+        });
+
+        var result = await _host.CallAsync(function, Call.New().Data("history", """{"$type":"history","$values":[{"iban":"DE89","type":"bank"}]}"""));
+
+        result.StatusCode.ShouldBe(200);
+        result.Body.ShouldBe("\"MethodHistory bank DE89\"");
+    }
+
+    [Fact]
     public async Task Event_data_with_a_custom_discriminator_is_read_from_sorted_keys()
     {
         var function = TestFunction.Define<OrderPlaced>(context => Task.FromResult<object?>(Describe(context.Event.Data.Payment)));
@@ -127,6 +142,12 @@ public sealed class SortedKeysTests : IDisposable
     public sealed record Wallet(string Id, List<PaymentMethod> Methods, Dictionary<string, PaymentMethod> ByName);
 
     public sealed record OrderPlaced(string OrderId, PaymentMethod Payment);
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(MethodHistory), "history")]
+    public class MethodLog : List<PaymentMethod>;
+
+    public sealed class MethodHistory : MethodLog;
 
     [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
     [JsonDerivedType(typeof(Ring), "ring")]

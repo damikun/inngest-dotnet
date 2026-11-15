@@ -64,6 +64,29 @@ public sealed class DiscriminatorOrderTests
         moved.Deserialize<Purse>(Options)!.Methods.ShouldHaveSingleItem().ShouldBe(new BankTransfer("DE89"));
     }
 
+    // System.Text.Json writes a polymorphic collection as an object with its items under "$values".
+    [Fact]
+    public void The_items_of_a_polymorphic_collection_are_looked_into()
+    {
+        const string Sorted = """{"$type":"history","$values":[{"iban":"DE89","type":"bank"}]}""";
+
+        var moved = MoveFirst<MethodLog>(Sorted);
+
+        moved.GetRawText().ShouldBe("""{"$type":"history","$values":[{"type":"bank","iban":"DE89"}]}""");
+        moved.Deserialize<MethodLog>(Options).ShouldBeOfType<MethodHistory>().ShouldHaveSingleItem().ShouldBe(new BankTransfer("DE89"));
+    }
+
+    [Fact]
+    public void A_polymorphic_collection_with_a_custom_discriminator_has_it_moved_before_its_items()
+    {
+        const string Sorted = """{"$values":[{"iban":"DE89","type":"bank"}],"source":"import"}""";
+
+        var moved = MoveFirst<MethodBatch>(Sorted);
+
+        moved.GetRawText().ShouldBe("""{"source":"import","$values":[{"type":"bank","iban":"DE89"}]}""");
+        moved.Deserialize<MethodBatch>(Options).ShouldBeOfType<ImportedBatch>().ShouldHaveSingleItem().ShouldBe(new BankTransfer("DE89"));
+    }
+
     [Fact]
     public void Sorted_keys_are_what_System_Text_Json_8_cannot_read()
     {
@@ -149,6 +172,18 @@ public sealed class DiscriminatorOrderTests
     public sealed record VersionOne(Part Body) : Versioned;
 
     public sealed record Purse(MethodList Methods);
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(MethodHistory), "history")]
+    public class MethodLog : List<PaymentMethod>;
+
+    public sealed class MethodHistory : MethodLog;
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "source")]
+    [JsonDerivedType(typeof(ImportedBatch), "import")]
+    public class MethodBatch : List<PaymentMethod>;
+
+    public sealed class ImportedBatch : MethodBatch;
 
     public sealed class MethodList : ICollection<PaymentMethod>
     {

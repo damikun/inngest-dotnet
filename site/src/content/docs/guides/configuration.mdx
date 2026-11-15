@@ -233,8 +233,8 @@ every number read as a 64-bit floating point value (see [numbers](/inngest-dotne
 discriminator such as `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` usually arrives after the other
 properties. On .NET 9 and later the SDK sets `AllowOutOfOrderMetadataProperties` on its copy of the options. On .NET 8,
 whose System.Text.Json has no such setting, it first walks the value along the type being read and moves the
-discriminator of each polymorphic object to the front. It cannot see what a custom converter reads; keep the default
-`$type` discriminator for types read there, which sorts first.
+discriminator of each polymorphic object to the front, including the items of a polymorphic collection. It cannot see
+what a custom converter reads; keep the default `$type` discriminator for types read there, which sorts first.
 
 ## Connect settings
 
