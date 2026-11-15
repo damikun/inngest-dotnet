@@ -241,6 +241,50 @@ public sealed class ExecutionTests : IAsyncLifetime
         worker.LogsWithId(516).ShouldHaveSingleItem().Exception.ShouldBeOfType<InvalidOperationException>();
     }
 
+    // The gateway reads at most 8 MiB in a message and closes the connection on a larger one, losing the
+    // acknowledgements and lease extensions queued behind it (pkg/connect/gateway.go). Over HTTP, Inngest fails a
+    // response that large as output_too_large, and the function would answer the same again.
+    [Fact]
+    public async Task A_reply_over_8_MiB_fails_the_call_without_retries_instead_of_going_out()
+    {
+        var engine = new ControlledEngine();
+        await using var worker = new WorkerHost(_gateway, engine: engine);
+        await worker.StartAsync();
+        var session = await _gateway.NextReadySessionAsync();
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+
+        (await engine.NextAsync()).Complete(200, $"\"{new string('x', 8 * 1024 * 1024)}\"");
+
+        var reply = await session.NextAsync(GatewayMessageType.WorkerReply, SDKResponse.Parser);
+        reply.RequestId.ShouldBe("req-1");
+        reply.Status.ShouldBe(SDKResponseStatus.Error);
+        reply.NoRetry.ShouldBeTrue();
+        using var error = JsonDocument.Parse(reply.Body.Memory);
+        error.RootElement.GetProperty("name").GetString().ShouldBe("NonRetriableException");
+        error.RootElement.GetProperty("message").GetString().ShouldBe(
+            "Function \"shop-orders\" answered Inngest with 8.0 MiB, more than the 8 MiB Inngest accepts in one answer. " +
+            "Keep large data outside the run and return a reference to it.");
+        worker.LogsWithId(527).ShouldHaveSingleItem().Message.ShouldContain("req-1");
+    }
+
+    [Fact]
+    public async Task A_large_reply_within_8_MiB_goes_out_as_it_is()
+    {
+        var engine = new ControlledEngine();
+        await using var worker = new WorkerHost(_gateway, engine: engine);
+        await worker.StartAsync();
+        var session = await _gateway.NextReadySessionAsync();
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        var output = $"\"{new string('x', (8 * 1024 * 1024) - 1024)}\"";
+
+        (await engine.NextAsync()).Complete(200, output);
+
+        var reply = await session.NextAsync(GatewayMessageType.WorkerReply, SDKResponse.Parser);
+        reply.Status.ShouldBe(SDKResponseStatus.Done);
+        reply.Body.Length.ShouldBe(output.Length);
+        worker.LogsWithId(527).ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task A_scoped_service_that_throws_while_disposed_does_not_turn_the_reply_into_an_error()
     {

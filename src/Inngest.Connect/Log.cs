@@ -91,6 +91,10 @@ internal static partial class Log
     [LoggerMessage(EventId = 526, Level = LogLevel.Debug, Message = "Ignored a {Kind} message on connection {ConnectionId}.")]
     public static partial void UnexpectedMessage(ILogger logger, GatewayMessageType kind, string connectionId);
 
+    [LoggerMessage(EventId = 527, Level = LogLevel.Error,
+        Message = "The reply to request {RequestId} of function {FunctionSlug} is {Size} bytes, more than the gateway accepts; the call fails without retries instead.")]
+    public static partial void ReplyTooLarge(ILogger logger, string requestId, string functionSlug, long size);
+
     [LoggerMessage(EventId = 530, Level = LogLevel.Warning, Message = "Ignored a message of {Length} bytes on connection {ConnectionId} that is not a ConnectMessage.")]
     public static partial void InvalidMessage(ILogger logger, string connectionId, int length);
 
