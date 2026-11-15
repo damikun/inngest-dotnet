@@ -22,5 +22,6 @@ internal interface IInngestApi
     Task<JsonDocument> GetRunEventsAsync(string runId, CancellationToken cancellationToken);
 }
 
-// StatusCode is the status Inngest answered with, or 500 when there was no answer.
+// StatusCode is the status Inngest answered with, or 500 when there was no answer. Error is null when Inngest's answer
+// gave no reason.
 internal sealed record RegisterResult(bool Success, int StatusCode, bool Modified, string? Error);

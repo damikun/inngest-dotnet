@@ -69,8 +69,7 @@ internal sealed class InngestApiClient : IInngestApi
             return new RegisterResult(true, status, ApiHttp.ParseReply(content)?.Modified ?? false, null);
         }
 
-        var error = ApiHttp.DescribeError(status, content);
-        return new RegisterResult(false, status, false, error);
+        return new RegisterResult(false, status, false, ApiHttp.ReasonOf(content));
     }
 
     private async Task<JsonDocument> GetRunDataAsync(string runId, string resource, string description, CancellationToken cancellationToken)

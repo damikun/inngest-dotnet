@@ -110,18 +110,18 @@ public sealed class SyncBodyTests
             """[{"event":"order/created","expression":"event.data.plan == 'pro' && event.data.total > 100"}]""");
     }
 
-    // As in the TypeScript SDK, which leaves out the trigger its invoke() helper adds. The registry refuses such a
-    // function, so the writer is given one directly.
+    // As in the TypeScript SDK, which leaves out the trigger its invoke() helper adds: Inngest would start the function
+    // on every invoke of any function in the environment.
     [Fact]
-    public void Leaves_out_a_trigger_on_the_invoke_event()
-    {
-        var options = Orders with { Triggers = [Trigger.Event(SystemEvents.FunctionInvoked), Trigger.Event("order/created")] };
-        using var writer = new PooledBufferWriter();
+    public void Leaves_out_a_trigger_on_the_invoke_event() =>
+        Property(Orders with { Triggers = [Trigger.Event(SystemEvents.FunctionInvoked), Trigger.Event("order/created")] }, "triggers")
+            .ShouldBe("""[{"event":"order/created"}]""");
 
-        RegistrationWriter.Write(writer, Settings(), [RegisteredFunction.Create(Define(options), AppId)], new Uri(DefaultServeUrl), "aspnetcore", deployType: null);
-
-        RawProperty(FunctionElement(Encoding.UTF8.GetString(writer.WrittenSpan), 0), "triggers").ShouldBe("""[{"event":"order/created"}]""");
-    }
+    // Inngest accepts a function without triggers, which then runs only when it is invoked (pkg/inngest/trigger.go).
+    [Fact]
+    public void Writes_no_triggers_for_a_function_whose_only_trigger_is_the_invoke_event() =>
+        Property(Orders with { Triggers = [Trigger.Event(SystemEvents.FunctionInvoked, "event.data.accountId == 'acme'")] }, "triggers")
+            .ShouldBe("[]");
 
     [Fact]
     public void Writes_the_same_body_on_every_sync()

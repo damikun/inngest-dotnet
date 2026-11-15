@@ -262,7 +262,7 @@ public sealed class ExecutionTests : IAsyncLifetime
         using var error = JsonDocument.Parse(reply.Body.Memory);
         error.RootElement.GetProperty("name").GetString().ShouldBe("NonRetriableException");
         error.RootElement.GetProperty("message").GetString().ShouldBe(
-            "Function \"shop-orders\" answered Inngest with 8.0 MiB, more than the 8 MiB Inngest accepts in one answer. " +
+            "Function \"shop-orders\" answered Inngest with 8.01 MiB, more than the 8 MiB Inngest accepts in one answer. " +
             "Keep large data outside the run and return a reference to it.");
         worker.LogsWithId(527).ShouldHaveSingleItem().Message.ShouldContain("req-1");
     }

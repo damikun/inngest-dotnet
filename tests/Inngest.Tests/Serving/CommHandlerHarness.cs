@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Inngest.Client;
 using Inngest.Configuration;
 using Inngest.Signing;
 using Inngest.Tests.Serving.Fakes;
@@ -52,11 +53,11 @@ internal sealed class CommHandlerHarness
 
     public IServiceProvider RootServices => _services;
 
-    public InngestCommHandler CreateHandler(InngestSettings settings) =>
-        new(settings, Registry, Engine, Api, new RequestSigner(Time), _services.GetRequiredService<IServiceScopeFactory>(), Logger);
+    public InngestCommHandler CreateHandler(InngestSettings settings, IInngestApi? api = null) =>
+        new(settings, Registry, Engine, api ?? Api, new RequestSigner(Time), _services.GetRequiredService<IServiceScopeFactory>(), Logger);
 
-    public Task<ServeResponse> SendAsync(InngestSettings settings, FakeServeRequest request) =>
-        CreateHandler(settings).HandleAsync(request, TestContext.Current.CancellationToken);
+    public Task<ServeResponse> SendAsync(InngestSettings settings, FakeServeRequest request, IInngestApi? api = null) =>
+        CreateHandler(settings, api).HandleAsync(request, TestContext.Current.CancellationToken);
 
     public FakeServeRequest Sign(FakeServeRequest request, SigningKey key) =>
         request.WithHeader("X-Inngest-Signature", Signer.Sign(request.Body.Span, key));

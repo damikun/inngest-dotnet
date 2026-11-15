@@ -56,31 +56,29 @@ internal static class FunctionOptionsValidator
         ValidateCheckpointing(options, problems);
     }
 
-    // An empty trigger list is valid: the function then runs only when another function invokes it.
+    // An empty trigger list is valid: the function then runs only when another function invokes it. A trigger on the
+    // invoke event means the same, and as the sync leaves it out, so do these checks.
     private static void ValidateTriggers(FunctionOptions options, ConfigurationProblems problems)
     {
-        if (options.Triggers.Count > MaxTriggers)
+        var count = options.Triggers.Count(trigger => !RegistrationWriter.IsInvokeTrigger(trigger));
+        if (count > MaxTriggers)
         {
-            problems.Add(options, $"A function can have at most {MaxTriggers} triggers, but has {options.Triggers.Count}.");
+            problems.Add(options, $"A function can have at most {MaxTriggers} triggers, but has {count}.");
         }
 
         var events = new HashSet<(string Event, string? If)>();
         var schedules = new HashSet<string>(StringComparer.Ordinal);
         foreach (var trigger in options.Triggers)
         {
+            if (RegistrationWriter.IsInvokeTrigger(trigger))
+            {
+                continue;
+            }
+
             switch (trigger)
             {
                 case EventTrigger { Event: var name } when string.IsNullOrWhiteSpace(name):
                     problems.Add(options, "An event trigger needs an event name.");
-                    break;
-
-                // Inngest starts every function triggered by the invoke event on every invoke, besides the function
-                // invoked, and the parent gets whichever result comes first.
-                case EventTrigger { Event: SystemEvents.FunctionInvoked }:
-                    problems.Add(
-                        options,
-                        $"A trigger on \"{SystemEvents.FunctionInvoked}\" would run the function for every invoke of any function in the environment. " +
-                        "Use Triggers = [] for a function that only runs when it is invoked.");
                     break;
                 case CronTrigger { Schedule: var schedule } when string.IsNullOrWhiteSpace(schedule):
                     problems.Add(options, "A cron trigger needs a schedule.");
