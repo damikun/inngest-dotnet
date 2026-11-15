@@ -18,7 +18,7 @@ internal static class DiscriminatorOrder
     // The value with each discriminator first in its object, or the value itself when none has to move.
     public static JsonElement MoveFirst(JsonElement value, JsonTypeInfo typeInfo)
     {
-        if (!MeetsDiscriminators(typeInfo) || !NeedsMove(value, typeInfo))
+        if (!NeedsMove(value, typeInfo))
         {
             return value;
         }
@@ -37,41 +37,61 @@ internal static class DiscriminatorOrder
     private static Shape ShapeOf(JsonTypeInfo info) => Shapes.GetValue(info, static info => new Shape(info));
 
     // Whether a polymorphic type can be met anywhere through the type's properties, derived types and collections,
-    // worked out once per type, so that the values of types without one are not walked.
-    private static bool MeetsDiscriminators(JsonTypeInfo root)
+    // worked out once per type, so that the values of types without one are copied as they are instead of walked.
+    // When a type meets none, neither does any type it reaches, and those are marked too.
+    private static bool MeetsDiscriminators(Shape root)
     {
-        var shape = ShapeOf(root);
-        if (shape.Meets is { } known)
+        if (root.Meets is { } known)
         {
             return known;
         }
 
         var meets = false;
-        var seen = new HashSet<JsonTypeInfo>(ReferenceEqualityComparer.Instance);
-        var pending = new Stack<JsonTypeInfo>();
+        var seen = new HashSet<Shape>(ReferenceEqualityComparer.Instance) { root };
+        var pending = new Stack<Shape>();
         pending.Push(root);
-        while (!meets && pending.TryPop(out var info))
+        while (!meets && pending.TryPop(out var shape))
         {
-            if (!seen.Add(info))
+            if (shape.Meets is { } answer)
             {
+                meets = answer;
                 continue;
             }
 
-            var current = ShapeOf(info);
-            meets = current.Discriminator is not null;
-            foreach (var next in current.Reachable())
+            meets = shape.Discriminator is not null;
+            foreach (var next in shape.Reachable())
             {
-                pending.Push(next);
+                var nextShape = ShapeOf(next);
+                if (seen.Add(nextShape))
+                {
+                    pending.Push(nextShape);
+                }
             }
         }
 
-        shape.Meets = meets;
+        if (meets)
+        {
+            root.Meets = true;
+        }
+        else
+        {
+            foreach (var shape in seen)
+            {
+                shape.Meets = false;
+            }
+        }
+
         return meets;
     }
 
     private static bool NeedsMove(JsonElement value, JsonTypeInfo info)
     {
         var shape = ShapeOf(info);
+        if (!MeetsDiscriminators(shape))
+        {
+            return false;
+        }
+
         if (value.ValueKind == JsonValueKind.Array)
         {
             if (shape.Items is { } items)
@@ -107,13 +127,13 @@ internal static class DiscriminatorOrder
 
     private static void Write(Utf8JsonWriter writer, JsonElement value, JsonTypeInfo? info)
     {
-        if (info is null)
+        var shape = info is null ? null : ShapeOf(info);
+        if (shape is null || !MeetsDiscriminators(shape))
         {
-            value.WriteTo(writer);
+            Copy(writer, value);
             return;
         }
 
-        var shape = ShapeOf(info);
         if (value.ValueKind == JsonValueKind.Array)
         {
             writer.WriteStartArray();
@@ -155,8 +175,18 @@ internal static class DiscriminatorOrder
         }
         else
         {
-            value.WriteTo(writer);
+            Copy(writer, value);
         }
+    }
+
+    // A value with nothing to move goes out as it came in.
+    private static void Copy(Utf8JsonWriter writer, JsonElement value)
+    {
+#if NET9_0_OR_GREATER
+        writer.WriteRawValue(System.Runtime.InteropServices.JsonMarshal.GetRawUtf8Value(value), skipInputValidation: true);
+#else
+        writer.WriteRawValue(value.GetRawText(), skipInputValidation: true);
+#endif
     }
 
     // A type as far as reading it goes: its discriminator and derived types if it is polymorphic, and the types of its
@@ -168,7 +198,7 @@ internal static class DiscriminatorOrder
         private readonly JsonTypeInfo? _values;
         private readonly JsonTypeInfo? _collection;
 
-        // 0 until MoveFirst has looked through the type, then 1 when it meets no discriminator and 2 when it does.
+        // 0 until the type has been looked through, then 1 when it meets no discriminator and 2 when it does.
         private int _meets;
 
         public Shape(JsonTypeInfo info)
