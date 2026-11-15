@@ -16,6 +16,9 @@ internal sealed class FakeEndpointCheckpointApi : IEndpointCheckpointApi
 
     public string? Token { get; set; } = "eyJ.token";
 
+    // Called once a call is saved, before the next one starts.
+    public Action<EndpointSave>? Saved { get; set; }
+
     public IReadOnlyList<EndpointSave> Saves
     {
         get
@@ -77,6 +80,8 @@ internal sealed class FakeEndpointCheckpointApi : IEndpointCheckpointApi
 
     private async Task SaveAsync(EndpointSave save, CancellationToken cancellationToken)
     {
+        // As the HTTP client does with a token that is already cancelled.
+        cancellationToken.ThrowIfCancellationRequested();
         (TaskCompletionSource Reached, TaskCompletionSource Release)? hold;
         lock (_gate)
         {
@@ -100,6 +105,8 @@ internal sealed class FakeEndpointCheckpointApi : IEndpointCheckpointApi
             _saves.Add(save);
             Notify();
         }
+
+        Saved?.Invoke(save);
     }
 
     private void Notify()

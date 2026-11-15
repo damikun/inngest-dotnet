@@ -19,6 +19,10 @@ internal sealed class EndpointRunSaves(ILogger<EndpointRunSaves> logger) : IHost
     private readonly Dictionary<Task, (string RunId, string FunctionId)> _running = [];
     private bool _stopped;
 
+    // Cancelled once the app has stopped, or its shutdown timeout ran out. It also ends a hand-over that goes on after
+    // its client left, which the server waits for as a request.
+    public CancellationToken Stopped => _cancelled.Token;
+
     // Starts recording a run. The save logs its own failure.
     public void Start(string runId, string functionId, Func<CancellationToken, Task> save)
     {

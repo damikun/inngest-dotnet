@@ -127,7 +127,7 @@ internal sealed class DurableEndpointMiddleware
                     Function = Function(functionId, context, capture, resumed: false),
                     Body = EndpointCalls.WriteStartCall(@event, runId, retries),
                     Services = context.RequestServices,
-                    Endpoint = new EndpointCall(@event, retries),
+                    Endpoint = new EndpointCall(@event, retries, _saves.Stopped),
                 },
                 cancellationToken).ConfigureAwait(false);
         }

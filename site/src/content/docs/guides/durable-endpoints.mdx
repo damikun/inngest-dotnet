@@ -175,6 +175,10 @@ client gets a 303 See Other to a URL that answers with the final response. That 
 run to finish. As in the TypeScript SDK, the steps go to Inngest one to a call: Inngest takes several in one call for
 steps in parallel, and would then plan each later step of the run before running it.
 
+Once the first call has created the run, the SDK sends the rest even if the client disconnects: without them, Inngest
+would have the run but nothing that resumes it. If one of them fails for good, the request fails, and the SDK logs
+that the run may be left in Inngest with nothing to resume it.
+
 This handler runs `reserve-stock` in the request and then waits for a person to approve a large order. The body of
 the handler:
 

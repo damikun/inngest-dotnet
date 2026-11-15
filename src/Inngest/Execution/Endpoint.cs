@@ -7,8 +7,10 @@ namespace Inngest.Execution;
 
 // A request to a durable endpoint that starts a run. Its steps run in the call and wait in a buffer: Inngest creates
 // the run when a step has to wait or fails, which hands the rest of the run to Inngest, or after the response once the
-// endpoint has finished. Event is the inngest/http.request event the run is created with.
-internal sealed record EndpointCall(ReadOnlyMemory<byte> Event, int Retries);
+// endpoint has finished. Event is the inngest/http.request event the run is created with. Once Inngest has created the
+// run, the rest of a hand-over runs under Stopped rather than the request's token: it ends when the app stops, and
+// never by default.
+internal sealed record EndpointCall(ReadOnlyMemory<byte> Event, int Retries, CancellationToken Stopped = default);
 
 internal enum EndpointOutcomeKind
 {
@@ -71,18 +73,19 @@ internal sealed class EndpointSaver(IEndpointCheckpointApi api, string runId, En
     // A run Inngest takes over. Inngest takes more than one op in a call, other than lazy ones, for steps in parallel and
     // then plans every later step of the run before it runs, which also starts the attempts of a failed step over. So,
     // as in inngest-js, the steps that ran go one to a call, and the last ops, the steps in parallel when there are
-    // several, go together.
+    // several, go together. The request's token cancels only the call that creates the run: a run that Inngest has
+    // without the ops that hand it over has nothing queued, so the rest goes on when the client leaves.
     public async Task HandOverAsync(EndpointOps ops, int last, CancellationToken cancellationToken)
     {
         var ran = ops.Count - last;
         for (var i = 0; i < ran; i++)
         {
-            await SaveAsync(ops, i, 1, cancellationToken).ConfigureAwait(false);
+            await SaveAsync(ops, i, 1, Run is null ? cancellationToken : call.Stopped).ConfigureAwait(false);
         }
 
         if (last > 0)
         {
-            await SaveAsync(ops, ran, last, cancellationToken).ConfigureAwait(false);
+            await SaveAsync(ops, ran, last, Run is null ? cancellationToken : call.Stopped).ConfigureAwait(false);
         }
     }
 

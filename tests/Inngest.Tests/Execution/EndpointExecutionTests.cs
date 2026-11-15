@@ -2,6 +2,7 @@ using System.Text.Json;
 using Inngest.Client;
 using Inngest.Execution;
 using Inngest.Functions;
+using Microsoft.Extensions.Logging;
 
 namespace Inngest.Tests.Execution;
 
@@ -305,6 +306,61 @@ public sealed class EndpointExecutionTests
         host.LogsOf("Inngest.Execution.ExecutionEngine").ShouldContain(record => record.Id.Id == 151);
     }
 
+    // A run that Inngest has without the step that waits has nothing queued, so the client leaving stops only the call
+    // that creates the run.
+    [Fact]
+    public async Task A_client_that_leaves_once_Inngest_created_the_run_does_not_stop_its_hand_over()
+    {
+        using var host = new EngineHost();
+        using var client = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        host.EndpointCheckpoints.Saved = save =>
+        {
+            if (save.Created)
+            {
+                client.Cancel();
+            }
+        };
+
+        var outcome = await host.EndpointAsync(SleepAfterAStep(), requestAborted: client.Token);
+
+        client.IsCancellationRequested.ShouldBeTrue();
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        host.EndpointCheckpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_hand_over_that_fails_once_Inngest_created_the_run_fails_the_request_and_names_the_run(bool clientLeft)
+    {
+        using var host = new EngineHost();
+        using var client = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        host.EndpointCheckpoints.Saved = save =>
+        {
+            if (save.Created)
+            {
+                host.EndpointCheckpoints.FailNext(new InngestException("Inngest is unreachable"));
+                if (clientLeft)
+                {
+                    client.Cancel();
+                }
+            }
+        };
+
+        var outcome = await host.EndpointAsync(SleepAfterAStep(), requestAborted: client.Token);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.Failed);
+        outcome.Error.ShouldBeOfType<InngestException>().Message.ShouldBe("Inngest is unreachable");
+        outcome.Finish.ShouldBeNull();
+        host.EndpointCheckpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun"]);
+        var logs = host.LogsOf("Inngest.Execution.ExecutionEngine");
+        logs.ShouldNotContain(record => record.Id.Id == 151);
+        var error = logs.Where(record => record.Id.Id == 154).ShouldHaveSingleItem();
+        error.Level.ShouldBe(LogLevel.Error);
+        error.Message.ShouldContain(RunId);
+        error.Message.ShouldContain("POST /orders");
+    }
+
     [Fact]
     public async Task A_run_Inngest_takes_over_without_a_token_fails_the_request()
     {
@@ -340,6 +396,13 @@ public sealed class EndpointExecutionTests
 
     private static FunctionDefinition Endpoint(Func<FunctionContext<JsonElement>, Task<object?>> handler) =>
         TestFunction.Define(handler, "POST /orders");
+
+    private static FunctionDefinition SleepAfterAStep() => Endpoint(async context =>
+    {
+        await context.Step.RunAsync("load-order", () => 42);
+        await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(5));
+        return Response("after the sleep");
+    });
 
     // What the ASP.NET Core middleware returns as the endpoint's output: the response it captured.
     private static JsonElement Response(string body)

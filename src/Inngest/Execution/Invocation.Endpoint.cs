@@ -136,6 +136,11 @@ internal sealed partial class Invocation
         {
             await _endpoint!.HandOverAsync(_checkpoint!.TakeOps(), last, _cancellationToken).ConfigureAwait(false);
         }
+        catch (Exception exception) when (_endpoint!.Run is not null)
+        {
+            Log.EndpointHandOverIncomplete(_logger, _run.RunId, _functionId, exception);
+            return ExecutionResult.ForEndpoint(EndpointOutcome.Failed(_run.RunId, exception));
+        }
         catch (Exception exception) when (!_cancellationToken.IsCancellationRequested)
         {
             Log.EndpointHandOverFailed(_logger, _run.RunId, _functionId, exception);
