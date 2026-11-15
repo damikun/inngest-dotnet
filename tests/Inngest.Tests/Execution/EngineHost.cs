@@ -275,6 +275,9 @@ internal sealed class FakeInngestApi : IInngestApi
 
     public Exception? Failure { get; set; }
 
+    // Called on every request, such as to move a fake clock on while the run's state loads.
+    public Action? OnRequest { get; set; }
+
     public List<string> Requests { get; } = [];
 
     public Task<RegisterResult> RegisterAsync(ReadOnlyMemory<byte> payload, string? deployId, string? serverKind, CancellationToken cancellationToken) =>
@@ -291,6 +294,7 @@ internal sealed class FakeInngestApi : IInngestApi
             Requests.Add(request);
         }
 
+        OnRequest?.Invoke();
         await Task.Yield();
         if (Failure is not null)
         {

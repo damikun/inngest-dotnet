@@ -55,6 +55,9 @@ internal sealed class ExecutionEngine : IExecutionEngine
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Taken before the run's state is loaded, which can take a while: Inngest judges whether a checkpoint comes from a
+        // dispatch it has replaced by how long ago the call arrived.
+        var receivedAt = TimeProvider.GetUtcNow();
         JsonDocument document;
         try
         {
@@ -105,7 +108,7 @@ internal sealed class ExecutionEngine : IExecutionEngine
             Invocation invocation;
             try
             {
-                invocation = new Invocation(this, request, run, runUrl, cancellationToken);
+                invocation = new Invocation(this, request, run, runUrl, receivedAt, cancellationToken);
             }
             catch (Exception exception) when (exception is JsonException or NonRetriableException)
             {

@@ -75,8 +75,15 @@ internal sealed class Checkpointer : IDisposable
     }
 
     // As in inngest-js, only calls that discover steps checkpoint, and only when Inngest named the function and the
-    // queue item and lets steps run right away. The function's options win over the app's.
-    public static Checkpointer? Create(ICheckpointApi? api, InngestSettings settings, ExecutionRequest request, RunRequest run, TimeProvider time)
+    // queue item and lets steps run right away. The function's options win over the app's. receivedAt is when the call
+    // arrived, before its state was loaded.
+    public static Checkpointer? Create(
+        ICheckpointApi? api,
+        InngestSettings settings,
+        ExecutionRequest request,
+        RunRequest run,
+        DateTimeOffset receivedAt,
+        TimeProvider time)
     {
         if (api is null
             || (request.Function.Options.Checkpointing ?? settings.Checkpointing) is not { Enabled: true } options
@@ -87,7 +94,7 @@ internal sealed class Checkpointer : IDisposable
             return null;
         }
 
-        var call = new AsyncCheckpoint(run.RunId, functionId, queueItemId, request.RequestId, request.GenerationId, time.GetUtcNow(), default);
+        var call = new AsyncCheckpoint(run.RunId, functionId, queueItemId, request.RequestId, request.GenerationId, receivedAt, default);
         return new Checkpointer(
             (steps, cancellationToken) => api.CheckpointAsync(call with { Steps = steps }, cancellationToken),
             time,

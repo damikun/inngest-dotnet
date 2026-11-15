@@ -62,6 +62,19 @@ public sealed class CheckpointingTests : IDisposable
     }
 
     [Fact]
+    public async Task The_call_is_said_to_have_started_when_it_arrived_not_once_its_state_was_loaded()
+    {
+        var state = Call.New().Event("""{"data":{},"name":"test/event"}""");
+        _host.Api.Steps = state.StepsJson();
+        _host.Api.Events = state.EventsJson();
+        _host.Api.OnRequest = () => _host.Time.Advance(TimeSpan.FromSeconds(4));
+
+        await _host.CallCheckpointedAsync(Sequence("A"), state.UseApi());
+
+        _host.Checkpoints.Checkpoints.ShouldHaveSingleItem().RequestStartedAt.ShouldBe(EngineHost.Now);
+    }
+
+    [Fact]
     public async Task Ids_that_Inngest_did_not_send_are_left_out_of_the_checkpoint()
     {
         var request = Request(_host, Sequence("A"), Call.New()) with { RequestId = null, GenerationId = null };
