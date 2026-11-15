@@ -23,6 +23,10 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
     // The id the code fix of INNGEST026 gives the step, before it makes it unique in the method.
     internal const string StepIdProperty = "StepId";
 
+    // Set to TaskKind on an INNGEST023 about a task that is not a step's, which shares its id with the one about a step.
+    internal const string KindProperty = "Kind";
+    internal const string TaskKind = "Task";
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
         DiagnosticDescriptors.NondeterministicValue,
         DiagnosticDescriptors.DelayInFunction,
@@ -212,9 +216,16 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 return;
             }
 
-            var properties = StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation)
-                ? ImmutableDictionary<string, string?>.Empty.Add(StepCallAnalyzer.CanAwaitProperty, "true")
-                : ImmutableDictionary<string, string?>.Empty;
+            var properties = ImmutableDictionary<string, string?>.Empty;
+            if (StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation))
+            {
+                properties = properties.Add(StepCallAnalyzer.CanAwaitProperty, "true");
+            }
+
+            if (!step)
+            {
+                properties = properties.Add(KindProperty, TaskKind);
+            }
 
             context.ReportDiagnostic(step
                 ? Diagnostic.Create(DiagnosticDescriptors.BlockingOnStep, operation.Syntax.GetLocation(), properties, how, StepCalls.Describe(call))
