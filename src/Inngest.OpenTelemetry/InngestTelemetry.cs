@@ -66,7 +66,8 @@ internal sealed class InngestTelemetry : IDisposable
 
     public static Activity? StartCall(string slug, FunctionContext context)
     {
-        var activity = Source.StartActivity(CallSpan, ActivityKind.Internal);
+        var parent = ParentOf(context, out var links);
+        var activity = Source.StartActivity(CallSpan, ActivityKind.Internal, parent, links: links);
         if (activity is { IsAllDataRequested: true })
         {
             activity.SetTag(Attributes.FunctionSlug, slug);
@@ -76,7 +77,7 @@ internal sealed class InngestTelemetry : IDisposable
             activity.SetTag(Attributes.EventId, context.EventId);
 
             // Inngest's own ids of the function and the app come in the trace state it sends with every call, which
-            // the span inherits from the request's span, the same place the TypeScript SDK reads them from.
+            // the span inherits from its parent, the same place the TypeScript SDK reads them from.
             if (activity.TraceStateString is { Length: > 0 } traceState)
             {
                 activity.SetTag(Attributes.FunctionId, TraceStateValue(traceState, "inngest@fn="));
@@ -85,6 +86,29 @@ internal sealed class InngestTelemetry : IDisposable
         }
 
         return activity;
+    }
+
+    // The call continues the trace Inngest sent with it. ASP.NET Core's span for the request and the Connect worker's
+    // already do, and the call's span goes under them. AWS Lambda, Azure Functions and custom hosts start none, nor
+    // does ASP.NET Core when nothing asks it for one, so the span then takes the trace context from the request itself,
+    // as the TypeScript SDK always does. A host span of another trace, such as the invocation span of a Lambda wrapper,
+    // is linked from the call's span instead, so that the app's own trace still leads to the call.
+    private static ActivityContext ParentOf(FunctionContext context, out ActivityLink[]? links)
+    {
+        links = null;
+        var current = Activity.Current;
+        if (!ActivityContext.TryParse(context.TraceParent, context.TraceState, isRemote: true, out var parent)
+            || current?.TraceId == parent.TraceId)
+        {
+            return default;
+        }
+
+        if (current is not null)
+        {
+            links = [new ActivityLink(current.Context)];
+        }
+
+        return parent;
     }
 
     // Under the call's span when there is one, else under whatever is current.

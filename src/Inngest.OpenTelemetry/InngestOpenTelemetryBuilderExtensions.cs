@@ -13,6 +13,10 @@ public static class InngestOpenTelemetryBuilderExtensions
     /// executes, and metrics for runs, steps, retries and durations. Add it before other middleware so that their work
     /// falls inside its spans, and export it with AddInngestInstrumentation on the OpenTelemetry builders.
     /// </summary>
+    /// <remarks>
+    /// The span of a call continues the trace Inngest sent with it. A current span of another trace, such as a Lambda
+    /// wrapper's span for the invocation, gets a link from the call's span instead of being its parent.
+    /// </remarks>
     public static IInngestBuilder AddInstrumentation(this IInngestBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

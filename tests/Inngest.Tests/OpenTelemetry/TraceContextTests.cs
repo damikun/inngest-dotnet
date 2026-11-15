@@ -1,19 +1,24 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Text;
+using Amazon.Lambda.TestUtilities;
 using Google.Protobuf;
 using Inngest.Connect.Protocol;
+using Inngest.Tests.AwsLambda;
 using Inngest.Tests.Connect.Support;
 using Inngest.Tests.Execution;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Tests.OpenTelemetry;
 
 // A call continues the trace Inngest sent with it: over HTTP through ASP.NET Core's request span, which reads the
-// traceparent header, and over Connect through the worker's span for the request, which reads user_trace_ctx.
+// traceparent header, over Connect through the worker's span for the request, which reads user_trace_ctx, and on hosts
+// that start no span for the request straight from the request.
 public sealed class TraceContextTests
 {
     private const string TraceId = "0af7651916cd43dd8448eb211c80319c";
@@ -59,6 +64,75 @@ public sealed class TraceContextTests
         call.ParentSpanId.ShouldBe(server.SpanId);
         call.GetTagItem("sys.function.id").ShouldBe("2b6a2c8e-8752-56c4-bafe-1d61d4780711");
         call.GetTagItem("sys.app.id").ShouldBe("34ee71cf-d26b-5925-a750-eb95b9daf65f");
+    }
+
+    // Lambda starts no span for the request, so the call takes the trace context from the headers of the event.
+    [Fact]
+    public async Task On_aws_lambda_the_call_continues_the_trace_of_the_traceparent_header()
+    {
+        var spans = new ConcurrentQueue<Activity>();
+        using var listener = Listen(spans, runId: null, "inngest");
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services
+            .AddInngest(options =>
+            {
+                options.AppId = "shop";
+                options.IsDev = true;
+            })
+            .AddFunction(new FunctionOptions { Id = "fn", Triggers = [Trigger.Event("test/event")] }, static (_, _) => Task.FromResult<object?>("done"))
+            .AddInstrumentation();
+        await using var provider = services.BuildServiceProvider();
+        var handler = new InngestLambdaHandler(provider);
+        var request = LambdaEvents.HttpApi(
+            rawQueryString: "fnId=shop-fn&stepId=step",
+            headers: [("traceparent", $"00-{TraceId}-{ParentSpanId}-01"), ("tracestate", TraceState)],
+            body: Encoding.UTF8.GetString(Call.New().ToBytes()));
+
+        var response = await handler.HandleAsync(request, new TestLambdaContext());
+
+        response.StatusCode.ShouldBe(200);
+        var call = spans.Where(span => span.OperationName == "inngest.execution").ShouldHaveSingleItem();
+        call.HasRemoteParent.ShouldBeTrue();
+        call.ParentSpanId.ToHexString().ShouldBe(ParentSpanId);
+        call.TraceStateString.ShouldBe(TraceState);
+        call.GetTagItem("sys.function.id").ShouldBe("2b6a2c8e-8752-56c4-bafe-1d61d4780711");
+        call.GetTagItem("sys.app.id").ShouldBe("34ee71cf-d26b-5925-a750-eb95b9daf65f");
+    }
+
+    // A wrapper that instruments the invocation starts a span of its own trace, from which the app's collector reaches
+    // the call through the link.
+    [Fact]
+    public async Task On_aws_lambda_the_call_links_to_the_invocation_s_span_of_another_trace()
+    {
+        var spans = new ConcurrentQueue<Activity>();
+        using var listener = Listen(spans, runId: null, "inngest");
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services
+            .AddInngest(options =>
+            {
+                options.AppId = "shop";
+                options.IsDev = true;
+            })
+            .AddFunction(new FunctionOptions { Id = "fn", Triggers = [Trigger.Event("test/event")] }, static (_, _) => Task.FromResult<object?>("done"))
+            .AddInstrumentation();
+        await using var provider = services.BuildServiceProvider();
+        var handler = new InngestLambdaHandler(provider);
+        var request = LambdaEvents.HttpApi(
+            rawQueryString: "fnId=shop-fn&stepId=step",
+            headers: [("traceparent", $"00-{TraceId}-{ParentSpanId}-01"), ("tracestate", TraceState)],
+            body: Encoding.UTF8.GetString(Call.New().ToBytes()));
+        using var invocation = new Activity("lambda-invocation").Start();
+
+        var response = await handler.HandleAsync(request, new TestLambdaContext());
+
+        response.StatusCode.ShouldBe(200);
+        var call = spans.Where(span => span.OperationName == "inngest.execution").ShouldHaveSingleItem();
+        call.ParentSpanId.ToHexString().ShouldBe(ParentSpanId);
+        var link = call.Links.ShouldHaveSingleItem();
+        link.Context.TraceId.ShouldBe(invocation.TraceId);
+        link.Context.SpanId.ShouldBe(invocation.SpanId);
     }
 
     [Fact]

@@ -114,6 +114,8 @@ public sealed partial class InngestCommHandler
             Services = services,
             RequestId = NonEmpty(request.GetHeader(Headers.RequestId)),
             JobId = NonEmpty(request.GetHeader(Headers.JobId)),
+            TraceParent = NonEmpty(request.GetHeader(Headers.TraceParent)),
+            TraceState = NonEmpty(request.GetHeader(Headers.TraceState)),
             GenerationId = int.TryParse(request.GetHeader(Headers.GenerationId), NumberStyles.None, CultureInfo.InvariantCulture, out var generation)
                 ? generation
                 : null,

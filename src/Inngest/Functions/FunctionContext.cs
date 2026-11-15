@@ -110,6 +110,12 @@ public abstract class FunctionContext
     // when the context was not created by the engine.
     internal IReadOnlyList<InngestMiddleware>? Middleware { get; init; }
 
+    // The traceparent and tracestate Inngest sent with the call, which the call's span continues on hosts that start no
+    // span for the request. Null when Inngest sent none.
+    internal string? TraceParent { get; init; }
+
+    internal string? TraceState { get; init; }
+
     // Whether the call's middleware encrypts payloads, so that what it cannot cover is not sent in plain text.
     internal bool EncryptsPayloads => Middleware?.Any(static middleware => middleware is Middleware.IEncryptingMiddleware) == true;
 }

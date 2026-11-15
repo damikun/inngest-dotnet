@@ -200,6 +200,12 @@ A sync tells Inngest which functions the app has. Inngest starts one by sending 
   `ServeOrigin` (or `INNGEST_SERVE_ORIGIN`) or limit `AllowedHosts`; the SDK logs a warning when an unsigned sync
   takes the URL from the request. `AllowUnsignedSync = false` turns unsigned syncs off in cloud mode.
 
+When Inngest refuses an out-of-band sync, for example because a function's configuration is invalid, the SDK answers
+the `PUT` with 400 and Inngest's reason as `message`, so the dev server shows the reason instead of an internal error.
+A 400 is the only status whose reason the dev server reads, so when Inngest refused with another one, such as 404 or
+413, the message starts with it: `Inngest answered 404: ...`. When Inngest cannot be reached or fails itself, the
+answer is a 500. In cloud mode, a caller whose request is not signed only learns that the sync failed, with a 500.
+
 See [apps and syncs](https://www.inngest.com/docs/platform-and-operations/apps-and-syncs) in the Inngest docs.
 
 ## Self-hosted Inngest

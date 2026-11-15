@@ -61,6 +61,21 @@ public sealed class CallTests
         call.GenerationId.ShouldBe(3);
     }
 
+    // The call's span continues them on hosts that start no span for the request, such as AWS Lambda.
+    [Fact]
+    public async Task The_engine_gets_the_trace_context_of_the_call()
+    {
+        var request = Call("?fnId=shop-send-email&stepId=step")
+            .WithHeader("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+            .WithHeader("tracestate", "inngest@traceref=abc");
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, request);
+
+        var call = _harness.Engine.Calls.ShouldHaveSingleItem();
+        call.TraceParent.ShouldBe("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
+        call.TraceState.ShouldBe("inngest@traceref=abc");
+    }
+
     [Fact]
     public async Task Missing_or_unreadable_ids_reach_the_engine_as_null()
     {

@@ -20,6 +20,7 @@ internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : Fou
     private static readonly JsonEncodedText PayloadProperty = JsonEncodedText.Encode("payload");
     private static readonly JsonEncodedText DataProperty = JsonEncodedText.Encode("data");
     private static readonly JsonEncodedText UserProperty = JsonEncodedText.Encode("user");
+    private static readonly JsonEncodedText VersionProperty = JsonEncodedText.Encode("v");
     private static readonly JsonEncodedText TimeoutProperty = JsonEncodedText.Encode("timeout");
 
     public override StepType Type => StepType.Invoke;
@@ -35,6 +36,11 @@ internal sealed class InvokeStep<TResult>(string id, InvokeOptions invoke) : Fou
         writer.WriteStartObject(PayloadProperty);
         WriteValue(writer, DataProperty, invoke.Data, settings.SerializerOptions);
         WriteValue(writer, UserProperty, invoke.User, settings.SerializerOptions);
+        if (!string.IsNullOrEmpty(invoke.Version))
+        {
+            writer.WriteString(VersionProperty, invoke.Version);
+        }
+
         var meta = settings.SessionPropagation ? EventSessions.Inherit(invoke.Meta, Owner.Context.Sessions) : invoke.Meta;
         EventSessions.WriteMeta(writer, meta, $"invoke step \"{Id}\"");
         writer.WriteEndObject();

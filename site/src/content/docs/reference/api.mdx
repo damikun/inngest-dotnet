@@ -187,7 +187,7 @@ the `TService` that the SDK resolves from the step's scope with `GetRequiredServ
 |---|---|---|
 | `StepOptions` | `(string Id)` | `Name`, shown in the Inngest UI; `ParallelMode`, for this step instead of the mode of an enclosing `ParallelAsync`. A `string` converts to it implicitly. |
 | `WaitForEventOptions` | `(string Event, TimeSpan Timeout)` | `Match`, `If` |
-| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Timeout`, `Meta`, the sessions of the invoked run |
+| `InvokeOptions` | `(string FunctionId)` | `AppId`, `Data`, `User`, `Version`, the version of the invoked run's event; `Timeout`; `Meta`, the sessions of the invoked run |
 | `WaitForSignalOptions` | `(string Signal, TimeSpan Timeout)` | `OnConflict`: `SignalConflict.Fail`, the default, fails the run when another run already waits for the signal; `Replace` takes the signal over |
 | `InngestSignal` | `(string Name, object? Data = null)` | A signal to send. |
 | `InngestSignal<TData>` | `(string Name, TData Data)` | A signal as the waiting run receives it. |
@@ -579,8 +579,11 @@ function's id from the trace state Inngest sent with the call, `sdk.run.id`, and
 - No OpenTelemetry SDK is needed for this: the package listens to the activities itself. The spans of a run are
   recorded even where the app's own sampler would drop them, and other spans are left alone. An app that exports to its
   own collector as well gets the same spans there, with the attributes above.
-- A call continues the trace Inngest sent with it through the host's span for the request, which ASP.NET Core starts
-  from the `traceparent` and `tracestate` headers, and the Connect worker from its request. A call without Inngest's
+- A call continues the trace Inngest sent with it: under the host's span for the request, which ASP.NET Core starts
+  from the `traceparent` and `tracestate` headers and the Connect worker from its request, and otherwise straight from
+  those headers, as on AWS Lambda and Azure Functions. A host span of another trace, such as the invocation span of an
+  OpenTelemetry Lambda wrapper, does not become the call's parent but gets a link from it, so the app's own trace in
+  its collector still leads to the call; this holds with `AddInstrumentation()` alone too. A call without Inngest's
   trace state sends nothing.
 - Once a step has run in a call, spans outside a step are left out, as the TypeScript SDK does, since they are the SDK's
   own work between checkpointed steps. A span that has not ended when the call ends, such as one around a step that the

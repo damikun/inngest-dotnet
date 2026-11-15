@@ -110,6 +110,19 @@ public sealed class SyncBodyTests
             """[{"event":"order/created","expression":"event.data.plan == 'pro' && event.data.total > 100"}]""");
     }
 
+    // As in the TypeScript SDK, which leaves out the trigger its invoke() helper adds. The registry refuses such a
+    // function, so the writer is given one directly.
+    [Fact]
+    public void Leaves_out_a_trigger_on_the_invoke_event()
+    {
+        var options = Orders with { Triggers = [Trigger.Event(SystemEvents.FunctionInvoked), Trigger.Event("order/created")] };
+        using var writer = new PooledBufferWriter();
+
+        RegistrationWriter.Write(writer, Settings(), [RegisteredFunction.Create(Define(options), AppId)], new Uri(DefaultServeUrl), "aspnetcore", deployType: null);
+
+        RawProperty(FunctionElement(Encoding.UTF8.GetString(writer.WrittenSpan), 0), "triggers").ShouldBe("""[{"event":"order/created"}]""");
+    }
+
     [Fact]
     public void Writes_the_same_body_on_every_sync()
     {

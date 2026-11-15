@@ -47,6 +47,9 @@ internal static class Frames
         return frame;
     }
 
+    // The size of the frame Create makes for a payload of the given size.
+    public static long SizeOf(GatewayMessageType kind, int payloadSize) => KindSize(kind) + (long)PayloadSize(payloadSize);
+
     // Accepts the fields in any order and skips unknown ones, as a protobuf parser must. A message without a kind is
     // GATEWAY_HELLO, whose encoding is zero bytes.
     public static bool TryRead(ReadOnlySpan<byte> frame, out GatewayMessageType kind, out ReadOnlySpan<byte> payload)

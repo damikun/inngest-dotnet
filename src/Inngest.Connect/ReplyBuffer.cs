@@ -12,7 +12,9 @@ namespace Inngest.Connect;
 
 // Replies from the moment they are sent until the gateway acknowledges them. A reply that is not acknowledged within
 // five seconds, or that finds no connection to go out on, is posted to Inngest over HTTP instead, one at a time, by a
-// single flush loop.
+// single flush loop. The loop keeps trying, with backoff, until Inngest takes or refuses each reply: the worker has
+// already let the request's lease go, so Inngest would otherwise run the step again once the lease runs out. Only
+// when the worker stops does it give up, after a few rounds.
 //
 // A reply has one owner at a time: the pending table while it waits for its acknowledgement, whoever takes it out
 // of the table after that, and the flush queue once it is there.
@@ -29,10 +31,17 @@ internal sealed class ReplyBuffer
     private readonly Channel<bool> _flushRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
 
+    // Requests to end a backoff early, which only a new connection and the worker stopping make. A reply buffered
+    // during a backoff waits for the next round: trying again at the rate replies come in would only add to the load
+    // on an Inngest that is already failing.
+    private readonly Channel<bool> _retryRequests = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
+
     private readonly ConnectApi _api;
     private readonly Func<SigningKey?> _currentKey;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    private bool _stopping;
 
     public ReplyBuffer(ConnectApi api, Func<SigningKey?> currentKey, TimeProvider time, ILogger logger)
     {
@@ -93,7 +102,7 @@ internal sealed class ReplyBuffer
     public void Buffer(Reply reply)
     {
         _unacknowledged.Enqueue(reply);
-        RequestFlush();
+        _flushRequests.Writer.TryWrite(true);
     }
 
     // Replies still waiting for an acknowledgement when the last connection has closed can only go over HTTP.
@@ -108,7 +117,12 @@ internal sealed class ReplyBuffer
         }
     }
 
-    public void RequestFlush() => _flushRequests.Writer.TryWrite(true);
+    // For a new connection, a sign that Inngest can be reached again: a flush waiting out its backoff tries again at once.
+    public void FlushNow()
+    {
+        _flushRequests.Writer.TryWrite(true);
+        _retryRequests.Writer.TryWrite(true);
+    }
 
     // Flushes whenever asked to until Complete, then flushes once more and returns.
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -117,7 +131,9 @@ internal sealed class ReplyBuffer
         {
             while (await _flushRequests.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                // This flush answers the requests made so far, so an earlier connection does not cut its backoff short.
                 _flushRequests.Reader.TryRead(out _);
+                _retryRequests.Reader.TryRead(out _);
                 await FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
@@ -137,7 +153,8 @@ internal sealed class ReplyBuffer
 
     public void Complete()
     {
-        RequestFlush();
+        Volatile.Write(ref _stopping, true);
+        FlushNow();
         _flushRequests.Writer.TryComplete();
     }
 
@@ -147,15 +164,42 @@ internal sealed class ReplyBuffer
     {
         for (var round = 1; !await TryFlushAllAsync(cancellationToken).ConfigureAwait(false); round++)
         {
-            if (round == MaxFlushRounds)
+            if (round >= MaxFlushRounds && Volatile.Read(ref _stopping))
             {
-                // They stay queued for the next flush, which the next connection triggers.
-                Log.FlushGaveUp(_logger, _unacknowledged.Count, MaxFlushRounds);
+                Log.FlushGaveUp(_logger, _unacknowledged.Count, round);
                 return;
             }
 
-            await Task.Delay(Backoff.AfterFailures(round), _time, cancellationToken).ConfigureAwait(false);
+            if (round == MaxFlushRounds)
+            {
+                Log.FlushStillFailing(_logger, _unacknowledged.Count, round);
+            }
+
+            await WaitToRetryAsync(Backoff.AfterFailures(round), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // Waits out the backoff, but only until a new connection or the worker stopping, each a reason to try again at once.
+    // Once the worker is stopping, the rounds left wait in full.
+    private async Task WaitToRetryAsync(TimeSpan backoff, CancellationToken cancellationToken)
+    {
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var delay = Task.Delay(backoff, _time, wait.Token);
+        if (Volatile.Read(ref _stopping))
+        {
+            await delay.ConfigureAwait(false);
+        }
+        else
+        {
+            var retry = _retryRequests.Reader.WaitToReadAsync(wait.Token).AsTask();
+            await Task.WhenAny(delay, retry).ConfigureAwait(false);
+            await wait.CancelAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        // The next round covers the replies buffered so far and any request to flush, the last one Complete asks for too.
+        _flushRequests.Reader.TryRead(out _);
+        _retryRequests.Reader.TryRead(out _);
     }
 
     // Returns false at the first reply that does not get through, which stays first in line for the next round. A reply

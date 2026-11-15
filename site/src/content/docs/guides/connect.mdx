@@ -88,7 +88,13 @@ Once connected, the worker:
 
 - receives each call as a message, acknowledges it and runs it through the same execution engine as an HTTP call,
   so functions behave the same either way;
+- fails a call without retries when its answer is larger than 8 MiB, the most the gateway reads in one message, as
+  Inngest fails an answer that large over HTTP (`output_too_large`); keep large data outside the run and return a
+  reference to it;
 - extends the call's lease while it runs, so Inngest does not hand it to another worker;
+- sends an answer that the gateway does not acknowledge within five seconds, or that finds no connection, to Inngest
+  over HTTP instead, and keeps trying with backoff, up to five minutes apart, until Inngest takes it; only a worker
+  that is stopping gives up on it, after a few attempts;
 - sends heartbeats, and reconnects with backoff, from one second up to five minutes, when the connection drops;
 - opens a new connection before closing the old one when Inngest drains a gateway;
 - switches to the fallback signing key when Inngest refuses the current one.

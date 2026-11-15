@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Globalization;
 using Google.Protobuf;
 using Inngest.Connect.Protocol;
 using Inngest.Errors;
@@ -13,6 +14,10 @@ namespace Inngest.Connect;
 // The executions the gateway sends: acknowledging and running them, extending their leases and replying.
 internal sealed partial class ConnectWorker
 {
+    // The gateway reads at most this much in one message and closes the connection on a larger one, which loses the
+    // acknowledgements and lease extensions queued behind it too. It is Inngest's limit on a response over HTTP as well.
+    private const long MaxReplyFrameBytes = 8 * 1024 * 1024;
+
     private void OnExecutorRequest(GatewayConnection connection, GatewayExecutorRequestData data)
     {
         Log.RequestReceived(_logger, data.RequestId, data.FunctionSlug, data.RunId);
@@ -105,7 +110,7 @@ internal sealed partial class ConnectWorker
             // connection only after the reply.
             if (reply is not null)
             {
-                SendReply(reply);
+                SendReply(FitForGateway(data, reply));
             }
         }
         finally
@@ -117,7 +122,8 @@ internal sealed partial class ConnectWorker
 
     private async Task<Reply> ExecuteAsync(GatewayExecutorRequestData data, CancellationToken cancellationToken)
     {
-        using var activity = ConnectTelemetry.StartRequest(data);
+        var (traceParent, traceState) = ConnectTelemetry.TraceContextOf(data.UserTraceCtx.Span);
+        using var activity = ConnectTelemetry.StartRequest(data, traceParent, traceState);
         if (!_registry.TryGet(data.FunctionSlug, out var function))
         {
             Log.FunctionNotFound(_logger, data.FunctionSlug);
@@ -138,6 +144,8 @@ internal sealed partial class ConnectWorker
                 Services = scope.ServiceProvider,
                 RequestId = data.RequestId.Length > 0 ? data.RequestId : null,
                 JobId = data.JobId.Length > 0 ? data.JobId : null,
+                TraceParent = traceParent,
+                TraceState = traceState,
                 DefaultCheckpointMaxRuntime = Checkpointer.ConnectMaxRuntime,
             };
 
@@ -261,6 +269,32 @@ internal sealed partial class ConnectWorker
         {
             _replies.Unsent(reply);
         }
+    }
+
+    // Over HTTP, Inngest fails a response over its limit (output_too_large). Here it never goes out, and the call fails
+    // without retries instead, as a step whose output is too large does, since the function would answer the same again.
+    private Reply FitForGateway(GatewayExecutorRequestData data, Reply reply)
+    {
+        var size = Frames.SizeOf(GatewayMessageType.WorkerReply, reply.Bytes.Length);
+        if (size <= MaxReplyFrameBytes)
+        {
+            return reply;
+        }
+
+        reply.Dispose();
+        Log.ReplyTooLarge(_logger, data.RequestId, data.FunctionSlug, size);
+        var mebibytes = (size / 1024.0 / 1024.0).ToString("0.0", CultureInfo.InvariantCulture);
+        var exception = new NonRetriableException(
+            $"Function \"{data.FunctionSlug}\" answered Inngest with {mebibytes} MiB, more than the 8 MiB Inngest accepts in one answer. " +
+            "Keep large data outside the run and return a reference to it.");
+
+        using var body = new PooledBufferWriter();
+        using (var writer = WireWriter.Create(body, _settings.SerializerOptions))
+        {
+            ErrorSerializer.Write(writer, exception);
+        }
+
+        return CreateReply(data, 400, body.WrittenMemory, noRetry: true, retryAfter: null);
     }
 
     private Reply ErrorReply(GatewayExecutorRequestData data, Exception exception)

@@ -18,7 +18,11 @@ public static class SystemEvents
     /// <summary>A run was cancelled. The data is FunctionCancelled.</summary>
     public const string FunctionCancelled = "inngest/function.cancelled";
 
-    /// <summary>What an invoked function receives as its event.</summary>
+    /// <summary>
+    /// The name of the event an invoked function receives. It is not a trigger: Inngest would start a function
+    /// triggered by it on every invoke of any function in the environment, so startup refuses one. A function that only
+    /// runs when it is invoked has Triggers = [].
+    /// </summary>
     public const string FunctionInvoked = "inngest/function.invoked";
 
     /// <summary>What a function receives as its event when its cron schedule fires.</summary>

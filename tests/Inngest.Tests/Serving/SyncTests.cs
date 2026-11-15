@@ -38,17 +38,53 @@ public sealed class SyncTests
         _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Debug);
     }
 
-    [Fact]
-    public async Task A_rejected_sync_answers_500_with_the_error()
+    // The dev server reads the reason only from a 400 (pkg/deploy/deploy.go). It takes a 401, 403 or 404 for a problem
+    // with the app's URL and any status but 400 and 500 for success, so every refusal is answered with a 400.
+    [Theory]
+    [InlineData(400, "At least one function is invalid")]
+    [InlineData(401, "Inngest answered 401: At least one function is invalid")]
+    [InlineData(403, "Inngest answered 403: At least one function is invalid")]
+    [InlineData(404, "Inngest answered 404: At least one function is invalid")]
+    [InlineData(413, "Inngest answered 413: At least one function is invalid")]
+    [InlineData(422, "Inngest answered 422: At least one function is invalid")]
+    [InlineData(429, "Inngest answered 429: At least one function is invalid")]
+    public async Task A_sync_Inngest_refuses_answers_400_with_the_reason(int status, string message)
     {
-        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: true, Error: "App ID required");
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: true, Error: "At least one function is invalid");
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
+
+        response.StatusCode.ShouldBe(400);
+        response.BodyText().ShouldBe($$"""{"message":"{{message}}","modified":false}""");
+        response.Header("X-Inngest-Sync-Kind").ShouldBe("out_of_band");
+        _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task A_signed_sync_in_cloud_mode_learns_why_Inngest_refused_it()
+    {
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: false, Error: "At least one function is invalid");
+        var request = _harness.Sign(new FakeServeRequest("PUT", body: """{"url":"http://localhost:3000/api/inngest"}"""), CommHandlerHarness.PrimaryKey);
+
+        using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, request);
+
+        response.StatusCode.ShouldBe(400);
+        response.BodyText().ShouldBe("""{"message":"At least one function is invalid","modified":false}""");
+        _harness.IsSignedWith(response, CommHandlerHarness.PrimaryKey).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(502)]
+    [InlineData(503)]
+    public async Task A_sync_that_fails_on_Inngest_s_side_answers_500(int status)
+    {
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: false, Error: "Error upserting app");
 
         using var response = await _harness.SendAsync(CommHandlerHarness.DevSettings, new FakeServeRequest("PUT"));
 
         response.StatusCode.ShouldBe(500);
-        response.BodyText().ShouldBe("""{"message":"App ID required","modified":false}""");
-        response.Header("X-Inngest-Sync-Kind").ShouldBe("out_of_band");
-        _harness.Logger.LatestRecord.Level.ShouldBe(LogLevel.Error);
+        response.BodyText().ShouldBe("""{"message":"Error upserting app","modified":false}""");
     }
 
     [Fact]
@@ -237,10 +273,13 @@ public sealed class SyncTests
         _harness.Api.RegisterToken.CanBeCanceled.ShouldBeFalse();
     }
 
-    [Fact]
-    public async Task An_unsigned_caller_is_not_told_why_a_sync_failed()
+    [Theory]
+    [InlineData(400)]
+    [InlineData(401)]
+    [InlineData(502)]
+    public async Task An_unsigned_caller_is_not_told_why_a_sync_failed(int status)
     {
-        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: 400, Modified: false, Error: "Invalid function config for shop-checkout");
+        _harness.Api.Result = new RegisterResult(Success: false, StatusCode: status, Modified: false, Error: "Invalid function config for shop-checkout");
 
         using var response = await _harness.SendAsync(CommHandlerHarness.CloudSettings, new FakeServeRequest("PUT"));
 

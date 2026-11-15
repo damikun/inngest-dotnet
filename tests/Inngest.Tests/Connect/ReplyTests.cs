@@ -109,6 +109,136 @@ public sealed class ReplyTests : IAsyncLifetime
         worker.LogsWithId(523).ShouldHaveSingleItem().Message.ShouldContain("503");
     }
 
+    // The request's lease is no longer extended, so Inngest would run the step again once it runs out. Nothing else may
+    // come along to start another flush while the connection stays up.
+    [Fact]
+    public async Task Keeps_trying_a_failed_flush_with_backoff_while_the_worker_runs()
+    {
+        var attempts = 0;
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = _ => Interlocked.Increment(ref attempts) <= 7 ? HttpStatusCode.ServiceUnavailable : null;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+
+        var backoff = worker.Time.NextTimerAsync(TimeSpan.FromSeconds(1));
+        worker.Time.Advance(Deadline);
+        await backoff;
+        TimeSpan[] backoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1)];
+        for (var i = 0; i < backoffs.Length - 1; i++)
+        {
+            backoff = worker.Time.NextTimerAsync(backoffs[i + 1]);
+            worker.Time.Advance(backoffs[i]);
+            await backoff;
+        }
+
+        worker.Time.Advance(backoffs[^1]);
+
+        for (var i = 0; i < 7; i++)
+        {
+            (await _gateway.NextFlushAsync()).Status.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        }
+
+        var flushed = await _gateway.NextFlushAsync();
+        flushed.Status.ShouldBe(HttpStatusCode.OK);
+        flushed.Reply.RequestId.ShouldBe("req-1");
+        worker.LogsWithId(528).ShouldHaveSingleItem();
+        worker.LogsWithId(524).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_new_connection_ends_the_wait_before_the_next_flush()
+    {
+        var attempts = 0;
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = _ => Interlocked.Increment(ref attempts) <= 5 ? HttpStatusCode.ServiceUnavailable : null;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+        var longWait = worker.Time.NextTimerAsync(TimeSpan.FromSeconds(20));
+        worker.Time.Advance(Deadline);
+        await worker.AdvanceUntilAsync(() => longWait.IsCompleted, TimeSpan.FromSeconds(1));
+        await longWait;
+
+        session.Abort();
+        await _gateway.NextReadySessionAsync();
+
+        for (var i = 0; i < 5; i++)
+        {
+            (await _gateway.NextFlushAsync()).Status.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        }
+
+        var flushed = await _gateway.NextFlushAsync();
+        flushed.Status.ShouldBe(HttpStatusCode.OK);
+        flushed.Reply.RequestId.ShouldBe("req-1");
+    }
+
+    // Trying again for every reply that comes in would only add to the load on an Inngest that is failing.
+    [Fact]
+    public async Task A_reply_buffered_during_a_backoff_waits_for_the_next_round()
+    {
+        var attempts = 0;
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = _ => Interlocked.Increment(ref attempts) <= 4 ? HttpStatusCode.ServiceUnavailable : null;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+
+        var backoff = worker.Time.NextTimerAsync(TimeSpan.FromSeconds(1));
+        worker.Time.Advance(Deadline);
+        await backoff;
+        TimeSpan[] backoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
+        for (var i = 0; i < backoffs.Length - 1; i++)
+        {
+            backoff = worker.Time.NextTimerAsync(backoffs[i + 1]);
+            worker.Time.Advance(backoffs[i]);
+            await backoff;
+        }
+
+        for (var i = 0; i < 4; i++)
+        {
+            (await _gateway.NextFlushAsync()).Status.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        }
+
+        // Five seconds into the ten-second backoff, the reply to req-2 is not acknowledged either.
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-2"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+        worker.Time.Advance(Deadline);
+        await Poll.UntilAsync(() => worker.LogsWithId(521).Any(record => record.Message.Contains("req-2")));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        _gateway.TryTakeFlush(out _).ShouldBeFalse();
+
+        worker.Time.Advance(TimeSpan.FromSeconds(5));
+
+        (await _gateway.NextFlushAsync()).Reply.RequestId.ShouldBe("req-1");
+        var next = await _gateway.NextFlushAsync();
+        next.Reply.RequestId.ShouldBe("req-2");
+        next.Status.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_worker_that_stops_gives_up_on_replies_Inngest_does_not_take()
+    {
+        _gateway.AcknowledgeReplies = false;
+        _gateway.FlushStatus = _ => HttpStatusCode.ServiceUnavailable;
+        await using var worker = new WorkerHost(_gateway);
+        var session = await ConnectAsync(worker);
+        await session.SendAsync(GatewayMessageType.GatewayExecutorRequest, GatewayMessages.Request("req-1"));
+        await session.NextAsync(GatewayMessageType.WorkerReply);
+        worker.Time.Advance(Deadline);
+        await worker.AdvanceUntilAsync(() => worker.LogsWithId(528).Count == 1, TimeSpan.FromSeconds(1));
+
+        var stopping = worker.StopAsync(TestContext.Current.CancellationToken);
+        await worker.AdvanceUntilAsync(() => stopping.IsCompleted, TimeSpan.FromSeconds(1));
+        await stopping;
+
+        worker.LogsWithId(524).ShouldHaveSingleItem();
+        worker.LogsWithId(525).ShouldHaveSingleItem().Message.ShouldContain("req-1");
+    }
+
     [Fact]
     public async Task A_reply_that_finds_no_connection_goes_over_http_at_once()
     {

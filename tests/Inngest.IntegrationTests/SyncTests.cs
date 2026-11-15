@@ -119,6 +119,22 @@ public sealed class SyncTests(DevServerFixture fixture) : IntegrationTest<DevSer
             """);
     }
 
+    // The dev server refuses a register call that expects another kind of server, and shows the reason it gives when
+    // the app answers its sync with a 400.
+    [Fact(Timeout = 30_000)]
+    public async Task A_sync_the_server_refuses_is_answered_with_400_and_its_reason()
+    {
+        using var http = new HttpClient();
+        using var sync = new HttpRequestMessage(HttpMethod.Put, Fixture.App.LocalUrl);
+        sync.Headers.Host = Fixture.App.ServerFacingUrl.Authority;
+        sync.Headers.Add("X-Inngest-Server-Kind", "cloud");
+
+        using var response = await http.SendAsync(sync, Cancellation);
+
+        ((int)response.StatusCode).ShouldBe(400);
+        (await response.Content.ReadAsStringAsync(Cancellation)).ShouldBe("""{"message":"Expected server kind dev, got cloud","modified":false}""");
+    }
+
     private async Task<Dictionary<string, RegisteredFunction>> FunctionsAsync() =>
         (await Api.GetAppFunctionsAsync(TestFunctions.AppId, Cancellation)).ToDictionary(function => function.Slug);
 }

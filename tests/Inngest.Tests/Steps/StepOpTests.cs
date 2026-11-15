@@ -102,6 +102,20 @@ public sealed class StepOpTests : IDisposable
             """{"function_id":"billing-child-fn","payload":{"data":{"amount":5},"user":{"id":"u1"}}}""");
     }
 
+    // Inngest keeps v in the inngest/function.invoked event of the invoked run, as it does for the TypeScript SDK.
+    [Fact]
+    public async Task Invoke_sends_the_event_version()
+    {
+        var result = await Report(step => step.InvokeAsync<int>("invoke-child", new InvokeOptions("child-fn")
+        {
+            Data = new { x = 1 },
+            Version = "2024-06-01",
+        }));
+
+        result.Op().GetProperty("opts").GetRawText().ShouldBe(
+            """{"function_id":"test-app-child-fn","payload":{"data":{"x":1},"v":"2024-06-01"}}""");
+    }
+
     [Fact]
     public async Task Invoke_without_data_sends_an_empty_payload()
     {

@@ -111,6 +111,48 @@ public sealed class ExtendedTracesTests
         charge.Attributes.ShouldNotContainKey("inngest.step.parentSpanId");
     }
 
+    // AWS Lambda, Azure Functions and custom hosts start no span for the request, nor does ASP.NET Core when nothing
+    // asks it for one, as for the first call after the app starts.
+    [Fact]
+    public async Task A_call_without_a_span_for_the_request_continues_the_trace_Inngest_sent()
+    {
+        await using var host = new Host();
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("charge", () => 42));
+
+        (await host.CallAsync(function, TraceState, requestSpan: false)).ShouldBe(206);
+
+        using var json = JsonDocument.Parse(host.Http.Single.Body);
+        var call = Spans(json.RootElement)["inngest.execution"];
+        call.Span.GetProperty("traceId").GetString().ShouldBe(host.TraceId);
+        call.Span.GetProperty("parentSpanId").GetString().ShouldBe(ExecutorSpanId);
+        call.Attributes["inngest.traceref"].ShouldBe(TraceRef);
+        call.Attributes["inngest.traceparent"].ShouldBe($"00-{host.TraceId}-{ExecutorSpanId}-01");
+        call.Attributes["sys.function.id"].ShouldBe(FunctionId);
+        call.Attributes["sys.app.id"].ShouldBe(AppId);
+        call.Span.GetProperty("links").GetArrayLength().ShouldBe(0);
+    }
+
+    // Such as the span of a wrapper that instruments the Lambda invocation itself. The link keeps the call in reach from
+    // the app's own trace, which its collector shows.
+    [Fact]
+    public async Task A_call_under_a_span_of_another_trace_continues_the_trace_Inngest_sent()
+    {
+        await using var host = new Host();
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("charge", () => 42));
+        using var invocation = new Activity("lambda-invocation").Start();
+
+        (await host.CallAsync(function, TraceState, requestSpan: false)).ShouldBe(206);
+
+        using var json = JsonDocument.Parse(host.Http.Single.Body);
+        var call = Spans(json.RootElement)["inngest.execution"];
+        call.Span.GetProperty("traceId").GetString().ShouldBe(host.TraceId);
+        call.Span.GetProperty("parentSpanId").GetString().ShouldBe(ExecutorSpanId);
+        call.Attributes["sys.function.id"].ShouldBe(FunctionId);
+        var link = call.Span.GetProperty("links").EnumerateArray().ShouldHaveSingleItem();
+        link.GetProperty("traceId").GetString().ShouldBe(invocation.TraceId.ToHexString());
+        link.GetProperty("spanId").GetString().ShouldBe(invocation.SpanId.ToHexString());
+    }
+
     [Fact]
     public async Task A_call_without_Inngest_s_trace_reference_sends_nothing()
     {
@@ -220,13 +262,18 @@ public sealed class ExtendedTracesTests
         // A trace of its own, so that the listeners of other tests leave its spans alone.
         public string TraceId { get; } = ActivityTraceId.CreateRandom().ToHexString();
 
-        // Calls the function under a span for the request that continues Inngest's trace, as ASP.NET Core starts one.
-        public async Task<int> CallAsync(FunctionDefinition function, string? traceState)
+        // Calls the function with Inngest's trace context, under a span for the request that continues it, as ASP.NET
+        // Core starts one, or without one, as on AWS Lambda.
+        public async Task<int> CallAsync(FunctionDefinition function, string? traceState, bool requestSpan = true)
         {
-            using var request = new Activity("POST /api/inngest");
-            request.SetParentId(ActivityTraceId.CreateFromString(TraceId), ActivitySpanId.CreateFromString(ExecutorSpanId), ActivityTraceFlags.Recorded);
-            request.TraceStateString = traceState;
-            request.Start();
+            var traceParent = $"00-{TraceId}-{ExecutorSpanId}-01";
+            using var request = requestSpan ? new Activity("POST /api/inngest") : null;
+            if (request is not null)
+            {
+                request.SetParentId(ActivityTraceId.CreateFromString(TraceId), ActivitySpanId.CreateFromString(ExecutorSpanId), ActivityTraceFlags.Recorded);
+                request.TraceStateString = traceState;
+                request.Start();
+            }
 
             var body = Encoding.UTF8.GetString(Call.New().ToBytes()).Replace("\"run_id\":\"01JRUN\"", $"\"run_id\":\"{RunId}\"", StringComparison.Ordinal);
             var scope = _provider.CreateAsyncScope();
@@ -239,6 +286,8 @@ public sealed class ExtendedTracesTests
                         Body = Encoding.UTF8.GetBytes(body),
                         StepId = "step",
                         Services = scope.ServiceProvider,
+                        TraceParent = traceParent,
+                        TraceState = traceState,
                     },
                     TestContext.Current.CancellationToken);
                 return result.StatusCode;

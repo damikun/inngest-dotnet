@@ -73,6 +73,15 @@ internal static class FunctionOptionsValidator
                 case EventTrigger { Event: var name } when string.IsNullOrWhiteSpace(name):
                     problems.Add(options, "An event trigger needs an event name.");
                     break;
+
+                // Inngest starts every function triggered by the invoke event on every invoke, besides the function
+                // invoked, and the parent gets whichever result comes first.
+                case EventTrigger { Event: SystemEvents.FunctionInvoked }:
+                    problems.Add(
+                        options,
+                        $"A trigger on \"{SystemEvents.FunctionInvoked}\" would run the function for every invoke of any function in the environment. " +
+                        "Use Triggers = [] for a function that only runs when it is invoked.");
+                    break;
                 case CronTrigger { Schedule: var schedule } when string.IsNullOrWhiteSpace(schedule):
                     problems.Add(options, "A cron trigger needs a schedule.");
                     break;

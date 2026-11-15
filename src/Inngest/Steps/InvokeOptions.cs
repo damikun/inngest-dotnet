@@ -14,6 +14,11 @@ public sealed record InvokeOptions(string FunctionId)
 
     public object? User { get; init; }
 
+    /// <summary>
+    /// The version of the invoked run's event, which the invoked function reads as Event.Version. Null sends none.
+    /// </summary>
+    public string? Version { get; init; }
+
     /// <summary>How long to wait for the invoked function to finish before the step fails.</summary>
     public TimeSpan? Timeout { get; init; }
 
