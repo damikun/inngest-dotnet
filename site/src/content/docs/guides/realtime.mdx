@@ -65,6 +65,9 @@ The request lasts as long as the text takes to arrive, so the `HttpClient`'s tim
 the cancellation token does. It is sent only once, because sending it again would read the chunks again: a handler
 that tries, such as a retry policy, fails the publish instead.
 
+An exception the chunks throw reaches the caller as it is, not as a failure to reach Inngest, so a model that gives up
+with a `NonRetriableException` fails the step without retries.
+
 ## Publishing from anywhere
 
 `IInngestRealtime`, which `AddInngest` registers, publishes at once from anywhere, such as a controller or a

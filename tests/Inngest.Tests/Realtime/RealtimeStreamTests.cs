@@ -197,6 +197,40 @@ public sealed class RealtimeStreamTests
         api.Published.ShouldBe([(Tokens, (string?)"01JRUN", "Hello world")]);
     }
 
+    // The producer, such as a model, failed and not the request, so its exception is the caller's to catch.
+    [Fact]
+    public async Task What_the_producer_throws_reaches_the_caller_as_it_is()
+    {
+        var handler = new FakeHttpHandler().RespondAlways(HttpStatusCode.OK);
+        await using var provider = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        var realtime = provider.GetRequiredService<IInngestRealtime>();
+
+        var refused = await Should.ThrowAsync<NonRetriableException>(
+            realtime.PublishStreamAsync(Tokens, Failing(new NonRetriableException("The model refused.")), TestContext.Current.CancellationToken));
+        var overloaded = await Should.ThrowAsync<ModelException>(
+            realtime.PublishStreamAsync(Tokens, Failing(new ModelException("The model is overloaded.")), TestContext.Current.CancellationToken));
+
+        refused.Message.ShouldBe("The model refused.");
+        overloaded.Message.ShouldBe("The model is overloaded.");
+    }
+
+    [Fact]
+    public async Task A_stream_step_whose_producer_gives_up_for_good_fails_without_retries()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK);
+        await using var client = ClientServices.Build(handler, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        using var host = new EngineHost(services => services.AddSingleton(client.GetRequiredService<IRealtimeApi>()));
+        var function = TestFunction.Define(async context =>
+            await context.Step.PublishStreamAsync("reply", Tokens, Failing(new NonRetriableException("The model refused."))));
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        var error = result.Op().GetProperty("error");
+        error.GetProperty("name").GetString().ShouldBe("NonRetriableException");
+        error.GetProperty("message").GetString().ShouldBe("The model refused.");
+    }
+
     [Fact]
     public async Task A_replayed_stream_step_does_not_read_its_chunks_again()
     {
@@ -264,7 +298,17 @@ public sealed class RealtimeStreamTests
         }
     }
 
+    // Yields some text and then fails, as a model can in the middle of its reply.
+    private static async IAsyncEnumerable<string> Failing(Exception exception)
+    {
+        await Task.Yield();
+        yield return "Hello";
+        throw exception;
+    }
+
     private sealed record Progress(string Text, int Percent);
+
+    private sealed class ModelException(string message) : Exception(message);
 
     // Reads the body as the network stack sends it, until the stream ends or the request is cancelled.
     private sealed class Receiving : HttpMessageHandler

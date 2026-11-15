@@ -25,7 +25,8 @@ public interface IInngestRealtime
     /// StreamStart, the text in StreamChunk messages and a StreamEnd. Inngest relays up to 1,000 pieces of up to 1 KB a
     /// stream, so the text is gathered into pieces that go out when they are full or have waited 100 ms, and 1 second
     /// once the stream has 500 pieces. A stream that still outgrows the limit is sent whole and logs a warning, and
-    /// subscribers may miss its end. The cancellation token bounds the request, not the HttpClient's timeout.
+    /// subscribers may miss its end. The cancellation token bounds the request, not the HttpClient's timeout. An exception
+    /// the chunks throw reaches the caller as it is.
     /// </summary>
     Task<string> PublishStreamAsync(RealtimeTopic topic, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken = default);
 

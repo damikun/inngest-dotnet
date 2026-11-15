@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.ExceptionServices;
 using System.Text;
 
 namespace Inngest.Realtime;
@@ -47,6 +48,10 @@ internal sealed class TextStreamContent : HttpContent
     // The pieces written so far.
     public int Pieces { get; private set; }
 
+    // What the producer of the chunks threw. It is the caller's to see as it is, such as a NonRetriableException of a model
+    // that gave up, whatever the handlers of the request make of it on the way.
+    public ExceptionDispatchInfo? Failure { get; private set; }
+
     protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
         SerializeToStreamAsync(stream, context, CancellationToken.None);
 
@@ -77,7 +82,7 @@ internal sealed class TextStreamContent : HttpContent
                     continue;
                 }
 
-                if (!await next.ConfigureAwait(false))
+                if (!await ReadAsync(next).ConfigureAwait(false))
                 {
                     break;
                 }
@@ -128,6 +133,19 @@ internal sealed class TextStreamContent : HttpContent
     {
         length = -1;
         return false;
+    }
+
+    private async Task<bool> ReadAsync(Task<bool> next)
+    {
+        try
+        {
+            return await next.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Failure = ExceptionDispatchInfo.Capture(exception);
+            throw;
+        }
     }
 
     // Whether the next chunk arrives before the text of the piece has waited for the interval.

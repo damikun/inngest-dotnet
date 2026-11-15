@@ -40,8 +40,18 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
     public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
     {
         var content = new TextStreamContent(chunks, time, () => Log.StreamOutgrown(logger, topic.Name, topic.Channel, TextStreamContent.MaxPieces));
-        await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception) when (content.Failure is { } failure)
+        {
+            // The producer failed, not the request: a step whose model gave up for good must not be retried, and the
+            // caller may catch the model's own exception.
+            failure.Throw();
+        }
+
         return content.Text;
     }
 
