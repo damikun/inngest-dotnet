@@ -17,6 +17,7 @@ internal sealed class TextStreamContent : HttpContent
 
     private readonly IAsyncEnumerable<string> _chunks;
     private readonly StringBuilder _text = new();
+    private int _sent;
 
     public TextStreamContent(IAsyncEnumerable<string> chunks)
     {
@@ -32,6 +33,14 @@ internal sealed class TextStreamContent : HttpContent
 
     protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
     {
+        // The chunks are read as they are sent. A handler that sends the request again, such as a retry policy, would
+        // read them from the start once more, which calls their producer, such as a model, again and streams the text to
+        // the subscribers twice.
+        if (Interlocked.Exchange(ref _sent, 1) != 0)
+        {
+            throw new InvalidOperationException("A streamed publish is sent once: sending it again would read its chunks again.");
+        }
+
         var buffer = ArrayPool<byte>.Shared.Rent(MaxPieceBytes + 4);
         var encoder = Encoding.UTF8.GetEncoder();
         try

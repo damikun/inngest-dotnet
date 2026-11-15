@@ -28,6 +28,53 @@ public sealed class RealtimeStreamTests
         request.BodyText.ShouldBe("Hello wörld");
     }
 
+    // A model's reply can take minutes, and the request lasts as long as the stream.
+    [Fact]
+    public async Task A_stream_that_outlasts_the_clients_timeout_is_sent_whole()
+    {
+        var inngest = new Receiving();
+        await using var provider = ClientServices.Build(
+            new FakeHttpHandler(),
+            new FakeTimeProvider(DateTimeOffset.UnixEpoch),
+            configureServices: services => services
+                .AddHttpClient(InngestServiceCollectionExtensions.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => inngest)
+                .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMilliseconds(100)));
+
+        var text = await provider.GetRequiredService<IInngestRealtime>().PublishStreamAsync(Tokens, Slow(), TestContext.Current.CancellationToken);
+
+        text.ShouldBe("Hello world");
+        inngest.Body.ShouldBe("Hello world");
+
+        static async IAsyncEnumerable<string> Slow()
+        {
+            yield return "Hello";
+            await Task.Delay(TimeSpan.FromMilliseconds(400));
+            yield return " world";
+        }
+    }
+
+    // A handler that sends the request again, such as a retry policy, would call the producer, such as a model, again.
+    [Fact]
+    public async Task A_stream_is_read_once_and_cannot_be_sent_again()
+    {
+        var reads = 0;
+        var content = new TextStreamContent(Counted());
+
+        await content.CopyToAsync(Stream.Null, TestContext.Current.CancellationToken);
+        var again = await Should.ThrowAsync<InvalidOperationException>(content.CopyToAsync(Stream.Null, TestContext.Current.CancellationToken));
+
+        again.Message.ShouldBe("A streamed publish is sent once: sending it again would read its chunks again.");
+        reads.ShouldBe(1);
+
+        async IAsyncEnumerable<string> Counted()
+        {
+            reads++;
+            await Task.Yield();
+            yield return "Hello";
+        }
+    }
+
     [Fact]
     public async Task Long_chunks_go_out_in_pieces_below_1KB_that_end_on_whole_characters()
     {
@@ -106,6 +153,20 @@ public sealed class RealtimeStreamTests
     }
 
     private sealed record Progress(string Text, int Percent);
+
+    // Reads the body as the network stack sends it, until the stream ends or the request is cancelled.
+    private sealed class Receiving : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            using var body = new MemoryStream();
+            await request.Content!.CopyToAsync(body, cancellationToken);
+            Body = Encoding.UTF8.GetString(body.ToArray());
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
 
     // Keeps every write the content makes, to check where it cuts the text.
     private sealed class RecordingStream : MemoryStream

@@ -39,7 +39,7 @@ internal sealed class RealtimeApi(IHttpClientFactory httpClientFactory, InngestS
     public async Task<string> PublishStreamAsync(RealtimeTopic topic, string? runId, IAsyncEnumerable<string> chunks, CancellationToken cancellationToken)
     {
         var content = new TextStreamContent(chunks);
-        await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content), PublishAction(topic), cancellationToken)
+        await SendAsync(new ApiCall(HttpMethod.Post, PublishUrl(topic, runId), Content: content, Streamed: true), PublishAction(topic), cancellationToken)
             .ConfigureAwait(false);
         return content.Text;
     }

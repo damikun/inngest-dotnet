@@ -56,6 +56,10 @@ var summary = await context.Step.PublishStreamAsync(
 With `IChatClient` of `Microsoft.Extensions.AI`, pass the `Text` of each update of `GetStreamingResponseAsync`, or let
 [the chat client of `Inngest.Extensions.AI`](/inngest-dotnet/guides/ai/#streaming) publish it while it makes the model call a step.
 
+The request lasts as long as the text takes to arrive, so the `HttpClient`'s timeout of 100 seconds does not cut it;
+the cancellation token does. It is sent only once, because sending it again would read the chunks again: a handler
+that tries, such as a retry policy, fails the publish instead.
+
 ## Publishing from anywhere
 
 `IInngestRealtime`, which `AddInngest` registers, publishes at once from anywhere, such as a controller or a

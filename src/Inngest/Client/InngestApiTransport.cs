@@ -28,6 +28,11 @@ internal sealed class InngestApiTransport(IHttpClientFactory httpClientFactory, 
     public async Task<KeyedResponse> SendKeyedAsync(ApiCall call, HttpCompletionOption completionOption, CancellationToken cancellationToken)
     {
         var client = httpClientFactory.CreateClient(InngestServiceCollectionExtensions.HttpClientName);
+        if (call.Streamed)
+        {
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        }
+
         var response = await SendOnceAsync(client, call, settings.SigningKey, completionOption, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             || call.Token is not null
@@ -103,7 +108,8 @@ internal readonly record struct KeyedResponse(HttpResponseMessage Response, bool
 // One request to the REST API. Environment overrides the app's branch environment for this request only.
 // Content is a body that can be sent once, such as a stream, so a request with it is never repeated with the fallback
 // key. Token authenticates in place of the signing key, as a realtime subscription token does. InstanceId names the
-// app instance that sends a checkpoint.
+// app instance that sends a checkpoint. Streamed is a request that lasts as long as its body takes to produce, such as a
+// model's reply, so the HttpClient's timeout does not apply to it and only the caller's token bounds it.
 internal readonly record struct ApiCall(
     HttpMethod Method,
     Uri Url,
@@ -113,4 +119,5 @@ internal readonly record struct ApiCall(
     string? Environment = null,
     HttpContent? Content = null,
     string? Token = null,
-    string? InstanceId = null);
+    string? InstanceId = null,
+    bool Streamed = false);
