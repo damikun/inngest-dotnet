@@ -117,9 +117,7 @@ internal sealed class Checkpointer : IDisposable
     // id built from it stays the same. The copy outlives the buffer, which is reused once the op is sent.
     public JsonElement Add(ReadOnlySpan<byte> op)
     {
-        var reader = new Utf8JsonReader(op, _readerOptions);
-        using var document = JsonDocument.ParseValue(ref reader);
-        var data = JsonCanonicalizer.Canonicalize(document.RootElement.GetProperty("data"), _readerOptions);
+        var data = JsonCanonicalizer.Canonicalize(Data(op), _readerOptions);
         AddOp(op);
         return data;
     }
@@ -183,6 +181,26 @@ internal sealed class Checkpointer : IDisposable
     }
 
     public void Dispose() => _steps?.Dispose();
+
+    // The data of an op as it was written, found without parsing the rest of the op.
+    private ReadOnlySpan<byte> Data(ReadOnlySpan<byte> op)
+    {
+        var reader = new Utf8JsonReader(op, _readerOptions);
+        reader.Read();
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            var data = reader.ValueTextEquals("data"u8);
+            reader.Read();
+            var start = (int)reader.TokenStartIndex;
+            reader.Skip();
+            if (data)
+            {
+                return op[start..(int)reader.BytesConsumed];
+            }
+        }
+
+        throw new ArgumentException("The op has no data.", nameof(op));
+    }
 
     private ReadOnlyMemory<byte> Close()
     {

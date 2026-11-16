@@ -94,8 +94,8 @@ internal sealed partial class RunDriver
         {
             try
             {
-                using var document = JsonDocument.Parse(written.WrittenMemory, JsonPayload.DocumentOptions(_host.SerializerOptions));
-                JsonCanonicalizer.Write(document.RootElement, body);
+                var options = new JsonReaderOptions { MaxDepth = JsonPayload.DocumentOptions(_host.SerializerOptions).MaxDepth };
+                JsonCanonicalizer.Write(written.WrittenSpan, body, options);
             }
             catch (InvalidOperationException)
             {
