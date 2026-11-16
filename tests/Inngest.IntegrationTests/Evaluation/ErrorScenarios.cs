@@ -169,6 +169,22 @@ public sealed class FailureScenarios(EvaluationEnvironment environment) : Evalua
         Observed.Values<int>("cyclic").ShouldClimbTo(1);
     }
 
+    // Inngest refuses the whole answer when a step's error comes to more than 4 MiB, so the SDK cuts its texts short.
+    [Fact(Timeout = 60_000)]
+    public async Task A_step_error_over_4_MiB_is_retried_and_caught_cut_short()
+    {
+        var run = await RunToEndAsync(FailureFunctions.LargeStepError, new RunEvent(TestId), TimeSpan.FromSeconds(30));
+
+        run.Status.ShouldBe(RunStatus.Completed);
+        run.OutputAs<CaughtResult>().ShouldBe(new CaughtResult(
+            true,
+            "export",
+            nameof(InvalidOperationException),
+            $"{new string('x', 16_384)}... ({FailureFunctions.LargeErrorLength - 16_384} more characters left out)",
+            null));
+        Observed.Values<int>("export").ShouldClimbTo(1);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task A_parallel_step_that_fails_raises_StepFailedException_while_the_others_succeed()
     {

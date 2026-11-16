@@ -276,6 +276,11 @@ The SDK reports an error as the exception's type name, its message, its stack tr
 and includes inner exceptions as the cause, up to five levels deep. That is what the run history shows, what `StepFailedException.Error`
 and `FunctionFailure.Error` hold, and what Inngest sends in `inngest/function.failed`.
 
+Inngest keeps the error of a step, in `{"error":...}`, to the same 4 MiB as its result, and refuses the whole answer
+for a larger one. The SDK then cuts each text of the error longer than 16,384 characters, a huge message or stack
+trace, to its start and notes how many characters it left out. The step is retried as usual, and the log (event ids
+108 and 109) has the whole exception.
+
 A run that is cancelled, by an event, a timeout or the API, ends with an `inngest/function.cancelled` event, which
 cancel handlers run on. A function triggered by that event can also clean up after every function; see
 [function.cancelled](https://www.inngest.com/docs/reference/system-events/inngest-function-cancelled).

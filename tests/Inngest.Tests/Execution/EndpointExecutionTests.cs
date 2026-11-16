@@ -195,6 +195,40 @@ public sealed class EndpointExecutionTests
         op.GetProperty("error").GetProperty("message").GetString()!.ShouldStartWith("The output of step \"export\" is 4.01 MiB");
     }
 
+    // A step's error has the same 4 MiB in {"error":...}, and the call that creates the run 4 MiB in all.
+    [Fact]
+    public async Task A_step_error_over_4_MiB_goes_to_Inngest_cut_short()
+    {
+        const int Length = 5 * 1024 * 1024;
+        using var host = new EngineHost();
+        Func<int> export = () => throw new InvalidOperationException(new string('x', Length));
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.RunAsync("export", export);
+            return Response("exported");
+        }));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var op = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Ops.ShouldHaveSingleItem();
+        op.GetProperty("op").GetString().ShouldBe("StepError");
+        op.GetProperty("error").GetProperty("message").GetString().ShouldBe($"{new string('x', 16_384)}... ({Length - 16_384} more characters left out)");
+    }
+
+    [Fact]
+    public async Task An_endpoint_error_over_4_MiB_goes_to_Inngest_cut_short()
+    {
+        const int Length = 5 * 1024 * 1024;
+        using var host = new EngineHost();
+
+        var outcome = await host.EndpointAsync(Endpoint(_ => throw new InvalidOperationException(new string('x', Length))));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var op = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Ops.ShouldHaveSingleItem();
+        op.GetProperty("op").GetString().ShouldBe("StepError");
+        op.GetProperty("error").GetProperty("message").GetString().ShouldBe($"{new string('x', 16_384)}... ({Length - 16_384} more characters left out)");
+    }
+
     [Fact]
     public async Task An_endpoint_that_throws_with_attempts_left_is_retried_by_Inngest()
     {

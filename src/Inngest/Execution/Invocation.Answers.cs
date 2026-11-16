@@ -87,19 +87,25 @@ internal sealed partial class Invocation
     // as \u2028 and \u2029. The serializer's default encoder escapes all five already; UnsafeRelaxedJsonEscaping leaves
     // <, > and & as they are. The escapes are counted only where they could take the output past the limit, and the
     // whitespace only once it is past it.
-    internal static long StoredStepOutputBytes(ReadOnlySpan<byte> data)
+    internal static long StoredStepOutputBytes(ReadOnlySpan<byte> data) => StoredBytes(data, DataObjectBytes);
+
+    // A step's error is kept in {"error":...} and checked the same way. Go reads its texts and writes them again, and
+    // leaves out fields it does not know, such as code, so this is the most it can come to.
+    internal static long StoredStepErrorBytes(ReadOnlySpan<byte> error) => StoredBytes(error, ErrorObjectBytes);
+
+    private static long StoredBytes(ReadOnlySpan<byte> json, int wrapper)
     {
-        long bytes = data.Length + DataObjectBytes;
+        long bytes = json.Length + wrapper;
 
         // An escape takes six bytes at most, for a character of one byte or more.
-        if (data.Length * 6L + DataObjectBytes <= MaxStepOutputBytes)
+        if (json.Length * 6L + wrapper <= MaxStepOutputBytes)
         {
             return bytes;
         }
 
-        bytes += 5L * (data.Count((byte)'<') + data.Count((byte)'>') + data.Count((byte)'&'))
-            + 3L * (data.Count("\u2028"u8) + data.Count("\u2029"u8));
-        return bytes > MaxStepOutputBytes ? bytes - WhitespaceBetweenTokens(data) : bytes;
+        bytes += 5L * (json.Count((byte)'<') + json.Count((byte)'>') + json.Count((byte)'&'))
+            + 3L * (json.Count("\u2028"u8) + json.Count("\u2029"u8));
+        return bytes > MaxStepOutputBytes ? bytes - WhitespaceBetweenTokens(json) : bytes;
     }
 
     private static int WhitespaceBetweenTokens(ReadOnlySpan<byte> json)
@@ -175,11 +181,32 @@ internal sealed partial class Invocation
         writer.WriteStartArray();
         step.WriteOpStart(writer, final ? Ops.StepFailed : Ops.StepError, _settings);
         writer.WritePropertyName(ErrorProperty);
-        ErrorSerializer.Write(writer, error);
+        WriteStepErrorValue(writer, error);
         timing.Write(writer);
         step.Metadata?.Write(writer);
         writer.WriteEndObject();
         writer.WriteEndArray();
+    }
+
+    // Inngest holds a step's error, in {"error":...}, to the 4 MiB of a step's output, and refuses the whole answer for a
+    // larger one. Such an error goes with its long texts cut short; the log has all of it.
+    private void WriteStepErrorValue(Utf8JsonWriter writer, Exception error)
+    {
+        using var buffer = new PooledBufferWriter();
+        WriteError(buffer, error, int.MaxValue);
+        if (StoredStepErrorBytes(buffer.WrittenSpan) > MaxStepOutputBytes)
+        {
+            buffer.Clear();
+            WriteError(buffer, error, MaxErrorTextLength);
+        }
+
+        writer.WriteRawValue(buffer.WrittenSpan, skipInputValidation: true);
+    }
+
+    private void WriteError(PooledBufferWriter buffer, Exception error, int maxLength)
+    {
+        using var writer = WireWriter.Create(buffer, _settings.SerializerOptions);
+        ErrorSerializer.Write(writer, error, maxLength);
     }
 
     private async ValueTask<ExecutionResult> ReportAsync(List<FoundStep> steps)

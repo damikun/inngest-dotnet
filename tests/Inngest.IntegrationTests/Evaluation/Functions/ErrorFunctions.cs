@@ -127,6 +127,9 @@ internal static class FailureFunctions
     public const string HandledWithSteps = "eval/err.handled-steps";
     public const string ParallelFailure = "eval/err.parallel";
     public const string Unserializable = "eval/err.unserializable";
+    public const string LargeStepError = "eval/err.large-step-error";
+
+    public const int LargeErrorLength = 5 * 1024 * 1024;
 
     public static void Add(IInngestBuilder inngest)
     {
@@ -189,6 +192,24 @@ internal static class FailureFunctions
                 catch (StepFailedException exception)
                 {
                     return new CaughtResult(true, exception.StepId, exception.Error.Name, exception.Message, null);
+                }
+            });
+
+        // Inngest refuses an answer whose step error comes to more than 4 MiB in {"error":...}.
+        inngest.AddFunction<RunEvent>(
+            new FunctionOptions { Id = "err-large-step-error", Retries = 1, Triggers = [Trigger.Event(LargeStepError)] },
+            static async (context, _) =>
+            {
+                var observed = context.Observed();
+                try
+                {
+                    await context.Step.RunAsync("export", () =>
+                        observed.RecordThenThrow("export", context.Attempt, new InvalidOperationException(new string('x', LargeErrorLength))));
+                    return new CaughtResult(false, null, null, null, null);
+                }
+                catch (StepFailedException exception)
+                {
+                    return new CaughtResult(true, exception.StepId, exception.Error.Name, exception.Error.Message, null);
                 }
             });
 

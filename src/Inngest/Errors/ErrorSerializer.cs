@@ -22,10 +22,13 @@ internal static class ErrorSerializer
     private static readonly JsonEncodedText DataProperty = JsonEncodedText.Encode("data");
     private static readonly JsonEncodedText CauseProperty = JsonEncodedText.Encode("cause");
 
-    public static void Write(Utf8JsonWriter writer, Exception exception)
+    public static void Write(Utf8JsonWriter writer, Exception exception) => Write(writer, exception, int.MaxValue);
+
+    // With each text cut to maxLength characters, for an error too large for Inngest to keep.
+    public static void Write(Utf8JsonWriter writer, Exception exception, int maxLength)
     {
         writer.WriteStartObject();
-        WriteProperties(writer, exception, depth: 0);
+        WriteProperties(writer, exception, depth: 0, maxLength);
         writer.WriteEndObject();
     }
 
@@ -34,14 +37,14 @@ internal static class ErrorSerializer
     {
         writer.WriteStartObject();
         writer.WriteString(TypeProperty, InternalType);
-        WriteProperties(writer, exception, depth: 0);
+        WriteProperties(writer, exception, depth: 0, int.MaxValue);
         writer.WriteEndObject();
     }
 
     public static void Write(Utf8JsonWriter writer, FunctionError error)
     {
         writer.WriteStartObject();
-        WriteProperties(writer, error, depth: 0);
+        WriteProperties(writer, error, depth: 0, int.MaxValue);
         writer.WriteEndObject();
     }
 
@@ -73,52 +76,64 @@ internal static class ErrorSerializer
         };
     }
 
-    private static void WriteProperties(Utf8JsonWriter writer, Exception exception, int depth)
+    private static void WriteProperties(Utf8JsonWriter writer, Exception exception, int depth, int maxLength)
     {
         // A step failure, or a cause rebuilt from one, is written as the error Inngest recorded, which is what the
         // run actually failed with, so a failure rethrown by the function keeps its whole chain.
         switch (exception)
         {
             case StepFailedException failed:
-                WriteProperties(writer, failed.Error, depth);
+                WriteProperties(writer, failed.Error, depth, maxLength);
                 return;
             case FunctionErrorException recorded:
-                WriteProperties(writer, recorded.Error, depth);
+                WriteProperties(writer, recorded.Error, depth, maxLength);
                 return;
         }
 
-        writer.WriteString(NameProperty, exception.GetType().Name);
-        writer.WriteString(MessageProperty, exception.Message);
-        writer.WriteString(StackProperty, exception.StackTrace ?? string.Empty);
+        writer.WriteString(NameProperty, Cut(exception.GetType().Name, maxLength));
+        writer.WriteString(MessageProperty, Cut(exception.Message, maxLength));
+        writer.WriteString(StackProperty, Cut(exception.StackTrace ?? string.Empty, maxLength));
         if (CodeOf(exception) is { } code)
         {
-            WriteCode(writer, code);
+            WriteCode(writer, Cut(code, maxLength));
         }
 
         if (exception.InnerException is { } cause && depth < MaxCauseDepth)
         {
             writer.WriteStartObject(CauseProperty);
-            WriteProperties(writer, cause, depth + 1);
+            WriteProperties(writer, cause, depth + 1, maxLength);
             writer.WriteEndObject();
         }
     }
 
-    private static void WriteProperties(Utf8JsonWriter writer, FunctionError error, int depth)
+    private static void WriteProperties(Utf8JsonWriter writer, FunctionError error, int depth, int maxLength)
     {
-        writer.WriteString(NameProperty, error.Name);
-        writer.WriteString(MessageProperty, error.Message);
-        writer.WriteString(StackProperty, error.Stack ?? string.Empty);
+        writer.WriteString(NameProperty, Cut(error.Name, maxLength));
+        writer.WriteString(MessageProperty, Cut(error.Message, maxLength));
+        writer.WriteString(StackProperty, Cut(error.Stack ?? string.Empty, maxLength));
         if (error.Code is { } code)
         {
-            WriteCode(writer, code);
+            WriteCode(writer, Cut(code, maxLength));
         }
 
         if (error.Cause is { } cause && depth < MaxCauseDepth)
         {
             writer.WriteStartObject(CauseProperty);
-            WriteProperties(writer, cause, depth + 1);
+            WriteProperties(writer, cause, depth + 1, maxLength);
             writer.WriteEndObject();
         }
+    }
+
+    // The start of a longer text, never ending inside a surrogate pair, and how much of it was left out.
+    private static string Cut(string text, int maxLength)
+    {
+        if (text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        var length = char.IsHighSurrogate(text[maxLength - 1]) ? maxLength - 1 : maxLength;
+        return string.Create(CultureInfo.InvariantCulture, $"{text.AsSpan(0, length)}... ({text.Length - length} more characters left out)");
     }
 
     // "code" is where the TypeScript SDK writes it. Inngest drops fields it does not know from the error of a step, and

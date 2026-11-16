@@ -38,8 +38,13 @@ internal sealed partial class Invocation
     private const long MaxRunStateBytes = 32 * 1024 * 1024;
     private const int MaxSteps = 1_000;
 
-    // {"data":} around a step's output, as Inngest stores it.
+    // {"data":} around a step's output and {"error":} around its error, as Inngest stores them.
     private const int DataObjectBytes = 9;
+    private const int ErrorObjectBytes = 10;
+
+    // What is kept of each text of a step error too large for Inngest. An error has thirty texts at most, five on each
+    // of six levels, and Inngest writes a character in 6 bytes at most, so what is left comes to under 3 MiB.
+    private const int MaxErrorTextLength = 16 * 1024;
 
     // The step whose handler runs in the current async flow. Steps cannot be nested.
     private static readonly AsyncLocal<string?> ExecutingStep = new();
