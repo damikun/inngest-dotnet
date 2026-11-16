@@ -177,6 +177,24 @@ public sealed class EndpointExecutionTests
         host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().OpNames.ShouldBe(["StepFailed"]);
     }
 
+    // Inngest checks a step's output in {"data":...} on the calls of a durable endpoint too.
+    [Fact]
+    public async Task A_step_output_its_data_object_takes_over_4_MiB_goes_to_Inngest_as_a_final_failure()
+    {
+        using var host = new EngineHost();
+
+        var outcome = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.RunAsync("export", () => new string('x', 4_194_300 - 2));
+            return Response("exported");
+        }));
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        var op = host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Ops.ShouldHaveSingleItem();
+        op.GetProperty("op").GetString().ShouldBe("StepFailed");
+        op.GetProperty("error").GetProperty("message").GetString()!.ShouldStartWith("The output of step \"export\" is 4.01 MiB");
+    }
+
     [Fact]
     public async Task An_endpoint_that_throws_with_attempts_left_is_retried_by_Inngest()
     {

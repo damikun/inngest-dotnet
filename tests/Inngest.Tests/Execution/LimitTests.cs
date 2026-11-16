@@ -1,3 +1,7 @@
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using Inngest.Execution;
 using Microsoft.Extensions.Logging;
 
 namespace Inngest.Tests.Execution;
@@ -28,15 +32,76 @@ public sealed class LimitTests : IDisposable
         result.Op().TryGetProperty("data", out _).ShouldBeFalse();
     }
 
+    // Inngest measures the output as it stores it, in {"data":...}, which takes 9 bytes more.
     [Fact]
-    public async Task A_step_output_of_4_MiB_is_kept()
+    public async Task A_step_output_of_4_MiB_with_its_data_object_is_kept()
     {
-        // The quotes of the JSON string make up the rest.
-        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', FourMebibytes - 2)));
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', FourMebibytes - 9 - 2)));
 
         var result = await _host.CallAsync(function, Call.New());
 
         result.OpCodes.ShouldBe(["StepRun"]);
+    }
+
+    [Fact]
+    public async Task A_step_output_under_4_MiB_that_its_data_object_takes_over_fails_the_step_without_retries()
+    {
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', 4_194_300 - 2)));
+
+        var result = await _host.CallAsync(function, Call.New());
+
+        result.OpCodes.ShouldBe(["StepFailed"]);
+        result.NoRetry.ShouldBe(true);
+        var error = result.Op().GetProperty("error");
+        error.GetProperty("name").GetString().ShouldBe(nameof(NonRetriableException));
+        error.GetProperty("message").GetString().ShouldBe(
+            "The output of step \"export\" is 4.01 MiB, more than the 4 MiB Inngest keeps for a step. Keep large data outside the run and return a reference to it.");
+    }
+
+    // UnsafeRelaxedJsonEscaping leaves <, > and & as they are, and Inngest stores each as \u003c and the like.
+    [Theory]
+    [InlineData("", "StepRun")]
+    [InlineData("<", "StepFailed")]
+    [InlineData(">", "StepFailed")]
+    [InlineData("&", "StepFailed")]
+    public async Task HTML_left_as_it_is_counts_as_Inngest_escapes_it(string html, string op)
+    {
+        var settings = EngineHost.Settings with
+        {
+            SerializerOptions = new JsonSerializerOptions(EngineHost.Settings.SerializerOptions) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping },
+        };
+        using var host = new EngineHost(settings: settings);
+        var text = string.Concat(Enumerable.Repeat(html, 100));
+        var function = TestFunction.Define(async context => await context.Step.RunAsync("export", () => new string('x', 4_194_000 - 2 - text.Length) + text));
+
+        var result = await host.CallAsync(function, Call.New());
+
+        result.OpCodes.ShouldBe([op]);
+    }
+
+    [Theory]
+    [InlineData("<", 5)]
+    [InlineData(">", 5)]
+    [InlineData("&", 5)]
+    [InlineData("\u2028", 3)]
+    [InlineData("\u2029", 3)]
+    [InlineData("\\u003c", 0)]
+    [InlineData("\\u2028", 0)]
+    [InlineData("'+`\u007f\u00e9\U0001F600 ", 0)]
+    public void Inngest_measures_a_step_output_as_Go_writes_it_again(string text, int growth)
+    {
+        var data = Encoding.UTF8.GetBytes($"[\"{new string('x', 4_000_000)}\",\"{text}\"]");
+
+        Invocation.StoredStepOutputBytes(data).ShouldBe(data.Length + 9 + growth);
+    }
+
+    // Go writes the output without the whitespace between its tokens.
+    [Fact]
+    public void Whitespace_between_tokens_does_not_count()
+    {
+        var data = Encoding.UTF8.GetBytes($"[\n  \"{new string(' ', FourMebibytes)}\" ,\t1\r\n]");
+
+        Invocation.StoredStepOutputBytes(data).ShouldBe(data.Length + 9 - 7);
     }
 
     [Fact]
