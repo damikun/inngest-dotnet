@@ -593,19 +593,25 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
     {
-        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var timeout = TimeSpan.FromMilliseconds(50);
+        using var host = new EngineHost(heldThreadTimeout: timeout);
+        bool? completedWhileHeld = null;
         var function = TestFunction.Define(async _ =>
         {
             var loading = LoadAsync();
 
-            // Holds the thread as loading.Result would, which would never return, until the watchdog has spoken.
+            // Holds the thread as loading.Result would, which would never return: until the watchdog has spoken, and
+            // then for ten more of its checks, which find the same thread held.
             SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            Thread.Sleep(timeout / 5 * 10);
+            completedWhileHeld = loading.IsCompleted;
             return await loading;
         });
 
         var result = await host.CallAsync(function, Call.New());
 
         result.Body.ShouldBe("\"loaded\"");
+        completedWhileHeld.ShouldBe(false);
         var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Error);
         record.Category.ShouldBe("Inngest.Function.fn");
