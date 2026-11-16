@@ -237,7 +237,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     [Fact]
     public async Task While_Inngest_is_behind_the_client_still_gets_its_response_and_the_run_is_recorded()
     {
-        var client = await StartAsync(maxRunningSaves: 0);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = await StartAsync(maxRunningSaves: 0, responseCompleted: completed);
         var (reached, release) = _checkpoints.HoldNext();
 
         using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
@@ -246,8 +247,10 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         var order = await response.Content.ReadFromJsonAsync<JsonElement>(CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         order.GetProperty("total").GetInt32().ShouldBe(42);
         await reached;
+        (await Task.WhenAny(completed.Task, Task.Delay(TimeSpan.FromMilliseconds(200), CancellationToken))).ShouldNotBe(completed.Task);
         _checkpoints.Saves.ShouldBeEmpty();
         release.SetResult();
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         await _checkpoints.WaitForSavesAsync(1);
         _checkpoints.Saves.ShouldHaveSingleItem().RunId.ShouldBe(response.Headers.GetValues("X-Run-ID").Single());
     }
@@ -370,7 +373,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         string? serveOrigin = "https://api.example.com",
         bool encrypt = false,
         TimeSpan? shutdownTimeout = null,
-        int? maxRunningSaves = null)
+        int? maxRunningSaves = null,
+        TaskCompletionSource? responseCompleted = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -416,6 +420,22 @@ public sealed class DurableEndpointTests : IAsyncDisposable
             context.Response.Headers["X-Frame-Options"] = "DENY";
             return next(context);
         });
+
+        // Callbacks run in the reverse order of their registration, so this one runs once the durable endpoints' own
+        // have, which is when the connection takes its next request.
+        if (responseCompleted is not null)
+        {
+            app.Use((context, next) =>
+            {
+                context.Response.OnCompleted(() =>
+                {
+                    responseCompleted.TrySetResult();
+                    return Task.CompletedTask;
+                });
+                return next(context);
+            });
+        }
+
         app.UseInngestDurableEndpoints();
 
         app.MapPost("/orders/{id}", async (string id, Order order, IStepTools step) =>
