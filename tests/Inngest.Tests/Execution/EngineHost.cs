@@ -320,8 +320,11 @@ internal sealed class FakeInngestApi : IInngestApi
 
     public List<string> Requests { get; } = [];
 
+    // What Inngest answers a sync, for tests that sync the app.
+    public RegisterResult? Registered { get; set; }
+
     public Task<RegisterResult> RegisterAsync(ReadOnlyMemory<byte> payload, string? deployId, string? serverKind, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+        Registered is { } result ? Task.FromResult(result) : throw new NotSupportedException();
 
     public Task<JsonDocument> GetRunStepsAsync(string runId, CancellationToken cancellationToken) => Get($"actions:{runId}", Steps);
 

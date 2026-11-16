@@ -53,6 +53,7 @@ public sealed partial class InngestCommHandler
     private readonly RequestSigner _signer;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<InngestCommHandler> _logger;
+    private readonly EndpointFirstRuns? _endpointFirstRuns;
     private readonly Introspection _introspection;
 
     // Resolved from the services rather than created, so that it shares the app's settings and functions.
@@ -63,7 +64,8 @@ public sealed partial class InngestCommHandler
         IInngestApi api,
         RequestSigner signer,
         IServiceScopeFactory scopeFactory,
-        ILogger<InngestCommHandler> logger)
+        ILogger<InngestCommHandler> logger,
+        EndpointFirstRuns? endpointFirstRuns = null)
     {
         _settings = settings;
         _registry = registry;
@@ -72,6 +74,7 @@ public sealed partial class InngestCommHandler
         _signer = signer;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _endpointFirstRuns = endpointFirstRuns;
         _introspection = new Introspection(settings, registry);
     }
 

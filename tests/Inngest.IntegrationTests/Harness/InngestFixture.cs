@@ -71,6 +71,15 @@ public abstract class InngestFixture : IAsyncLifetime
         }
     }
 
+    // A new server on the same port in place of the old one, while the app keeps running. The dev server keeps nothing
+    // without --persist, so the new one knows nothing of the old one's apps and runs.
+    public async Task RestartServerAsync(CancellationToken cancellationToken)
+    {
+        await Server.DisposeAsync();
+        Server = CreateServer(Server.Url.Port, App.ServerFacingUrl);
+        await Server.StartAsync(cancellationToken);
+    }
+
     // The first caller starts the wait and everyone shares its outcome, so a broken sync fails every test that needs
     // it quickly and with the same explanation.
     public Task EnsureSyncedAsync(CancellationToken cancellationToken)

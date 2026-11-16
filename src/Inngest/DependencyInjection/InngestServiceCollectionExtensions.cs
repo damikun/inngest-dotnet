@@ -105,7 +105,8 @@ public static class InngestServiceCollectionExtensions
             provider.GetRequiredService<IInngestApi>(),
             provider.GetRequiredService<RequestSigner>(),
             provider.GetRequiredService<IServiceScopeFactory>(),
-            provider.GetRequiredService<ILogger<InngestCommHandler>>()));
+            provider.GetRequiredService<ILogger<InngestCommHandler>>(),
+            provider.GetRequiredService<EndpointFirstRuns>()));
         services.TryAddSingleton(static provider => new InngestSignatureVerifier(
             provider.GetRequiredService<InngestSettings>(),
             provider.GetRequiredService<RequestSigner>()));

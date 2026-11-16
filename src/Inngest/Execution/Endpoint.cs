@@ -137,6 +137,10 @@ internal sealed class EndpointFirstRuns(TimeProvider time)
 
     public void Created(string functionId) => _created.TryAdd(functionId, time.GetTimestamp());
 
+    // Inngest may no longer have the endpoints, as a dev server without --persist after a restart, so the next runs of
+    // each wait again.
+    public void Forget() => _created.Clear();
+
     public Task StoredAsync(string functionId, CancellationToken cancellationToken)
     {
         var left = _created.TryGetValue(functionId, out var created) ? Wait - time.GetElapsedTime(created) : TimeSpan.Zero;
