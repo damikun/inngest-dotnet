@@ -49,6 +49,9 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
     // How long the saves that were cancelled get to end, so that they are logged before the app says it has stopped.
     public TimeSpan CancelledGrace { get; init; } = TimeSpan.FromSeconds(1);
 
+    // Runs between stopping the saves and cancelling them, for tests.
+    internal Action? Cancelling { get; init; }
+
     // Starts recording a run. The save logs its own failure and never throws. The task returned is the save when more
     // than MaxRunning are under way, which the request then waits for, and a completed one otherwise.
     public Task Start(string runId, string functionId, Func<CancellationToken, Task> save)
@@ -189,6 +192,7 @@ internal sealed class EndpointRunSaves : IHostedLifecycleService, IDisposable
             return;
         }
 
+        Cancelling?.Invoke();
         lock (_gate)
         {
             if (!_disposed)
