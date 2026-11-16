@@ -73,21 +73,23 @@ internal sealed class InvocationScheduler : SynchronizationContext
         }
     }
 
-    // Runs queued continuations until none are left, or until limit have run so that code that keeps yielding
-    // cannot hold up the engine forever. Returns how many ran.
-    public int RunPending(int limit = int.MaxValue)
+    // Runs queued continuations until none are left, or until limit have run, time has passed or the token is cancelled,
+    // so that code that keeps yielding cannot hold up the engine forever. Returns how many ran.
+    public int RunPending(int limit = int.MaxValue, TimeSpan? time = null, CancellationToken cancellationToken = default)
     {
         var previous = Current;
         SetSynchronizationContext(this);
         Volatile.Write(ref _foundBefore, _found);
+        var now = Stopwatch.GetTimestamp();
+        var stopAt = time is { } budget ? now + (long)(budget.TotalSeconds * Stopwatch.Frequency) : long.MaxValue;
         var count = 0;
         try
         {
-            while (count < limit && _queue.Reader.TryRead(out var item))
+            while (count < limit && now < stopAt && !cancellationToken.IsCancellationRequested && _queue.Reader.TryRead(out var item))
             {
                 Interlocked.Decrement(ref _queued);
                 count++;
-                Volatile.Write(ref _runningSince, Stopwatch.GetTimestamp());
+                Volatile.Write(ref _runningSince, now);
                 try
                 {
                     item.Callback(item.State);
@@ -97,6 +99,8 @@ internal sealed class InvocationScheduler : SynchronizationContext
                     // Only async void code can throw here; async Task code stores exceptions in its task.
                     _unhandled ??= ExceptionDispatchInfo.Capture(exception);
                 }
+
+                now = Stopwatch.GetTimestamp();
             }
         }
         finally
@@ -134,6 +138,8 @@ internal sealed class InvocationScheduler : SynchronizationContext
             && Stopwatch.GetElapsedTime(since) >= time
             && (Volatile.Read(ref _queued) > 0 || Volatile.Read(ref _owed) > 0 || Volatile.Read(ref _found) != Volatile.Read(ref _foundBefore));
     }
+
+    public bool HasWork => Volatile.Read(ref _queued) > 0;
 
     // Completes when more work is queued, for example when awaited I/O finishes.
     public ValueTask<bool> WaitForWorkAsync(CancellationToken cancellationToken) =>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Inngest.Execution;
 
 namespace Inngest.Tests.Execution;
@@ -110,6 +111,52 @@ public sealed class InvocationSchedulerTests
         scheduler.RunPending(limit: 10).ShouldBe(10);
         scheduler.RunPending(limit: 10).ShouldBe(10);
         iterations.ShouldBe(21);
+    }
+
+    [Fact]
+    public void Code_that_keeps_yielding_is_drained_for_no_longer_than_the_time_given()
+    {
+        var scheduler = new InvocationScheduler();
+
+        scheduler.Run(async () =>
+        {
+            while (true)
+            {
+                var started = Stopwatch.GetTimestamp();
+                while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromMilliseconds(5))
+                {
+                }
+
+                await Task.Yield();
+            }
+        });
+
+        scheduler.RunPending(time: TimeSpan.FromMilliseconds(20)).ShouldBeInRange(1, 4);
+    }
+
+    [Fact]
+    public void Code_that_keeps_yielding_is_drained_until_the_token_is_cancelled()
+    {
+        var scheduler = new InvocationScheduler();
+        using var cancellation = new CancellationTokenSource();
+        var iterations = 0;
+
+        scheduler.Run(async () =>
+        {
+            while (true)
+            {
+                if (++iterations == 10)
+                {
+                    cancellation.Cancel();
+                }
+
+                await Task.Yield();
+            }
+        });
+
+        scheduler.RunPending(cancellationToken: cancellation.Token).ShouldBe(9);
+        scheduler.RunPending(cancellationToken: cancellation.Token).ShouldBe(0);
+        scheduler.HasWork.ShouldBeTrue();
     }
 
     [Fact]

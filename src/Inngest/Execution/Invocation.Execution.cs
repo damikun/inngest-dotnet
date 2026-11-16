@@ -2,6 +2,7 @@
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Inngest.Errors;
 using Inngest.Internal;
@@ -185,13 +186,27 @@ internal sealed partial class Invocation
         {
             while (true)
             {
-                RunPendingQuietly();
+                RunPendingQuietly(CancelledCallSlice);
                 if (settled() || givenUp is { IsCompleted: true })
                 {
                     return true;
                 }
 
+                // Checked here too: Task.WhenAny picks the first of its tasks that has completed, which is always the work
+                // for code that keeps queueing it, such as a loop over Task.Yield.
+                if (deadline.IsCompleted)
+                {
+                    return false;
+                }
+
                 var work = _scheduler.WaitForWorkAsync(grace.Token).AsTask();
+                if (work.IsCompleted)
+                {
+                    // Such code would otherwise keep this thread for the whole grace period, while other work waits for it.
+                    await new ThreadPoolYield();
+                    continue;
+                }
+
                 var completed = givenUp is null
                     ? await Task.WhenAny(code, work, deadline).ConfigureAwait(false)
                     : await Task.WhenAny(code, work, deadline, givenUp).ConfigureAwait(false);
@@ -205,6 +220,25 @@ internal sealed partial class Invocation
         {
             await grace.CancelAsync().ConfigureAwait(false);
         }
+    }
+
+    // Goes on at the back of the thread pool's global queue, behind the work already waiting there. A completed task
+    // awaited with ForceYielding goes on the thread's own queue instead, which the thread takes from first.
+    private readonly struct ThreadPoolYield : ICriticalNotifyCompletion
+    {
+        public bool IsCompleted => false;
+
+        public ThreadPoolYield GetAwaiter() => this;
+
+        public void GetResult()
+        {
+        }
+
+        public void OnCompleted(Action continuation) =>
+            ThreadPool.QueueUserWorkItem(static continuation => continuation(), continuation, preferLocal: false);
+
+        public void UnsafeOnCompleted(Action continuation) =>
+            ThreadPool.UnsafeQueueUserWorkItem(static continuation => continuation(), continuation, preferLocal: false);
     }
 
     // Waits for more work, the end of the function or the delay; true when the delay ran out first. A delay longer than
@@ -340,15 +374,15 @@ internal sealed partial class Invocation
                 await CancelledAsync(task, () => task.IsCompleted, stepId).ConfigureAwait(false);
             }
 
-            RunPendingQuietly();
+            RunPendingQuietly(cancellationToken: _cancellationToken);
         }
     }
 
-    private void RunPendingQuietly()
+    private void RunPendingQuietly(TimeSpan? time = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            _scheduler.RunPending(MaxContinuationsPerTick);
+            _scheduler.RunPending(MaxContinuationsPerTick, time, cancellationToken);
         }
         catch (Exception)
         {

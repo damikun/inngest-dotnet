@@ -10,6 +10,9 @@ namespace Inngest.Tests.Execution;
 // Function code that leaves the invocation's scheduler must still get correct results.
 public sealed class ThreadingTests : IDisposable
 {
+    // Set in the process RunWithOnePoolThreadAsync starts.
+    private const string OnePoolThread = "INNGEST_TESTS_ONE_POOL_THREAD";
+
     // Short, so that the tests of a call that outlives it do not wait long. The engine's clock never moves in them: the
     // grace runs in real time.
     private static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(200);
@@ -204,6 +207,122 @@ public sealed class ThreadingTests : IDisposable
         record.Level.ShouldBe(LogLevel.Warning);
         record.Category.ShouldBe("Inngest.Function.fn");
         record.Message.ShouldStartWith("Run 01JRUN of function fn was still waiting on work of its own 00:00:00.2000000 after the call was cancelled");
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 1)]
+    public async Task A_cancelled_call_stops_waiting_for_code_that_keeps_yielding_after_a_grace_period(bool inStep, int blockMilliseconds)
+    {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
+        using var cancellation = new CancellationTokenSource();
+        var stop = new TaskCompletionSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource<string>();
+        var function = TestFunction.Define(async context =>
+        {
+            var loop = KeepYieldingAsync();
+            if (!inStep)
+            {
+                started.SetResult();
+                return await loop;
+            }
+
+            return await context.Step.RunAsync("stuck", async () =>
+            {
+                started.SetResult();
+                return await never.Task;
+            });
+        });
+
+        // Code that ignores the token and keeps the call's queue full, as a loop that polls a flag does, some of it with a
+        // blocking call on each turn.
+        async Task<object?> KeepYieldingAsync()
+        {
+            await started.Task;
+            while (!stop.Task.IsCompleted)
+            {
+                if (blockMilliseconds > 0)
+                {
+                    Thread.Sleep(blockMilliseconds);
+                }
+
+                await Task.Yield();
+            }
+
+            return null;
+        }
+
+        // The call never waits on anything but the code it runs, so it gets a thread of its own.
+        var pending = Task.Run(() => Execute(host, function, cancellation.Token), TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var waited = Stopwatch.StartNew();
+            await cancellation.CancelAsync();
+
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+            waited.Elapsed.ShouldBeLessThan(Grace * 10);
+            host.Logs.GetSnapshot().Where(record => record.Id.Id == (inStep ? 110 : 111)).ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Warning);
+        }
+        finally
+        {
+            stop.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task A_cancelled_call_waiting_for_code_that_keeps_yielding_lets_other_work_have_its_thread()
+    {
+        if (Environment.GetEnvironmentVariable(OnePoolThread) is null)
+        {
+            await RunWithOnePoolThreadAsync(nameof(A_cancelled_call_waiting_for_code_that_keeps_yielding_lets_other_work_have_its_thread));
+            return;
+        }
+
+        ThreadPool.GetMaxThreads(out var poolThreads, out _);
+        poolThreads.ShouldBe(1);
+        using var host = new EngineHost(cancelledCallGrace: TimeSpan.FromSeconds(10));
+        using var cancellation = new CancellationTokenSource();
+        using var started = new ManualResetEventSlim();
+        using var otherWorkRan = new ManualResetEventSlim();
+        var stop = new TaskCompletionSource();
+        var function = TestFunction.Define(async _ =>
+        {
+            started.Set();
+            while (!stop.Task.IsCompleted)
+            {
+                await Task.Yield();
+            }
+
+            return null;
+        });
+
+        // The call holds the pool's one thread from the start, so a thread of the test's own cancels it.
+        var pending = Task.Run(() => Execute(host, function, cancellation.Token), TestContext.Current.CancellationToken);
+        var ranInTime = false;
+        var canceller = new Thread(() =>
+        {
+            try
+            {
+                started.Wait(TimeSpan.FromSeconds(10));
+                cancellation.Cancel();
+                ThreadPool.UnsafeQueueUserWorkItem(static ran => ran.Set(), otherWorkRan, preferLocal: false);
+                ranInTime = otherWorkRan.Wait(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                stop.TrySetResult();
+            }
+        });
+        canceller.Start();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => pending);
+        canceller.Join();
+        ranInTime.ShouldBeTrue();
     }
 
     [Theory]
@@ -538,19 +657,25 @@ public sealed class ThreadingTests : IDisposable
     [Fact]
     public async Task Code_that_holds_the_function_thread_while_work_waits_for_it_is_logged_once()
     {
-        using var host = new EngineHost(heldThreadTimeout: TimeSpan.FromMilliseconds(50));
+        var timeout = TimeSpan.FromMilliseconds(50);
+        using var host = new EngineHost(heldThreadTimeout: timeout);
+        bool? completedWhileHeld = null;
         var function = TestFunction.Define(async _ =>
         {
             var loading = LoadAsync();
 
-            // Holds the thread as loading.Result would, which would never return, until the watchdog has spoken.
+            // Holds the thread as loading.Result would, which would never return: until the watchdog has spoken, and
+            // then for ten more of its checks, which find the same thread held.
             SpinWait.SpinUntil(() => host.Logs.GetSnapshot().Any(record => record.Id.Id == 112), TimeSpan.FromSeconds(10));
+            Thread.Sleep(timeout / 5 * 10);
+            completedWhileHeld = loading.IsCompleted;
             return await loading;
         });
 
         var result = await host.CallAsync(function, Call.New());
 
         result.Body.ShouldBe("\"loaded\"");
+        completedWhileHeld.ShouldBe(false);
         var record = host.Logs.GetSnapshot().Where(record => record.Id.Id == 112).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Error);
         record.Category.ShouldBe("Inngest.Function.fn");
@@ -675,6 +800,44 @@ public sealed class ThreadingTests : IDisposable
             await release;
             return "loaded";
         }
+    }
+
+    // Runs a test of this class again in a process whose thread pool has a single thread, where code that keeps that
+    // thread to itself shows.
+    private static async Task RunWithOnePoolThreadAsync(string test)
+    {
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } dotnet ? dotnet : "dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add(typeof(ThreadingTests).Assembly.Location);
+        start.ArgumentList.Add("-method");
+        start.ArgumentList.Add($"{typeof(ThreadingTests).FullName}.{test}");
+        start.ArgumentList.Add("-noColor");
+        start.Environment[OnePoolThread] = "1";
+        start.Environment["DOTNET_ThreadPool_ForceMinWorkerThreads"] = "1";
+        start.Environment["DOTNET_ThreadPool_ForceMaxWorkerThreads"] = "1";
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("dotnet did not start.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var errors = process.StandardError.ReadToEndAsync(timeout.Token);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+
+        var log = await output + await errors;
+        log.ShouldContain("Total: 1, Errors: 0, Failed: 0, Skipped: 0", customMessage: log);
     }
 
     private static Task<ExecutionResult> Execute(EngineHost host, FunctionDefinition function, CancellationToken cancellationToken) =>
