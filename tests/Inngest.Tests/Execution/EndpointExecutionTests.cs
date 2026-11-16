@@ -361,6 +361,37 @@ public sealed class EndpointExecutionTests
         error.Message.ShouldContain("POST /orders");
     }
 
+    // The app stopping ends what is left of a hand-over, which otherwise goes on after the client left.
+    [Fact]
+    public async Task A_hand_over_left_by_its_client_ends_when_the_app_stops_and_names_the_run()
+    {
+        using var host = new EngineHost();
+        using var client = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        using var stopped = new CancellationTokenSource();
+        var held = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.EndpointCheckpoints.Saved = save =>
+        {
+            if (save.Created)
+            {
+                client.Cancel();
+                held.TrySetResult(host.EndpointCheckpoints.HoldNext().Reached);
+            }
+        };
+
+        var handOver = host.EndpointAsync(SleepAfterAStep(), requestAborted: client.Token, stopped: stopped.Token);
+        await (await held.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken)).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        handOver.IsCompleted.ShouldBeFalse();
+        await stopped.CancelAsync();
+        var outcome = await handOver.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.Failed);
+        outcome.Error.ShouldBeAssignableTo<OperationCanceledException>();
+        host.EndpointCheckpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun"]);
+        var error = host.LogsOf("Inngest.Execution.ExecutionEngine").Where(record => record.Id.Id == 154).ShouldHaveSingleItem();
+        error.Message.ShouldContain(RunId);
+        error.Message.ShouldContain("POST /orders");
+    }
+
     [Fact]
     public async Task A_run_Inngest_takes_over_without_a_token_fails_the_request()
     {

@@ -86,12 +86,13 @@ internal sealed class EngineHost : IDisposable
             TestContext.Current.CancellationToken);
 
     // A durable endpoint request that starts a run, as the ASP.NET Core middleware makes it. requestAborted stands in for
-    // the client leaving.
+    // the client leaving, and stopped for the app stopping.
     public async Task<EndpointOutcome> EndpointAsync(
         FunctionDefinition function,
         int retries = 3,
         string runId = "01JENDPOINTRUN00000000000000",
-        CancellationToken? requestAborted = null)
+        CancellationToken? requestAborted = null,
+        CancellationToken stopped = default)
     {
         var @event = EndpointCalls.WriteEvent(
             new EndpointRequest("https://api.example.com", "POST", "/orders", "203.0.113.7", "application/json", "", "{}"u8.ToArray(), function.Id),
@@ -102,7 +103,7 @@ internal sealed class EngineHost : IDisposable
                 Function = function,
                 Body = EndpointCalls.WriteStartCall(@event, runId, retries),
                 Services = _provider,
-                Endpoint = new EndpointCall(@event, retries),
+                Endpoint = new EndpointCall(@event, retries, stopped),
             },
             requestAborted ?? TestContext.Current.CancellationToken);
         return result.Endpoint ?? throw new InvalidOperationException(Encoding.UTF8.GetString(result.Body.WrittenSpan));
