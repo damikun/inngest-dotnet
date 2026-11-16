@@ -38,7 +38,7 @@ internal sealed partial class Invocation
             {
                 step.WriteOpStart(writer, retriable ? Ops.StepError : Ops.StepFailed, _settings);
                 writer.WritePropertyName(ErrorProperty);
-                ErrorSerializer.Write(writer, error);
+                WriteStepErrorValue(writer, error);
                 outcome.Timing.Write(writer);
                 step.Metadata?.Write(writer);
                 writer.WriteEndObject();
@@ -123,7 +123,7 @@ internal sealed partial class Invocation
                 writer.WriteString(IdProperty, CompleteId);
                 writer.WriteString(OpProperty, Ops.StepError);
                 writer.WritePropertyName(ErrorProperty);
-                ErrorSerializer.Write(writer, exception);
+                WriteStepErrorValue(writer, exception);
                 writer.WriteEndObject();
             }
 

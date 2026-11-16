@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Inngest.Execution;
@@ -204,6 +205,44 @@ public sealed class CheckpointingTests : IDisposable
 
         replay.Body.ShouldBe("\"done\"");
         shipped.ShouldBe(1);
+    }
+
+    // Every step of a checkpointed function is read back this way, so it costs little more than the copy of the output
+    // handed to the function, both for output as the serializer writes it and for output already in Inngest's form.
+    [Theory]
+    [InlineData(10, false)]
+    [InlineData(10, true)]
+    [InlineData(2000, false)]
+    [InlineData(2000, true)]
+    public void Reading_back_a_step_result_allocates_little_more_than_its_copy(int orders, bool canonical)
+    {
+        using var checkpointer = Checkpointer.ForEndpoint(TimeProvider.System, EngineHost.Settings.SerializerOptions);
+        var output = JsonSerializer.SerializeToUtf8Bytes(Orders(orders), EngineHost.Settings.SerializerOptions);
+        if (canonical)
+        {
+            output = Encoding.UTF8.GetBytes(checkpointer.Add(StepRunOp(output)).GetRawText());
+            checkpointer.Discard();
+        }
+
+        // The first calls rent the buffers, and the checkpointer keeps one of them for its ops.
+        var op = StepRunOp(output);
+        for (var i = 0; i < 2; i++)
+        {
+            checkpointer.Add(op);
+            checkpointer.Discard();
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var data = checkpointer.Add(op);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var copy = Encoding.UTF8.GetBytes(data.GetRawText());
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var reader = new Utf8JsonReader(copy);
+        JsonElement.ParseValue(ref reader);
+        var parsed = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBeLessThan(parsed + parsed / 10 + 512);
     }
 
     [Fact]
@@ -589,6 +628,26 @@ public sealed class CheckpointingTests : IDisposable
 
     private static Task<CallResult> Answer(ExecutionEngine engine, ExecutionRequest request) =>
         EngineHost.ResultOf(engine.ExecuteAsync(request, TestContext.Current.CancellationToken));
+
+    private static byte[] StepRunOp(byte[] output) =>
+        [.. "{\"id\":\"6f1c0b3a\",\"op\":\"StepRun\",\"name\":\"export\",\"data\":"u8, .. output, .. ",\"timing\":{\"a\":1,\"b\":2}}"u8];
+
+    private static List<Order> Orders(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(i => new Order(
+            $"ord_{i:D6}",
+            i % 4 == 0 ? "paid" : "pending",
+            [new OrderLine("TSHIRT-M-BLK", "T-shirt \"Classic\" <M>", 2, 29.95m), new OrderLine("MUG-STD", "Mug 330 ml", 1, 12.5m)],
+            new OrderAddress("12 Example Street", i % 2 == 0 ? "Praha – Nové Město" : "Köln", "110 00"),
+            i % 5 == 0 ? null : "Leave at the door & ring twice",
+            new DateTimeOffset(2026, 10, 29, 10, 0, 0, TimeSpan.Zero).AddMinutes(i))),
+    ];
+
+    public sealed record Order(string Id, string Status, List<OrderLine> Lines, OrderAddress ShippingAddress, string? Note, DateTimeOffset PlacedAt);
+
+    public sealed record OrderLine(string Sku, string Title, int Quantity, decimal UnitPrice);
+
+    public sealed record OrderAddress(string Line1, string City, string PostalCode);
 
     public sealed record Box(int Value)
     {
