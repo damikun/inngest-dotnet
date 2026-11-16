@@ -1,6 +1,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE in the repository root.
 // Ported from the Inngest TypeScript SDK (inngest-js, Copyright 2022 Inngest Inc.) and modified for .NET.
 
+using System.Collections.Concurrent;
 using Inngest.Client;
 
 namespace Inngest.Execution;
@@ -59,7 +60,7 @@ internal sealed class EndpointOutcome
 
 // Saves the steps of a durable endpoint request. The first call creates the run with the request's event and the first
 // op, later ones add to the run.
-internal sealed class EndpointSaver(IEndpointCheckpointApi api, string runId, EndpointCall call)
+internal sealed class EndpointSaver(IEndpointCheckpointApi api, EndpointFirstRuns firstRuns, string functionId, string runId, EndpointCall call)
 {
     // Room for ops in one call: Inngest reads 4 MiB of the call that creates a run, of which the rest of the body takes a
     // few hundred bytes. Calls that add steps keep under it too.
@@ -113,12 +114,37 @@ internal sealed class EndpointSaver(IEndpointCheckpointApi api, string runId, En
         var steps = ops.Slice(from, count);
         if (Run is { } run)
         {
+            await firstRuns.StoredAsync(functionId, cancellationToken).ConfigureAwait(false);
             await api.CheckpointEndpointStepsAsync(run, steps, cancellationToken).ConfigureAwait(false);
         }
         else
         {
             Run = await api.CheckpointNewRunAsync(new NewEndpointRun(runId, call.Event, steps, call.Retries), cancellationToken).ConfigureAwait(false);
+            firstRuns.Created(functionId);
         }
+    }
+}
+
+// When this app first created a run of each durable endpoint. Inngest stores an endpoint's function in the background
+// of the call that creates its first run, and until it has, it drops the steps added to the endpoint's runs while
+// still answering 200: a sleep that hands a run over is lost, and the run never ends. So a call that adds steps waits
+// until a second has passed since the app first created a run of the endpoint, which only its first requests ever do.
+internal sealed class EndpointFirstRuns(TimeProvider time)
+{
+    private readonly ConcurrentDictionary<string, long> _created = new(StringComparer.Ordinal);
+
+    public TimeSpan Wait { get; init; } = TimeSpan.FromSeconds(1);
+
+    public void Created(string functionId) => _created.TryAdd(functionId, time.GetTimestamp());
+
+    // Inngest may no longer have the endpoints, as a dev server without --persist after a restart, so the next runs of
+    // each wait again.
+    public void Forget() => _created.Clear();
+
+    public Task StoredAsync(string functionId, CancellationToken cancellationToken)
+    {
+        var left = _created.TryGetValue(functionId, out var created) ? Wait - time.GetElapsedTime(created) : TimeSpan.Zero;
+        return left > TimeSpan.Zero ? Task.Delay(left, time, cancellationToken) : Task.CompletedTask;
     }
 }
 

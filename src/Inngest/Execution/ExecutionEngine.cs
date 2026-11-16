@@ -33,13 +33,15 @@ internal sealed class ExecutionEngine : IExecutionEngine
         TimeProvider timeProvider,
         IInngestApi api,
         ICheckpointApi? checkpoints = null,
-        IEndpointCheckpointApi? endpointCheckpoints = null)
+        IEndpointCheckpointApi? endpointCheckpoints = null,
+        EndpointFirstRuns? endpointFirstRuns = null)
     {
         Settings = settings;
         TimeProvider = timeProvider;
         Logger = loggerFactory.CreateLogger<ExecutionEngine>();
         Checkpoints = checkpoints;
         EndpointCheckpoints = endpointCheckpoints;
+        EndpointFirstRuns = endpointFirstRuns ?? new EndpointFirstRuns(timeProvider);
         _loggerFactory = loggerFactory;
         _api = api;
         _documentOptions = JsonPayload.DocumentOptions(settings.SerializerOptions);
@@ -56,6 +58,9 @@ internal sealed class ExecutionEngine : IExecutionEngine
 
     // Where durable endpoint requests create their runs. Without it such a request cannot run.
     public IEndpointCheckpointApi? EndpointCheckpoints { get; }
+
+    // When the app first created a run of each durable endpoint, which the first requests to an endpoint wait on.
+    public EndpointFirstRuns EndpointFirstRuns { get; }
 
     // How long the code of a function may hold its thread while work waits for it before the call logs an error.
     public TimeSpan HeldThreadTimeout { get; init; } = TimeSpan.FromSeconds(5);

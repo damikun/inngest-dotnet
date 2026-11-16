@@ -120,6 +120,9 @@ public sealed partial class InngestCommHandler
 
         if (result.Modified)
         {
+            // Inngest takes a sync as a change when it did not have the app as it is, as after a dev server that keeps
+            // nothing restarts. It may then have lost the durable endpoints it stored too.
+            _endpointFirstRuns?.Forget();
             Log.Synced(_logger, _registry.Functions.Count, serveUrl);
         }
         else

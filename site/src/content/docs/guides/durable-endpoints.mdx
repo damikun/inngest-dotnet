@@ -186,6 +186,16 @@ client gets a 303 See Other to a URL that answers with the final response. That 
 run to finish. As in the TypeScript SDK, the steps go to Inngest one to a call: Inngest takes several in one call for
 steps in parallel, and would then plan each later step of the run before running it.
 
+Inngest stores an endpoint in the background of the call that creates its first run, and drops the steps it gets for
+the run before then. So the calls after the first wait until a second has passed since the app first created a run of
+the endpoint, which can hold up the 303 of the first requests after the app starts by up to a second.
+
+The app knows only its own first runs. A dev server started without `--persist` forgets the endpoints when it
+restarts, so a sync that Inngest takes as a change, as the first one after such a restart is, makes the app wait again
+for each endpoint. The dev server syncs the app when it starts if it knows the address of `MapInngest`, as it does
+under `dotnet inngest dev` or with `-u`. If it does not, restart the app along with it, or the first hand-over of each
+endpoint can lose its steps and leave the run running.
+
 Once the first call has created the run, the SDK sends the rest even if the client disconnects: without them, Inngest
 would have the run but nothing that resumes it. If one of them fails for good, the request fails, and the SDK logs
 that the run may be left in Inngest with nothing to resume it.

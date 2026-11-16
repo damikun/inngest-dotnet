@@ -6,6 +6,7 @@ using Inngest.Client;
 using Inngest.Execution;
 using Inngest.Signing;
 using Inngest.Tests.Checkpointing;
+using Inngest.Tests.Execution;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using FakeInngestApi = Inngest.Tests.Execution.FakeInngestApi;
 
 namespace Inngest.Tests.AspNetCore;
@@ -102,6 +104,60 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         response.Headers.Location.ShouldBe(new Uri($"http://localhost:8288/v1/http/runs/{runId}/output?token=eyJ.token"));
         (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBeEmpty();
         _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    // A test of the app may give it a fake clock that nothing moves. The hand-over still waits for Inngest to store the
+    // endpoint, which happens in real time.
+    [Fact]
+    public async Task The_first_hand_over_of_an_app_whose_clock_never_moves_still_reaches_Inngest()
+    {
+        var client = await StartAsync(clock: new FakeTimeProvider(EngineHost.Now));
+
+        using var response = await client.PostAsync("/orders/42/ship", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    // A dev server that keeps nothing, inngest dev without --persist, forgets the endpoints it stored when it restarts,
+    // and the first sync after that is a change to it.
+    [Fact]
+    public async Task After_a_sync_Inngest_takes_as_a_change_the_next_hand_over_waits_for_Inngest_to_store_the_endpoint_again()
+    {
+        var clock = new TestTimeProvider(EngineHost.Now);
+        _api.Registered = new RegisterResult(Success: true, StatusCode: 200, Modified: true, Error: null);
+        var client = await StartAsync(firstRuns: new EndpointFirstRuns(clock), serve: true);
+        await HandOverAsync(client, clock);
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        using var sync = await client.PutAsync("/api/inngest", content: null, CancellationToken);
+        var next = client.PostAsync("/orders/43/ship", Json(OrderBody), CancellationToken);
+        await clock.TimersCreated(2).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        next.IsCompleted.ShouldBeFalse();
+        clock.Advance(TimeSpan.FromSeconds(1));
+        using var response = await next.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        sync.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep", "StepRun", "Sleep"]);
+    }
+
+    // The dev server syncs the app every few seconds, and Inngest takes those syncs as no change.
+    [Fact]
+    public async Task A_sync_Inngest_takes_as_no_change_leaves_the_next_hand_over_without_a_wait()
+    {
+        var clock = new TestTimeProvider(EngineHost.Now);
+        _api.Registered = new RegisterResult(Success: true, StatusCode: 200, Modified: false, Error: null);
+        var client = await StartAsync(firstRuns: new EndpointFirstRuns(clock), serve: true);
+        await HandOverAsync(client, clock);
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        using var sync = await client.PutAsync("/api/inngest", content: null, CancellationToken);
+        using var response = await client.PostAsync("/orders/43/ship", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        sync.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        clock.TimerCount.ShouldBe(1);
     }
 
     [Fact]
@@ -237,7 +293,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     [Fact]
     public async Task While_Inngest_is_behind_the_client_still_gets_its_response_and_the_run_is_recorded()
     {
-        var client = await StartAsync(maxRunningSaves: 0);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = await StartAsync(maxRunningSaves: 0, responseCompleted: completed);
         var (reached, release) = _checkpoints.HoldNext();
 
         using var response = await client.PostAsync("/orders/42", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
@@ -246,8 +303,10 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         var order = await response.Content.ReadFromJsonAsync<JsonElement>(CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         order.GetProperty("total").GetInt32().ShouldBe(42);
         await reached;
+        (await Task.WhenAny(completed.Task, Task.Delay(TimeSpan.FromMilliseconds(200), CancellationToken))).ShouldNotBe(completed.Task);
         _checkpoints.Saves.ShouldBeEmpty();
         release.SetResult();
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         await _checkpoints.WaitForSavesAsync(1);
         _checkpoints.Saves.ShouldHaveSingleItem().RunId.ShouldBe(response.Headers.GetValues("X-Run-ID").Single());
     }
@@ -370,7 +429,11 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         string? serveOrigin = "https://api.example.com",
         bool encrypt = false,
         TimeSpan? shutdownTimeout = null,
-        int? maxRunningSaves = null)
+        int? maxRunningSaves = null,
+        TaskCompletionSource? responseCompleted = null,
+        TimeProvider? clock = null,
+        EndpointFirstRuns? firstRuns = null,
+        bool serve = false)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -402,7 +465,22 @@ public sealed class DurableEndpointTests : IAsyncDisposable
             builder.Services.AddSingleton(provider => new EndpointRunSaves(provider.GetRequiredService<ILogger<EndpointRunSaves>>()) { MaxRunning = maxRunning });
         }
 
+        if (clock is not null)
+        {
+            builder.Services.AddSingleton(clock);
+        }
+
+        if (firstRuns is not null)
+        {
+            builder.Services.AddSingleton(firstRuns);
+        }
+
         var app = _app = builder.Build();
+        if (serve)
+        {
+            app.MapInngest();
+        }
+
         app.UseExceptionHandler(errors => errors.Run(context =>
         {
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
@@ -416,6 +494,22 @@ public sealed class DurableEndpointTests : IAsyncDisposable
             context.Response.Headers["X-Frame-Options"] = "DENY";
             return next(context);
         });
+
+        // Callbacks run in the reverse order of their registration, so this one runs once the durable endpoints' own
+        // have, which is when the connection takes its next request.
+        if (responseCompleted is not null)
+        {
+            app.Use((context, next) =>
+            {
+                context.Response.OnCompleted(() =>
+                {
+                    responseCompleted.TrySetResult();
+                    return Task.CompletedTask;
+                });
+                return next(context);
+            });
+        }
+
         app.UseInngestDurableEndpoints();
 
         app.MapPost("/orders/{id}", async (string id, Order order, IStepTools step) =>
@@ -474,6 +568,17 @@ public sealed class DurableEndpointTests : IAsyncDisposable
     }
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
+
+    // A hand-over that waits a second for Inngest to store the endpoint, which the test lets pass.
+    private static async Task HandOverAsync(HttpClient client, TestTimeProvider clock)
+    {
+        var timers = clock.TimerCount;
+        var request = client.PostAsync("/orders/42/ship", Json(OrderBody), CancellationToken);
+        await clock.TimersCreated(timers + 1).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        using var response = await request.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+    }
 
     // A call from Inngest that resumes a run: the original request again, with the run id and a signature.
     private static HttpRequestMessage Resume(string pathAndQuery, string body, string signature = "")

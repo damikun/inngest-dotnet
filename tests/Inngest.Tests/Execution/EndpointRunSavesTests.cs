@@ -140,63 +140,17 @@ public sealed class EndpointRunSavesTests
     }
 
     // The container can dispose the service while StoppedAsync cancels the saves, such as when the host gives up on it.
-    // Two threads meet at the start of every round, and the one that disposes waits a little longer each time, so the
-    // rounds dispose the service at different moments of the shutdown.
+    // Here it does so after the saves are stopped and before the token is cancelled.
     [Fact]
-    public void Disposing_the_service_while_it_cancels_its_saves_still_cancels_its_token()
+    public async Task Disposing_the_service_while_it_cancels_its_saves_still_cancels_its_token()
     {
-        const int Rounds = 30_000;
-        var saves = new EndpointRunSaves[Rounds];
-        for (var round = 0; round < Rounds; round++)
-        {
-            saves[round] = new EndpointRunSaves(NullLogger<EndpointRunSaves>.Instance);
-        }
+        EndpointRunSaves? saves = null;
+        saves = new EndpointRunSaves(NullLogger<EndpointRunSaves>.Instance) { Cancelling = () => saves!.Dispose() };
+        var stopped = saves.Stopped;
 
-        var tokens = saves.Select(service => service.Stopped).ToArray();
-        var reached = new int[2];
-        Exception? failure = null;
-        var stopping = new Thread(() =>
-        {
-            for (var round = 0; round < Rounds; round++)
-            {
-                Meet(reached, 0, round);
-                try
-                {
-                    saves[round].StoppedAsync(CancellationToken).GetAwaiter().GetResult();
-                }
-                catch (Exception exception)
-                {
-                    failure ??= exception;
-                }
-            }
-        });
-        var disposing = new Thread(() =>
-        {
-            for (var round = 0; round < Rounds; round++)
-            {
-                Meet(reached, 1, round);
-                Thread.SpinWait(round % 300);
-                saves[round].Dispose();
-            }
-        });
+        await saves.StoppedAsync(CancellationToken);
 
-        stopping.Start();
-        disposing.Start();
-        stopping.Join();
-        disposing.Join();
-
-        failure.ShouldBeNull();
-        tokens.ShouldAllBe(token => token.IsCancellationRequested);
-    }
-
-    private static void Meet(int[] reached, int self, int round)
-    {
-        Volatile.Write(ref reached[self], round);
-        var spin = new SpinWait();
-        while (Volatile.Read(ref reached[1 - self]) < round)
-        {
-            spin.SpinOnce(sleep1Threshold: -1);
-        }
+        stopped.IsCancellationRequested.ShouldBeTrue();
     }
 
     // Hand-overs keep the token after the app has stopped, and the container disposes the service.

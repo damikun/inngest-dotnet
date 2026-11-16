@@ -62,6 +62,14 @@ public sealed class DurableEndpointFixture : InngestFixture
             return Results.Json(new { body, query = request.QueryString.Value, packed }, statusCode: StatusCodes.Status202Accepted);
         }).WithDurableEndpoint("ship");
 
+        // Called by one test only, so that its request is the endpoint's first in the app and in the dev server.
+        app.MapPost("/first/{testId}", async (string testId, IStepTools step) =>
+        {
+            var packed = await step.RunAsync("pack", () => Count(testId, "pack"));
+            await step.SleepAsync("cool-off", TimeSpan.FromSeconds(1));
+            return Results.Ok(new { packed });
+        }).WithDurableEndpoint("first");
+
         // Sends the client to the app's own output proxy rather than to Inngest.
         app.MapInngestDurableEndpointProxy("/inngest/output");
         app.MapPost("/pack/{testId}", async (string testId, IStepTools step) =>

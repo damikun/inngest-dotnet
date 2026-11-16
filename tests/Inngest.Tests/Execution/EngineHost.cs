@@ -28,7 +28,8 @@ internal sealed class EngineHost : IDisposable
         Action<IServiceCollection>? configure = null,
         InngestSettings? settings = null,
         TimeSpan? heldThreadTimeout = null,
-        TimeSpan? cancelledCallGrace = null)
+        TimeSpan? cancelledCallGrace = null,
+        bool waitForNewEndpoints = false)
     {
         var services = new ServiceCollection();
         services.AddFakeLogging();
@@ -39,7 +40,10 @@ internal sealed class EngineHost : IDisposable
 
         // The engine's own defaults, for the limits a test leaves out.
         var defaults = new ExecutionEngine(Settings, loggerFactory, Time, Api);
-        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints)
+
+        // Nothing moves the clock in most tests, so a durable endpoint's calls do not wait for Inngest to store it.
+        var firstRuns = new EndpointFirstRuns(Time) { Wait = waitForNewEndpoints ? defaults.EndpointFirstRuns.Wait : TimeSpan.Zero };
+        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints, firstRuns)
         {
             HeldThreadTimeout = heldThreadTimeout ?? defaults.HeldThreadTimeout,
             CancelledCallGrace = cancelledCallGrace ?? defaults.CancelledCallGrace,
@@ -86,12 +90,13 @@ internal sealed class EngineHost : IDisposable
             TestContext.Current.CancellationToken);
 
     // A durable endpoint request that starts a run, as the ASP.NET Core middleware makes it. requestAborted stands in for
-    // the client leaving.
+    // the client leaving, and stopped for the app stopping.
     public async Task<EndpointOutcome> EndpointAsync(
         FunctionDefinition function,
         int retries = 3,
         string runId = "01JENDPOINTRUN00000000000000",
-        CancellationToken? requestAborted = null)
+        CancellationToken? requestAborted = null,
+        CancellationToken stopped = default)
     {
         var @event = EndpointCalls.WriteEvent(
             new EndpointRequest("https://api.example.com", "POST", "/orders", "203.0.113.7", "application/json", "", "{}"u8.ToArray(), function.Id),
@@ -102,7 +107,7 @@ internal sealed class EngineHost : IDisposable
                 Function = function,
                 Body = EndpointCalls.WriteStartCall(@event, runId, retries),
                 Services = _provider,
-                Endpoint = new EndpointCall(@event, retries),
+                Endpoint = new EndpointCall(@event, retries, stopped),
             },
             requestAborted ?? TestContext.Current.CancellationToken);
         return result.Endpoint ?? throw new InvalidOperationException(Encoding.UTF8.GetString(result.Body.WrittenSpan));
@@ -120,6 +125,17 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : FakeTimeProvider(
     private readonly Lock _gate = new();
     private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
     private int _timers;
+
+    public int TimerCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers;
+            }
+        }
+    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -304,8 +320,11 @@ internal sealed class FakeInngestApi : IInngestApi
 
     public List<string> Requests { get; } = [];
 
+    // What Inngest answers a sync, for tests that sync the app.
+    public RegisterResult? Registered { get; set; }
+
     public Task<RegisterResult> RegisterAsync(ReadOnlyMemory<byte> payload, string? deployId, string? serverKind, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+        Registered is { } result ? Task.FromResult(result) : throw new NotSupportedException();
 
     public Task<JsonDocument> GetRunStepsAsync(string runId, CancellationToken cancellationToken) => Get($"actions:{runId}", Steps);
 
