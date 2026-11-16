@@ -209,6 +209,61 @@ public sealed class ThreadingTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task A_cancelled_call_stops_waiting_for_code_that_keeps_yielding_after_a_grace_period(bool inStep)
+    {
+        using var host = new EngineHost(cancelledCallGrace: Grace);
+        using var cancellation = new CancellationTokenSource();
+        var stop = new TaskCompletionSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource<string>();
+        var function = TestFunction.Define(async context =>
+        {
+            var loop = KeepYieldingAsync();
+            if (!inStep)
+            {
+                started.SetResult();
+                return await loop;
+            }
+
+            return await context.Step.RunAsync("stuck", async () =>
+            {
+                started.SetResult();
+                return await never.Task;
+            });
+        });
+
+        // Code that ignores the token and keeps the call's queue full, as a loop that polls a flag does.
+        async Task<object?> KeepYieldingAsync()
+        {
+            while (!stop.Task.IsCompleted)
+            {
+                await Task.Yield();
+            }
+
+            return null;
+        }
+
+        // The call never waits on anything but the code it runs, so it gets a thread of its own.
+        var pending = Task.Run(() => Execute(host, function, cancellation.Token), TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var waited = Stopwatch.StartNew();
+            await cancellation.CancelAsync();
+
+            await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+            host.Logs.GetSnapshot().Where(record => record.Id.Id == (inStep ? 110 : 111)).ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Warning);
+        }
+        finally
+        {
+            stop.TrySetResult();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task A_cancelled_call_ends_only_once_the_work_the_function_waits_on_has_finished(bool forOneStep)
     {
         var timeline = new Timeline();

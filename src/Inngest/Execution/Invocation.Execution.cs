@@ -191,7 +191,21 @@ internal sealed partial class Invocation
                     return true;
                 }
 
+                // Checked here too: Task.WhenAny picks the first of its tasks that has completed, which is always the work
+                // for code that keeps queueing it, such as a loop over Task.Yield.
+                if (deadline.IsCompleted)
+                {
+                    return false;
+                }
+
                 var work = _scheduler.WaitForWorkAsync(grace.Token).AsTask();
+                if (work.IsCompleted)
+                {
+                    // Such code would otherwise keep this thread to itself for the whole grace period.
+                    await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+                    continue;
+                }
+
                 var completed = givenUp is null
                     ? await Task.WhenAny(code, work, deadline).ConfigureAwait(false)
                     : await Task.WhenAny(code, work, deadline, givenUp).ConfigureAwait(false);
