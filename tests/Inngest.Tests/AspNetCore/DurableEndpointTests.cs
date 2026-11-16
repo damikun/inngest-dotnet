@@ -6,6 +6,7 @@ using Inngest.Client;
 using Inngest.Execution;
 using Inngest.Signing;
 using Inngest.Tests.Checkpointing;
+using Inngest.Tests.Execution;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using FakeInngestApi = Inngest.Tests.Execution.FakeInngestApi;
 
 namespace Inngest.Tests.AspNetCore;
@@ -101,6 +103,19 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         var runId = response.Headers.GetValues("X-Run-ID").ShouldHaveSingleItem();
         response.Headers.Location.ShouldBe(new Uri($"http://localhost:8288/v1/http/runs/{runId}/output?token=eyJ.token"));
         (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBeEmpty();
+        _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    // A test of the app may give it a fake clock that nothing moves. The hand-over still waits for Inngest to store the
+    // endpoint, which happens in real time.
+    [Fact]
+    public async Task The_first_hand_over_of_an_app_whose_clock_never_moves_still_reaches_Inngest()
+    {
+        var client = await StartAsync(clock: new FakeTimeProvider(EngineHost.Now));
+
+        using var response = await client.PostAsync("/orders/42/ship", Json(OrderBody), CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
         _checkpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
     }
 
@@ -374,7 +389,8 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         bool encrypt = false,
         TimeSpan? shutdownTimeout = null,
         int? maxRunningSaves = null,
-        TaskCompletionSource? responseCompleted = null)
+        TaskCompletionSource? responseCompleted = null,
+        TimeProvider? clock = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -404,6 +420,11 @@ public sealed class DurableEndpointTests : IAsyncDisposable
         if (maxRunningSaves is { } maxRunning)
         {
             builder.Services.AddSingleton(provider => new EndpointRunSaves(provider.GetRequiredService<ILogger<EndpointRunSaves>>()) { MaxRunning = maxRunning });
+        }
+
+        if (clock is not null)
+        {
+            builder.Services.AddSingleton(clock);
         }
 
         var app = _app = builder.Build();

@@ -252,9 +252,6 @@ public sealed class HttpContextSourceTests
                 inngest.AddUserContextFromHttpContext();
                 inngest.Services.AddSingleton<IEndpointCheckpointApi>(checkpoints);
                 inngest.Services.AddSingleton<IInngestApi>(api);
-
-                // The app's clock is fake and never moves, so the hand-over does not wait for Inngest to store the endpoint.
-                inngest.Services.AddSingleton(new EndpointFirstRuns(TimeProvider.System) { Wait = TimeSpan.Zero });
             },
             web =>
             {

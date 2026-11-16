@@ -93,7 +93,10 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<RealtimeSubscriber>();
         services.TryAddSingleton<IInngestRealtime, InngestRealtime>();
         services.TryAddSingleton<IFunctionRegistry, FunctionRegistry>();
-        services.TryAddSingleton(static provider => new EndpointFirstRuns(provider.GetRequiredService<TimeProvider>()));
+
+        // Real time, not the app's clock: it waits for Inngest, and a fake clock that nothing moves in a test of the app
+        // would hold the hand-over until the app stops.
+        services.TryAddSingleton(static _ => new EndpointFirstRuns(TimeProvider.System));
         services.TryAddSingleton<IExecutionEngine, ExecutionEngine>();
         services.TryAddSingleton(static provider => new InngestCommHandler(
             provider.GetRequiredService<InngestSettings>(),
