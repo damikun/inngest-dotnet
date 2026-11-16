@@ -94,13 +94,12 @@ public sealed class RunWaiterTests
         }
 
         var exception = await Should.ThrowAsync<TimeoutException>(
-            RunAsync(waiter => waiter.WaitForRunAsync("r1", TimeSpan.FromSeconds(30), Cancellation)));
+            RunAsync(waiter => waiter.WaitForRunAsync("r1", TimeSpan.FromSeconds(30), Cancellation), settleAt: Start.AddSeconds(30)));
 
         exception.Message.ShouldBe("Run r1 did not end within 30 s. Last seen: run r1 Running. Last error: Failed to get run r1: busy");
         exception.InnerException.ShouldBeOfType<InngestException>().StatusCode.ShouldBe(503);
-        // Drive moves the clock 125 ms at a time, and on a busy machine it can take a few steps before the timeout's
-        // continuation has run. A wait that gave up only at its next read could be up to 2 s late.
-        (_time.GetUtcNow() - Start).ShouldBeInRange(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30.5));
+        // The clock stands still from the deadline on: the wait ended at it, not at its next read up to 2 s later.
+        (_time.GetUtcNow() - Start).ShouldBe(TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -296,15 +295,23 @@ public sealed class RunWaiterTests
         _time,
         RunPolling.Default);
 
-    private Task<T> RunAsync<T>(Func<RunWaiter, Task<T>> wait, TimeSpan? until = null) =>
-        Drive(wait(CreateWaiter()), until ?? TimeSpan.FromMinutes(2));
+    private Task<T> RunAsync<T>(Func<RunWaiter, Task<T>> wait, TimeSpan? until = null, DateTimeOffset? settleAt = null) =>
+        Drive(wait(CreateWaiter()), until ?? TimeSpan.FromMinutes(2), settleAt);
 
-    // Moves the fake clock on in small steps until the wait is over; a wait still going after until fails the test.
-    private async Task<T> Drive<T>(Task<T> wait, TimeSpan until)
+    // Moves the fake clock on in small steps until the wait is over; a wait still going after until fails the test. Once
+    // the clock reaches settleAt, it stands still and the wait gets a while of real time to end: on a busy machine the
+    // wait's continuations can take longer than a step.
+    private async Task<T> Drive<T>(Task<T> wait, TimeSpan until, DateTimeOffset? settleAt = null)
     {
         var end = _time.GetUtcNow() + until;
         while (!wait.IsCompleted && _time.GetUtcNow() < end)
         {
+            if (_time.GetUtcNow() >= settleAt)
+            {
+                await Task.WhenAny(wait, Task.Delay(TimeSpan.FromSeconds(10), Cancellation));
+                break;
+            }
+
             await Task.WhenAny(wait, Task.Delay(1, Cancellation));
             if (!wait.IsCompleted)
             {
