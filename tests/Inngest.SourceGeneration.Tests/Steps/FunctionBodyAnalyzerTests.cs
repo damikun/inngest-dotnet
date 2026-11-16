@@ -259,8 +259,8 @@ public sealed class FunctionBodyAnalyzerTests
                     var done = Task.FromResult(1).Result + ValueTask.FromResult(2).Result;
                     Task.CompletedTask.Wait();
                     Task.WhenAll(Task.Run(() => 1), Task.Run(() => 2)).Wait();
-                    var all = new List<Task<string>> { LoadAsync() };
-                    Task.WhenAll(all).Wait();
+                    var pooled = new List<Task<int>> { Task.Run(() => 1) };
+                    Task.WhenAll(pooled).Wait();
                     var continued = await Task.Run(() => "x").ContinueWith(task => LoadAsync().Result + task.Result);
                     var step = await context.Step.RunAsync("step", () => LoadAsync().Result);
                     Func<string> later = () => LoadAsync().Result;
@@ -337,7 +337,21 @@ public sealed class FunctionBodyAnalyzerTests
                     Task.WaitAny(Task.Run(() => 1), Task.Run(() => 2));
                     var fromRun = m.Result + n.Result;
 
-                    return fromArray + fromList + fromExpression + fromAdded + fromBoth + fromPending + fromSteps + fromRun;
+                    var o = LoadAsync();
+                    var p = LoadAsync();
+                    await Task.WhenAll(new List<Task<string>> { o, p });
+                    var q = LoadAsync();
+                    await Task.WhenAll((Task<string>[])[q]);
+                    var r = LoadAsync();
+                    var s = LoadAsync();
+                    await Task.WhenAll([r, s]);
+                    var inPlace = o.Result + p.Result + q.Result + r.Result + s.Result;
+
+                    var loaded = new List<Task<string>> { LoadAsync(), LoadAsync() };
+                    await Task.WhenAll(loaded);
+                    var again = Task.WhenAll(loaded).Result;
+
+                    return fromArray + fromList + fromExpression + fromAdded + fromBoth + fromPending + fromSteps + fromRun + inPlace + again.Length;
                 }
 
                 private static Task<string> LoadAsync() => Task.FromResult("x");
@@ -372,12 +386,21 @@ public sealed class FunctionBodyAnalyzerTests
                     {|#4:both.Wait()|};
                     var after = both.Result;
 
-                    // A collection in a local is not looked into by a blocking wait, so the read after it is reported.
                     var queued = LoadAsync();
                     var queue = new[] { queued };
-                    Task.WaitAll(queue);
-                    var fromQueue = {|#5:queued.Result|};
-                    return total + loaded + first + after.Length + (bounded ? 1 : 0) + fromQueue;
+                    {|#5:Task.WaitAll(queue)|};
+                    var fromQueue = queued.Result;
+
+                    var paying = context.Step.RunAsync("pay", () => 4);
+                    var payments = new List<Task> { paying };
+                    {|#6:Task.WhenAll(payments).Wait()|};
+                    var paid = paying.Result;
+
+                    var all = new List<Task<string>> { LoadAsync() };
+                    var fromAll = {|#7:Task.WhenAll(all).Result|};
+                    {|#8:Task.WhenAll(new List<Task> { LoadAsync() }).Wait()|};
+                    {|#9:Task.WaitAny((Task[])[context.Step.RunAsync("refund", () => 5)])|};
+                    return total + loaded + first + after.Length + (bounded ? 1 : 0) + fromQueue + paid + fromAll.Length;
                 }
 
                 private static Task<string> LoadAsync() => Task.FromResult("x");
@@ -391,7 +414,11 @@ public sealed class FunctionBodyAnalyzerTests
             Blocked(2, "Task.WaitAny()", "LoadAsync()"),
             new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(3).WithArguments("Task.WaitAll()", "RunAsync(\"direct\")"),
             Blocked(4, ".Wait()", "LoadAsync()"),
-            Blocked(5, ".Result", "LoadAsync()"));
+            Blocked(5, "Task.WaitAll()", "LoadAsync()"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(6).WithArguments(".Wait()", "RunAsync(\"pay\")"),
+            Blocked(7, ".Result", "LoadAsync()"),
+            Blocked(8, ".Wait()", "LoadAsync()"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(9).WithArguments("Task.WaitAny()", "RunAsync(\"refund\")"));
     }
 
     [Fact]

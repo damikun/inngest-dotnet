@@ -132,17 +132,22 @@ public sealed class AwaitStepCodeFixTests
         await test.RunAsync();
     }
 
-    [Fact]
-    public async Task Offers_nothing_for_Task_WaitAll()
+    // Awaiting the read after the wait would leave the wait blocking, so the wait is reported and not the read, also when
+    // it is given the task in a collection.
+    [Theory]
+    [InlineData("charging")]
+    [InlineData("tasks")]
+    public async Task Offers_nothing_for_Task_WaitAll(string waited)
     {
-        const string source = """
+        var source = $$"""
             [InngestFunction("order")]
             public sealed class OnOrder : InngestFunction<JsonElement>
             {
                 public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
                 {
                     var charging = context.Step.RunAsync("charge", () => 1);
-                    {|#0:Task.WaitAll(charging)|};
+                    var tasks = new[] { charging };
+                    {|#0:Task.WaitAll({{waited}})|};
                     return charging.Result;
                 }
             }
