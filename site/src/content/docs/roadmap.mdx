@@ -44,6 +44,10 @@ These are on main and not yet on NuGet.
     result stays the same.
   - A step result or invoke payload with a number that a double cannot hold, such as a `long` past 2^53, logs a
     warning. See [Numbers](/inngest-dotnet/guides/steps/#numbers).
+- **Inngest's 4 MiB limit.** A step result is measured as Inngest measures it, in its data object and with the
+  characters Go escapes, so one just under the limit fails with the SDK's clear error instead of a refused answer. A
+  step error that Inngest would refuse for its size has its texts cut short, so the step is retried as usual instead
+  of the run failing.
 - **The SDK's HttpClient.** Resilience handlers that an app adds to every HttpClient, as Aspire's service defaults do,
   stay off the SDK's client. See [The SDK's HttpClient](/inngest-dotnet/guides/configuration/#the-sdks-httpclient).
 - **Realtime:**
@@ -60,13 +64,16 @@ These are on main and not yet on NuGet.
   - A run is handed to Inngest one step to a call, and each call stays under the 4 MiB Inngest reads.
   - A run that finishes is recorded after the response, and the app waits for those records when it stops.
   - A hand-over that started finishes even if the client leaves.
+  - The first hand-overs of a new endpoint wait until Inngest has stored it. Inngest stores a new endpoint in the
+    background, and steps added to its first run before that were lost.
   - The run gets the signed-in user of the request that starts it. When taking the user fails, the run goes on
     without one.
 - **Cancelled calls.** The tasks a cancelled call stops waiting for are observed, so their later failures are not
   reported as unobserved.
 - **Blocked threads.** The SDK logs an error when function code blocks its thread while work for it waits, which would
-  otherwise hang the call. INNGEST023 reports `.Result`, `.Wait()` and `GetAwaiter().GetResult()` on any task the
-  function starts, not only on steps.
+  otherwise hang the call. INNGEST023 reports `.Result`, `.Wait()`, `GetAwaiter().GetResult()`, `Task.WaitAll` and
+  `Task.WaitAny` on any task the function starts, not only on steps, and no longer reports a task that was awaited
+  through `Task.WhenAll` of a collection.
 - **Syncs.** A sync that Inngest refuses is answered with 400 and Inngest's reason, the only status whose reason
   Inngest shows. A trigger on `inngest/function.invoked` is left out of the sync, as in the TypeScript SDK, so the
   function no longer runs on every invoke of any function, and INNGEST033 counts it as no trigger.
@@ -93,6 +100,8 @@ These are on main and not yet on NuGet.
   cancellation, is retried like a network failure and then arrives as `InngestException`.
 - **Durable endpoints:**
   - Code outside steps sees the signed-in user only until the run's first wait. Read the user in a step before it.
+  - After the app starts, and after a sync that Inngest takes as a change, the first request of each endpoint that hands
+    its run over after a step, or records it in more than one call, waits up to a second.
   - While more than 100 runs wait to be recorded, a connection takes its next request only once its own run is
     recorded.
 - **Syncs:** a sync that Inngest refuses with a 4xx is answered 400 instead of 500.
