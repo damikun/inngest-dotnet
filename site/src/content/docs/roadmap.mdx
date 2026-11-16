@@ -37,24 +37,21 @@ These are on main and not yet on NuGet.
 ### Fixes
 
 - **JSON as Inngest stores it.** Inngest sorts the keys of what it stores and reads numbers as doubles. So:
-  - A type discriminator that comes back after the other properties is read. .NET 9 and later read it anywhere in the
-    object; on .NET 8 the SDK moves it to the front first. See [Serialization](/inngest-dotnet/guides/configuration/#serialization).
+  - A type discriminator that comes back after the other properties is read. The `net10.0` build reads it anywhere in
+    the object; the `net8.0` build, which .NET 8 and .NET 9 apps get, moves it to the front first. See
+    [Serialization](/inngest-dotnet/guides/configuration/#serialization).
   - A checkpointed step hands the function its result as Inngest sends it on replay, so a step id made from the
     result stays the same.
   - A step result or invoke payload with a number that a double cannot hold, such as a `long` past 2^53, logs a
-    warning (event ids 172 and 173). The test host sends events and step results the way Inngest does. See
-    [Numbers](/inngest-dotnet/guides/steps/#numbers).
+    warning. See [Numbers](/inngest-dotnet/guides/steps/#numbers).
 - **The SDK's HttpClient.** Resilience handlers that an app adds to every HttpClient, as Aspire's service defaults do,
-  stay off the SDK's client, and what other handlers throw arrives as `InngestException`. See
-  [The SDK's HttpClient](/inngest-dotnet/guides/configuration/#the-sdks-httpclient).
+  stay off the SDK's client. See [The SDK's HttpClient](/inngest-dotnet/guides/configuration/#the-sdks-httpclient).
 - **Realtime:**
   - A streamed publish is no longer cut off by the HttpClient's 100 second timeout, and is never retried with half its
     text.
   - The text of a stream goes out in pieces gathered over 100 ms, so Inngest relays more of it.
   - A stream longer than the 1,000 pieces Inngest relays ends its request there with a warning, and the publish still
     returns all the text. Before, a long stream could fail with a broken connection.
-  - Text published to a topic goes as a JSON string, and a message over the 512 KB Inngest reads throws
-    `ArgumentException`.
   - A subscription's idle timeout is paused while the consumer handles a message.
 - **Sending events.** When Inngest refuses part of a send, `SendEventsException` carries the ids of the events it
   accepted.
@@ -65,15 +62,14 @@ These are on main and not yet on NuGet.
   - A hand-over that started finishes even if the client leaves.
   - The run gets the signed-in user of the request that starts it. When taking the user fails, the run goes on
     without one.
-- **Cancelled calls.** A call cancelled while a step or the function's own code still runs keeps its services until
-  that code ends, for up to 30 seconds. The tasks it stops waiting for are observed, so their later failures are not
+- **Cancelled calls.** The tasks a cancelled call stops waiting for are observed, so their later failures are not
   reported as unobserved.
 - **Blocked threads.** The SDK logs an error when function code blocks its thread while work for it waits, which would
   otherwise hang the call. INNGEST023 reports `.Result`, `.Wait()` and `GetAwaiter().GetResult()` on any task the
   function starts, not only on steps.
 - **Syncs.** A sync that Inngest refuses is answered with 400 and Inngest's reason, the only status whose reason
-  Inngest shows. A trigger on `inngest/function.invoked` is left out of the sync, as in the TypeScript
-  SDK, so the function no longer runs on every invoke of any function.
+  Inngest shows. A trigger on `inngest/function.invoked` is left out of the sync, as in the TypeScript SDK, so the
+  function no longer runs on every invoke of any function, and INNGEST033 counts it as no trigger.
 - **Traces.** A call continues Inngest's trace when the host starts no span for the request, as on AWS Lambda, and links
   to a host span of another trace.
 - **Connect.** A call whose answer is over the 8 MiB the gateway takes fails, instead of closing the connection. A
@@ -82,17 +78,38 @@ These are on main and not yet on NuGet.
 
 ### Changes in behaviour
 
-- **New warnings.** Event ids 172 and 173 for numbers; for durable endpoints, 154 for a hand-over that fails after the
-  run was created, 155 for a user that could not be taken and 156 for a record that a shutdown cut off; and a broader
-  INNGEST023. A project that treats warnings as errors fails to build on what INNGEST023 finds until it is fixed or
-  suppressed.
+- **Realtime:**
+  - Text published to a topic goes as a JSON string, so text that reads as JSON, such as `42` or a model's JSON
+    answer, reaches subscribers as text. It used to arrive as the number or object it reads as, which is what the
+    TypeScript SDK still does. To publish JSON as an object, publish a `JsonElement` or a type.
+  - `PublishAsync` throws `ArgumentException` for a message over the 512 KB Inngest reads, and a publish step with one
+    fails without retries. Inngest used to cut such a message off.
+- **Cancelled calls** wait up to 30 seconds for a step, a hook or the function's own code that ignores the token, and
+  keep their services until it ends. Code that ignores the token makes app shutdown, and a cancelled run in the test
+  host, take that long.
+- **The test host** sends events and step results as Inngest does, with sorted keys and numbers read as doubles, so a
+  test that checks a `long` past 2^53 or a decimal's trailing zeros after a step sees what production sees.
+- **HttpClient handlers.** What a handler of the SDK's HttpClient throws, other than `HttpRequestException` and
+  cancellation, is retried like a network failure and then arrives as `InngestException`.
 - **Durable endpoints:**
   - Code outside steps sees the signed-in user only until the run's first wait. Read the user in a step before it.
   - While more than 100 runs wait to be recorded, a connection takes its next request only once its own run is
     recorded.
-- **`Inngest.Extensions.AI`:** the warning for a streamed model call longer than Inngest relays is event id 354 from
-  the core, in place of 824.
 - **Syncs:** a sync that Inngest refuses with a 4xx is answered 400 instead of 500.
+- **New log events.**
+  - Warnings: 110 and 111 for a step or function code still running 30 seconds after its call was cancelled, 153 and
+    156 for a durable endpoint run that a shutdown kept from being recorded, 155 for a durable endpoint user that
+    could not be taken, 172 and 173 for numbers Inngest does not keep as written, and 354 for a stream longer than
+    Inngest relays.
+  - Errors: 112 for a function that holds its thread while work for it waits, 154 for a durable endpoint hand-over that
+    failed after Inngest created the run, 527 for a Connect reply over 8 MiB, and 528 for Connect replies that keep
+    failing to send.
+  - Debug: 113, 174 and 175.
+  - 524 is logged only when a stopping Connect worker gives up on its replies; before, it was logged after five
+    failed rounds, and the replies waited for the next connection. `Inngest.Extensions.AI` logs 354 from the core in
+    place of 824.
+  - INNGEST023 reports more code. A project that treats warnings as errors fails to build on what it finds until the
+    code is fixed or the warning suppressed.
 
 ## New in 1.1.0
 

@@ -232,12 +232,12 @@ The SDK takes a copy when it starts, so later changes have no effect. For trimme
 Inngest sends events and step results back in canonical JSON (RFC 8785), with the keys of every object sorted and
 every number read as a 64-bit floating point value (see [numbers](/inngest-dotnet/guides/steps/#numbers)). So a type
 discriminator such as `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` usually arrives after the other
-properties. On .NET 9 and later the SDK sets `AllowOutOfOrderMetadataProperties` on its copy of the options. On .NET 8,
-whose System.Text.Json has no such setting, it first walks the value along the type being read and moves the
-discriminator of each polymorphic object to the front, including the items of a polymorphic collection. Under a
-`[JsonConverter]` on a property it goes on as the property's declared type, which suits a converter that hands the
-value back to the serializer. Past that it cannot see what a custom converter reads; keep the default `$type`
-discriminator for types read there, which sorts first.
+properties. The SDK's `net10.0` build sets `AllowOutOfOrderMetadataProperties` on its copy of the options. Its
+`net8.0` build, which .NET 8 and .NET 9 apps get, is built without that setting, so it first walks the value along the
+type being read and moves the discriminator of each polymorphic object to the front, including the items of a
+polymorphic collection. Under a `[JsonConverter]` on a property it goes on as the property's declared type, which
+suits a converter that hands the value back to the serializer. Past that it cannot see what a custom converter reads;
+keep the default `$type` discriminator for types read there, which sorts first.
 
 ## Connect settings
 
