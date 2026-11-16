@@ -278,6 +278,123 @@ public sealed class FunctionBodyAnalyzerTests
     }
 
     [Fact]
+    public async Task Reading_a_task_awaited_in_a_collection_or_through_a_WhenAll_in_a_local_is_fine()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var a = LoadAsync();
+                    var b = LoadAsync();
+                    var array = new[] { a, b };
+                    await Task.WhenAll(array);
+                    var fromArray = a.Result + b.GetAwaiter().GetResult();
+
+                    var c = LoadAsync();
+                    var d = LoadAsync();
+                    var list = new List<Task<string>> { c, d };
+                    await Task.WhenAll(list);
+                    var fromList = c.Result + d.Result;
+
+                    var e = LoadAsync();
+                    var f = LoadAsync();
+                    Task<string>[] expressed = [e, f];
+                    await Task.WhenAny(expressed);
+                    var fromExpression = e.Result + f.Result;
+
+                    var g = LoadAsync();
+                    var h = LoadAsync();
+                    var added = new List<Task>();
+                    added.Add(g);
+                    added.Add(h);
+                    await Task.WhenAll(added).ConfigureAwait(false);
+                    var fromAdded = g.Result + h.Result;
+
+                    var i = LoadAsync();
+                    var j = LoadAsync();
+                    var both = Task.WhenAll(i, j);
+                    await both;
+                    var fromBoth = i.Result + j.Result;
+
+                    var k = LoadAsync();
+                    var l = LoadAsync();
+                    Task[] pending = { k, l };
+                    var all = Task.WhenAll(pending);
+                    await all.ConfigureAwait(false);
+                    var fromPending = k.Result + l.Result;
+
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    var shipping = context.Step.RunAsync("ship", () => 2);
+                    var steps = Task.WhenAll(charging, shipping);
+                    await steps;
+                    var fromSteps = charging.Result + shipping.Result;
+
+                    var m = Task.Run(() => "m");
+                    var n = Task.Run(() => "n");
+                    Task.WaitAll(m, n);
+                    Task.WaitAny(Task.Run(() => 1), Task.Run(() => 2));
+                    var fromRun = m.Result + n.Result;
+
+                    return fromArray + fromList + fromExpression + fromAdded + fromBoth + fromPending + fromSteps + fromRun;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+            }
+            """;
+
+        await Verify(source);
+    }
+
+    [Fact]
+    public async Task Task_WaitAll_and_WaitAny_on_tasks_the_function_starts_are_reported_and_not_the_reads_after_them()
+    {
+        const string source = """
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    var shipping = context.Step.RunAsync("ship", () => 2);
+                    {|#0:Task.WaitAll(charging, shipping)|};
+                    var total = charging.Result + shipping.Result;
+
+                    var loading = LoadAsync();
+                    {|#1:Task.WaitAll(Task.Run(() => "x"), loading)|};
+                    var loaded = loading.Result;
+
+                    var first = {|#2:Task.WaitAny(LoadAsync(), LoadAsync())|};
+                    var bounded = {|#3:Task.WaitAll(new Task[] { context.Step.RunAsync("direct", () => 3) }, TimeSpan.FromSeconds(5))|};
+
+                    var both = Task.WhenAll(LoadAsync(), LoadAsync());
+                    {|#4:both.Wait()|};
+                    var after = both.Result;
+
+                    // A collection in a local is not looked into by a blocking wait, so the read after it is reported.
+                    var queued = LoadAsync();
+                    var queue = new[] { queued };
+                    Task.WaitAll(queue);
+                    var fromQueue = {|#5:queued.Result|};
+                    return total + loaded + first + after.Length + (bounded ? 1 : 0) + fromQueue;
+                }
+
+                private static Task<string> LoadAsync() => Task.FromResult("x");
+            }
+            """;
+
+        await Verify(
+            source,
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(0).WithArguments("Task.WaitAll()", "RunAsync(\"charge\")"),
+            Blocked(1, "Task.WaitAll()", "LoadAsync()"),
+            Blocked(2, "Task.WaitAny()", "LoadAsync()"),
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(3).WithArguments("Task.WaitAll()", "RunAsync(\"direct\")"),
+            Blocked(4, ".Wait()", "LoadAsync()"),
+            Blocked(5, ".Result", "LoadAsync()"));
+    }
+
+    [Fact]
     public async Task Blocking_through_WaitAsync_or_ContinueWith_is_reported_on_the_task_they_wait_for()
     {
         const string source = """

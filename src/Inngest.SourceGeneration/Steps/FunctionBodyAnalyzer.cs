@@ -58,9 +58,11 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         private readonly List<(string Id, IInvocationOperation Step, IArgumentOperation Argument)> _ids = [];
         private readonly HashSet<IForEachLoopOperation> _reportedLoops = [];
 
-        // For INNGEST023, made on first use: the tasks in locals, by what the locals were declared with, and where the
-        // code first awaits a local's task or checks whether it is done.
+        // For INNGEST023, made on first use: the tasks in locals, by what the locals were declared with, the tasks that
+        // the code puts in a collection in a local, and where the code first awaits a local's task or checks whether it
+        // is done.
         private Dictionary<ILocalSymbol, IOperation>? _initializers;
+        private Dictionary<ILocalSymbol, List<IOperation>>? _members;
         private Dictionary<ILocalSymbol, int>? _settled;
 
         // Quiet is set inside the arguments of a step, which are saved with the step on its first call and not read
@@ -189,10 +191,10 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
             context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.AwaitOutsideStep, StepCalls.NameLocation(invocation), name));
         }
 
-        // INNGEST023: .Result, .Wait() or .GetAwaiter().GetResult() on a task that the code starts itself, by calling a
-        // method, and may not have finished. A task in a parameter, a field or a property is left alone, since it may come
-        // from anywhere, and so is one the code awaited or checked before. StepCallAnalyzer reports a wait on a step
-        // call itself; a step's task kept in a local is reported here.
+        // INNGEST023: .Result, .Wait(), .GetAwaiter().GetResult(), Task.WaitAll or Task.WaitAny on a task that the code
+        // starts itself, by calling a method, and may not have finished. A task in a parameter, a field or a property is
+        // left alone, since it may come from anywhere, and so is one the code awaited or checked before. StepCallAnalyzer
+        // reports a wait on a step call itself; a step's task kept in a local, or given to WaitAll, is reported here.
         private void CheckBlocking(IOperation operation)
         {
             var (task, how) = operation switch
@@ -201,6 +203,7 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 IInvocationOperation { TargetMethod.Name: "Wait", Instance: { } instance } when IsTask(instance.Type) => (instance, ".Wait()"),
                 IInvocationOperation { TargetMethod.Name: "GetResult", Instance: IInvocationOperation { TargetMethod.Name: "GetAwaiter", Instance: { } instance } }
                     when IsAwaitable(instance.Type) => (instance, ".GetAwaiter().GetResult()"),
+                IInvocationOperation { Instance: null } wait when IsWaitAllOrAny(wait.TargetMethod) => (wait, "Task." + wait.TargetMethod.Name + "()"),
                 _ => (null, null),
             };
 
@@ -216,8 +219,9 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 return;
             }
 
+            // The code fix awaits the task of a blocking call, and WaitAll and WaitAny have no one task to await.
             var properties = ImmutableDictionary<string, string?>.Empty;
-            if (StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation))
+            if (task != operation && StepCalls.CanAwait(operation) && !IsInFilterOrQuery(operation))
             {
                 properties = properties.Add(StepCallAnalyzer.CanAwaitProperty, "true");
             }
@@ -233,17 +237,18 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         }
 
         // The call that started the task, when it is one the code starts here and may not have finished by the blocking
-        // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll and
-        // WhenAny are looked into, for the tasks they are given one by one, and ContinueWith for the task it continues:
-        // the continuation runs on the thread pool once that task is done. Given a scheduler of its own, such as the
-        // function's thread from FromCurrentSynchronizationContext, the continuation is a task the code starts itself.
+        // wait: a call in place, or a local declared with one that was not awaited or checked first. Task.WhenAll,
+        // WhenAny, WaitAll and WaitAny are looked into, for the tasks they are given one by one, and ContinueWith for the
+        // task it continues: the continuation runs on the thread pool once that task is done. Given a scheduler of its
+        // own, such as the function's thread from FromCurrentSynchronizationContext, the continuation is a task the code
+        // starts itself.
         private IInvocationOperation? StartedBy(IOperation task, IOperation blocking, int depth)
         {
             switch (Unwrapped(task))
             {
                 case IInvocationOperation { TargetMethod.Name: "ContinueWith", Instance: { } continued } call when IsTask(call.TargetMethod.ContainingType):
                     return (depth < 4 ? StartedBy(continued, blocking, depth + 1) : null) ?? (HasOwnScheduler(call) ? call : null);
-                case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod):
+                case IInvocationOperation call when IsWhenAllOrAny(call.TargetMethod) || IsWaitAllOrAny(call.TargetMethod):
                     foreach (var argument in call.Arguments)
                     {
                         foreach (var element in Elements(argument.Value))
@@ -316,11 +321,16 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
         }
 
         // A local is settled where the code awaits its task, alone or among those of Task.WhenAll or WhenAny, reads
-        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again. A wait through
-        // WaitAsync settles nothing, since WaitAsync can give up while the task goes on.
+        // whether it is done, as with IsCompleted, or blocks on it, which is reported there and not again. Awaiting a
+        // local that holds a WhenAll settles the tasks it was given, and so does blocking on one, or Task.WaitAll. An
+        // await or a check also settles the tasks in a collection in a local that WhenAll is given, from the collection's
+        // initializer or an Add; a blocking wait does not, since it is reported only on the tasks it is given one by one,
+        // and a read of the task after it still is. A wait through WaitAsync settles nothing, since WaitAsync can give up
+        // while the task goes on.
         private void FindLocals()
         {
             _initializers = new Dictionary<ILocalSymbol, IOperation>(SymbolEqualityComparer.Default);
+            _members = new Dictionary<ILocalSymbol, List<IOperation>>(SymbolEqualityComparer.Default);
             _settled = new Dictionary<ILocalSymbol, int>(SymbolEqualityComparer.Default);
             foreach (var operation in body.Operation.DescendantsAndSelf())
             {
@@ -328,39 +338,94 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 {
                     case IVariableDeclaratorOperation declarator when declarator.GetVariableInitializer() is { Value: { } value }:
                         _initializers[declarator.Symbol] = value;
-                        break;
-                    case IAwaitOperation awaitOperation:
-                        var awaited = Unwrapped(awaitOperation.Operation, throughWaits: false);
-                        Settle(awaited, operation);
-                        if (awaited is IInvocationOperation whenAll && IsWhenAllOrAny(whenAll.TargetMethod))
+                        foreach (var element in CollectionElements(value))
                         {
-                            foreach (var argument in whenAll.Arguments)
-                            {
-                                foreach (var element in Elements(argument.Value))
-                                {
-                                    Settle(Unconverted(element), operation);
-                                }
-                            }
+                            AddMember(declarator.Symbol, element);
                         }
 
                         break;
-                    case IPropertyReferenceOperation { Property.Name: "IsCompleted" or "IsCompletedSuccessfully" or "IsFaulted" or "IsCanceled" or "Status" or "Result", Instance: { } instance }
+                    case IInvocationOperation { TargetMethod.Name: "Add", Instance: ILocalReferenceOperation collection, Arguments.Length: 1 } add:
+                        AddMember(collection.Local, add.Arguments[0].Value);
+                        break;
+                }
+            }
+
+            foreach (var operation in body.Operation.DescendantsAndSelf())
+            {
+                switch (operation)
+                {
+                    case IAwaitOperation awaitOperation:
+                        Settle(awaitOperation.Operation, operation, throughCollections: true, depth: 0);
+                        break;
+                    case IPropertyReferenceOperation { Property.Name: "IsCompleted" or "IsCompletedSuccessfully" or "IsFaulted" or "IsCanceled" or "Status", Instance: { } instance }
                         when IsTask(instance.Type):
-                        Settle(Unconverted(instance), operation);
+                        Settle(instance, operation, throughCollections: true, depth: 0);
+                        break;
+                    case IPropertyReferenceOperation { Property.Name: "Result", Instance: { } instance } when IsTask(instance.Type):
+                        Settle(instance, operation, throughCollections: false, depth: 0);
                         break;
                     case IInvocationOperation { TargetMethod.Name: "Wait" or "GetAwaiter", Instance: { } instance } when IsAwaitable(instance.Type):
-                        Settle(Unwrapped(instance, throughWaits: false), operation);
+                        Settle(instance, operation, throughCollections: false, depth: 0);
+                        break;
+                    case IInvocationOperation { Instance: null } wait when IsWaitAllOrAny(wait.TargetMethod):
+                        Settle(wait, operation, throughCollections: false, depth: 0);
                         break;
                 }
             }
         }
 
-        private void Settle(IOperation task, IOperation where)
+        private void AddMember(ILocalSymbol collection, IOperation element)
         {
-            if (task is ILocalReferenceOperation reference
-                && (!_settled!.TryGetValue(reference.Local, out var position) || where.Syntax.SpanStart < position))
+            if (!IsTask(Unconverted(element).Type))
             {
-                _settled[reference.Local] = where.Syntax.SpanStart;
+                return;
+            }
+
+            if (!_members!.TryGetValue(collection, out var members))
+            {
+                _members[collection] = members = [];
+            }
+
+            members.Add(element);
+        }
+
+        private void Settle(IOperation task, IOperation where, bool throughCollections, int depth)
+        {
+            task = Unwrapped(task, throughWaits: false);
+            if (task is ILocalReferenceOperation reference)
+            {
+                if (!_settled!.TryGetValue(reference.Local, out var position) || where.Syntax.SpanStart < position)
+                {
+                    _settled[reference.Local] = where.Syntax.SpanStart;
+                }
+
+                if (!_initializers!.TryGetValue(reference.Local, out var initializer))
+                {
+                    return;
+                }
+
+                task = Unwrapped(initializer, throughWaits: false);
+            }
+
+            if (depth >= 4 || task is not IInvocationOperation call || !(IsWhenAllOrAny(call.TargetMethod) || IsWaitAllOrAny(call.TargetMethod)))
+            {
+                return;
+            }
+
+            foreach (var argument in call.Arguments)
+            {
+                foreach (var element in Elements(argument.Value))
+                {
+                    Settle(element, where, throughCollections, depth + 1);
+                }
+
+                if (throughCollections && Unconverted(argument.Value) is ILocalReferenceOperation collection && _members!.TryGetValue(collection.Local, out var members))
+                {
+                    foreach (var member in members)
+                    {
+                        Settle(member, where, throughCollections, depth + 1);
+                    }
+                }
             }
         }
 
@@ -493,6 +558,9 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
 
     private static bool IsWhenAllOrAny(IMethodSymbol method) =>
         method.Name is "WhenAll" or "WhenAny" && IsType(method.ContainingType, "Task", "System", "Threading", "Tasks");
+
+    private static bool IsWaitAllOrAny(IMethodSymbol method) =>
+        method.Name is "WaitAll" or "WaitAny" && IsType(method.ContainingType, "Task", "System", "Threading", "Tasks");
 
     // A log message's arguments, from ILogger's extension methods or a method that takes a logger, as the methods
     // [LoggerMessage] generates do.
@@ -675,6 +743,38 @@ public sealed class FunctionBodyAnalyzer : DiagnosticAnalyzer
                 }
             }
         }
+    }
+
+    // What a local collection is declared with: an array, a collection initializer or a collection expression, which
+    // this assembly's version of Roslyn knows only by its syntax.
+    private static IEnumerable<IOperation> CollectionElements(IOperation value)
+    {
+        value = Unconverted(value);
+        if (value is IArrayCreationOperation { Initializer: { } array })
+        {
+            return array.ElementValues;
+        }
+
+        if (value is IObjectCreationOperation { Initializer: { } initializer })
+        {
+            var elements = new List<IOperation>();
+            foreach (var item in initializer.Initializers)
+            {
+                if (item is IInvocationOperation { Arguments.Length: 1 } add)
+                {
+                    elements.Add(add.Arguments[0].Value);
+                }
+            }
+
+            return elements;
+        }
+
+        if (value.Syntax is CollectionExpressionSyntax)
+        {
+            return value.ChildOperations;
+        }
+
+        return [];
     }
 
     private static bool IsTask(ITypeSymbol? type) =>
