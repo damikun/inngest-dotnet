@@ -132,6 +132,38 @@ public sealed class AwaitStepCodeFixTests
         await test.RunAsync();
     }
 
+    // Awaiting the read after the wait would leave the wait blocking, so the wait is reported and not the read, also when
+    // it is given the task in a collection.
+    [Theory]
+    [InlineData("charging")]
+    [InlineData("tasks")]
+    public async Task Offers_nothing_for_Task_WaitAll(string waited)
+    {
+        var source = $$"""
+            [InngestFunction("order")]
+            public sealed class OnOrder : InngestFunction<JsonElement>
+            {
+                public override async Task<object?> ExecuteAsync(FunctionContext<JsonElement> context, CancellationToken cancellationToken)
+                {
+                    var charging = context.Step.RunAsync("charge", () => 1);
+                    var tasks = new[] { charging };
+                    {|#0:Task.WaitAll({{waited}})|};
+                    return charging.Result;
+                }
+            }
+            """;
+
+        var test = new CSharpCodeFixTest<FunctionBodyAnalyzer, AwaitStepCodeFixProvider, DefaultVerifier>();
+        ProjectSetup.Configure(test, properties: null);
+        test.TestState.Sources.Add(Sources.Usings + source);
+        test.TestState.ExpectedDiagnostics.Add(
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(0).WithArguments("Task.WaitAll()", "RunAsync(\"charge\")"));
+        test.FixedState.Sources.Add(Sources.Usings + source);
+        test.FixedState.ExpectedDiagnostics.Add(
+            new DiagnosticResult(DiagnosticDescriptors.BlockingOnStep).WithLocation(0).WithArguments("Task.WaitAll()", "RunAsync(\"charge\")"));
+        await test.RunAsync();
+    }
+
     // Both kinds share an id, so the analyzer tells the fix which one it reported.
     [Fact]
     public async Task The_analyzer_tells_the_fix_whether_the_task_is_a_step()
