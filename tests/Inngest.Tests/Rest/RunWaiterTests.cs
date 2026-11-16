@@ -98,7 +98,9 @@ public sealed class RunWaiterTests
 
         exception.Message.ShouldBe("Run r1 did not end within 30 s. Last seen: run r1 Running. Last error: Failed to get run r1: busy");
         exception.InnerException.ShouldBeOfType<InngestException>().StatusCode.ShouldBe(503);
-        (_time.GetUtcNow() - Start).ShouldBeInRange(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30.125));
+        // Drive moves the clock 125 ms at a time, and on a busy machine it can take a few steps before the timeout's
+        // continuation has run. A wait that gave up only at its next read could be up to 2 s late.
+        (_time.GetUtcNow() - Start).ShouldBeInRange(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30.5));
     }
 
     [Fact]
