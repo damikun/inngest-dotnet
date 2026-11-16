@@ -7,9 +7,9 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
 .NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
-## Coming in the next release
+## New in 1.2.0
 
-These are on main and not yet on NuGet.
+New features, all compatible with code built against 1.1.0, then the fixes and the changes in behaviour.
 
 - **Analyzers for replay safety and options.** INNGEST026 to INNGEST033 report code outside steps that reads the clock,
   a GUID or a random number, delays instead of sleeping, or uses a step id twice. They also report cron schedules,
