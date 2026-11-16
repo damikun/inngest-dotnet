@@ -57,6 +57,27 @@ public sealed class DurableEndpointTests(DurableEndpointFixture fixture) : Integ
         Fixture.Attempts(TestId, "after-sleep").ShouldBe(1);
     }
 
+    // Inngest stores the endpoint's function in the background of the call that creates its first run, and drops the
+    // sleep if it comes before that, which leaves the run running for good.
+    [Fact(Timeout = 60_000)]
+    public async Task The_first_request_to_an_endpoint_that_runs_a_step_and_then_sleeps_ends_with_its_run_completed()
+    {
+        using var response = await PostAsync($"/first/{TestId}", "{}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.SeeOther);
+        var runId = response.Headers.GetValues("X-Run-ID").Single();
+        await Poll.UntilAsync(
+            $"run {runId} to complete",
+            token => Api.GetRunAsync(runId, token),
+            run => run.Status == RunStatus.Completed && run.HasEnded,
+            TimeSpan.FromSeconds(30),
+            Fixture.DescribeAsync,
+            Cancellation);
+        var output = await FollowAsync(response);
+        output.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonDocument.Parse(output.Body).RootElement.GetProperty("packed").GetInt32().ShouldBe(1);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task A_failed_step_is_retried_by_Inngest_and_the_client_gets_the_result()
     {

@@ -93,6 +93,7 @@ public static class InngestServiceCollectionExtensions
         services.TryAddSingleton<RealtimeSubscriber>();
         services.TryAddSingleton<IInngestRealtime, InngestRealtime>();
         services.TryAddSingleton<IFunctionRegistry, FunctionRegistry>();
+        services.TryAddSingleton(static provider => new EndpointFirstRuns(provider.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IExecutionEngine, ExecutionEngine>();
         services.TryAddSingleton(static provider => new InngestCommHandler(
             provider.GetRequiredService<InngestSettings>(),

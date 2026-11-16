@@ -28,7 +28,8 @@ internal sealed class EngineHost : IDisposable
         Action<IServiceCollection>? configure = null,
         InngestSettings? settings = null,
         TimeSpan? heldThreadTimeout = null,
-        TimeSpan? cancelledCallGrace = null)
+        TimeSpan? cancelledCallGrace = null,
+        bool waitForNewEndpoints = false)
     {
         var services = new ServiceCollection();
         services.AddFakeLogging();
@@ -39,7 +40,10 @@ internal sealed class EngineHost : IDisposable
 
         // The engine's own defaults, for the limits a test leaves out.
         var defaults = new ExecutionEngine(Settings, loggerFactory, Time, Api);
-        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints)
+
+        // Nothing moves the clock in most tests, so a durable endpoint's calls do not wait for Inngest to store it.
+        var firstRuns = new EndpointFirstRuns(Time) { Wait = waitForNewEndpoints ? defaults.EndpointFirstRuns.Wait : TimeSpan.Zero };
+        Engine = new ExecutionEngine(settings ?? Settings, loggerFactory, Time, Api, Checkpoints, EndpointCheckpoints, firstRuns)
         {
             HeldThreadTimeout = heldThreadTimeout ?? defaults.HeldThreadTimeout,
             CancelledCallGrace = cancelledCallGrace ?? defaults.CancelledCallGrace,
@@ -121,6 +125,17 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : FakeTimeProvider(
     private readonly Lock _gate = new();
     private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
     private int _timers;
+
+    public int TimerCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers;
+            }
+        }
+    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {

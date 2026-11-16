@@ -392,6 +392,126 @@ public sealed class EndpointExecutionTests
         error.Message.ShouldContain("POST /orders");
     }
 
+    // Inngest stores a new endpoint's function in the background of the call that creates its first run, and drops the
+    // steps that reach it before that, such as the sleep that hands the run over.
+    [Fact]
+    public async Task The_first_hand_over_of_an_endpoint_adds_its_steps_a_second_after_it_created_the_run()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+        var waiting = WaitingAfterTheRunIsCreated(host);
+
+        var handOver = host.EndpointAsync(SleepAfterAStep());
+        await waiting;
+        host.Time.Advance(TimeSpan.FromMilliseconds(999));
+        handOver.IsCompleted.ShouldBeFalse();
+        host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Created.ShouldBeTrue();
+        host.Time.Advance(TimeSpan.FromMilliseconds(1));
+        var outcome = await handOver.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        host.EndpointCheckpoints.Saves.Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    [Fact]
+    public async Task The_first_finished_run_of_an_endpoint_recorded_in_more_than_one_call_adds_to_it_a_second_after_it_created_it()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+        var outcome = await host.EndpointAsync(ThreeLargeSteps());
+        var waiting = WaitingAfterTheRunIsCreated(host);
+
+        var recording = outcome.Finish!(CancellationToken);
+        await waiting;
+        host.Time.Advance(TimeSpan.FromMilliseconds(999));
+        recording.IsCompleted.ShouldBeFalse();
+        host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Created.ShouldBeTrue();
+        host.Time.Advance(TimeSpan.FromMilliseconds(1));
+        await recording.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        host.EndpointCheckpoints.Saves.SelectMany(save => save.OpNames).ShouldBe(["StepRun", "StepRun", "StepRun", "RunComplete"]);
+    }
+
+    [Fact]
+    public async Task A_hand_over_a_second_after_the_endpoints_first_run_does_not_wait()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+        var waiting = WaitingAfterTheRunIsCreated(host);
+        var first = host.EndpointAsync(SleepAfterAStep(), runId: "01JENDPOINTRUN0000000000000A");
+        await waiting;
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+        await first.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        host.EndpointCheckpoints.Saved = null;
+
+        var outcome = await host.EndpointAsync(SleepAfterAStep(), runId: "01JENDPOINTRUN0000000000000B").WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        host.EndpointCheckpoints.Saves.Where(save => save.RunId == outcome.RunId).Select(save => save.OpNames.ShouldHaveSingleItem()).ShouldBe(["StepRun", "Sleep"]);
+    }
+
+    [Fact]
+    public async Task A_request_that_needs_one_call_does_not_wait_for_a_new_endpoint()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+
+        var handedOver = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(5));
+            return Response("after the sleep");
+        }), runId: "01JENDPOINTRUN0000000000000A").WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        var finished = await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.RunAsync("load-order", () => 42);
+            return Response("ok");
+        }), runId: "01JENDPOINTRUN0000000000000B").WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        await finished.Finish!(CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        handedOver.Kind.ShouldBe(EndpointOutcomeKind.HandedOver);
+        host.EndpointCheckpoints.Saves.Select(save => save.Created).ShouldBe([true, true]);
+        host.Time.GetUtcNow().ShouldBe(EngineHost.Now);
+    }
+
+    // The run is not created yet, so nothing waits on the clock: the client leaving ends the request as before.
+    [Fact]
+    public async Task A_client_that_leaves_before_Inngest_created_the_run_ends_the_request_without_waiting()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+        await host.EndpointAsync(Endpoint(async context =>
+        {
+            await context.Step.SleepAsync("cool-off", TimeSpan.FromMinutes(5));
+            return Response("after the sleep");
+        }), runId: "01JENDPOINTRUN0000000000000A");
+        using var client = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        var (reached, _) = host.EndpointCheckpoints.HoldNext();
+
+        var request = host.EndpointAsync(SleepAfterAStep(), runId: "01JENDPOINTRUN0000000000000B", requestAborted: client.Token);
+        await reached.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+        await client.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(request.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken));
+        host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().RunId.ShouldBe("01JENDPOINTRUN0000000000000A");
+    }
+
+    // Once the run exists the client leaving does not end the wait, as with the rest of the hand-over, but the app
+    // stopping does.
+    [Fact]
+    public async Task A_hand_over_waiting_for_a_new_endpoint_ends_when_the_app_stops()
+    {
+        using var host = new EngineHost(waitForNewEndpoints: true);
+        using var client = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        using var stopped = new CancellationTokenSource();
+        var waiting = WaitingAfterTheRunIsCreated(host);
+
+        var handOver = host.EndpointAsync(SleepAfterAStep(), requestAborted: client.Token, stopped: stopped.Token);
+        await waiting;
+        await client.CancelAsync();
+        handOver.IsCompleted.ShouldBeFalse();
+        await stopped.CancelAsync();
+        var outcome = await handOver.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+
+        outcome.Kind.ShouldBe(EndpointOutcomeKind.Failed);
+        host.EndpointCheckpoints.Saves.ShouldHaveSingleItem().Created.ShouldBeTrue();
+        host.LogsOf("Inngest.Execution.ExecutionEngine").Where(record => record.Id.Id == 154).ShouldHaveSingleItem().Message.ShouldContain(RunId);
+    }
+
     [Fact]
     public async Task A_run_Inngest_takes_over_without_a_token_fails_the_request()
     {
@@ -427,6 +547,31 @@ public sealed class EndpointExecutionTests
 
     private static FunctionDefinition Endpoint(Func<FunctionContext<JsonElement>, Task<object?>> handler) =>
         TestFunction.Define(handler, "POST /orders");
+
+    private static FunctionDefinition ThreeLargeSteps() => Endpoint(async context =>
+    {
+        foreach (var id in new[] { "a", "b", "c" })
+        {
+            await context.Step.RunAsync(id, () => new string('x', 1_500_000));
+        }
+
+        return Response("done");
+    });
+
+    // Completes once the request has created its run and waits on the clock.
+    private static Task WaitingAfterTheRunIsCreated(EngineHost host)
+    {
+        var timer = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.EndpointCheckpoints.Saved = save =>
+        {
+            if (save.Created)
+            {
+                timer.TrySetResult(host.Time.TimersCreated(host.Time.TimerCount + 1));
+            }
+        };
+
+        return timer.Task.Unwrap().WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+    }
 
     private static FunctionDefinition SleepAfterAStep() => Endpoint(async context =>
     {
