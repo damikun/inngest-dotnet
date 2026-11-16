@@ -185,7 +185,7 @@ internal sealed partial class Invocation
         {
             while (true)
             {
-                RunPendingQuietly();
+                RunPendingQuietly(CancelledCallSlice);
                 if (settled() || givenUp is { IsCompleted: true })
                 {
                     return true;
@@ -354,15 +354,15 @@ internal sealed partial class Invocation
                 await CancelledAsync(task, () => task.IsCompleted, stepId).ConfigureAwait(false);
             }
 
-            RunPendingQuietly();
+            RunPendingQuietly(cancellationToken: _cancellationToken);
         }
     }
 
-    private void RunPendingQuietly()
+    private void RunPendingQuietly(TimeSpan? time = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            _scheduler.RunPending(MaxContinuationsPerTick);
+            _scheduler.RunPending(MaxContinuationsPerTick, time, cancellationToken);
         }
         catch (Exception)
         {

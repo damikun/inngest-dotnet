@@ -32,6 +32,10 @@ internal sealed partial class Invocation
     private const int MaxContinuationsPerTick = 100_000;
     private const int MaxStepsInNotFoundReport = 25;
 
+    // How long the code of a cancelled call runs at a time before the call looks at its grace period again and lets other
+    // work have the thread.
+    private static readonly TimeSpan CancelledCallSlice = TimeSpan.FromMilliseconds(20);
+
     // Inngest's limits: what one step may return, the state a run may keep (events, step results and output) and the
     // steps of a run by default. Plans can allow more steps, so only the output fails here.
     private const int MaxStepOutputBytes = 4 * 1024 * 1024;
@@ -339,7 +343,7 @@ internal sealed partial class Invocation
         {
             try
             {
-                _scheduler.RunPending(MaxContinuationsPerTick);
+                _scheduler.RunPending(MaxContinuationsPerTick, cancellationToken: _cancellationToken);
             }
             catch (Exception exception)
             {
@@ -363,6 +367,12 @@ internal sealed partial class Invocation
 
                 await _scheduler.WaitForWorkAsync(_cancellationToken).ConfigureAwait(false);
                 continue;
+            }
+
+            // Cancelled while the function's code was running. Nothing is decided on the steps it found so far.
+            if (_cancellationToken.IsCancellationRequested && _scheduler.HasWork)
+            {
+                await FunctionCancelledAsync(function).ConfigureAwait(false);
             }
 
             if (TryResolveNext())

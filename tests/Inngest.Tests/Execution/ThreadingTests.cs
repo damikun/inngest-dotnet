@@ -207,9 +207,11 @@ public sealed class ThreadingTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task A_cancelled_call_stops_waiting_for_code_that_keeps_yielding_after_a_grace_period(bool inStep)
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 1)]
+    public async Task A_cancelled_call_stops_waiting_for_code_that_keeps_yielding_after_a_grace_period(bool inStep, int blockMilliseconds)
     {
         using var host = new EngineHost(cancelledCallGrace: Grace);
         using var cancellation = new CancellationTokenSource();
@@ -232,11 +234,18 @@ public sealed class ThreadingTests : IDisposable
             });
         });
 
-        // Code that ignores the token and keeps the call's queue full, as a loop that polls a flag does.
+        // Code that ignores the token and keeps the call's queue full, as a loop that polls a flag does, some of it with a
+        // blocking call on each turn.
         async Task<object?> KeepYieldingAsync()
         {
+            await started.Task;
             while (!stop.Task.IsCompleted)
             {
+                if (blockMilliseconds > 0)
+                {
+                    Thread.Sleep(blockMilliseconds);
+                }
+
                 await Task.Yield();
             }
 
@@ -253,6 +262,7 @@ public sealed class ThreadingTests : IDisposable
 
             await Should.ThrowAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             waited.Elapsed.ShouldBeGreaterThan(Grace / 2);
+            waited.Elapsed.ShouldBeLessThan(Grace * 10);
             host.Logs.GetSnapshot().Where(record => record.Id.Id == (inStep ? 110 : 111)).ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Warning);
         }
         finally
