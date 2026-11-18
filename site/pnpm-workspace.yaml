@@ -1,0 +1,5 @@
+overrides:
+  "@astrojs/check>@emnapi/runtime": "1.11.3"
+  "@astrojs/language-server>@emnapi/runtime": "1.11.3"
+  "@astrojs/astro2tsx>@emnapi/runtime": "1.11.3"
+  "@napi-rs/wasm-runtime@1.2.4>@emnapi/runtime": "1.11.3"
