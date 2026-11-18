@@ -98,7 +98,8 @@ jobs:
   # The Aspire integration starts both Inngest servers in Docker next to a project and a Connect worker, and reaches the
   # project through the tunnel that Aspire starts. Like the suite above, that is unproven on Linux runners, so a failure
   # does not fail CI. It is a job of its own, so that a failing suite above does not skip it behind that setting and each
-  # has its own time limit.
+  # has its own time limit. The step limit is shorter than the job limit: a job that runs out of time is cancelled, and
+  # that cancels the workflow even with continue-on-error.
   aspire:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -108,7 +109,10 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
-      - run: dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --filter-namespace "Inngest.Aspire.Hosting.Tests.Containers"
+      - timeout-minutes: 12
+        env:
+          DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER: 1
+        run: stdbuf -oL -eL dotnet test --project tests/Inngest.Aspire.Hosting.Tests/Inngest.Aspire.Hosting.Tests.csproj -c Release --filter-namespace "Inngest.Aspire.Hosting.Tests.Containers"
 
   # Packs the packages of this repository into a folder, installs the template package from it and builds what the
   # templates make against it, so nuget.org is needed for the rest of what those projects use. That packs four projects

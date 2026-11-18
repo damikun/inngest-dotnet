@@ -5,6 +5,7 @@ namespace Inngest.Aspire.Hosting.Tests.Containers;
 
 // The dev server in Docker next to a project on the host, started by Aspire. They prove what the app model cannot: that
 // the addresses Aspire works out are the ones that work, in both directions.
+[Collection(ContainerCollection.Name)]
 public sealed class DevServerTests(DevServerApp fixture) : IClassFixture<DevServerApp>
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(90);

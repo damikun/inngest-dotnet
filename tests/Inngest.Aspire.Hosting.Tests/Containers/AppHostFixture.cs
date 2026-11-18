@@ -2,6 +2,13 @@ using Aspire.Hosting.Testing;
 
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
+// One AppHost at a time. Two orchestrators on one runner wait on the same container tunnel and never finish.
+[CollectionDefinition(ContainerCollection.Name, DisableParallelization = true)]
+public sealed class ContainerCollection
+{
+    public const string Name = "Inngest Aspire containers";
+}
+
 // An AppHost that is started once for the tests that share it: the orchestrator runs the Inngest server in Docker and
 // the test app as a process, exactly as a developer's AppHost does. Nothing in it uses a fixed port.
 public abstract class AppHostFixture : IAsyncLifetime
@@ -29,8 +36,8 @@ public abstract class AppHostFixture : IAsyncLifetime
     {
         _builder = DistributedApplicationTestingBuilder.Create();
         Configure(_builder);
-        App = await _builder.BuildAsync(TestContext.Current.CancellationToken);
-        await App.StartAsync(TestContext.Current.CancellationToken);
+        App = await BuildAsync(_builder, TestContext.Current.CancellationToken);
+        await StartAsync(App, TestContext.Current.CancellationToken);
     }
 
     public async ValueTask DisposeAsync()
@@ -44,6 +51,36 @@ public abstract class AppHostFixture : IAsyncLifetime
         if (_builder is not null)
         {
             await _builder.DisposeAsync();
+        }
+    }
+
+    // StartAsync otherwise waits on the runner's token. A stuck orchestrator then sits until the job limit, and that
+    // cancellation fails the workflow even though this job is allowed to fail.
+    public static async Task<DistributedApplication> BuildAsync(IDistributedApplicationTestingBuilder builder, CancellationToken cancellationToken)
+    {
+        using var start = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        start.CancelAfter(StartTimeout);
+        try
+        {
+            return await builder.BuildAsync(start.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"The AppHost did not finish building within {StartTimeout.TotalMinutes:0} minutes.");
+        }
+    }
+
+    public static async Task StartAsync(DistributedApplication app, CancellationToken cancellationToken)
+    {
+        using var start = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        start.CancelAfter(StartTimeout);
+        try
+        {
+            await app.StartAsync(start.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"The AppHost did not finish starting within {StartTimeout.TotalMinutes:0} minutes.");
         }
     }
 

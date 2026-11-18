@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
 // The self-hosted server, which signs every request and wants its keys on every call, next to a project that has them.
+[Collection(ContainerCollection.Name)]
 public sealed class SelfHostedTests(SelfHostedApp fixture) : IClassFixture<SelfHostedApp>
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(90);

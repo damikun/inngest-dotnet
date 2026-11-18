@@ -3,6 +3,7 @@ using Aspire.Hosting.Testing;
 namespace Inngest.Aspire.Hosting.Tests.Containers;
 
 // The start of a self-hosted server whose key inngest start would refuse, in an AppHost that runs.
+[Collection(ContainerCollection.Name)]
 public sealed class RefusedKeysTests
 {
     [Fact]
@@ -15,8 +16,8 @@ public sealed class RefusedKeysTests
         var signingKey = builder.AddParameter("signing", "signkey-prod-0a1b2c3d4e5f6071", secret: true);
         var eventKey = builder.AddParameter("events", "event-key-1", secret: true);
         builder.AddInngestSelfHosted("inngest", signingKey, eventKey);
-        await using var app = await builder.BuildAsync(cancellationToken);
-        await app.StartAsync(cancellationToken);
+        await using var app = await AppHostFixture.BuildAsync(builder, cancellationToken);
+        await AppHostFixture.StartAsync(app, cancellationToken);
 
         // The wait for a server that stays healthy would end with a TimeoutException after the start timeout, not with this.
         var failure = await Should.ThrowAsync<DistributedApplicationException>(
