@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Inngest.Rest;
 
-internal sealed class InngestManagementClient : IInngestManagementClient
+internal sealed partial class InngestManagementClient : IInngestManagementClient
 {
     private const int MaxFunctionIds = 500;
 
@@ -82,6 +82,8 @@ internal sealed class InngestManagementClient : IInngestManagementClient
     public async IAsyncEnumerable<EventInfo> ListEventsAsync(EventQuery? query = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         query ??= new EventQuery();
+        RequirePageSize(query.PageSize);
+        RequireRange(query.From, query.Until);
         var from = query.From;
         var until = query.Until;
         string? cursor = null;
@@ -181,6 +183,8 @@ internal sealed class InngestManagementClient : IInngestManagementClient
     public async IAsyncEnumerable<RunSummary> ListRunsAsync(RunQuery? query = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         query ??= new RunQuery();
+        RequirePageSize(query.PageSize);
+        RequireRange(query.From, query.Until);
         if (query.FunctionIds is { Count: > 0 } && query.AppIds is not { Count: > 0 })
         {
             throw new ArgumentException("Filtering by FunctionIds needs AppIds too.", nameof(query));
@@ -215,6 +219,11 @@ internal sealed class InngestManagementClient : IInngestManagementClient
                 parameters.Add("functionId", functionId);
             }
 
+            if (query.Deferred is { } deferred)
+            {
+                parameters.Add("isDeferred", deferred ? "true" : "false");
+            }
+
             parameters.Add("query", query.Query);
             if (query.Ascending)
             {
@@ -224,6 +233,11 @@ internal sealed class InngestManagementClient : IInngestManagementClient
             if (query.IncludeOutput)
             {
                 parameters.Add("include", "output");
+            }
+
+            if (query.IncludeDeferredFrom)
+            {
+                parameters.Add("include", "deferredFrom");
             }
 
             var reply = await SendAsync(HttpMethod.Get, "/v2/runs" + parameters, body: null, _json.V2ReplyV2RunArray, "list runs", cancellationToken)
@@ -254,6 +268,26 @@ internal sealed class InngestManagementClient : IInngestManagementClient
         _ => throw new ArgumentException($"Runs cannot be listed by the status {status}.", nameof(status)),
     };
 
+    private static string ToReplayStatus(ReplayStatus status) => status switch
+    {
+        ReplayStatus.All => "ALL",
+        ReplayStatus.Completed => "COMPLETED",
+        ReplayStatus.Failed => "FAILED",
+        ReplayStatus.Cancelled => "CANCELLED",
+        ReplayStatus.SkippedPaused => "SKIPPED_PAUSED",
+        _ => throw new ArgumentException($"A replay cannot include the status {status}.", nameof(status)),
+    };
+
+    private static ReplayStatus ParseReplayStatus(string? status) => status switch
+    {
+        "ALL" => ReplayStatus.All,
+        "COMPLETED" => ReplayStatus.Completed,
+        "FAILED" => ReplayStatus.Failed,
+        "CANCELLED" => ReplayStatus.Cancelled,
+        "SKIPPED_PAUSED" => ReplayStatus.SkippedPaused,
+        _ => throw new InngestException($"Failed to read the replay: Inngest returned the status '{status}'."),
+    };
+
     private static FunctionRunStatus ParseStatus(string? status) => status switch
     {
         "QUEUED" => FunctionRunStatus.Scheduled,
@@ -279,7 +313,13 @@ internal sealed class InngestManagementClient : IInngestManagementClient
         EventIds = run.Trigger?.EventIds ?? [],
         EventName = run.Trigger?.EventName,
         BatchId = run.Trigger?.BatchId,
+        IsBatch = run.Trigger?.IsBatch ?? false,
         Cron = run.Trigger?.CronSchedule,
+        DurationMs = Duration(run.DurationMs),
+        IsDeferred = run.IsDeferred,
+        DeferredFrom = run.DeferredFrom is { } deferred
+            ? new RunDeferredFrom(string.IsNullOrEmpty(deferred.FunctionName) ? null : deferred.FunctionName, string.IsNullOrEmpty(deferred.FunctionSlug) ? null : deferred.FunctionSlug)
+            : null,
         Output = run.Output,
     };
 
@@ -301,6 +341,8 @@ internal sealed class InngestManagementClient : IInngestManagementClient
         AppId = function.App?.Id ?? appId,
         IsPaused = function.IsPaused,
         IsArchived = function.IsArchived,
+        Slug = string.IsNullOrEmpty(function.Slug) ? null : function.Slug,
+        Configuration = function.Configuration,
         Triggers = function.Triggers is { } triggers
             ? [.. triggers.Select(trigger => new FunctionTriggerInfo(trigger.Type ?? string.Empty, trigger.Value ?? string.Empty, trigger.If))]
             : [],
@@ -308,6 +350,25 @@ internal sealed class InngestManagementClient : IInngestManagementClient
 
     private static InngestApiError? ToError(V2Error? error) =>
         error is null ? null : new InngestApiError(error.Code ?? string.Empty, error.Message ?? string.Empty);
+
+    private static void RequirePageSize(int? pageSize, [CallerArgumentExpression(nameof(pageSize))] string? paramName = null)
+    {
+        if (pageSize is < 1)
+        {
+            throw new ArgumentException("Page size must be at least 1.", paramName);
+        }
+    }
+
+    private static void RequireRange(DateTimeOffset? from, DateTimeOffset? until, [CallerArgumentExpression(nameof(from))] string? paramName = null)
+    {
+        if (from > until)
+        {
+            throw new ArgumentException("From must not be after Until.", paramName);
+        }
+    }
+
+    private static long? Duration(string? value) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var duration) ? duration : null;
 
     private static string Escape(string segment) => Uri.EscapeDataString(segment);
 
@@ -326,7 +387,7 @@ internal sealed class InngestManagementClient : IInngestManagementClient
             _json.V2ReplyV2Function,
             $"{change} function {functionId} of app {appId}",
             cancellationToken).ConfigureAwait(false);
-        return reply.Data is { } function ? ToFunction(function, appId) : throw NoData($"{change} function {functionId}");
+        return reply.Data is { Id: { Length: > 0 } } function ? ToFunction(function, appId) : throw NoData($"{change} function {functionId}");
     }
 
     private async Task<IReadOnlyList<FunctionPauseResult>> ChangeFunctionsAsync(
@@ -340,6 +401,21 @@ internal sealed class InngestManagementClient : IInngestManagementClient
         if (functionIds.Count is 0 or > MaxFunctionIds)
         {
             throw new ArgumentException($"Between 1 and {MaxFunctionIds} function ids can be sent at once.", nameof(functionIds));
+        }
+
+        var seen = new HashSet<string>(functionIds.Count);
+        foreach (var functionId in functionIds)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(functionId);
+            if (Encoding.UTF8.GetByteCount(functionId) > 256)
+            {
+                throw new ArgumentException("A function id must be at most 256 bytes.", nameof(functionIds));
+            }
+
+            if (!seen.Add(functionId))
+            {
+                throw new ArgumentException("Function ids must be unique.", nameof(functionIds));
+            }
         }
 
         var body = JsonSerializer.SerializeToUtf8Bytes(new V2FunctionIds { FunctionIds = [.. functionIds] }, _json.V2FunctionIds);

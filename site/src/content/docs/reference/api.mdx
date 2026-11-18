@@ -309,10 +309,11 @@ call their `GetRunAsync` and `GetEventRunsAsync`.
 
 ## Management
 
-**`IInngestManagementClient`** manages functions, runs and events through the Inngest v2 REST API, with the app's
-signing key and in the app's environment. `AddInngest` registers it. Inngest marks these endpoints Beta; they came with Inngest v1.50 to
-v1.52. Apps and functions are named by the ids the app registered them with: `AppId`, and the function's `Id` without
-the app id in front, such as `send-email`.
+**`IInngestManagementClient`** manages apps, functions, runs, events, syncs, experiments, Insights, environments, webhooks
+and sessions through the Inngest v2 REST API, with the
+app's signing key and in the app's environment. `AddInngest` registers it. Inngest marks these endpoints Beta. A dev
+server or a self-hosted server that does not have an endpoint answers 501 or 404. Apps and functions are named by the
+ids the app registered them with: `AppId`, and the function's `Id` without the app id in front, such as `send-email`.
 
 | Method | Returns |
 |---|---|
@@ -324,6 +325,22 @@ the app id in front, such as `send-email`.
 | `GetEventAsync(string eventId, bool includePayload, CancellationToken)` | `Task<EventInfo>`; a 404 for a moment after the event was sent, until Inngest has stored it |
 | `ListRunsAsync(RunQuery? query, CancellationToken)` | `IAsyncEnumerable<RunSummary>`, by time range, status, app, function and an expression, with or without output |
 | `ListAppSyncsAsync(string appId, int? pageSize, CancellationToken)` | `IAsyncEnumerable<AppSync>`, newest first. Inngest Cloud only: the dev server and the self-hosted server answer 501. |
+| `ListAppsAsync(bool archived, int? pageSize, CancellationToken)`, `GetAppAsync(string appId, CancellationToken)` | Apps in the environment, and one app with its latest sync |
+| `ListFunctionsAsync(string appId, int? pageSize, CancellationToken)`, `GetFunctionAsync(string appId, string functionId, CancellationToken)` | The functions of an app, including triggers and configuration |
+| `GetAppSyncAsync(string appId, string syncId, CancellationToken)`, `SyncAppAsync(string appId, string url, CancellationToken)` | One sync, and a request to sync an absolute http or https URL |
+| `GetRunAsync(string runId, bool includeOutput, CancellationToken)`, `ListEventRunsAsync(...)`, `ListFunctionRunsAsync(...)` | One run, the runs of an event, and the runs of one function, on the v2 API |
+| `CancelRunAsync(string runId, CancellationToken)`, `RerunAsync(string runId, RerunRequest? request, CancellationToken)` | Cancels one run, or starts a new run from its event. `RerunAsync` returns the new run id |
+| `CreateReplayAsync(string appId, string functionId, ReplayRequest request, CancellationToken)` | `Task<ReplayInfo>`. Replays matching runs in the background. Each call creates another replay |
+| `InvokeFunctionAsync(string appId, string functionId, InvokeRequest? request, CancellationToken)` | `Task<FunctionInvocation>`. The run may still be going when this returns |
+| `CreateScoresAsync(string runId, IReadOnlyList<RunScore> scores, CancellationToken)` | Records scores on a run or on its steps |
+| `GetRunTraceAsync(string runId, bool includeIO, CancellationToken)` | `Task<FunctionTrace>`, the function span and its steps |
+| `GetAccountAsync(CancellationToken)` | `Task<AccountInfo>`, the account the signing key belongs to |
+| `SendEventAsync(EventDraft draft, CancellationToken)` | Sends one event through the REST API and returns its id. High-volume sends stay on `IInngestClient` |
+| `ListExperimentsAsync(ExperimentQuery? query, CancellationToken)`, `ListFunctionExperimentsAsync(...)`, `GetExperimentAsync(...)` | Experiments and one experiment's variant weights and score aggregates |
+| `ListInsightsSchemasAsync(...)`, `QueryInsightsAsync(string query, CancellationToken)`, `CreateInsightsQueryAsync(string prompt, CancellationToken)`, `ListInsightsTablesAsync(CancellationToken)` | Insights schemas, a SQL query, a prompt turned into SQL, and the tables a query can read |
+| `ListEnvironmentsAsync(...)`, `CreateEnvironmentAsync(string name, string? id, CancellationToken)`, `UpdateEnvironmentAsync(string id, bool archived, CancellationToken)` | Custom environments |
+| `ListWebhooksAsync(...)`, `CreateWebhookAsync(WebhookRequest request, CancellationToken)` | Webhooks. Outside dev mode the app's environment must be set; it is sent as `X-Inngest-Env`, which these endpoints require |
+| `ListSessionKeysAsync(...)`, `ListSessionsAsync(string sessionKey, SessionQuery? query, CancellationToken)`, `ListSessionRunsAsync(...)` | Session keys, the sessions of a key, and the runs of a session |
 
 The lists read a page at a time as you enumerate them, and stop when you do:
 
@@ -346,7 +363,8 @@ await foreach (var run in management.ListRunsAsync(
 }
 ```
 
-**`FunctionInfo`**: `Id`, `Name`, `AppId`, `IsPaused`, `IsArchived` and `Triggers` (`FunctionTriggerInfo(Type, Value,
+**`FunctionInfo`**: `Id`, `Name`, `AppId`, `IsPaused`, `IsArchived`, `Slug`, `Configuration` (the flow control
+Inngest stored, as JSON, undefined when the reply left it out) and `Triggers` (`FunctionTriggerInfo(Type, Value,
 If)`, with `Type` `EVENT` or `CRON`). **`CancelRunsRequest(From, Until)`** with `If`, an expression over `event`, and
 `Name`; `Until` must not be in the future. **`RunCancellation`**: `Id`, `AppId`, `FunctionId`, `Name`, `From`, `Until`,
 `If`, `CreatedAt`. Each call creates another cancellation; runs that have not started never start, running ones stop
@@ -358,8 +376,10 @@ to 20), `IncludePayload` and `PageSize` (up to 50, or 5 with payloads). **`Event
 
 **`RunQuery`**: `From`, `Until` and `TimeField` (`QueuedAt`, `StartedAt` or `EndedAt`), `Statuses`, `AppIds`,
 `FunctionIds` (which need `AppIds`), `Query` (an expression over `event`, `output` and `error`), `Ascending`,
-`IncludeOutput` and `PageSize` (up to 100). **`RunSummary`**: `RunId`, `Status`, `FunctionId`, `FunctionName`, `AppId`,
-`QueuedAt`, `StartedAt`, `EndedAt`, `EventIds`, `EventName`, `BatchId`, `Cron` and `Output`. Inngest wraps output that is
+`IncludeOutput`, `IncludeDeferredFrom` and `PageSize` (up to 100). `Deferred` limits the list to deferred runs
+(`true`) or to runs that were not deferred (`false`). **`RunSummary`**: `RunId`, `Status`, `FunctionId`, `FunctionName`, `AppId`,
+`QueuedAt`, `StartedAt`, `EndedAt`, `EventIds`, `EventName`, `BatchId`, `IsBatch`, `Cron`, `DurationMs`, `IsDeferred`,
+`DeferredFrom` and `Output`. Inngest wraps output that is
 not a JSON object as `{"data": ...}`. The v2 API reports `Skipped` runs, which flow control skipped, and `Paused` ones,
 whose function is paused; a queued run reads `Scheduled`. The dev server and the self-hosted server answer 501 to a
 filter on `Paused`.
@@ -370,8 +390,10 @@ filter on `Paused`.
 Failures throw `InngestException` with Inngest's message and code, as in `Function not found (not_found)`, and the HTTP
 status in `StatusCode`. A `501` with the code `not_implemented` means the server does not have the endpoint.
 
-The client leaves out what `IInngestRunsClient` already does (reading a run and the runs of an event, and cancelling
-one run), and the v2 endpoints that change apps, environments and keys.
+`IInngestRunsClient` still reads a run, lists the runs of an event and cancels one run through the v1 API, which is what
+the waits use. The methods of the same names here talk to v2 and return the v2 shapes. The client leaves out signing
+and event keys, partner accounts, builds, deploys and sandboxes. A server that does not have an endpoint answers 501
+or 404, which arrives as `InngestException`.
 
 ## Realtime
 
@@ -488,7 +510,7 @@ namespaces an AppHost imports. See [Aspire](/inngest-dotnet/guides/aspire/).
 | `AddInngest(string name, int? port = null, int? connectPort = null)` | Adds the dev server as a container running `inngest dev --no-discovery`, with health checks on `/health` and on the gateway's `/ready` and its UI linked in the dashboard. `port` and `connectPort` fix the host ports of the API and the gateway. The dev server is left out of a manifest. Returns an `IResourceBuilder<InngestServerResource>`. |
 | `AddInngestSelfHosted(string name, IResourceBuilder<ParameterResource>? signingKey = null, IResourceBuilder<ParameterResource>? eventKey = null, int? port = null, int? connectPort = null)` | Adds a self-hosted server, `inngest start`, that signs its requests and wants an event key. Keys that are not given are generated and kept in the user secrets of the AppHost. A key that `inngest start` would refuse is reported when the server starts. The server is part of a manifest, with the keys as parameters. |
 | `IResourceBuilder<InngestServerResource>.WithApp<TApp>(IResourceBuilder<TApp> app, string path = "/api/inngest", string endpointName = "http")` | Makes the server sync an app that serves functions, at the address its container reaches the endpoint on. Call it once for every app. |
-| `IResourceBuilder<TDestination>.WithReference(IResourceBuilder<InngestServerResource> inngest)` | Gives a project or container `INNGEST_DEV` (the dev server) or `INNGEST_DEV=0`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` (the self-hosted server), and for both `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL` with the server's address, and `INNGEST_CONNECT_GATEWAY_URL` for workers. In a manifest a reference to the dev server adds nothing. |
+| `IResourceBuilder<TDestination>.WithReference(IResourceBuilder<InngestServerResource> inngest)` | Gives a project or container `INNGEST_DEV` (the dev server) or `INNGEST_DEV=0`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` (the self-hosted server), and for both `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL` with the server's address, and `INNGEST_CONNECT_GATEWAY_URL` for workers. In a manifest a reference to the dev server adds nothing. A resource references one server; the same server again changes nothing, and a second server throws. |
 
 **`InngestServerResource`**, a `ContainerResource`: `IsSelfHosted`; `SigningKeyParameter` and `EventKeyParameter`, which are
 null for the dev server; `PrimaryEndpoint`, the endpoint named `http` that serves the REST API, the event API and the UI;

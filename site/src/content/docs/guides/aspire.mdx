@@ -68,7 +68,8 @@ What the three calls do:
   [Connect](/inngest-dotnet/guides/connect/) workers. Aspire proxies both on ports it picks. Change the tag with
   `WithImageTag`, and fix the ports with the `port` and `connectPort` arguments.
 - **`WithReference`** sets the environment variables below on the project. It does not make the project wait for the
-  server.
+  server. A project references one server: the SDK reads one set of these variables, so a second server throws instead
+  of replacing the first. Calling it again with the same server changes nothing.
 - **`WithApp`** adds the project's URL to the arguments of the server (`-u`). The server calls it to sync the
   functions, and again every 5 seconds, which is the dev server's polling interval, so a project that starts after the
   server, or restarts with other functions, is found. Until the first sync the server knows no function of the project,

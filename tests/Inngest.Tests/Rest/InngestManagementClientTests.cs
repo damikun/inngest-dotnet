@@ -117,6 +117,40 @@ public sealed class InngestManagementClientTests
     }
 
     [Fact]
+    public async Task Refuses_function_ids_the_spec_rejects()
+    {
+        await Should.ThrowAsync<ArgumentException>(() => Create().PauseFunctionsAsync("shop", ["send-email", "send-email"], Cancellation));
+        await Should.ThrowAsync<ArgumentException>(() => Create().PauseFunctionsAsync("shop", [new string('a', 257)], Cancellation));
+
+        _handler.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Refuses_a_pause_reply_that_names_no_function()
+    {
+        _handler.Respond(HttpStatusCode.OK, """{"data":{}}""");
+
+        await Should.ThrowAsync<InngestException>(() => Create().PauseFunctionAsync("shop", "send-email", Cancellation));
+    }
+
+    [Fact]
+    public async Task Lists_deferred_runs_and_reads_the_function_they_were_handed_to()
+    {
+        _handler.Respond(HttpStatusCode.OK, """
+            {"data":[{"id":"01RUN","status":"COMPLETED","isDeferred":true,
+                      "deferredFrom":{"functionName":"Send email","functionSlug":"send-email"}}],
+             "page":{"hasMore":false}}
+            """);
+
+        var runs = await Create().ListRunsAsync(new RunQuery { Deferred = false, IncludeDeferredFrom = true }, Cancellation).CollectAsync(Cancellation);
+
+        _handler.Single.Uri.PathAndQuery.ShouldBe("/v2/runs?isDeferred=false&include=deferredFrom");
+        var run = runs.ShouldHaveSingleItem();
+        run.IsDeferred.ShouldBeTrue();
+        run.DeferredFrom.ShouldBe(new RunDeferredFrom("Send email", "send-email"));
+    }
+
+    [Fact]
     public async Task Cancels_the_runs_of_a_function_in_a_time_range_with_times_in_utc()
     {
         _handler.Respond(HttpStatusCode.Created, """

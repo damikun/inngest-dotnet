@@ -144,4 +144,19 @@ public sealed class WithReferenceTests
         Should.Throw<ArgumentNullException>(() => shop.WithReference((IResourceBuilder<InngestServerResource>)null!));
         Should.Throw<ArgumentNullException>(() => ((IResourceBuilder<ProjectResource>)null!).WithReference(inngest));
     }
+
+    [Fact]
+    public void A_project_references_one_server()
+    {
+        var builder = Model.CreateBuilder();
+        var dev = AddDevServer(builder);
+        var cloud = builder.AddInngestSelfHosted("inngest-cloud", Model.Secret(builder, "signing-cloud", SigningKey), Model.Secret(builder, "events-cloud", "event-key-2"));
+        var shop = builder.AddProject<Projects.TestApp>("shop").WithReference(dev);
+
+        shop.WithReference(dev);
+
+        shop.Resource.Annotations.OfType<ResourceRelationshipAnnotation>().ShouldHaveSingleItem().Resource.ShouldBeSameAs(dev.Resource);
+        Should.Throw<InvalidOperationException>(() => shop.WithReference(cloud))
+            .Message.ShouldContain("'shop' already references the Inngest server 'inngest'");
+    }
 }
