@@ -161,8 +161,10 @@ public static class InngestResourceBuilderExtensions
     /// </para>
     /// <para>
     /// A manifest has these settings for a self-hosted server only. The dev server is not in a manifest, so a
-    /// reference to it adds nothing to one. A resource references one server. Calling this again with the same server
-    /// changes nothing; a different server throws, because both would write the same variables.
+    /// reference to it adds nothing to one, and a project can reference the dev server and one self-hosted server.
+    /// While the AppHost runs, a resource references one server. Calling this again with the same server changes
+    /// nothing; a different server throws, because both would write the same variables. Two self-hosted servers throw
+    /// in a manifest as well.
     /// </para>
     /// </remarks>
     /// <typeparam name="TDestination">The type of the resource that gets the settings.</typeparam>
@@ -177,6 +179,7 @@ public static class InngestResourceBuilderExtensions
         ArgumentNullException.ThrowIfNull(inngest);
 
         var server = inngest.Resource;
+        var publishing = builder.ApplicationBuilder.ExecutionContext.IsPublishMode;
         foreach (var annotation in builder.Resource.Annotations.OfType<ResourceRelationshipAnnotation>())
         {
             if (annotation.Resource is not InngestServerResource other)
@@ -187,6 +190,12 @@ public static class InngestResourceBuilderExtensions
             if (ReferenceEquals(other, server))
             {
                 return builder;
+            }
+
+            // Publishing writes nothing for a dev server, so that reference does not compete with a self-hosted one.
+            if (publishing && !(other.IsSelfHosted && server.IsSelfHosted))
+            {
+                continue;
             }
 
             throw new InvalidOperationException(

@@ -1234,9 +1234,11 @@ specific to Inngest:
   the two keys, as the `cloud` profile of that file has it; `0` is set because projects inherit the environment of the
   AppHost, and an inherited `INNGEST_DEV=1` would turn off signature checks. Both also get the address in
   `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL` and `INNGEST_EVENT_API_BASE_URL`: `InngestSettings` reads the last two
-  before the base URL, so an inherited one would win over it. A resource references one server. A second call with the
-  same server returns, and a different server throws: both callbacks write the same names, and the one that runs last
-  would silently replace the other. Other `INNGEST_*` variables of the AppHost's environment
+  before the base URL, so an inherited one would win over it. While the AppHost runs, a resource references one
+  server. A second call with the same server returns, and a different server throws: both callbacks write the same
+  names, and the one that runs last would silently replace the other. Publishing writes nothing for a dev server, so a
+  project can reference the dev server and one self-hosted server; two self-hosted servers still throw. Other
+  `INNGEST_*` variables of the AppHost's environment
   still reach the projects, and an `INNGEST_SERVE_ORIGIN` makes runs undeliverable without a word, which the guide says.
   The keys reach the server through `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY`, which its CLI reads (flag, then
   variable, then file), so they are not in the command line. `inngest start` takes a signing key only as hex of even

@@ -106,6 +106,19 @@ public sealed partial class ManifestTests
         NothingDangles(manifest);
     }
 
+    [Fact]
+    public async Task A_manifest_refuses_two_self_hosted_servers_on_one_project()
+    {
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => Model.ManifestAsync(builder =>
+        {
+            var one = builder.AddInngestSelfHosted("one");
+            var two = builder.AddInngestSelfHosted("two");
+            builder.AddProject<Projects.TestApp>("shop").WithReference(one).WithReference(two);
+        }));
+
+        error.Message.ShouldContain("'shop' already references the Inngest server 'one'");
+    }
+
     [GeneratedRegex(@"\{([A-Za-z0-9_-]+)\.")]
     private static partial Regex Reference();
 }
