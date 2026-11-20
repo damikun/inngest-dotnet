@@ -6,6 +6,7 @@ namespace Inngest.IntegrationTests.Steps;
 
 // Approved or rejected: two waits for an event. Inngest calls the function again only once every step started
 // together has finished, unless they race, so without race mode the run goes on only when the other wait timed out.
+[Collection(EvaluationCollections.Steps)]
 public sealed class WaitRaceTests(EvaluationEnvironment environment) : EvaluationScenario<StepsFixture>(environment)
 {
     // Well under the timeout of the wait that loses, and well over the few calls through the dev server it takes.
@@ -78,6 +79,7 @@ public sealed class WaitRaceTests(EvaluationEnvironment environment) : Evaluatio
     }
 }
 
+[Collection(EvaluationCollections.Steps)]
 public sealed class StepRaceTests(EvaluationEnvironment environment) : EvaluationScenario<StepsFixture>(environment)
 {
     // The slow step is held at a gate until the step after the race has run, which only race mode allows.

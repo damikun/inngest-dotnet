@@ -9,6 +9,7 @@ namespace Inngest.IntegrationTests.Checkpointing;
 // and the classic answers wherever the run needs Inngest.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Checkpointing")]
+[Collection(EvaluationCollections.Checkpointing)]
 public sealed class CheckpointingScenarios(EvaluationEnvironment environment) : EvaluationScenario<CheckpointingFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

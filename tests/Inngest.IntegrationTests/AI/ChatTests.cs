@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Inngest.IntegrationTests.AI;
 
 // The chat steps against the dev server, which stores what they save and replays the function from it.
+[Collection(EvaluationCollections.Chat)]
 public sealed class ChatTests(EvaluationEnvironment environment) : EvaluationScenario<ChatFixture>(environment)
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);

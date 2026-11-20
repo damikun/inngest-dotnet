@@ -8,6 +8,7 @@ namespace Inngest.IntegrationTests.Outbox;
 // The outbox against the dev server: an event saved with the app's data starts the function that listens for it, and a
 // send that is repeated under the same id starts nothing. The second is what makes it safe for a dispatcher to send
 // an event again when it cannot tell whether the first send was taken.
+[Collection(EvaluationCollections.Outbox)]
 public sealed class OutboxTests(EvaluationEnvironment environment) : EvaluationScenario<OutboxFixture>(environment)
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);

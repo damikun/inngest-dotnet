@@ -6,6 +6,7 @@ using Inngest.IntegrationTests.Harness;
 namespace Inngest.IntegrationTests.AI;
 
 // What the dev server makes of the AI metadata of steps and of the inference steps of the model helpers.
+[Collection(EvaluationCollections.Model)]
 public sealed class ModelTests(EvaluationEnvironment environment) : EvaluationScenario<ModelFixture>(environment)
 {
     private const string MetadataQuery = """

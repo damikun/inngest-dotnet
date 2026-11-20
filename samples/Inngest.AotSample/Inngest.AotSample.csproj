@@ -3,6 +3,8 @@
     <TargetFramework>$(LatestTargetFramework)</TargetFramework>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- SDK 10.0.401 would download ILCompiler and the Native AOT runtime at 10.0.12, which NuGet audit rejects. -->
+    <RuntimeFrameworkVersion>10.0.15</RuntimeFrameworkVersion>
     <!-- Writes AddInngestFunctions(), which Program.cs calls, and checks the function classes. -->
     <InngestGenerateFunctionRegistration>true</InngestGenerateFunctionRegistration>
   </PropertyGroup>

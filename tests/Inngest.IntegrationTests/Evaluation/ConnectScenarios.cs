@@ -9,6 +9,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // The app runs as a Connect worker with no HTTP endpoint: every call reaches it over its WebSocket to the gateway.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Connect")]
+[Collection(EvaluationCollections.Connect)]
 public sealed class ConnectScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationConnectFixture>(environment)
 {
     private const string RestartAppId = "eval-connect-restart";
@@ -120,6 +121,7 @@ public sealed class ConnectScenarios(EvaluationEnvironment environment) : Evalua
 // the worker has the new one and the old one as its fallback.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Connect")]
+[Collection(EvaluationCollections.CloudConnect)]
 public sealed class CloudConnectScenarios(EvaluationEnvironment environment) : EvaluationScenario<CloudConnectFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

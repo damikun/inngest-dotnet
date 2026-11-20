@@ -8,6 +8,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // them: a limit is either kept or broken.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Flow control")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class ConcurrencyScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -82,6 +83,7 @@ public sealed class ConcurrencyScenarios(EvaluationEnvironment environment) : Ev
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Flow control")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class RateScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     // Throttling queues runs instead of dropping them and spaces their starts a period apart. The server's limiter
@@ -132,6 +134,7 @@ public sealed class RateScenarios(EvaluationEnvironment environment) : Evaluatio
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Flow control")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class DebounceAndBatchScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     // The server measures the quiet period from when it received the last event, which is before the send returned. The
@@ -215,6 +218,7 @@ public sealed class DebounceAndBatchScenarios(EvaluationEnvironment environment)
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Flow control")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class SingletonAndTimeoutScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -280,6 +284,7 @@ public sealed class SingletonAndTimeoutScenarios(EvaluationEnvironment environme
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Flow control")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class CancellationScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

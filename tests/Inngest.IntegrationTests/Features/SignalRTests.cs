@@ -17,6 +17,7 @@ namespace Inngest.IntegrationTests.Features;
 
 // The SignalR bridge against the dev server: real SignalR clients over WebSockets to apps on Kestrel, whose subscriptions
 // to Inngest are the real ones, and a Redis backplane between two instances.
+[Collection(EvaluationCollections.Features)]
 public sealed class SignalRTests(EvaluationEnvironment environment) : EvaluationScenario<FeaturesFixture>(environment)
 {
     private static readonly TimeSpan MessageTimeout = TimeSpan.FromSeconds(30);

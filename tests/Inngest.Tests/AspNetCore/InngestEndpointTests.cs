@@ -5,6 +5,7 @@ using Inngest.AspNetCore;
 using Inngest.Tests.Serving;
 using Inngest.Tests.Serving.Fakes;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.Tests.AspNetCore;
@@ -83,6 +84,33 @@ public sealed class InngestEndpointTests
 
         // The cancelled function ends with an OperationCanceledException, which is not what went wrong.
         await Should.ThrowAsync<IOException>(handling);
+    }
+
+    [Fact]
+    public async Task A_body_past_the_buffer_limit_is_rejected_before_the_function_runs()
+    {
+        var harness = new CommHandlerHarness();
+        var handler = harness.CreateHandler(CommHandlerHarness.DevSettings);
+        var context = new DefaultHttpContext();
+        context.Features.Set<IHttpMaxRequestBodySizeFeature>(new HostBodyLimit(4));
+        context.Request.Method = "POST";
+        context.Request.Body = new MemoryStream(new byte[5]);
+        context.Response.Body = new MemoryStream();
+
+        await InngestEndpoint.HandleAsync(context, handler);
+
+        context.Response.StatusCode.ShouldBe(StatusCodes.Status413PayloadTooLarge);
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        (await reader.ReadToEndAsync(CancellationToken)).ShouldBe("""{"message":"Request body is too large"}""");
+        harness.Engine.Calls.ShouldBeEmpty();
+    }
+
+    private sealed class HostBodyLimit(long? size) : IHttpMaxRequestBodySizeFeature
+    {
+        public bool IsReadOnly => true;
+
+        public long? MaxRequestBodySize { get; set; } = size;
     }
 
     private static DefaultHttpContext CallContext(CommHandlerHarness harness, Stream response)

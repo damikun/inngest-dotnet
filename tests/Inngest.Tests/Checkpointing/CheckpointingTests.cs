@@ -11,8 +11,18 @@ using static Inngest.Tests.Checkpointing.Checkpointed;
 
 namespace Inngest.Tests.Checkpointing;
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class CheckpointingCollection
+{
+    public const string Name = "Checkpointing";
+}
+
 // A discovery call of a function with checkpointing runs one step after another, saves each to Inngest and answers
 // only when the run completes or needs Inngest: at a sleep, a wait, an invoke, parallel steps or an error.
+//
+// The allocation test counts bytes on this thread. A buffer taken from the shared pool by another test counts as an
+// allocation here, so the class runs alone.
+[Collection(CheckpointingCollection.Name)]
 public sealed class CheckpointingTests : IDisposable
 {
     private readonly EngineHost _host = new();

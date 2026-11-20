@@ -243,6 +243,35 @@ public sealed class InngestManagementClientTests
     }
 
     [Fact]
+    public async Task Stops_when_a_page_repeats_the_cursor_it_was_given()
+    {
+        _handler
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"E2","name":"user/signed-up","receivedAt":"2026-11-12T09:00:02Z"}],"page":{"cursor":"E2","hasMore":true,"limit":1}}""")
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"E2","name":"user/signed-up","receivedAt":"2026-11-12T09:00:02Z"}],"page":{"cursor":"E2","hasMore":true,"limit":1}}""");
+
+        var error = await Should.ThrowAsync<InngestException>(() => Create().ListEventsAsync(new EventQuery { PageSize = 1 }, Cancellation).CollectAsync(Cancellation));
+
+        error.Message.ShouldBe("Failed to list events: Inngest repeated the page cursor.");
+        _handler.Requests.Count.ShouldBe(2);
+
+        _handler
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"s1","status":"success"}],"page":{"cursor":"s1","hasMore":true,"limit":1}}""")
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"s1","status":"success"}],"page":{"cursor":"s1","hasMore":true,"limit":1}}""");
+
+        error = await Should.ThrowAsync<InngestException>(() => Create().ListAppSyncsAsync("shop", pageSize: 1, cancellationToken: Cancellation).CollectAsync(Cancellation));
+
+        error.Message.ShouldBe("Failed to list the syncs of app shop: Inngest repeated the page cursor.");
+
+        _handler
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"r1","status":"RUNNING","queuedAt":"2026-11-12T09:00:00Z"}],"page":{"cursor":"c1","hasMore":true,"limit":1}}""")
+            .Respond(HttpStatusCode.OK, """{"data":[{"id":"r1","status":"RUNNING","queuedAt":"2026-11-12T09:00:00Z"}],"page":{"cursor":"c1","hasMore":true,"limit":1}}""");
+
+        error = await Should.ThrowAsync<InngestException>(() => Create().ListRunsAsync(new RunQuery { PageSize = 1 }, Cancellation).CollectAsync(Cancellation));
+
+        error.Message.ShouldBe("Failed to list runs: Inngest repeated the page cursor.");
+    }
+
+    [Fact]
     public async Task Gets_an_event_with_its_payload()
     {
         _handler.Respond(HttpStatusCode.OK, """

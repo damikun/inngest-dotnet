@@ -10,6 +10,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // by whole seconds, still shows. Upper bounds leave room for a call the server has to retry.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Sleep and waitForEvent")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class SleepScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     private static readonly TimeSpan Tolerance = TimeSpan.FromMilliseconds(300);
@@ -73,6 +74,7 @@ public sealed class SleepScenarios(EvaluationEnvironment environment) : Evaluati
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Sleep and waitForEvent")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class WaitForEventScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

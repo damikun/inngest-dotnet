@@ -14,6 +14,7 @@ namespace Inngest.IntegrationTests.Webhooks;
 // MapInngestWebhook against the dev server: the endpoint of a second app, on a real Kestrel server, sends the events to
 // the dev server, and the functions of the fixture's app run for them. What the tests prove is that a webhook the
 // provider delivers again, with the id the provider gave it, starts one run, because Inngest drops the second event.
+[Collection(EvaluationCollections.Webhooks)]
 public sealed class WebhookTests(EvaluationEnvironment environment) : EvaluationScenario<WebhooksFixture>(environment)
 {
     private const string StripeSecret = "whsec_Hk3pX9wZq2LmN7vR4tYb8cDf6gJa1sE5";

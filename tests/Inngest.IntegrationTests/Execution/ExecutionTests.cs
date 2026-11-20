@@ -6,6 +6,7 @@ using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.Execution;
 
+[Collection(EvaluationCollections.Execution)]
 public sealed class ExecutionTests(EvaluationEnvironment environment) : EvaluationScenario<ExecutionFixture>(environment)
 {
     private static readonly TimeSpan HandlerWait = TimeSpan.FromSeconds(30);
@@ -62,6 +63,7 @@ public sealed class ExecutionTests(EvaluationEnvironment environment) : Evaluati
     }
 }
 
+[Collection(EvaluationCollections.EncryptedExecution)]
 public sealed class EncryptedInvokeTests(EvaluationEnvironment environment) : EvaluationScenario<EncryptedExecutionFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

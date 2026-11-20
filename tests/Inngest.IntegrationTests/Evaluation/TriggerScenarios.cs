@@ -8,6 +8,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Triggers and events")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class TriggerScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     private IInngestClient Client => Fixture.App.Services.GetRequiredService<IInngestClient>();

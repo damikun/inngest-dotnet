@@ -106,6 +106,7 @@ internal sealed partial class InngestManagementClient : IInngestManagementClient
 
             var reply = await SendAsync(HttpMethod.Get, "/v2/events" + parameters, body: null, _json.V2ReplyV2EventArray, "list events", cancellationToken)
                 .ConfigureAwait(false);
+            StopIfCursorRepeats(cursor, reply.Page, "list events");
             foreach (var data in reply.Data ?? [])
             {
                 yield return ToEvent(data);
@@ -154,6 +155,7 @@ internal sealed partial class InngestManagementClient : IInngestManagementClient
                 _json.V2ReplyV2SyncArray,
                 $"list the syncs of app {appId}",
                 cancellationToken).ConfigureAwait(false);
+            StopIfCursorRepeats(cursor, reply.Page, "list the syncs of app " + appId);
             foreach (var sync in reply.Data ?? [])
             {
                 yield return new AppSync
@@ -242,6 +244,7 @@ internal sealed partial class InngestManagementClient : IInngestManagementClient
 
             var reply = await SendAsync(HttpMethod.Get, "/v2/runs" + parameters, body: null, _json.V2ReplyV2RunArray, "list runs", cancellationToken)
                 .ConfigureAwait(false);
+            StopIfCursorRepeats(cursor, reply.Page, "list runs");
             foreach (var run in reply.Data ?? [])
             {
                 yield return ToRun(run);
@@ -492,6 +495,14 @@ internal sealed partial class InngestManagementClient : IInngestManagementClient
         }
 
         return ApiHttp.DescribeError(status, content);
+    }
+
+    private static void StopIfCursorRepeats(string? cursor, V2Page? page, string action)
+    {
+        if (page is { HasMore: true, Cursor: { Length: > 0 } next } && next == cursor)
+        {
+            throw new InngestException($"Failed to {action}: Inngest repeated the page cursor.");
+        }
     }
 
     // Query parameters in the order they are added, with times in UTC as RFC 3339.

@@ -7,6 +7,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // The server retries failed calls after one second (--retry-interval 1), unless the SDK asks for a later time.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Errors and retries")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class RetryScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -106,6 +107,7 @@ public sealed class RetryScenarios(EvaluationEnvironment environment) : Evaluati
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Errors and retries")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class FailureScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

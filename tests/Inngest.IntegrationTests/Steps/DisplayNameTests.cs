@@ -4,6 +4,7 @@ using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.Steps;
 
+[Collection(EvaluationCollections.Steps)]
 public sealed class DisplayNameTests(EvaluationEnvironment environment) : EvaluationScenario<StepsFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

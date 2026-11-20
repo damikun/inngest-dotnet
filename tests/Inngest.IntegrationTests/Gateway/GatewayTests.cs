@@ -6,6 +6,7 @@ namespace Inngest.IntegrationTests.Gateway;
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Signals, fetch and AI inference")]
+[Collection(EvaluationCollections.Gateway)]
 public sealed class GatewayTests(EvaluationEnvironment environment) : EvaluationScenario<GatewayFixture>(environment)
 {
     // How the trace names the op; the span shows WAITING once Inngest has stored the wait.

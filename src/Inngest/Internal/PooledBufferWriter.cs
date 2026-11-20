@@ -5,14 +5,18 @@ using System.Buffers;
 
 namespace Inngest.Internal;
 
-// An IBufferWriter backed by ArrayPool, for request and response bodies that can reach megabytes. Dispose returns
-// the buffer, after which WrittenMemory must not be used.
+// An IBufferWriter backed by ArrayPool, for request and response bodies that can reach megabytes. Dispose clears
+// what this writer put in the buffer and returns it, after which WrittenMemory must not be used.
 internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
 {
     private const int MinimumSize = 256;
 
     private byte[] _buffer;
     private int _written;
+
+    // How much of the current array has held this writer's bytes, including what Clear() hid. Dispose and a grow
+    // wipe that span, so a later renter does not read an event or a step that was here.
+    private int _used;
 
     public PooledBufferWriter(int initialCapacity = MinimumSize)
     {
@@ -34,6 +38,7 @@ internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
         }
 
         _written += count;
+        NoteUsed();
     }
 
     public Memory<byte> GetMemory(int sizeHint = 0)
@@ -52,6 +57,7 @@ internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
     {
         data.CopyTo(GetSpan(data.Length));
         _written += data.Length;
+        NoteUsed();
     }
 
     public void Clear() => _written = 0;
@@ -59,12 +65,11 @@ internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
     public void Dispose()
     {
         var buffer = _buffer;
+        var used = _used;
         _buffer = [];
         _written = 0;
-        if (buffer.Length > 0)
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        _used = 0;
+        Return(buffer, used);
     }
 
     private void EnsureCapacity(int sizeHint)
@@ -82,8 +87,30 @@ internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
 
         var newSize = Math.Max(_written + sizeHint, _buffer.Length * 2);
         var next = ArrayPool<byte>.Shared.Rent(newSize);
-        _buffer.AsSpan(0, _written).CopyTo(next);
-        ArrayPool<byte>.Shared.Return(_buffer);
+        var previous = _buffer;
+        var used = _used;
+        previous.AsSpan(0, _written).CopyTo(next);
         _buffer = next;
+        _used = _written;
+        Return(previous, used);
+    }
+
+    private void NoteUsed()
+    {
+        if (_written > _used)
+        {
+            _used = _written;
+        }
+    }
+
+    private static void Return(byte[] buffer, int used)
+    {
+        if (buffer.Length == 0)
+        {
+            return;
+        }
+
+        buffer.AsSpan(0, Math.Min(used, buffer.Length)).Clear();
+        ArrayPool<byte>.Shared.Return(buffer);
     }
 }

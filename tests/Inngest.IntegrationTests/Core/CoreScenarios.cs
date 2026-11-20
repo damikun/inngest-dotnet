@@ -8,6 +8,7 @@ namespace Inngest.IntegrationTests.Core;
 
 // What the server sends with inngest/function.cancelled and inngest/function.finished, a cron trigger with jitter at
 // sync, the cause of a step failure after a real round trip, and payload transforms that seal what Inngest stores.
+[Collection(EvaluationCollections.Core)]
 public sealed class CoreScenarios(EvaluationEnvironment environment) : EvaluationScenario<CoreFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

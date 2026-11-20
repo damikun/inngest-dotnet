@@ -6,6 +6,7 @@ namespace Inngest.IntegrationTests.Steps;
 
 // A scoped step over a real call: the scope of the call comes from ASP.NET Core's request, and every execution of a
 // step gets a scope next to it, so a step that is retried never sees what its first attempt left behind.
+[Collection(EvaluationCollections.Steps)]
 public sealed class ScopedStepTests(EvaluationEnvironment environment) : EvaluationScenario<StepsFixture>(environment)
 {
     // The op the trace gives a run step.

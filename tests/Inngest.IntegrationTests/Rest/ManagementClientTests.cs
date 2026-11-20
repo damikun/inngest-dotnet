@@ -7,6 +7,7 @@ namespace Inngest.IntegrationTests.Rest;
 
 // The app's IInngestManagementClient against the inngest/inngest:v1.52.0 dev server, which serves the v2 REST API with
 // no cache and no key. The tests of a class run one after another, so pausing a function does not reach another test.
+[Collection(EvaluationCollections.Runs)]
 public sealed class ManagementClientTests(EvaluationEnvironment environment) : EvaluationScenario<RunsFixture>(environment)
 {
     private const string AppId = "eval";

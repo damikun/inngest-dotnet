@@ -16,6 +16,9 @@ internal static class InngestEndpoint
     // per request by declaring a large body and sending it slowly. Larger bodies grow the buffer as they arrive.
     private const int MaxInitialBufferSize = 64 * 1024;
 
+    // Used only when the host reports no max request body size. The bytes actually read decide, never the declared length.
+    private const long BodyLimitWhenHostHasNone = 8 * 1024 * 1024;
+
     // How often a streamed call writes to the connection, and how long a call may take before it is streamed: the
     // interval of the TypeScript SDK.
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(3);
@@ -29,33 +32,48 @@ internal static class InngestEndpoint
     // as the framework and which token ends the call.
     public static async Task HandleAsync(HttpContext context, InngestCommHandler handler, string framework, CancellationToken cancellationToken)
     {
-        using var body = await ReadBodyAsync(context, cancellationToken).ConfigureAwait(false);
-        var request = new HttpServeRequest(context, body?.WrittenMemory ?? ReadOnlyMemory<byte>.Empty, framework);
-        var pending = handler.HandleAsync(request, cancellationToken);
+        PooledBufferWriter? body;
         try
         {
-            if (handler.Streams(request))
-            {
-                var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
-                if (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false))
-                {
-                    await StreamAsync(context, pending, time, cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-            }
-
-            using var response = await pending.ConfigureAwait(false);
-            await WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+            body = await ReadBodyAsync(context, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (RequestBodyTooLargeException)
         {
-            // The call goes on after a failure here, such as the caller of a streamed call hanging up, and it reads the
-            // request body, which goes back to the pool when this method returns, and uses the services of the request,
-            // which end with it. So the request waits for the call, as it does when nothing fails, and disposes its
-            // response, which owns pooled memory. How the call ends is of no interest to a caller that has gone, so the
-            // failure that is thrown stays the one that ended this.
-            await EndAsync(pending).ConfigureAwait(false);
-            throw;
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("""{"message":"Request body is too large"}""", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        using (body)
+        {
+            var request = new HttpServeRequest(context, body?.WrittenMemory ?? ReadOnlyMemory<byte>.Empty, framework);
+            var pending = handler.HandleAsync(request, cancellationToken);
+            try
+            {
+                if (handler.Streams(request))
+                {
+                    var time = context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
+                    if (!await CompletesWithinIntervalAsync(pending, time, cancellationToken).ConfigureAwait(false))
+                    {
+                        await StreamAsync(context, pending, time, cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+                }
+
+                using var response = await pending.ConfigureAwait(false);
+                await WriteAsync(context, response, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The call goes on after a failure here, such as the caller of a streamed call hanging up, and it reads the
+                // request body, which goes back to the pool when this method returns, and uses the services of the request,
+                // which end with it. So the request waits for the call, as it does when nothing fails, and disposes its
+                // response, which owns pooled memory. How the call ends is of no interest to a caller that has gone, so the
+                // failure that is thrown stays the one that ended this.
+                await EndAsync(pending).ConfigureAwait(false);
+                throw;
+            }
         }
     }
 
@@ -151,12 +169,19 @@ internal static class InngestEndpoint
         }
 
         var buffer = new PooledBufferWriter((int)Math.Min(request.ContentLength ?? 0, MaxInitialBufferSize));
+        var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize ?? BodyLimitWhenHostHasNone;
         try
         {
             var reader = request.BodyReader;
             while (true)
             {
                 var result = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+                if (result.Buffer.Length > limit - buffer.WrittenCount)
+                {
+                    reader.AdvanceTo(result.Buffer.End);
+                    throw new RequestBodyTooLargeException();
+                }
+
                 foreach (var segment in result.Buffer)
                 {
                     buffer.Write(segment.Span);
@@ -174,5 +199,13 @@ internal static class InngestEndpoint
             buffer.Dispose();
             throw;
         }
+    }
+}
+
+internal sealed class RequestBodyTooLargeException : Exception
+{
+    public RequestBodyTooLargeException()
+        : base("The request body is too large.")
+    {
     }
 }

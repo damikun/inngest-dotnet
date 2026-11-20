@@ -12,6 +12,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // The app in cloud mode against a self-hosted server (inngest start) that signs every request with the signing key.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Cloud mode")]
+[Collection(EvaluationCollections.Cloud)]
 public sealed class CloudScenarios(EvaluationEnvironment environment) : EvaluationScenario<CloudFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -58,6 +59,7 @@ public sealed class CloudScenarios(EvaluationEnvironment environment) : Evaluati
 // its fallback.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Cloud mode")]
+[Collection(EvaluationCollections.Rotation)]
 public sealed class RotationScenarios(EvaluationEnvironment environment) : EvaluationScenario<RotationFixture>(environment)
 {
     private static readonly HttpClient Http = new();

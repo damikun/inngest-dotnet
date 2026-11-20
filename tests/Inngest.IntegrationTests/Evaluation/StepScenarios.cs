@@ -7,6 +7,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Steps")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class StepScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -123,6 +124,7 @@ public sealed class StepScenarios(EvaluationEnvironment environment) : Evaluatio
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Steps")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class StepDataScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -208,6 +210,7 @@ public sealed class StepDataScenarios(EvaluationEnvironment environment) : Evalu
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Steps")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class ParallelStepScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Theory(Timeout = 60_000)]

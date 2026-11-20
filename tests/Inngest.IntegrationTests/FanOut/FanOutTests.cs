@@ -4,7 +4,10 @@ using Inngest.IntegrationTests.Harness;
 
 namespace Inngest.IntegrationTests.FanOut;
 
-// Lists fanned out as steps, against a real Inngest server.
+// Lists fanned out as steps, against a real Inngest server. A list of hundreds of items and the chunk invokes open
+// that many connections through Docker Desktop at once, which stalls every other server's calls, so this runs in the
+// isolated collection.
+[Collection(IsolatedCollection.Name)]
 public sealed class FanOutTests(EvaluationEnvironment environment) : EvaluationScenario<FanOutFixture>(environment)
 {
     [Fact(Timeout = 60_000)]

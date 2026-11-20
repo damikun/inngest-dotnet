@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Inngest.Internal;
 
@@ -42,4 +43,32 @@ public sealed class PooledBufferWriterTests
         Should.Throw<ObjectDisposedException>(() => writer.GetSpan(1));
         writer.WrittenCount.ShouldBe(0);
     }
+
+    [Fact]
+    public void Dispose_clears_bytes_that_Clear_hid()
+    {
+        var writer = new PooledBufferWriter();
+        writer.Write("secret"u8);
+        var rented = Buffer(writer);
+        writer.Clear();
+        writer.Dispose();
+
+        rented.AsSpan(0, 6).ContainsAnyExcept((byte)0).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_grow_clears_the_buffer_it_returns()
+    {
+        var writer = new PooledBufferWriter(256);
+        writer.Write("secret"u8);
+        var first = Buffer(writer);
+
+        writer.Write(new byte[300]);
+
+        first.AsSpan(0, 6).ContainsAnyExcept((byte)0).ShouldBeFalse();
+        writer.Dispose();
+    }
+
+    private static byte[] Buffer(PooledBufferWriter writer) =>
+        (byte[])typeof(PooledBufferWriter).GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(writer)!;
 }

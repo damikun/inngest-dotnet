@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Inngest.IntegrationTests.Features;
 
+[Collection(EvaluationCollections.Features)]
 public sealed class FeatureTests(EvaluationEnvironment environment) : EvaluationScenario<FeaturesFixture>(environment)
 {
     [Fact(Timeout = 90_000)]

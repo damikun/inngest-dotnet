@@ -8,6 +8,7 @@ namespace Inngest.IntegrationTests.Rest;
 // The app's IInngestRunsClient against the dev server. The harness waits for runs with cache-busting queries; the client
 // sends plain ones, which the server caches (a run for 3 s, the runs of an event for 15 s), so each test reads a URL
 // the first time only once the state it checks is final, or polls for longer than the cache lasts.
+[Collection(EvaluationCollections.Runs)]
 public sealed class RunsClientTests(EvaluationEnvironment environment) : EvaluationScenario<RunsFixture>(environment)
 {
     // A valid run id that no run has.

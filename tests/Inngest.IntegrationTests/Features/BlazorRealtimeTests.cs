@@ -14,6 +14,7 @@ namespace Inngest.IntegrationTests.Features;
 // RealtimeView against the dev server, rendered by bUnit: on the server, where it reads Inngest through the app's own
 // IInngestRealtime, and as WebAssembly runs it, through the relay source and a MapInngestRealtime endpoint that
 // relays the dev server.
+[Collection(EvaluationCollections.Features)]
 public sealed class BlazorRealtimeTests(EvaluationEnvironment environment) : EvaluationScenario<FeaturesFixture>(environment)
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);

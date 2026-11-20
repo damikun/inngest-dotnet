@@ -6,6 +6,8 @@
     <AssemblyName>bootstrap</AssemblyName>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- SDK 10.0.401 would download ILCompiler and the Native AOT runtime at 10.0.12, which NuGet audit rejects. -->
+    <RuntimeFrameworkVersion>10.0.15</RuntimeFrameworkVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.RuntimeSupport" />

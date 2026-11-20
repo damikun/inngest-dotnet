@@ -178,7 +178,8 @@ internal static class FanOutFunctions
                         observed.Record("item", item);
                         return Task.FromResult(item);
                     },
-                    new FanOutOptions { MaxParallelism = 250 });
+                    // Hundreds of connections at once stall Docker Desktop's path from the container to the app.
+                    new FanOutOptions { MaxParallelism = 8 });
                 return results.Length;
             });
 
@@ -227,7 +228,7 @@ internal static class FanOutFunctions
                 context.Event.Data.ChunkSize,
                 new FanOutOptions { MaxParallelism = 2 }));
 
-        inngest.AddFunction<SquareChunk>(new FunctionOptions { Id = "fanout-square-chunk", Triggers = [], Retries = 0 });
+        inngest.AddFunction<SquareChunk>(new FunctionOptions { Id = "fanout-square-chunk", Triggers = [] });
     }
 
     private static ChunkItem[] ItemsOf(ChunkedEvent data) =>

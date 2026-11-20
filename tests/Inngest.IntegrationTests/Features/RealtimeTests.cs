@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Inngest.IntegrationTests.Features;
 
 // Realtime against the dev server: streams and typed data published from steps, subscribers in .NET, and the relay.
+[Collection(EvaluationCollections.Features)]
 public sealed class RealtimeTests(EvaluationEnvironment environment) : EvaluationScenario<FeaturesFixture>(environment)
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);

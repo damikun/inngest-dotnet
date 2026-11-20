@@ -9,6 +9,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 // transforming one, which changes results of the transform and send functions only.
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Middleware and logging")]
+[Collection(EvaluationCollections.Middleware)]
 public sealed class MiddlewareScenarios(EvaluationEnvironment environment) : EvaluationScenario<MiddlewareFixture>(environment)
 {
     // Three calls: the first runs step a, the second step b, the third returns. Memoized steps raise no step hooks, and

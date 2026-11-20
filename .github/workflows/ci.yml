@@ -85,9 +85,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The suite starts Inngest servers with Testcontainers and reaches the test app through host-gateway. That path
-    # is verified on Docker Desktop for Mac; until it is proven on Linux runners, a failure here does not fail CI.
-    continue-on-error: true
+    # The suite starts Inngest servers with Testcontainers and reaches the test app through host-gateway.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -96,14 +94,11 @@ jobs:
       - run: dotnet test --project tests/Inngest.IntegrationTests/Inngest.IntegrationTests.csproj -c Release
 
   # The Aspire integration starts both Inngest servers in Docker next to a project and a Connect worker, and reaches the
-  # project through the tunnel that Aspire starts. Like the suite above, that is unproven on Linux runners, so a failure
-  # does not fail CI. It is a job of its own, so that a failing suite above does not skip it behind that setting and each
-  # has its own time limit. The step limit is shorter than the job limit: a job that runs out of time is cancelled, and
-  # that cancels the workflow even with continue-on-error.
+  # project through the tunnel that Aspire starts. It is a job of its own so it has its own time limit. The step limit is
+  # shorter than the job limit: a job that runs out of time is cancelled, and that cancels the workflow.
   aspire:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0

@@ -26,6 +26,7 @@ internal sealed class ExecutionEngine : IExecutionEngine
 
     // The invoke steps whose payload has been logged about, by run id and hashed step id.
     private readonly ConcurrentDictionary<(string RunId, string HashedId), byte> _loggedInvokes = new();
+    private readonly object _invokeLogGate = new();
 
     public ExecutionEngine(
         InngestSettings settings,
@@ -155,12 +156,15 @@ internal sealed class ExecutionEngine : IExecutionEngine
     // of a race, with the same payload, and is logged about only once in this app. Once full, the set starts over.
     public bool FirstInvokeLog(string runId, string hashedId)
     {
-        if (_loggedInvokes.Count >= MaxLoggedInvokes)
+        lock (_invokeLogGate)
         {
-            _loggedInvokes.Clear();
-        }
+            if (_loggedInvokes.Count >= MaxLoggedInvokes)
+            {
+                _loggedInvokes.Clear();
+            }
 
-        return _loggedInvokes.TryAdd((runId, hashedId), 0);
+            return _loggedInvokes.TryAdd((runId, hashedId), 0);
+        }
     }
 
     // Loggers are cached because LoggerFactory takes a lock to look one up.

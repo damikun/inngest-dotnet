@@ -518,10 +518,7 @@ internal sealed partial class InngestManagementClient
         while (true)
         {
             var reply = await SendAsync(HttpMethod.Get, path(cursor), body: null, typeInfo, action, cancellationToken).ConfigureAwait(false);
-            if (reply.Page is { HasMore: true, Cursor: { Length: > 0 } next } && next == cursor)
-            {
-                throw new InngestException($"Failed to {action}: Inngest repeated the page cursor.");
-            }
+            StopIfCursorRepeats(cursor, reply.Page, action);
 
             foreach (var item in reply.Data ?? [])
             {

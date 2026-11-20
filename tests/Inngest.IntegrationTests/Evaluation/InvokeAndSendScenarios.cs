@@ -6,6 +6,7 @@ namespace Inngest.IntegrationTests.Evaluation;
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "Invoke")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class InvokeScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     [Fact(Timeout = 60_000)]
@@ -110,6 +111,7 @@ public sealed class InvokeScenarios(EvaluationEnvironment environment) : Evaluat
 
 [Trait("Category", "Evaluation")]
 [Trait("Area", "sendEvent")]
+[Collection(EvaluationCollections.Dev)]
 public sealed class SendEventScenarios(EvaluationEnvironment environment) : EvaluationScenario<EvaluationDevFixture>(environment)
 {
     // The ids the send returns are Inngest's own ids of the events. The events carry the ids the step gave them, made of
