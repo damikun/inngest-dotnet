@@ -24,6 +24,8 @@ to be synced after each deploy.
   ends TLS otherwise makes the app register an `http://` URL. See
   [Behind a proxy](/inngest-dotnet/guides/configuration/#behind-a-proxy). If the app cannot be reachable,
   use [Connect](/inngest-dotnet/guides/connect/) instead.
+- **Body size.** The serve endpoint uses the host's maximum request body size. When the host sets none, a body over
+  8 MiB is answered 413. Inngest keeps a function call at or under 4 MB.
 - **A sync after every deploy.** See below.
 - **A readiness check.** Point the probe at a path of its own, and add the check that tells whether the app can work
   with Inngest. See [Health checks](#health-checks).

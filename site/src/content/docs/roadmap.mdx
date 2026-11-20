@@ -7,6 +7,36 @@ The SDK covers what most workflows need: steps, sleeps, waits for events, parall
 flow control, retries, middleware, realtime, request signing with key rotation, and Connect workers, on .NET 8 and
 .NET 10 and under Native AOT. The packages are on [NuGet](https://www.nuget.org/packages/Inngest).
 
+## New in 1.3.0
+
+New features, all compatible with code built against 1.2.0, then the fixes and the changes in behaviour.
+
+- **The rest of the management API.** `IInngestManagementClient` covers apps, functions, one run, rerun, replay,
+  invoke, traces, scores, experiments, Insights, environments, webhooks and sessions, on the v2 REST API that Inngest
+  marks Beta. 1.2.0 paused and resumed functions, cancelled runs in bulk, and listed events, runs and syncs. See
+  [Management](/inngest-dotnet/reference/api/#management).
+- **Aspire, when the app is published.** A published app can reference the dev server and one self-hosted server.
+  The dev server writes nothing into the manifest, so that reference does not replace the self-hosted settings. Two
+  servers still throw while the AppHost runs, and two self-hosted servers throw in a manifest. See
+  [Aspire](/inngest-dotnet/guides/aspire/).
+
+### Fixes
+
+- **Pooled buffers.** A buffer rented for a request or a response is cleared before it returns to the pool, so a
+  later renter cannot read an event or a step.
+- **Management lists.** A page whose cursor is the cursor just sent stops the list. The client throws
+  `InngestException` instead of reading that page again.
+- **Native AOT samples.** The samples set `RuntimeFrameworkVersion` to 10.0.15. SDK 10.0.401 would otherwise restore
+  the Native AOT packs at 10.0.12, which NuGet audit rejects. See
+  [Native AOT](/inngest-dotnet/guides/native-aot/).
+
+### Changes in behaviour
+
+- **The serve endpoint's body.** It follows the host's maximum request body size. When the host sets none, a body
+  over 8 MiB is answered 413. The bytes read decide, not the declared `Content-Length`. Kestrel's own limit, 30 MB
+  unless the app changes it, still applies when the host reports one. Inngest keeps a function call at or under 4 MB
+  and the SDK loads anything larger itself.
+
 ## New in 1.2.0
 
 New features, all compatible with code built against 1.1.0, then the fixes and the changes in behaviour.
