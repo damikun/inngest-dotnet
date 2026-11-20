@@ -147,7 +147,7 @@ class Converter implements Api {
   // The only expressions in the docs are comments, such as the snippet checker's {/* check: body OrderPlaced */}.
   private expression(node: MdNode): MdNode[] {
     const value = node.value!.trim();
-    if (/^(\/\*[\s\S]*?\*\/\s*)+$/.test(value)) return [];
+    if (commentsOnly(value)) return [];
     const text = /^(['"`])([^\\]*)\1$/.exec(value);
     if (text && !text[2].includes('${')) return [{ type: 'text', value: text[2] }];
     return this.fail(`the expression {${value}} has no Markdown form`, node);
@@ -205,6 +205,23 @@ class Converter implements Api {
     const line = node?.position?.start?.line;
     throw new Error(`${this.options.name}${line ? `:${line}` : ''}: ${message}`);
   }
+}
+
+// One or more block comments and nothing else, read in a single pass. A regex for the same shape backtracks
+// exponentially on a string of many "*//*".
+function commentsOnly(value: string): boolean {
+  let index = 0;
+  while (index < value.length && value.charCodeAt(index) <= 32) index++;
+  if (value.charCodeAt(index) !== 47 || value.charCodeAt(index + 1) !== 42) return false;
+  while (index < value.length) {
+    while (index < value.length && value.charCodeAt(index) <= 32) index++;
+    if (index === value.length) return true;
+    if (value.charCodeAt(index) !== 47 || value.charCodeAt(index + 1) !== 42) return false;
+    const end = value.indexOf('*/', index + 2);
+    if (end < 0) return false;
+    index = end + 2;
+  }
+  return true;
 }
 
 // Expressive Code's meta string holds frame and marker options; only the title says anything to a reader of the text.

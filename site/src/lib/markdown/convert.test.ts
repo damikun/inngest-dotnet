@@ -149,6 +149,10 @@ describe('convert', () => {
     expect(() => mdx('<marquee>Hi</marquee>')).toThrow('the HTML element <marquee>');
   });
 
+  it('removes several comments in one expression', () => {
+    expect(mdx('{/* one */ /* two */}')).toBe('\n');
+  });
+
   it('stops at an expression that is not a comment', () => {
     expect(() => mdx('Total: {order.Total}')).toThrow('the expression {order.Total}');
   });
